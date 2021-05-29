@@ -16,9 +16,9 @@ generic
 );
 port
 (
-	-- clk_c1541 ports
-	clk_c1541      : in  std_logic;
-	ce_c1541       : in  std_logic := '1'; -- 16 MHz
+	-- clk ports
+	clk            : in  std_logic;
+	ce             : in  std_logic := '1'; -- 16 MHz
 	pause          : in  std_logic := '0';
 
 	disk_change    : in  std_logic;
@@ -67,8 +67,8 @@ architecture rtl of C1541 is
 	);
 	port
 	(
-		clk_c1541      : in  std_logic;
-		ce_c1541       : in  std_logic;
+		clk            : in  std_logic;
+		ce             : in  std_logic;
 		pause          : in  std_logic;
 
 		disk_change    : in  std_logic;
@@ -111,8 +111,8 @@ begin
 	generic map(PARPORT,DUALROM)
 	port map
 	(
-		clk_c1541     => clk_c1541     ,
-		ce_c1541      => ce_c1541      ,
+		clk           => clk           ,
+		ce            => ce            ,
 		pause         => pause         ,
 		disk_change   => disk_change   ,
 		disk_readonly => disk_readonly ,
@@ -140,7 +140,7 @@ begin
 		rom_addr      => rom_addr      ,
 		rom_data      => rom_data      ,
 		rom_wr        => rom_wr        ,
-		rom_std       => rom_std       
+		rom_std       => rom_std
 	);
 
 end architecture;
