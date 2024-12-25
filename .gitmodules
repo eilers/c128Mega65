@@ -1,3 +1,6 @@
 [submodule "QNICE"]
 	path = M2M/QNICE
 	url = https://github.com/sy2002/QNICE-FPGA
+[submodule "CORE/C128_MiSTer"]
+	path = CORE/C128_MiSTer
+	url = git@github.com:eilers/C128_MiSTer.git
