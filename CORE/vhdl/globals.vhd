@@ -1,7 +1,8 @@
 ----------------------------------------------------------------------------------
 -- MiSTer2MEGA65 Framework
 --
--- Global constants
+-- C128 for MEGA65
+-- Global constants (most of them are copied from c64Mega65)
 --
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2022 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -40,8 +41,13 @@ constant QNICE_FIRMWARE           : string  := QNICE_FIRMWARE_M2M;
 -- then add all the clocks speeds here by adding more constants.
 ----------------------------------------------------------------------------------------------------------
 
--- @TODO: Your core's clock speed
-constant CORE_CLK_SPEED       : natural := 54_000_000;   -- @TODO YOURCORE expects 54 MHz
+-- C128 core clock speeds (same as C64)
+-- Make sure that you specify very exact values here, because these values will be used in counters
+-- in main.vhd and in fpga64_sid_iec.vhd to avoid clock drift at derived clocks
+constant CORE_CLK_SPEED_PAL  : natural := 31_527_778; -- Will lead to a C64 clock of 985,243 Hz
+constant CORE_CLK_SPEED_NTSC : natural := 32_727_264; -- @TODO: This is MiSTer's value; we will need to adjust it to ours
+
+constant CORE_CLK_SPEED : natural := CORE_CLK_SPEED_PAL;
 
 -- System clock speed (crystal that is driving the FPGA) and QNICE clock speed
 -- !!! Do not touch !!!
@@ -54,10 +60,14 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 
 -- Rendering constants (in pixels)
 --    VGA_*   size of the core's target output post scandoubler
---    If in doubt, use twice the values found in this link:
---    https://mister-devel.github.io/MkDocs_MiSTer/advanced/nativeres/#arcade-core-default-native-resolutions
+--    FONT_*  size of one OSM character
+-- A very detailed explanation/calculation for the rather "uncommon" 768x540 core output post scandoubler
+-- can be found here: https://github.com/MJoergen/C64MEGA65/blob/V4/doc/graphics.md
+-- If you read from the top to the bottom, then you will learn that after MiSTer crops the output,
+-- we receive 384x270 pixels. Multiply by two and we have 768x540.
+-- But we need to go for 720x540 so that in the 5:4 and 4:3 modes everything looks correctly.
 constant VGA_DX               : natural := 720;
-constant VGA_DY               : natural := 576;
+constant VGA_DY               : natural := 540;
 
 --    FONT_*  size of one OSM character
 constant FONT_FILE            : string  := "../font/Anikki-16x16-m2m.rom";
@@ -69,6 +79,14 @@ constant CHARS_DX             : natural := VGA_DX / FONT_DX;
 constant CHARS_DY             : natural := VGA_DY / FONT_DY;
 constant CHAR_MEM_SIZE        : natural := CHARS_DX * CHARS_DY;
 constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
+
+
+----------------------------------------------------------------------------------------------------------
+-- Commodore 128 specific devices
+----------------------------------------------------------------------------------------------------------
+constant C_DEV_SYSTEM_ROM     : std_logic_vector(15 downto 0) := x"0100"; -- boot0.rom
+constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0101"; -- boot1.rom
+
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW)
@@ -151,11 +169,18 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( x"EEEE", x"EEEE",
 --               b) Don't forget to zero-terminate each of your substrings of C_CRTROMS_AUTO_NAMES by adding "& ENDSTR;"
 --               c) Don't forget to finish the C_CRTROMS_AUTO array with x"EEEE"
 
+-- C128 core specific ROMs
+constant BOOT_0 : string := "/c128/boot0.rom" & ENDSTR;
+constant BOOT_1 : string := "/c128/boot1.rom" & ENDSTR;
+constant BOOT_0_START : std_logic_vector(15 downto 0) := x"0000";
+constant BOOT_1_START : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(BOOT_0'length, 16));
+
 -- M2M framework constants
-constant C_CRTROMS_AUTO_NUM      : natural := 0;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
-constant C_CRTROMS_AUTO_NAMES    : string  := "" & ENDSTR;
-constant C_CRTROMS_AUTO          : crtrom_buf_array := ( x"EEEE", x"EEEE", x"EEEE", x"EEEE",
-                                                         x"EEEE");                     -- Always finish the array using x"EEEE"
+constant C_CRTROMS_AUTO_NUM      : natural := 2;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
+constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1;
+constant C_CRTROMS_AUTO          : crtrom_buf_array := (C_CRTROMTYPE_DEVICE, C_DEV_SYSTEM_ROM, C_CRTROMTYPE_MANDATORY, BOOT_0_START, 
+                                                        C_CRTROMTYPE_DEVICE, C_DEV_DRIVE_ROM, C_CRTROMTYPE_MANDATORY, BOOT_1_START, 
+                                                        x"EEEE");                     -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------
 -- Audio filters
@@ -164,7 +189,7 @@ constant C_CRTROMS_AUTO          : crtrom_buf_array := ( x"EEEE", x"EEEE", x"EEE
 -- that you are porting: sys/sys_top.v
 ----------------------------------------------------------------------------------------------------------
 
--- Sample values from the C64: @TODO: Adjust to your needs
+-- Sample values from the C64. Should be equal on the C128.
 constant audio_flt_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(7056000, 32));
 constant audio_cx       : std_logic_vector(39 downto 0) := std_logic_vector(to_signed(4258969, 40));
 constant audio_cx0      : std_logic_vector( 7 downto 0) := std_logic_vector(to_signed(3, 8));
@@ -177,4 +202,3 @@ constant audio_att      : std_logic_vector( 4 downto 0) := "00000";
 constant audio_mix      : std_logic_vector( 1 downto 0) := "00"; -- 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
 
 end package globals;
-

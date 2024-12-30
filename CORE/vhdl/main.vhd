@@ -1,5 +1,5 @@
 ----------------------------------------------------------------------------------
--- MiSTer2MEGA65 Framework
+-- Commodore 128 for Mega65
 --
 -- Wrapper for the MiSTer core that runs exclusively in the core's clock domanin
 --
@@ -139,4 +139,3 @@ begin
       ); -- i_keyboard
 
 end architecture synthesis;
-
