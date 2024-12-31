@@ -76,31 +76,24 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 constant SCR_WELCOME : string :=
 
-   "Name of the Demo Core Version 1.0\n" &
-   "MiSTer port done by Demo Author in 2022\n\n" &
+   "\n Commodore 128 for MEGA65 Version 0.1\n\n" &
+   "MiSTer port done by Stefan Eilers in 2024\n\n" &
 
    -- We are not insisting. But it would be nice if you gave us credit for MiSTer2MEGA65 by leaving these lines in
    "Powered by MiSTer2MEGA65 Version [WIP],\n" &
    "done by sy2002 and MJoergen in 2022\n" &
 
-   "\n\nEdit config.vhd to modify welcome screen.\n\n" &
+   "\n\nEdit config.vhd to modify welcome screen.\n\ n" &
    "You can for example show the keyboard map.\n" &
    "Look at this example for the Demo core:\n\n\n" &
 
-   "    Key                Demo core\n" &
-   "    " & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_10 & CHR_LINE_1 & CHR_LINE_1 & "\n" &
-   "    Left Cursor        Paddle left\n" &
-   "    Right Cursor       Paddle right\n" &
-   "    Space              Start game\n" &
-   "    Help               Options menu\n\n\n" &
 
    "\n\n    Press Space to continue.\n\n\n";
 
 constant HELP_1 : string :=
 
-   "\n Demo Core for MEGA65 Version 1\n\n" &
-
-   " MiSTer port 2022 by YOU\n" &
+   "\nCommodore 128 for MEGA65 Version 0.1\n\n" & 
+   " MiSTer port done by Stefan Eilers in 2024\n\n" &
    " Powered by MiSTer2MEGA65\n\n\n" &
 
    " Lorem ipsum dolor sit amet, consetetur\n" &
@@ -117,43 +110,9 @@ constant HELP_1 : string :=
    " Cursor right to learn more.       (1 of 3)\n" &
    " Press Space to close the help screen.";
 
-constant HELP_2 : string :=
-
-   "\n Demo Core for MEGA65 Version 1\n\n" &
-
-   " XYZ ABCDEFGH:\n\n" &
-
-   " 1. ABCD EFGH\n" &
-   " 2. IJK LM NOPQ RSTUVWXYZ\n" &
-   " 3. 10 20 30 40 50\n\n" &
-
-   " a) Dolores et ea rebum\n" &
-   " b) Takimata sanctus est\n" &
-   " c) Tempor Invidunt ut\n" &
-   " d) Sed Diam Nonumy eirmod te\n" &
-   " e) Awesome\n\n" &
-
-   " Ut wisi enim ad minim veniam, quis nostru\n" &
-   " exerci tation ullamcorper suscipit lobor\n" &
-   " tis nisl ut aliquip ex ea commodo.\n\n" &
-
-   " Crsr left: Prev  Crsr right: Next (2 of 3)\n" &
-   " Press Space to close the help screen.";
-
-constant HELP_3 : string :=
-
-   "\n Help Screens\n\n" &
-
-   " You can have 255 screens per help topic.\n\n" &
-
-   " 15 topics overall.\n" &
-   " 1 menu item per topic.\n\n\n\n" &
-
-   " Cursor left to go back.           (3 of 3)\n" &
-   " Press Space to close the help screen.";
 
 -- Concatenate all your Welcome and Help screens into one large string, so that during synthesis one large string ROM can be build.
-constant WHS_DATA : string := SCR_WELCOME & HELP_1 & HELP_2 & HELP_3;
+constant WHS_DATA : string := SCR_WELCOME & HELP_1;
 
 -- The WHS array needs the start address of each page. As a best practice: Just define some constants, that you can name for example
 -- just like you named the string constants and then add _START. Use the 'length attribute of VHDL to add up all previous strings
@@ -161,8 +120,6 @@ constant WHS_DATA : string := SCR_WELCOME & HELP_1 & HELP_2 & HELP_3;
 -- is equal to the length of the first one, your next one at the address which is equal to the sum of the previous ones, and so on.
 constant SCR_WELCOME_START : natural := 0;
 constant HELP_1_START      : natural := SCR_WELCOME'length;
-constant HELP_2_START      : natural := HELP_1_START + HELP_1'length;
-constant HELP_3_START      : natural := HELP_2_START + HELP_2'length;
 
 -- Fill the WHS array with page start addresses and the length of each page.
 -- Make sure that array element 0 is always your Welcome page. If you don't use a welcome page, fill everything with zeros.
@@ -173,9 +130,9 @@ constant WHS : WHS_RECORD_ARRAY_TYPE := (
     page_length   => (SCR_WELCOME'length, 0, 0)),
 
    --- Help pages
-   (page_count    => 3,
-    page_start    => (HELP_1_START,  HELP_2_START,  HELP_3_START),
-    page_length   => (HELP_1'length, HELP_2'length, HELP_3'length))
+   (page_count    => 1,
+    page_start    => (HELP_1_START),
+    page_length   => (HELP_1'length))
 );
 
 --------------------------------------------------------------------------------------------------------------------
@@ -573,4 +530,3 @@ begin
 end process;
 
 end architecture beh;
-
