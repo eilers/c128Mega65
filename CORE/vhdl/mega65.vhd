@@ -1,9 +1,11 @@
 ----------------------------------------------------------------------------------
--- MiSTer2MEGA65 Framework
+-- Commodore C128 for MEGA65
 --
 -- MEGA65 main file that contains the whole machine
 --
--- MiSTer2MEGA65 done by sy2002 and MJoergen in 2022 and licensed under GPL v3
+-- based on C128_MiSTer by the MiSTer development team
+-- powered by MiSTer2MEGA65 done by sy2002 and MJoergen in 2023
+-- port done by Stefan Eilers in 2024  and licensed under GPL v3
 ----------------------------------------------------------------------------------
 
 library ieee;
@@ -224,33 +226,17 @@ architecture synthesis of MEGA65_Core is
 -- Clocks and active high reset signals for each clock domain
 ---------------------------------------------------------------------------------------------
 
-signal main_clk               : std_logic;               -- Core main clock
-signal main_rst               : std_logic;
-
 ---------------------------------------------------------------------------------------------
 -- main_clk (MiSTer core's clock)
 ---------------------------------------------------------------------------------------------
+signal main_clk               : std_logic;               -- Core main clock
+signal main_rst               : std_logic;
+
+signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
 
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
 ---------------------------------------------------------------------------------------------
-
----------------------------------------------------------------------------------------------
--- Democore & example stuff: Delete before starting to port your own core
----------------------------------------------------------------------------------------------
-
--- Democore menu items
-constant C_MENU_HDMI_16_9_50   : natural := 12;
-constant C_MENU_HDMI_16_9_60   : natural := 13;
-constant C_MENU_HDMI_4_3_50    : natural := 14;
-constant C_MENU_HDMI_5_4_50    : natural := 15;
-constant C_MENU_HDMI_640_60    : natural := 16;
-constant C_MENU_HDMI_720_5994  : natural := 17;
-constant C_MENU_SVGA_800_60    : natural := 18;
-constant C_MENU_CRT_EMULATION  : natural := 30;
-constant C_MENU_HDMI_ZOOM      : natural := 31;
-constant C_MENU_IMPROVE_AUDIO  : natural := 32;
-
 -- QNICE clock domain
 signal qnice_demo_vd_data_o   : std_logic_vector(15 downto 0);
 signal qnice_demo_vd_ce       : std_logic;
@@ -308,12 +294,14 @@ begin
    main_joy_2_right_n_o <= '1';
    main_joy_2_fire_n_o  <= '1';
 
-
-   -- MMCME2_ADV clock generators:
-   --   @TODO YOURCORE:       54 MHz
+   hr_core_speed        <= "00"; -- TODO: This is fixed to PAL, check whether frequency changes are required!?
+   -- MMCME2_ADV clock generators
+   --   PAL: 31.528 MHz (main) and 63.056 MHz (video)
+   --        HDMI: Flicker-free: 0.25% slower
    clk_gen : entity work.clk
       port map (
          sys_clk_i         => clk_i,           -- expects 100 MHz
+         core_speed_i      => hr_core_speed,   -- 0=PAL/original C64, 1=PAL/HDMI flicker-free, 2=NTSC
          main_clk_o        => main_clk,        -- CORE's 54 MHz clock
          main_rst_o        => main_rst         -- CORE's reset, synchronized
       ); -- clk_gen
@@ -360,6 +348,10 @@ begin
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,
          audio_right_o        => main_audio_right_o,
+
+         -- Drive led
+         drive_led_o => main_drive_led_o, 
+         drive_led_col_o => main_drive_led_col_o,
 
          -- M2M Keyboard interface
          kb_key_num_i         => main_kb_key_num_i,
@@ -542,4 +534,3 @@ begin
       ); -- i_vdrives
 
 end architecture synthesis;
-
