@@ -13,7 +13,6 @@ library UNISIM;
 entity vdc_clk is
   port (
     refclk   : in  std_logic;
-    rst      : in  std_logic;
     outclk_0 : out std_logic;
     locked   : out std_logic
   );
@@ -72,7 +71,7 @@ begin
       -- Other control and status signals
       LOCKED    => locked,
       PWRDWN    => '0',
-      RST       => rst
+      RST       => '0'
     );
 
 end architecture;
