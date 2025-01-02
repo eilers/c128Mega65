@@ -262,17 +262,32 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       clk_vdc       => clk_vdc_i,
       reset_n       => reset_core_n,
 
-      -- Select C64's ROM: 0=Custom, 1=Standard, 2=GS, 3=Japan
-      bios          => c64_rom_i,
+      -- TODO: Remove PS2 Support from the core
+      ps2_key       => (others => '0'),
+      kbd_reset     => '1',
+      shift_mod     => '0',
+      azerty        => '0',
+      cpslk_mode    => '0',
+      sftlk_sense   => '0',
+      cpslk_sense   => '0',
+      d4080_sense   => open,  -- TODO: 40/80 column mode sense. 
+      -- keyboard interface: directly connect the CIA1
+      -- cia1_pa_i     => cia1_pa_in,
+      -- cia1_pa_o     => cia1_pa_out,
+      -- cia1_pb_i     => cia1_pb_in,
+      -- cia1_pb_o     => cia1_pb_out,
+
+      noscr_sense  => '0',  -- Add this line: '0' for normal screen mode
+      go64         => '0',  -- Add this line: '0' for C128 mode
+
+      -- Select C128's ROMs
+      -- TODO: IMPORTANT FIXME NOW!!
+      sysRom        => open,      -- chip select for system ROM
+      sysRomBank    => open,      -- select bank for system ROM
 
       pause         => pause_i,
       pause_out     => c64_pause,      -- unused
 
-      -- keyboard interface: directly connect the CIA1
-      cia1_pa_i     => cia1_pa_in,
-      cia1_pa_o     => cia1_pa_out,
-      cia1_pb_i     => cia1_pb_in,
-      cia1_pb_o     => cia1_pb_out,
 
       -- external memory
       ramAddr       => c64_ram_addr_o,
@@ -280,45 +295,62 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ramDout       => c64_ram_data_o,
       ramCE         => c64_ram_ce,
       ramWE         => c64_ram_we,
+      ramDinFloat   => '0', -- TODO: What is this?
 
       io_cycle      => open,
       ext_cycle     => sim_ext_cycle,
       refresh       => open,
 
-      cia_mode      => c64_cia_ver_i,  -- 0 - 6526 "old", 1 - 8521 "new"
+      cia_mode      => "01",  -- 0 - 6526 "old", 1 - 8521 "new"
       turbo_mode    => "00",
-      turbo_speed   => "00",
 
       -- VGA/SCART interface
       -- The hsync frequency is 15.64 kHz (period 63.94 us).
       -- The hsync pulse width is 12.69 us.
-      ntscMode      => c64_ntsc_i,
-      hsync         => vga_hs,
-      vsync         => vga_vs,
-      r             => vga_red,
-      g             => vga_green,
-      b             => vga_blue,
+      ntscMode      => '0',
+      vic_variant   => "00",     -- Add this line: "00" for 6569 (PAL-B)
+      vicJailbars   => '0',      -- Add this line: '0' to disable jailbars
+      vicHsync      => video_hs_o,
+      vicVsync      => video_vs_o,
+      vicR          => video_red_o,
+      vicG          => video_green_o,
+      vicB          => video_blue_o,
+
+      -- TODO: Add VDC support
+      vdcHsync      => open,     -- Add this line: VDC hsync output
+      vdcVsync      => open,     -- Add this line: VDC vsync output
+      vdcR          => open,     -- Add this line: VDC red output
+      vdcG          => open,     -- Add this line: VDC green output
+      vdcB          => open,     -- Add this line: VDC blue output
+      vdcVersion    => open,
+      vdc64k        => open,
+      vdcInitRam    => open,
+      vdcPalette    => open,
+      vdcDebug      => open,
 
       -- cartridge port
+      -- TODO: Add cartridge support
       game          => core_game_n,    -- input: low active
+      game_mmu      => open,           -- output: 
       exrom         => core_exrom_n,   -- input: low active
+      exrom_mmu     => open,           -- output
       io_rom        => core_io_rom,    -- input
       io_ext        => core_io_ext,    -- input
       io_data       => core_io_data,   -- input
       irq_n         => core_irq_n,     -- input: low active
       nmi_n         => core_nmi_n,     -- input
       nmi_ack       => core_nmi_ack,   -- output
+      romFL         => open,           -- output
+      romFH         => open,           -- output
       romL          => core_roml,      -- output. CPU access to 0x8000-0x9FFF
       romH          => core_romh,      -- output. CPU access to 0xA000-0xBFFF or 0xE000-0xFFFF (ultimax)
       UMAXromH      => core_umax_romh, -- output
       IOE           => core_ioe,       -- output. aka IO1. CPU access to 0xDExx
       IOF           => core_iof,       -- output. aka IO2. CPU access to 0xDFxx
-      dotclk        => core_dotclk,    -- output
-      phi0          => open,           -- output
-      phi2          => core_phi2,      -- output
-      --         freeze_key  => open,
-      --         mod_key     => open,
-      --         tape_play   => open,
+      freeze_key  => open,
+      mod_key     => open,
+      tape_play   => open,
+      
       -- dma access
       dma_req       => core_dma,
       dma_cycle     => reu_dma_cycle,
@@ -334,6 +366,12 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       pot3          => pot2_x_i,
       pot4          => pot2_y_i,
 
+      -- Joystick ports
+      -- TODO: See removal of the ps2_key and kbd_reset signals. 
+      -- The C64 core added a keyboard controller.
+      joyA          => open,
+      joyB          => open,
+
       -- SID
       audio_l       => c64_sid_l,
       audio_r       => c64_sid_r,
@@ -341,14 +379,17 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       sid_ver       => c64_sid_ver_i,  -- SID version, 0=6581, 1=8580, low bit = left SID
       sid_mode      => c64_sid_port_i, -- Right SID Port: 0=same as left, 1=DE00, 2=D420, 3=D500, 4=DF00
       sid_cfg       => "0000",         -- filter type: 0=Default, 1=Custom 1, 2=Custom 2, 3=Custom 3, lower two bits = left SID
-
-      -- mechanism for loading custom SID filters: not supported, yet
+      sid_fc_off_l  => '0',           
+      sid_fc_off_r  => '0',           
+      sid_digifix   => '0',           
+      -- mechanism for loading custom SID filters
       sid_ld_clk    => '0',
       sid_ld_addr   => "000000000000",
       sid_ld_data   => x"0000",
       sid_ld_wr     => '0',
 
       -- User Port: Unused inputs need to be high
+      -- TODO: Add User Port support
       pb_i          => x"FF",
       pb_o          => open,
       pa2_i         => '1',
@@ -365,24 +406,32 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       cnt1_o        => open,
 
       -- IEC
-      iec_clk_i     => c64_iec_clk_in and hw_iec_clk_n_in,
-      iec_clk_o     => c64_iec_clk_out,
-      iec_atn_o     => c64_iec_atn_out,
-      iec_data_i    => c64_iec_data_in and hw_iec_data_n_in,
-      iec_data_o    => c64_iec_data_out,
+      -- TODO: Add IEC support
+      iec_srq_n_o   => open,
+      iec_srq_n_i   => open,
+      iec_clk_i     => open,
+      iec_clk_o     => open,
+      iec_atn_o     => open,
+      iec_data_i    => open,
+      iec_data_o    => open,
 
       -- Cassette drive
-      cass_write    => cass_write,     -- output
-      cass_motor    => cass_motor,     -- output
-      cass_sense    => cass_rtc,       -- input
-      cass_read     => '1',            -- default is '1' according to MiSTer's c1530.vhd
+      cass_write    => open,     -- output
+      cass_motor    => open,     -- output
+      cass_sense    => open,     -- input
+      cass_read     => open,     -- default is '1' according to MiSTer's c1530.vhd
 
-      -- Access custom Kernal: C64's Basic and DOS
-      c64rom_clk_i  => c64_clk_sd_i,
-      c64rom_we_i   => c64rom_we_i,
-      c64rom_addr_i => c64rom_addr_i,
-      c64rom_data_i => c64rom_data_i,
-      c64rom_data_o => c64rom_data_o
+      -- D7xx port
+      d7port        => open,
+      d7port_trig   => open,
+
+      -- System settings
+      sys256k       => '0', -- We have 128k memory
+      force64       => '1', -- TODO: We will start running the 64 mode first
+      pure64        => '1', -- TODO: We will start running the 64 mode first
+      d4080_sel     => '0', -- TODO: Force to 40 column mode
+      c128_n        => open,
+      z80_n         => open,
     ); -- fpga64_sid_iec_inst
 
 
