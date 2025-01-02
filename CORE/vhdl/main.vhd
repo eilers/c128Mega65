@@ -22,6 +22,7 @@ entity main is
    );
    port (
       clk_main_i              : in  std_logic;
+      clk_vdc_i               : in  std_logic;
       reset_soft_i            : in  std_logic;
       reset_hard_i            : in  std_logic;
       pause_i                 : in  std_logic;
@@ -258,7 +259,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
     port map (
       clk32         => clk_main_i,
       -- clk32_speed   => clk_main_speed_i, TODO: remove CORE_CLK_SPEED? 
-      clk_vdc       => clk_main_i, -- TODO: This is probably wrong. We need to get 32Mhz here.
+      clk_vdc       => clk_vdc_i,
       reset_n       => reset_core_n,
 
       -- Select C64's ROM: 0=Custom, 1=Standard, 2=GS, 3=Japan

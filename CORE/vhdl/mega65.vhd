@@ -230,6 +230,7 @@ architecture synthesis of MEGA65_Core is
 -- main_clk (MiSTer core's clock)
 ---------------------------------------------------------------------------------------------
 signal main_clk               : std_logic;               -- Core main clock
+signal vdc_clk                : std_logic;               -- VDC clock (32 MHz)
 signal main_rst               : std_logic;
 
 signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
@@ -294,7 +295,10 @@ begin
    main_joy_2_right_n_o <= '1';
    main_joy_2_fire_n_o  <= '1';
 
-   hr_core_speed        <= "00"; -- TODO: This is fixed to PAL, check whether frequency changes are required!?
+  ---------------------------------------------------------------------------------------------
+  -- main_clk (MiSTer core's clock)
+  ---------------------------------------------------------------------------------------------
+   hr_core_speed        <= "00"; -- TODO: This is fixed to PAL for now, check whether frequency changes are required!?
    -- MMCME2_ADV clock generators
    --   PAL: 31.528 MHz (main) and 63.056 MHz (video)
    --        HDMI: Flicker-free: 0.25% slower
@@ -306,14 +310,20 @@ begin
          main_rst_o        => main_rst         -- CORE's reset, synchronized
       ); -- clk_gen
 
+
+   -- VDC clock generator
+   clk_vdc_gen: entity work.vdc_clk
+      port map (
+         refclk   => clk_i,
+         rst      => main_rst,
+         outclk_0 => vdc_clk,
+         locked   => open        -- TODO: Do we need to detect the locked state?
+      ); -- clk_vdc_gen
+
    main_clk_o  <= main_clk;
    main_rst_o  <= main_rst;
    video_clk_o <= main_clk;
    video_rst_o <= main_rst;
-
-   ---------------------------------------------------------------------------------------------
-   -- main_clk (MiSTer core's clock)
-   ---------------------------------------------------------------------------------------------
 
    -- MEGA65's power led: By default, it is on and glows green when the MEGA65 is powered on.
    -- We switch it to blue when a long reset is detected and as long as the user keeps pressing the preset button
@@ -327,6 +337,7 @@ begin
       )
       port map (
          clk_main_i           => main_clk,
+         clk_vdc_i            => vdc_clk,
          reset_soft_i         => main_reset_core_i,
          reset_hard_i         => main_reset_m2m_i,
          pause_i              => main_pause_core_i,
@@ -356,6 +367,11 @@ begin
          -- M2M Keyboard interface
          kb_key_num_i         => main_kb_key_num_i,
          kb_key_pressed_n_i   => main_kb_key_pressed_n_i,
+
+        -- C64 Expansion Port (aka Cartridge Port)
+        cart_reset_i => cart_reset_i, 
+        cart_reset_o => cart_reset_o,
+
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,

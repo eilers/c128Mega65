@@ -1,9 +1,9 @@
 -------------------------------------------------------------------------------------------------------------
--- Commodore 64 for MEGA65 (C64MEGA65)
+-- Commodore 64 + C128 for MEGA65 (C64MEGA65)
 --
 -- Clock Generator using the Xilinx specific MMCME2_ADV:
 --
---   MiSTer's Commodore 64 expects:
+--   MiSTer's Commodore 64 and C128 expects:
 --      PAL:  31,527,778 MHz, this divided by 32 = 0,98525 MHz (C64 clock speed)
 --            Additionally (PAL only) we use a 0.25% slower system clock for the HDMI flicker-fix
 --      NTSC: @TODO
