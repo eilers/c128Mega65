@@ -106,7 +106,7 @@ port (
    clk_i                   : in  std_logic;              -- 100 MHz clock
 
    -- Share clock and reset with the framework
-   main_clk_o              : out std_logic;              -- CORE's 54 MHz clock
+   main_clk_o              : out std_logic;              -- CORE's clock
    main_rst_o              : out std_logic;              -- CORE's reset, synchronized
 
    -- M2M's reset manager provides 2 signals:
@@ -225,13 +225,7 @@ architecture synthesis of MEGA65_Core is
 ---------------------------------------------------------------------------------------------
 -- Clocks and active high reset signals for each clock domain
 ---------------------------------------------------------------------------------------------
-
----------------------------------------------------------------------------------------------
--- main_clk (MiSTer core's clock)
----------------------------------------------------------------------------------------------
-signal main_clk               : std_logic;               -- Core main clock
-signal vdc_clk                : std_logic;               -- VDC clock (32 MHz)
-signal main_rst               : std_logic;
+signal vdc_clk_o : std_logic;
 
 signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
 
@@ -306,24 +300,22 @@ begin
       port map (
          sys_clk_i         => clk_i,           -- expects 100 MHz
          core_speed_i      => hr_core_speed,   -- 0=PAL/original C64, 1=PAL/HDMI flicker-free, 2=NTSC
-         main_clk_o        => main_clk,        -- CORE's 54 MHz clock
-         main_rst_o        => main_rst         -- CORE's reset, synchronized
+         main_clk_o        => main_clk_o,        -- CORE's clock
+         main_rst_o        => main_rst_o         -- CORE's reset, synchronized
       ); -- clk_gen
 
 
    -- VDC clock generator
+   -- TODO: Maybe we can integrate this into the clk.vhd?
    clk_vdc_gen: entity work.vdc_clk
       port map (
          refclk   => clk_i,
-         rst      => main_rst,
-         outclk_0 => vdc_clk,
+         outclk_0 => vdc_clk_o,
          locked   => open        -- TODO: Do we need to detect the locked state?
       ); -- clk_vdc_gen
 
-   main_clk_o  <= main_clk;
-   main_rst_o  <= main_rst;
-   video_clk_o <= main_clk;
-   video_rst_o <= main_rst;
+   video_clk_o <= main_clk_o;
+   video_rst_o <= main_rst_o;
 
    -- MEGA65's power led: By default, it is on and glows green when the MEGA65 is powered on.
    -- We switch it to blue when a long reset is detected and as long as the user keeps pressing the preset button
@@ -336,8 +328,8 @@ begin
          G_VDNUM              => C_VDNUM
       )
       port map (
-         clk_main_i           => main_clk,
-         clk_vdc_i            => vdc_clk,
+         clk_main_i           => main_clk_o,
+         clk_vdc_i            => vdc_clk_o,
          reset_soft_i         => main_reset_core_i,
          reset_hard_i         => main_reset_m2m_i,
          pause_i              => main_pause_core_i,
@@ -403,21 +395,15 @@ begin
    -- while in the 4:3 mode we are outputting a 5:4 image. This is kind of odd, but it seemed that our 4/3 aspect ratio
    -- adjusted image looks best on a 5:4 monitor and the other way round.
    -- Not sure if this will stay forever or if we will come up with a better naming convention.
-   qnice_video_mode_o <= C_VIDEO_SVGA_800_60   when qnice_osm_control_i(C_MENU_SVGA_800_60)    = '1' else
-                         C_VIDEO_HDMI_720_5994 when qnice_osm_control_i(C_MENU_HDMI_720_5994)  = '1' else
-                         C_VIDEO_HDMI_640_60   when qnice_osm_control_i(C_MENU_HDMI_640_60)    = '1' else
-                         C_VIDEO_HDMI_5_4_50   when qnice_osm_control_i(C_MENU_HDMI_5_4_50)    = '1' else
-                         C_VIDEO_HDMI_4_3_50   when qnice_osm_control_i(C_MENU_HDMI_4_3_50)    = '1' else
-                         C_VIDEO_HDMI_16_9_60  when qnice_osm_control_i(C_MENU_HDMI_16_9_60)   = '1' else
-                         C_VIDEO_HDMI_16_9_50;
+   qnice_video_mode_o <= C_VIDEO_HDMI_5_4_50 ; -- TODO: Add more modes
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
    qnice_dvi_o                <= '0';                                         -- 0=HDMI (with sound), 1=DVI (no sound)
    qnice_scandoubler_o        <= '0';                                         -- no scandoubler
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
-   qnice_audio_filter_o       <= qnice_osm_control_i(C_MENU_IMPROVE_AUDIO);   -- 0 = raw audio, 1 = use filters from globals.vhd
-   qnice_zoom_crop_o          <= qnice_osm_control_i(C_MENU_HDMI_ZOOM);       -- 0 = no zoom/crop
+   qnice_audio_filter_o       <= '0'; -- qnice_osm_control_i(C_MENU_IMPROVE_AUDIO);   -- 0 = raw audio, 1 = use filters from globals.vhd
+   qnice_zoom_crop_o          <= '0'; -- qnice_osm_control_i(C_MENU_HDMI_ZOOM);       -- 0 = no zoom/crop
    
    -- These two signals are often used as a pair (i.e. both '1'), particularly when
    -- you want to run old analog cathode ray tube monitors or TVs (via SCART)
@@ -438,7 +424,7 @@ begin
 
    -- If polyphase is '1' then the ascal filter mode is ignored and polyphase filters are used instead
    -- @TODO: Right now, the filters are hardcoded in the M2M framework, we need to make them changeable inside m2m-rom.asm
-   qnice_ascal_polyphase_o    <= qnice_osm_control_i(C_MENU_CRT_EMULATION);
+   qnice_ascal_polyphase_o    <= '0'; -- qnice_osm_control_i(C_MENU_CRT_EMULATION);
 
    -- ascal triple-buffering
    -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded
@@ -510,7 +496,7 @@ begin
       port map
       (
          clk_qnice_i       => qnice_clk_i,
-         clk_core_i        => main_clk,
+         clk_core_i        => main_clk_o,
          reset_core_i      => main_reset_core_i,
 
          -- Core clock domain

@@ -21,11 +21,11 @@ entity main is
       G_VDNUM                 : natural                     -- amount of virtual drives
    );
    port (
-      clk_main_i              : in  std_logic;
-      clk_vdc_i               : in  std_logic;
-      reset_soft_i            : in  std_logic;
-      reset_hard_i            : in  std_logic;
-      pause_i                 : in  std_logic;
+      clk_main_i              : in  std_logic;  -- Main core clock (54 MHz)
+      clk_vdc_i               : in  std_logic;  -- VDC clock (32 MHz)
+      reset_soft_i            : in  std_logic;  -- Soft reset
+      reset_hard_i            : in  std_logic;  -- Hard reset
+      pause_i                 : in  std_logic;  -- Pause  
 
       -- MiSTer core main clock speed:
       -- Make sure you pass very exact numbers here, because they are used for avoiding clock drift at derived clocks
@@ -286,7 +286,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       sysRomBank    => open,      -- select bank for system ROM
 
       pause         => pause_i,
-      pause_out     => c64_pause,      -- unused
+      pause_out     => open,      -- unused
 
 
       -- external memory
@@ -298,7 +298,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ramDinFloat   => '0', -- TODO: What is this?
 
       io_cycle      => open,
-      ext_cycle     => sim_ext_cycle,
+      ext_cycle     => open,
       refresh       => open,
 
       cia_mode      => "01",  -- 0 - 6526 "old", 1 - 8521 "new"
@@ -352,13 +352,14 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       tape_play   => open,
       
       -- dma access
-      dma_req       => core_dma,
-      dma_cycle     => reu_dma_cycle,
-      dma_addr      => unsigned(reu_dma_addr),
-      dma_dout      => unsigned(reu_dma_dout),
-      dma_din       => reu_dma_din,
-      dma_we        => reu_dma_we,
-      irq_ext_n     => not reu_irq,
+      dma_req       => '0',
+      dma_cycle     => open,
+      dma_addr      => open,
+      dma_dout      => open,
+      dma_din       => open,
+      dma_we        => '0',
+      irq_ext_n     => '1',
+
 
       -- paddle interface
       pot1          => pot1_x_i,
@@ -373,11 +374,11 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       joyB          => open,
 
       -- SID
-      audio_l       => c64_sid_l,
-      audio_r       => c64_sid_r,
+      audio_l       => open,
+      audio_r       => open,
       sid_filter    => "11",           -- filter enable = true for both SIDs, low bit = left SID
-      sid_ver       => c64_sid_ver_i,  -- SID version, 0=6581, 1=8580, low bit = left SID
-      sid_mode      => c64_sid_port_i, -- Right SID Port: 0=same as left, 1=DE00, 2=D420, 3=D500, 4=DF00
+      sid_ver       => "01",           -- SID version, 0=6581, 1=8580, low bit = left SID
+      sid_mode      => "00",           -- Right SID Port: 0=same as left, 1=DE00, 2=D420, 3=D500, 4=DF00
       sid_cfg       => "0000",         -- filter type: 0=Default, 1=Custom 1, 2=Custom 2, 3=Custom 3, lower two bits = left SID
       sid_fc_off_l  => '0',           
       sid_fc_off_r  => '0',           
@@ -408,11 +409,11 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- IEC
       -- TODO: Add IEC support
       iec_srq_n_o   => open,
-      iec_srq_n_i   => open,
-      iec_clk_i     => open,
+      iec_srq_n_i   => '1',
+      iec_clk_i     => '1',
       iec_clk_o     => open,
       iec_atn_o     => open,
-      iec_data_i    => open,
+      iec_data_i    => '1',
       iec_data_o    => open,
 
       -- Cassette drive
@@ -425,13 +426,13 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       d7port        => open,
       d7port_trig   => open,
 
-      -- System settings
+      -- System mode
       sys256k       => '0', -- We have 128k memory
       force64       => '1', -- TODO: We will start running the 64 mode first
       pure64        => '1', -- TODO: We will start running the 64 mode first
       d4080_sel     => '0', -- TODO: Force to 40 column mode
       c128_n        => open,
-      z80_n         => open,
+      z80_n         => open
     ); -- fpga64_sid_iec_inst
 
 
