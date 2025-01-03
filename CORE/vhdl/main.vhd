@@ -50,6 +50,12 @@ entity main is
       drive_led_o             : out std_logic;
       drive_led_col_o         : out std_logic_vector(23 downto 0);
 
+     -- C64 RAM: No address latching necessary and the chip can always be enabled
+     ram_addr_o               : out unsigned(17 downto 0);    -- address bus (18 Bit!)
+     ram_data_o               : out unsigned(7 downto 0);     -- RAM data out
+     ram_we_o                 : out std_logic;                -- RAM write enable
+     ram_data_i               : in unsigned(7 downto 0);      -- RAM data in
+
       -- C64 Expansion Port (aka Cartridge Port)
       cart_reset_i           : in  std_logic;
       cart_reset_o           : out std_logic;
@@ -79,6 +85,11 @@ entity main is
 end entity main;
 
 architecture synthesis of main is
+
+-- signals for RAM
+signal ram_ce   : std_logic;
+signal ram_we   : std_logic;
+signal ram_data : unsigned(7 downto 0);
 
 -- RESET SEMANTICS
 --
@@ -252,7 +263,31 @@ handle_cold_start_proc: process (clk_main_i)
     end if;
   end process;
 
-  --------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------
+-- Access to C64's RAM and hardware/simulated cartridge ROM
+--------------------------------------------------------------------------------------------------
+cpu_data_in_proc: process (all)
+  begin
+    ram_data <= x"00";
+
+    -- We are emulating what is written here: https://www.c64-wiki.com/wiki/Reset_Button
+    -- and avoid that the KERNAL ever sees the CBM80 signature during hard reset reset.
+    -- But we cannot do it like on real hardware using the exrom signal because the
+    -- MiSTer core is not supporting this.
+    if hard_reset_n = '0' and ram_addr_o(15 downto 12) = x"8" and cold_start_done = '1' then
+      ram_data <= x"00";
+    -- TODO: Add REU support
+    -- Standard access to the C64's RAM
+    else
+      ram_data <= ram_data_i;
+
+    end if;
+  end process;
+
+-- RAM write enable also needs to check for chip enable
+ram_we_o <= ram_ce and ram_we;
+
+--------------------------------------------------------------------------------------------------
 -- MiSTer Commodore 64 core / main machine
 --------------------------------------------------------------------------------------------------
 fpga64_sid_iec_inst: entity work.fpga64_sid_iec
@@ -288,14 +323,13 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       pause         => pause_i,
       pause_out     => open,      -- unused
 
-
       -- external memory
-      ramAddr       => c64_ram_addr_o,
-      ramDin        => c64_ram_data,
-      ramDout       => c64_ram_data_o,
-      ramCE         => c64_ram_ce,
-      ramWE         => c64_ram_we,
-      ramDinFloat   => '0', -- TODO: What is this?
+      ramAddr       => ram_addr_o,
+      ramDin        => ram_data,
+      ramDout       => ram_data_o,
+      ramCE         => ram_ce,
+      ramWE         => ram_we,
+      ramDinFloat   => '1', -- Signalling that the Cartridge is in high impedance. ???
 
       io_cycle      => open,
       ext_cycle     => open,
