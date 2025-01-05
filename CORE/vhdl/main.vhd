@@ -331,9 +331,9 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ramWE         => ram_we,
       ramDinFloat   => '1', -- Signalling that the Cartridge is in high impedance. ???
 
-      io_cycle      => open,
-      ext_cycle     => open,
-      refresh       => open,
+      io_cycle      => open, -- 1 when an external I/O accesss is happening
+      ext_cycle     => open, -- 1 when a DMA access is happening (REU).
+      refresh       => open, -- 1 when a refresh cycle is happening (Not relevant for us)
 
       cia_mode      => "01",  -- 0 - 6526 "old", 1 - 8521 "new"
       turbo_mode    => "00",

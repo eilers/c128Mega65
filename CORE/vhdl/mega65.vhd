@@ -233,9 +233,12 @@ signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
 -- qnice_clk
 ---------------------------------------------------------------------------------------------
 -- QNICE clock domain
-signal qnice_demo_vd_data_o   : std_logic_vector(15 downto 0);
-signal qnice_demo_vd_ce       : std_logic;
-signal qnice_demo_vd_we       : std_logic;
+
+signal qnice_c64_ramx_we   : std_logic;
+signal qnice_c64_ramx_addr   : std_logic_vector(15 downto 0);
+signal qnice_c64_ramx_d_to   : std_logic_vector(7 downto 0);
+signal qnice_c64_ramx_d_from : std_logic_vector(7 downto 0);
+
 
 begin
 
@@ -360,11 +363,6 @@ begin
          kb_key_num_i         => main_kb_key_num_i,
          kb_key_pressed_n_i   => main_kb_key_pressed_n_i,
 
-        -- C64 Expansion Port (aka Cartridge Port)
-        cart_reset_i => cart_reset_i, 
-        cart_reset_o => cart_reset_o,
-
-
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
          joy_1_down_n_i       => main_joy_1_down_n_i,
@@ -381,7 +379,57 @@ begin
          pot1_x_i             => main_pot1_x_i,
          pot1_y_i             => main_pot1_y_i,
          pot2_x_i             => main_pot2_x_i,
-         pot2_y_i             => main_pot2_y_i
+         pot2_y_i             => main_pot2_y_i,
+
+         -- Add RAM interface
+         ram_addr_o           => open,
+         ram_data_o           => open,
+         ram_we_o             => open,
+         ram_data_i           => x"00",
+
+         -- C64 Expansion Port (aka Cartridge Port)
+         cart_reset_i         => cart_reset_i, 
+         cart_reset_o         => cart_reset_o,
+         cart_en_o            => cart_en_o,
+         cart_phi2_o          => cart_phi2_o,
+         cart_dotclock_o      => cart_dotclock_o,
+         cart_dma_i           => cart_dma_i,
+         cart_reset_oe_o      => cart_reset_oe_o,
+         cart_reset_i         => cart_reset_i,
+         cart_reset_o         => cart_reset_o,
+         cart_game_oe_o       => cart_game_oe_o,
+         cart_game_i          => cart_game_i,
+         cart_game_o          => cart_game_o,
+         cart_exrom_oe_o      => cart_exrom_oe_o,
+         cart_exrom_i         => cart_exrom_i,
+         cart_exrom_o         => cart_exrom_o,
+         cart_nmi_oe_o        => cart_nmi_oe_o,
+         cart_nmi_i           => cart_nmi_i,
+         cart_nmi_o           => cart_nmi_o,
+         cart_irq_oe_o        => cart_irq_oe_o,
+         cart_irq_i           => cart_irq_i,
+         cart_irq_o           => cart_irq_o,
+         cart_roml_oe_o       => cart_roml_oe_o,
+         cart_roml_i          => cart_roml_i,
+         cart_roml_o          => cart_roml_o,
+         cart_romh_oe_o       => cart_romh_oe_o,
+         cart_romh_i          => cart_romh_i,
+         cart_romh_o          => cart_romh_o,
+         cart_ctrl_oe_o       => cart_ctrl_oe_o,
+         cart_ba_i            => cart_ba_i,
+         cart_rw_i            => cart_rw_i,
+         cart_io1_i           => cart_io1_i,
+         cart_io2_i           => cart_io2_i,
+         cart_ba_o            => cart_ba_o,
+         cart_rw_o            => cart_rw_o,
+         cart_io1_o           => cart_io1_o,
+         cart_io2_o           => cart_io2_o,
+         cart_addr_oe_o       => cart_addr_oe_o,
+         cart_a_i             => cart_a_i,
+         cart_a_o             => cart_a_o,
+         cart_data_oe_o       => cart_data_oe_o,
+         cart_d_i             => cart_d_i,
+         cart_d_o             => cart_d_o
       ); -- i_main
 
    ---------------------------------------------------------------------------------------------
@@ -442,21 +490,17 @@ begin
       -- make sure that this is x"EEEE" by default and avoid a register here by having this default value
       qnice_dev_data_o     <= x"EEEE";
       qnice_dev_wait_o     <= '0';
-
-      -- Demo core specific: Delete before starting to port your core
-      qnice_demo_vd_ce     <= '0';
-      qnice_demo_vd_we     <= '0';
+      qnice_c64_ramx_addr  <= (others => '0');
+      qnice_c64_ramx_d_to  <= (others => '0');
+      qnice_c64_ramx_we    <= '0';
 
       case qnice_dev_id_i is
-
-         -- Demo core specific stuff: delete before porting your own core
-         when C_DEV_DEMO_VD =>
-            qnice_demo_vd_ce     <= qnice_dev_ce_i;
-            qnice_demo_vd_we     <= qnice_dev_we_i;
-            qnice_dev_data_o     <= qnice_demo_vd_data_o;
-
-         -- @TODO YOUR RAMs or ROMs (e.g. for cartridges) or other devices here
          -- Device numbers need to be >= 0x0100
+        when C_DEV_RAM => 
+            qnice_c64_ramx_addr <= qnice_dev_addr_i(15 downto 0);
+            qnice_c64_ramx_we   <= qnice_dev_we_i;
+            qnice_c64_ramx_d_to <= qnice_dev_data_i(7 downto 0);
+            qnice_dev_data_o    <= x"00" & qnice_c64_ramx_d_from;
 
          when others => null;
       end case;

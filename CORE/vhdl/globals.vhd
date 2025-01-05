@@ -84,9 +84,9 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 ----------------------------------------------------------------------------------------------------------
 -- Commodore 128 specific devices
 ----------------------------------------------------------------------------------------------------------
-constant C_DEV_SYSTEM_ROM     : std_logic_vector(15 downto 0) := x"0100"; -- boot0.rom
-constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0101"; -- boot1.rom
-
+constant C_DEV_RAM            : std_logic_vector(15 downto 0) := x"0100"; -- RAM
+constant C_DEV_SYSTEM_ROM     : std_logic_vector(15 downto 0) := x"0101"; -- boot0.rom
+constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boot1.rom
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW)
