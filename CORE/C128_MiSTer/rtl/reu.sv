@@ -62,7 +62,7 @@ assign dma_we = dma_we_r & dma_cycle;
 always @(posedge clk) begin
 	reg        old_cs;
 	reg  [1:0] state;
-	reg  [3:0] cnt;
+	reg  [1:0] cnt;
 	reg  [7:0] data[2];
 	reg [15:0] addr_c64, addr_c64_r;
 	reg [23:0] addr_ram, addr_ram_r;
@@ -190,8 +190,8 @@ always @(posedge clk) begin
 
 			STATE_PROC_RAM:
 				if(ram_cycle) begin
-					cnt    <= cnt + 1'd1;
-					if(&cnt[1:0]) begin
+					cnt <= cnt + 1'd1;
+					if(&cnt) begin
 						data[op_dat] <= ram_din;
 						ram_we       <= 0;
 						stage        <= stage + 1'd1;
@@ -202,7 +202,7 @@ always @(posedge clk) begin
 			STATE_PROC_C64:
 				if(dma_cycle) begin
 					cnt <= cnt + 1'd1;
-					if(&cnt[3:0]) begin
+					if(&cnt) begin
 						dma_addr     <= 0; // make sure we won't read some device's data while idling.
 						dma_we_r     <= 0;
 						data[op_dat] <= dma_din;

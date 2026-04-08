@@ -231,7 +231,6 @@ signal preCycle     : sysCycleDef := sysCycleDef'low;
 signal sysEnable    : std_logic;
 signal rfsh_cycle   : unsigned(1 downto 0);
 
-signal dma_pending  : std_logic;
 signal dma_active   : std_logic;
 
 signal phi0_cpu     : std_logic;
@@ -1180,13 +1179,13 @@ ramCE   <= cs_ram when
            cpu_cyc = '1' else '0';
 
 t65_cyc <= (not t65_cyc_s) when
-           (sysCycle = CYCLE_CPU0 and t65_turbo_m(0) = '1' and dma_pending = '0' and cs_ram = '1') or
+           (sysCycle = CYCLE_CPU0 and t65_turbo_m(0) = '1' and cs_ram = '1') or
            (sysCycle = CYCLE_CPU4 and (io_enable = '1' or cs_ram = '1')) or
-           (sysCycle = CYCLE_CPU8 and t65_turbo_m(1) = '1' and dma_pending = '0' and cs_ram = '1') or
-           (sysCycle = CYCLE_CPUC and t65_turbo_m(2) = '1' and dma_pending = '0' and ((turbo_std = '1' and aec = '0' and vicRefresh = '0') or (turbo_std = '0' and cs_ram = '1'))) else '0';
+           (sysCycle = CYCLE_CPU8 and t65_turbo_m(1) = '1' and cs_ram = '1') or
+           (sysCycle = CYCLE_CPUC and t65_turbo_m(2) = '1' and ((turbo_std = '1' and aec = '0' and vicRefresh = '0') or (turbo_std = '0' and cs_ram = '1'))) else '0';
 t80_cyc <= (not t80_cyc_s) when
            (sysCycle = CYCLE_CPU0 and (io_enable = '1' or cs_ram = '1')) or
-           (sysCycle = CYCLE_CPU8 and t80_turbo_m = '1' and dma_pending = '0' and cs_ram = '1') else '0';
+           (sysCycle = CYCLE_CPU8 and t80_turbo_m = '1' and cs_ram = '1') else '0';
 cpu_cyc <= '1' when
            (cpuactT65 = '1' and t65_cyc = '1') or
            (cpuactT65 = '0' and t80_cyc = '1') else '0';
@@ -1273,38 +1272,26 @@ end process;
 process(clk32)
 begin
    if rising_edge(clk32) then
-      case sysCycle is
-         when CYCLE_EXT1 | CYCLE_EXT5
-            => if cpuWe_T65 = '0' and cpuWe_T80 = '0' then
-                  dma_active <= dma_req;
-                  dma_pending <= '0';
-               end if;
+      if sysCycle = CYCLE_CPU3 then
+         dma_active <= dma_req;
+         dma_cycle  <= dma_req and (baLoc or ba_dma);
+      end if;
 
-         when sysCycleDef'pred(CYCLE_CPU0)
-            => dma_cycle <= dma_active and (baLoc or ba_dma);
+      if sysCycle = CYCLE_CPU7 then
+         dma_cycle <= '0';
 
-         when CYCLE_CPU7
-            => if dma_active = '1' then
-                  t65_turbo_m <= turbo_state & "00";
-                  t80_turbo_m <= '0';
-               else
-                  case turbo_mode(1 downto 0) is
-                     when "00" => t65_turbo_m <= turbo_state & "00";
-                     when "01" => t65_turbo_m <= "100";
-                     when "10" => t65_turbo_m <= "110";
-                     when "11" => t65_turbo_m <= "111";
-                  end case;
-                  t80_turbo_m <= turbo_mode(2);
-               end if;
-
-         when CYCLE_CPUF
-            => dma_cycle <= '0';
-
-         when others => null;
-      end case;
-
-      if sysCycle = CYCLE_CPU3 or sysCycle = CYCLE_CPU7 or sysCycle = CYCLE_CPUB or sysCycle = CYCLE_CPUF then
-         dma_pending <= dma_req and not dma_active;
+         if dma_active = '1' then
+            t65_turbo_m <= turbo_state & "00";
+            t80_turbo_m <= '0';
+         elsif dma_active = '0' then
+            case turbo_mode(1 downto 0) is
+               when "00" => t65_turbo_m <= turbo_state & "00";
+               when "01" => t65_turbo_m <= "100";
+               when "10" => t65_turbo_m <= "110";
+               when "11" => t65_turbo_m <= "111";
+            end case;
+            t80_turbo_m <= turbo_mode(2);
+         end if;
       end if;
    end if;
 end process;
