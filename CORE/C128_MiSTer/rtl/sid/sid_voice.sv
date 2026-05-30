@@ -2,28 +2,28 @@
 // altera message_off 10030
 module sid_voice
 (
-	input         clock,
-	input         ce_1m,
-	input         reset,
-	input         mode,
-	input  [15:0] freq,
-	input  [11:0] pw,
-	input   [7:0] control,
-	input   [7:0] att_dec,
-	input   [7:0] sus_rel,
-	input         osc_msb_in,
+	input wire        clock,
+	input wire        ce_1m,
+	input wire        reset,
+	input wire        mode,
+	input wire [15:0] freq,
+	input wire [11:0] pw,
+	input wire [7:0]  control,
+	input wire [7:0]  att_dec,
+	input wire [7:0]  sus_rel,
+	input wire        osc_msb_in,
 
-	input   [7:0] _st_out,
-	input   [7:0] p_t_out,
-	input   [7:0] ps__out,
-	input   [7:0] pst_out,
+	input wire [7:0]  _st_out,
+	input wire [7:0]  p_t_out,
+	input wire [7:0]  ps__out,
+	input wire [7:0]  pst_out,
 
-	output [11:0] acc_t,
+	output wire [11:0] acc_t,
 	
-	output        osc_msb_out,
-	output [21:0] voice_out,
-	output [ 7:0] osc_out,
-	output [ 7:0] env_out
+	output wire        osc_msb_out,
+	output wire [21:0] voice_out,
+	output wire [7:0]  osc_out,
+	output wire [7:0]  env_out
 );
 
 localparam        [12:0] WAVEFORM_DC_6581 = 13'h380;         // OSC3 = 'h38 at 5.94V.

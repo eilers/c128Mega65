@@ -5,37 +5,37 @@ module sid_top
 	parameter DUAL = 1
 )
 (
-	input         reset,
+	input wire       reset,
 
-	input         clk,
-	input         ce_1m,
+	input wire       clk,
+	input wire       ce_1m,
 
-	input [N-1:0] cs,
-	input         we,
-	input   [4:0] addr,
-	input   [7:0] data_in,
-	output  [7:0] data_out,
+	input wire [N-1:0] cs,
+	input wire       we,
+	input wire [4:0] addr,
+	input wire [7:0] data_in,
+	output wire [7:0] data_out,
 
-	input  [12:0] fc_offset_l,
-	input   [7:0] pot_x_l,
-	input   [7:0] pot_y_l,
-	input  [17:0] ext_in_l,
-	output [17:0] audio_l,
+	input wire [12:0] fc_offset_l,
+	input wire [7:0]  pot_x_l,
+	input wire [7:0]  pot_y_l,
+	input wire [17:0] ext_in_l,
+	output wire [17:0] audio_l,
 
-	input  [12:0] fc_offset_r, // not used if DUAL is 0
-	input   [7:0] pot_x_r,     // not used if DUAL is 0
-	input   [7:0] pot_y_r,     // not used if DUAL is 0
-	input  [17:0] ext_in_r,    // not used if DUAL is 0
-	output [17:0] audio_r,
+	input wire [12:0] fc_offset_r, // not used if DUAL is 0
+	input wire [7:0]  pot_x_r,     // not used if DUAL is 0
+	input wire [7:0]  pot_y_r,     // not used if DUAL is 0
+	input wire [17:0] ext_in_r,    // not used if DUAL is 0
+	output wire [17:0] audio_r,
 
-	input [N-1:0] filter_en,
-	input [N-1:0] mode,
-	input [(N*2)-1:0] cfg,
+	input wire [N-1:0] filter_en,
+	input wire [N-1:0] mode,
+	input wire [(N*2)-1:0] cfg,
 
-	input         ld_clk,
-	input  [11:0] ld_addr,
-	input  [15:0] ld_data,
-	input         ld_wr
+	input wire       ld_clk,
+	input wire [11:0] ld_addr,
+	input wire [15:0] ld_data,
+	input wire       ld_wr
 );
 
 localparam N = DUAL ? 2 : 1;
@@ -74,10 +74,10 @@ wire        voice_1_PA_MSB[N];
 wire        voice_2_PA_MSB[N];
 wire        voice_3_PA_MSB[N];
 
-wire  [7:0] _st_out[N*3];
-wire  [7:0] p_t_out[N*3];
-wire  [7:0] ps__out[N*3];
-wire  [7:0] pst_out[N*3];
+reg   [7:0] _st_out[N*3];
+reg   [7:0] p_t_out[N*3];
+reg   [7:0] ps__out[N*3];
+reg   [7:0] pst_out[N*3];
 wire [11:0] acc_t[N*3];
 
 reg  [17:0] audio[N];

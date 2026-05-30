@@ -1,13 +1,13 @@
 
 module sid_envelope
 (
-	input            clock,
-	input            ce_1m,
+	input wire       clock,
+	input wire       ce_1m,
 
-	input            reset,
-	input            gate,
-	input     [ 7:0] att_dec,
-	input     [ 7:0] sus_rel,
+	input wire       reset,
+	input wire       gate,
+	input wire [7:0] att_dec,
+	input wire [7:0] sus_rel,
 
 	output reg [7:0] envelope
 );

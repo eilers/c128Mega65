@@ -19,25 +19,25 @@
 
 module sid_filter
 (
-	input               clk,
-	input         [2:0] state,
-	input               mode,
+	input wire              clk,
+	input wire [2:0]        state,
+	input wire              mode,
 
-	input        [15:0] F0,
-	input         [7:0] Res_Filt,
-	input         [7:0] Mode_Vol,
-	input signed [21:0] voice1,
-	input signed [21:0] voice2,
-	input signed [21:0] voice3,
-	input signed [21:0] ext_in,
+	input wire [15:0]       F0,
+	input wire [7:0]        Res_Filt,
+	input wire [7:0]        Mode_Vol,
+	input wire signed [21:0] voice1,
+	input wire signed [21:0] voice2,
+	input wire signed [21:0] voice3,
+	input wire signed [21:0] ext_in,
 
-	output       [17:0] audio
+	output wire [17:0]      audio
 );
 
 localparam signed [23:0] MIXER_DC_6581 = 24'((-1 << 20)/18);
 
 // Clamp to 16 bits.
-function signed [15:0] clamp(wire signed [16:0] x);
+function signed [15:0] clamp(input signed [16:0] x);
 	clamp = ^x[16:15] ? {x[16], {15{x[15]}}} : x[15:0];
 endfunction
 

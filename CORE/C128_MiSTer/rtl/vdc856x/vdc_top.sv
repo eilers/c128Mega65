@@ -23,7 +23,7 @@ module vdc_top #(
 	input          rs,        // register select
 	input          we,        // write enable
 	input    [7:0] db_in,     // data in
-	output   [7:0] db_out,    // data out
+	output reg [7:0] db_out,  // data out
 
 	input          lp_n,      // light pen
 

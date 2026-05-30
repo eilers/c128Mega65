@@ -44,10 +44,10 @@ module vdc_ramiface #(
 	input    [2:0] reg_cb,    // character start address
 	input    [3:0] reg_drr,   // dynamic refresh count
 
-	output  [15:0] reg_ua,    // update address
-	output   [7:0] reg_wc,    // word count
-	output   [7:0] reg_da,    // data
-	output  [15:0] reg_ba,    // block start address
+	output reg [15:0] reg_ua,    // update address
+	output reg  [7:0] reg_wc,    // word count
+	output reg  [7:0] reg_da,    // data
+	output reg [15:0] reg_ba,    // block start address
 
 	input          fetchFrame,
 	input          fetchLine,
@@ -58,11 +58,11 @@ module vdc_ramiface #(
 	input    [7:0] col,
 	input    [4:0] line,
 
-	output    wire busy,
-	output         rowbuf,                     // buffer containing current screen info
-	output   [7:0] attrbuf[2][S_LATCH_WIDTH],  // latch for attributes for current and next row
-	output   [7:0] charbuf[C_LATCH_WIDTH],     // character data for current col
-	output  [15:0] dispaddr
+	output reg        busy,
+	output reg        rowbuf,                     // buffer containing current screen info
+	output reg  [7:0] attrbuf[2][S_LATCH_WIDTH],  // latch for attributes for current and next row
+	output reg  [7:0] charbuf[C_LATCH_WIDTH],     // character data for current col
+	output reg [15:0] dispaddr
 );
 
 reg [7:0] scrnbuf[2][S_LATCH_WIDTH];  // screen codes for current and next row

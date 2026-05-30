@@ -66,7 +66,7 @@ signal addr_l : unsigned(15 downto 0);
 
 begin
 
-cpu: work.T80pa
+cpu: entity work.T80pa
 port map (
 	RESET_n => not reset,
 	CLK => clk,

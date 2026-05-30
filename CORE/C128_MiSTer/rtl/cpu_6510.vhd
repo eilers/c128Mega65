@@ -58,7 +58,7 @@ architecture rtl of cpu_6510 is
 	signal accessIO : std_logic;
 begin
 
-	cpu: work.T65
+	cpu: entity work.T65
 	port map(
 		Mode    => "00",
 		Res_n   => not reset,

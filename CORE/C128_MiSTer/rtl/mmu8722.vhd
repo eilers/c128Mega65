@@ -185,7 +185,7 @@ begin
 	page <= addr(15 downto 8);
 	commonPage <= page and commonPageMask;
 	cpuMask <= "00" when (reg_commonH = '1' and commonPage = commonPageMask) or (reg_commonL = '1' and commonPage = "00000000") else systemMask;
-	crBank <= "00" & reg_cr(7 downto 6) and cpuMask;
+	crBank <= unsigned("00" & std_logic_vector(reg_cr(7 downto 6) and cpuMask));
 
 	vicBank <= reg_vicbank and systemMask;
 
