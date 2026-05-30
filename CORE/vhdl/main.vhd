@@ -126,6 +126,9 @@ signal vdc_vs            : std_logic;
 signal vdc_r             : unsigned(7 downto 0);
 signal vdc_g             : unsigned(7 downto 0);
 signal vdc_b             : unsigned(7 downto 0);
+signal vic_r             : unsigned(7 downto 0);
+signal vic_g             : unsigned(7 downto 0);
+signal vic_b             : unsigned(7 downto 0);
 
 -- RESET SEMANTICS
 --
@@ -206,7 +209,7 @@ prevent_reset <= '0'; -- when unsigned(cache_dirty) = 0 else '1';
 
 -- the color of the drive led is green normally, but it turns yellow
 -- when the cache is dirty and/or currently being flushed
-drive_led_col_o <= x"00FF00" when unsigned(cache_dirty) = 0 else
+drive_led_col_o <= x"00FF00" when cache_dirty = '0' else
                    x"FFFF00";
 
 -- the drive led is on if either the C128 is writing to the virtual disk (cached in RAM)
@@ -216,6 +219,9 @@ video_ce_o <= '1';
 video_ce_ovl_o <= '1';
 video_hblank_o <= '0';
 video_vblank_o <= '0';
+video_red_o <= std_logic_vector(vic_r);
+video_green_o <= std_logic_vector(vic_g);
+video_blue_o <= std_logic_vector(vic_b);
 cart_reset_o <= not reset_core_n;
 cart_roml_o <= core_roml;
 cart_romh_o <= core_romh;
@@ -384,9 +390,9 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vicJailbars   => "00",      -- disable jailbars
       vicHsync      => video_hs_o,
       vicVsync      => video_vs_o,
-      vicR          => video_red_o,
-      vicG          => video_green_o,
-      vicB          => video_blue_o,
+      vicR          => vic_r,
+      vicG          => vic_g,
+      vicB          => vic_b,
 
       -- TODO: Add VDC support
       vdcHsync      => vdc_hs,

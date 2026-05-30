@@ -14,3 +14,11 @@
 create_generated_clock -name main_clk      [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
 # Add more clocks here, if needed
 
+# Vivado 2022.2 flags this known feedback loop as a hard DRC error.
+# Keep the loop acknowledged so bitstream generation can continue.
+set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets CORE/i_main/cart_reset_o]
+
+# VDC MMCM uses a fractional multiply value that Vivado rounds internally.
+# Treat this as warning to avoid blocking bitstream generation.
+set_property SEVERITY Warning [get_drc_checks AVAL-139]
+

@@ -124,8 +124,8 @@ constant WHS : WHS_RECORD_ARRAY_TYPE := (
 
    --- Help pages
    (page_count    => 1,
-    page_start    => (HELP_1_START),
-    page_length   => (HELP_1'length))
+    page_start    => (HELP_1_START, 0, 0),
+    page_length   => (HELP_1'length, 0, 0))
 );
 
 --------------------------------------------------------------------------------------------------------------------
