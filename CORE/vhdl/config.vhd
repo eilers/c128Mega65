@@ -76,38 +76,31 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 constant SCR_WELCOME : string :=
 
-   "\n Commodore 128 for MEGA65 Version 0.1\n\n" &
-   "MiSTer port done by Stefan Eilers in 2024\n\n" &
+   "\n Commodore 128 for MEGA65\n\n" &
+   "Work-in-progress R6 integration build.\n\n" &
 
    -- We are not insisting. But it would be nice if you gave us credit for MiSTer2MEGA65 by leaving these lines in
-   "Powered by MiSTer2MEGA65 Version [WIP],\n" &
+   "Powered by MiSTer2MEGA65,\n" &
    "done by sy2002 and MJoergen in 2022\n" &
 
-   "\n\nEdit config.vhd to modify welcome screen.\n\ n" &
-   "You can for example show the keyboard map.\n" &
-   "Look at this example for the Demo core:\n\n\n" &
+   "\nROM files required on SD card:\n" &
+   "/c128/boot0.rom and /c128/boot1.rom\n\n" &
+   "Press Help for options.\n\n\n" &
 
 
    "\n\n    Press Space to continue.\n\n\n";
 
 constant HELP_1 : string :=
 
-   "\nCommodore 128 for MEGA65 Version 0.1\n\n" & 
-   " MiSTer port done by Stefan Eilers in 2024\n\n" &
-   " Powered by MiSTer2MEGA65\n\n\n" &
-
-   " Lorem ipsum dolor sit amet, consetetur\n" &
-   " sadipscing elitr, sed diam nonumy eirmod\n" &
-   " Mpor invidunt ut labore et dolore magna\n" &
-   " aliquyam erat, sed diam voluptua. At vero\n" &
-   " eos et accusam et justo duo.\n\n" &
-
-   " Dolores et ea rebum. Stet clita kasd gube\n" &
-   " gren, no sea takimata sanctus est Lorem ip\n" &
-   " Sed diam nonumy eirmod tempor invidunt ut\n" &
-   " labore et dolore magna aliquyam era\n\n" &
-
-   " Cursor right to learn more.       (1 of 3)\n" &
+   "\nCommodore 128 for MEGA65\n\n" &
+   "Current integration status:\n" &
+   "- MiSTer C128 machine wrapper connected\n" &
+   "- System RAM + ROM devices connected\n" &
+   "- IEC and cartridge pin plumbing in progress\n\n" &
+   "Required SD files:\n" &
+   "  /c128/boot0.rom\n" &
+   "  /c128/boot1.rom\n\n" &
+   "Use Help menu to mount images and tune video.\n\n" &
    " Press Space to close the help screen.";
 
 
@@ -225,7 +218,7 @@ constant SEL_CORENAME      : std_logic_vector(15 downto 0) := x"0200";
 
 -- Currently this is only used in the debug console. Use the welcome screen and the
 -- help system to display the name and version of your core to the end user
-constant CORENAME          : string := "M2M DEMO CORE V1.0";
+constant CORENAME          : string := "C128MEGA65 R6 WIP";
 
 --------------------------------------------------------------------------------------------------------------------
 -- "Help" menu / Options menu  (Selectors 0x0300 .. 0x0312): DO NOT TOUCH

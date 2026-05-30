@@ -55,10 +55,34 @@ entity main is
      ram_data_o               : out unsigned(7 downto 0);     -- RAM data out
      ram_we_o                 : out std_logic;                -- RAM write enable
      ram_data_i               : in unsigned(7 downto 0);      -- RAM data in
+      sys_rom_addr_o           : out std_logic_vector(16 downto 0);
+      sys_rom_data_i           : in  std_logic_vector(7 downto 0);
 
       -- C64 Expansion Port (aka Cartridge Port)
       cart_reset_i           : in  std_logic;
       cart_reset_o           : out std_logic;
+      cart_dma_i             : in  std_logic;
+      cart_game_i            : in  std_logic;
+      cart_exrom_i           : in  std_logic;
+      cart_nmi_i             : in  std_logic;
+      cart_irq_i             : in  std_logic;
+      cart_game_o            : out std_logic;
+      cart_exrom_o           : out std_logic;
+      cart_nmi_o             : out std_logic;
+      cart_irq_o             : out std_logic;
+      cart_roml_o            : out std_logic;
+      cart_romh_o            : out std_logic;
+      cart_io1_o             : out std_logic;
+      cart_io2_o             : out std_logic;
+
+      -- IEC serial bus interface to MEGA65 pins (active low at top level)
+      iec_atn_n_o            : out std_logic;
+      iec_clk_n_o            : out std_logic;
+      iec_clk_n_i            : in  std_logic;
+      iec_data_n_o           : out std_logic;
+      iec_data_n_i           : in  std_logic;
+      iec_srq_n_o            : out std_logic;
+      iec_srq_n_i            : in  std_logic;
 
       -- M2M Keyboard interface
       kb_key_num_i            : in  integer range 0 to 79;    -- cycles through all MEGA65 keys
@@ -90,6 +114,18 @@ architecture synthesis of main is
 signal ram_ce   : std_logic;
 signal ram_we   : std_logic;
 signal ram_data : unsigned(7 downto 0);
+signal sysrom_cs         : std_logic;
+signal sysrom_bank       : unsigned(4 downto 0);
+signal sysrom_data       : unsigned(7 downto 0);
+signal joy_a             : std_logic_vector(6 downto 0);
+signal joy_b             : std_logic_vector(6 downto 0);
+signal sid_audio_l       : std_logic_vector(17 downto 0);
+signal sid_audio_r       : std_logic_vector(17 downto 0);
+signal vdc_hs            : std_logic;
+signal vdc_vs            : std_logic;
+signal vdc_r             : unsigned(7 downto 0);
+signal vdc_g             : unsigned(7 downto 0);
+signal vdc_b             : unsigned(7 downto 0);
 
 -- RESET SEMANTICS
 --
@@ -139,32 +175,11 @@ signal core_roml            : std_logic;
 signal core_romh            : std_logic;
 signal core_ioe             : std_logic;
 signal core_iof             : std_logic;
-signal core_nmi_n           : std_logic;
 signal core_nmi_ack         : std_logic;
-signal core_irq_n           : std_logic;
-signal core_dma             : std_logic;
-signal core_exrom_n         : std_logic;
-signal core_game_n          : std_logic;
 signal core_umax_romh       : std_logic;
 signal core_io_rom          : std_logic;
 signal core_io_ext          : std_logic;
 signal core_io_data         : unsigned(7 downto 0);
-signal core_dotclk          : std_logic;
-signal core_phi2            : std_logic;
-signal core_phi2_prev       : std_logic;
-signal cartridge_bank_raddr : std_logic_vector(24 downto 0);
-
--- Hardware Expansion Port (aka Cartridge Port)
-signal cart_roml_n    : std_logic;
-signal cart_romh_n    : std_logic;
-signal cart_io1_n     : std_logic;
-signal cart_io2_n     : std_logic;
-signal cart_nmi_n     : std_logic;
-signal cart_irq_n     : std_logic;
-signal cart_dma_n     : std_logic;
-signal cart_exrom_n   : std_logic;
-signal cart_game_n    : std_logic;
-signal data_from_cart : unsigned(7 downto 0);
 
 -- Hardware Expansion Port: Handle specifics of certain cartridges
 constant C_EF3_RESET_LEN : natural := 7; -- measured in phi2 cycles
@@ -197,6 +212,19 @@ drive_led_col_o <= x"00FF00" when unsigned(cache_dirty) = 0 else
 -- the drive led is on if either the C128 is writing to the virtual disk (cached in RAM)
 -- or if the dirty cache is dirty and/orcurrently being flushed
 drive_led_o <= '1';
+video_ce_o <= '1';
+video_ce_ovl_o <= '1';
+video_hblank_o <= '0';
+video_vblank_o <= '0';
+cart_reset_o <= not reset_core_n;
+cart_roml_o <= core_roml;
+cart_romh_o <= core_romh;
+cart_io1_o <= core_ioe;
+cart_io2_o <= core_iof;
+cart_game_o <= '1';
+cart_exrom_o <= '1';
+cart_nmi_o <= not core_nmi_ack;
+cart_irq_o <= '1';
 
 
 --------------------------------------------------------------------------------------------------
@@ -276,6 +304,9 @@ cpu_data_in_proc: process (all)
     -- MiSTer core is not supporting this.
     if hard_reset_n = '0' and ram_addr_o(15 downto 12) = x"8" and cold_start_done = '1' then
       ram_data <= x"00";
+    -- C128 system ROM bank access: each bank is 4 KiB.
+    elsif sysrom_cs = '1' then
+      ram_data <= sysrom_data;
     -- TODO: Add REU support
     -- Standard access to the C64's RAM
     else
@@ -286,6 +317,14 @@ cpu_data_in_proc: process (all)
 
 -- RAM write enable also needs to check for chip enable
 ram_we_o <= ram_ce and ram_we;
+sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(ram_addr_o(11 downto 0));
+sysrom_data <= unsigned(sys_rom_data_i);
+joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
+         (not joy_1_down_n_i) & (not joy_1_up_n_i) & '0';
+joy_b <= '0' & (not joy_2_fire_n_i) & (not joy_2_right_n_i) & (not joy_2_left_n_i) &
+         (not joy_2_down_n_i) & (not joy_2_up_n_i) & '0';
+audio_left_o <= signed(sid_audio_l(17 downto 2));
+audio_right_o <= signed(sid_audio_r(17 downto 2));
 
 --------------------------------------------------------------------------------------------------
 -- MiSTer Commodore 64 core / main machine
@@ -300,25 +339,24 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- TODO: Remove PS2 Support from the core
       ps2_key       => (others => '0'),
       kbd_reset     => '1',
-      shift_mod     => '0',
+      shift_mod     => "00",
       azerty        => '0',
       cpslk_mode    => '0',
-      sftlk_sense   => '0',
-      cpslk_sense   => '0',
-      d4080_sense   => open,  -- TODO: 40/80 column mode sense. 
+      sftlk_sense   => open,
+      cpslk_sense   => open,
+      d4080_sense   => open,
       -- keyboard interface: directly connect the CIA1
       -- cia1_pa_i     => cia1_pa_in,
       -- cia1_pa_o     => cia1_pa_out,
       -- cia1_pb_i     => cia1_pb_in,
       -- cia1_pb_o     => cia1_pb_out,
 
-      noscr_sense  => '0',  -- Add this line: '0' for normal screen mode
+      noscr_sense  => open,
       go64         => '0',  -- Add this line: '0' for C128 mode
 
-      -- Select C128's ROMs
-      -- TODO: IMPORTANT FIXME NOW!!
-      sysRom        => open,      -- chip select for system ROM
-      sysRomBank    => open,      -- select bank for system ROM
+      -- Select C128's system ROM banks (boot0.rom)
+      sysRom        => sysrom_cs,
+      sysRomBank    => sysrom_bank,
 
       pause         => pause_i,
       pause_out     => open,      -- unused
@@ -335,15 +373,15 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ext_cycle     => open, -- 1 when a DMA access is happening (REU).
       refresh       => open, -- 1 when a refresh cycle is happening (Not relevant for us)
 
-      cia_mode      => "01",  -- 0 - 6526 "old", 1 - 8521 "new"
-      turbo_mode    => "00",
+      cia_mode      => '1',  -- 0 - 6526 "old", 1 - 8521 "new"
+      turbo_mode    => "000",
 
       -- VGA/SCART interface
       -- The hsync frequency is 15.64 kHz (period 63.94 us).
       -- The hsync pulse width is 12.69 us.
       ntscMode      => '0',
       vic_variant   => "00",     -- Add this line: "00" for 6569 (PAL-B)
-      vicJailbars   => '0',      -- Add this line: '0' to disable jailbars
+      vicJailbars   => "00",      -- disable jailbars
       vicHsync      => video_hs_o,
       vicVsync      => video_vs_o,
       vicR          => video_red_o,
@@ -351,28 +389,28 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vicB          => video_blue_o,
 
       -- TODO: Add VDC support
-      vdcHsync      => open,     -- Add this line: VDC hsync output
-      vdcVsync      => open,     -- Add this line: VDC vsync output
-      vdcR          => open,     -- Add this line: VDC red output
-      vdcG          => open,     -- Add this line: VDC green output
-      vdcB          => open,     -- Add this line: VDC blue output
-      vdcVersion    => open,
-      vdc64k        => open,
-      vdcInitRam    => open,
-      vdcPalette    => open,
-      vdcDebug      => open,
+      vdcHsync      => vdc_hs,
+      vdcVsync      => vdc_vs,
+      vdcR          => vdc_r,
+      vdcG          => vdc_g,
+      vdcB          => vdc_b,
+      vdcVersion    => '0',
+      vdc64k        => '1',
+      vdcInitRam    => '0',
+      vdcPalette    => "0000",
+      vdcDebug      => '0',
 
       -- cartridge port
       -- TODO: Add cartridge support
-      game          => core_game_n,    -- input: low active
+      game          => cart_game_i,    -- input: low active
       game_mmu      => open,           -- output: 
-      exrom         => core_exrom_n,   -- input: low active
+      exrom         => cart_exrom_i,   -- input: low active
       exrom_mmu     => open,           -- output
       io_rom        => core_io_rom,    -- input
       io_ext        => core_io_ext,    -- input
       io_data       => core_io_data,   -- input
-      irq_n         => core_irq_n,     -- input: low active
-      nmi_n         => core_nmi_n,     -- input
+      irq_n         => cart_irq_i,     -- input: low active
+      nmi_n         => cart_nmi_i,     -- input
       nmi_ack       => core_nmi_ack,   -- output
       romFL         => open,           -- output
       romFH         => open,           -- output
@@ -386,7 +424,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       tape_play   => open,
       
       -- dma access
-      dma_req       => '0',
+      dma_req       => cart_dma_i,
       dma_cycle     => open,
       dma_addr      => open,
       dma_dout      => open,
@@ -404,18 +442,18 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- Joystick ports
       -- TODO: See removal of the ps2_key and kbd_reset signals. 
       -- The C64 core added a keyboard controller.
-      joyA          => open,
-      joyB          => open,
+      joyA          => joy_a,
+      joyB          => joy_b,
 
       -- SID
-      audio_l       => open,
-      audio_r       => open,
+      audio_l       => sid_audio_l,
+      audio_r       => sid_audio_r,
       sid_filter    => "11",           -- filter enable = true for both SIDs, low bit = left SID
       sid_ver       => "01",           -- SID version, 0=6581, 1=8580, low bit = left SID
-      sid_mode      => "00",           -- Right SID Port: 0=same as left, 1=DE00, 2=D420, 3=D500, 4=DF00
+      sid_mode      => "000",          -- Right SID Port: 0=same as left, 1=DE00, 2=D420, 3=D500, 4=DF00
       sid_cfg       => "0000",         -- filter type: 0=Default, 1=Custom 1, 2=Custom 2, 3=Custom 3, lower two bits = left SID
-      sid_fc_off_l  => '0',           
-      sid_fc_off_r  => '0',           
+      sid_fc_off_l  => (others => '0'),
+      sid_fc_off_r  => (others => '0'),
       sid_digifix   => '0',           
       -- mechanism for loading custom SID filters
       sid_ld_clk    => '0',
@@ -442,19 +480,19 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
 
       -- IEC
       -- TODO: Add IEC support
-      iec_srq_n_o   => open,
-      iec_srq_n_i   => '1',
-      iec_clk_i     => '1',
-      iec_clk_o     => open,
-      iec_atn_o     => open,
-      iec_data_i    => '1',
-      iec_data_o    => open,
+      iec_srq_n_o   => iec_srq_n_o,
+      iec_srq_n_i   => iec_srq_n_i,
+      iec_clk_i     => iec_clk_n_i,
+      iec_clk_o     => iec_clk_n_o,
+      iec_atn_o     => iec_atn_n_o,
+      iec_data_i    => iec_data_n_i,
+      iec_data_o    => iec_data_n_o,
 
       -- Cassette drive
       cass_write    => open,     -- output
       cass_motor    => open,     -- output
-      cass_sense    => open,     -- input
-      cass_read     => open,     -- default is '1' according to MiSTer's c1530.vhd
+      cass_sense    => '1',
+      cass_read     => '1',
 
       -- D7xx port
       d7port        => open,
@@ -462,8 +500,8 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
 
       -- System mode
       sys256k       => '0', -- We have 128k memory
-      force64       => '1', -- TODO: We will start running the 64 mode first
-      pure64        => '1', -- TODO: We will start running the 64 mode first
+      force64       => '0',
+      pure64        => '0',
       d4080_sel     => '0', -- TODO: Force to 40 column mode
       c128_n        => open,
       z80_n         => open

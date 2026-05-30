@@ -235,9 +235,24 @@ signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
 -- QNICE clock domain
 
 signal qnice_c64_ramx_we   : std_logic;
-signal qnice_c64_ramx_addr   : std_logic_vector(15 downto 0);
+signal qnice_c64_ramx_addr   : std_logic_vector(17 downto 0);
 signal qnice_c64_ramx_d_to   : std_logic_vector(7 downto 0);
 signal qnice_c64_ramx_d_from : std_logic_vector(7 downto 0);
+signal qnice_sysrom_we       : std_logic;
+signal qnice_sysrom_addr     : std_logic_vector(16 downto 0);
+signal qnice_sysrom_d_to     : std_logic_vector(7 downto 0);
+signal qnice_sysrom_d_from   : std_logic_vector(7 downto 0);
+signal qnice_drvrom_we       : std_logic;
+signal qnice_drvrom_addr     : std_logic_vector(18 downto 0);
+signal qnice_drvrom_d_to     : std_logic_vector(7 downto 0);
+signal qnice_drvrom_d_from   : std_logic_vector(7 downto 0);
+signal main_ram_addr         : unsigned(17 downto 0);
+signal main_ram_data_to      : unsigned(7 downto 0);
+signal main_ram_we           : std_logic;
+signal main_ram_data_from    : unsigned(7 downto 0);
+signal main_ram_q            : std_logic_vector(7 downto 0);
+signal main_sysrom_addr      : std_logic_vector(16 downto 0);
+signal main_sysrom_data      : std_logic_vector(7 downto 0);
 
 
 begin
@@ -254,30 +269,25 @@ begin
    cart_ctrl_oe_o       <= '0';
    cart_addr_oe_o       <= '0';
    cart_data_oe_o       <= '0';
-   cart_en_o            <= '0'; -- Disable port
+   cart_en_o            <= '1'; -- Enable expansion port
 
-   cart_reset_oe_o      <= '0';
+   cart_reset_oe_o      <= '1';
    cart_game_oe_o       <= '0';
    cart_exrom_oe_o      <= '0';
    cart_nmi_oe_o        <= '0';
    cart_irq_oe_o        <= '0';
-   cart_roml_oe_o       <= '0';
-   cart_romh_oe_o       <= '0';
+   cart_roml_oe_o       <= '1';
+   cart_romh_oe_o       <= '1';
+   iec_reset_n_o        <= '1';
+   iec_clk_en_o         <= '1';
+   iec_data_en_o        <= '1';
+   iec_srq_en_o         <= '1';
 
    -- Default values for all signals
    cart_phi2_o          <= '0';
-   cart_reset_o         <= '1';
    cart_dotclock_o      <= '0';
-   cart_game_o          <= '1';
-   cart_exrom_o         <= '1';
-   cart_nmi_o           <= '1';
-   cart_irq_o           <= '1';
-   cart_roml_o          <= '0';
-   cart_romh_o          <= '0';
    cart_ba_o            <= '0';
    cart_rw_o            <= '0';
-   cart_io1_o           <= '0';
-   cart_io2_o           <= '0';
    cart_a_o             <= (others => '0');
    cart_d_o             <= (others => '0');
 
@@ -382,54 +392,36 @@ begin
          pot2_y_i             => main_pot2_y_i,
 
          -- Add RAM interface
-         ram_addr_o           => open,
-         ram_data_o           => open,
-         ram_we_o             => open,
-         ram_data_i           => x"00",
+         ram_addr_o           => main_ram_addr,
+         ram_data_o           => main_ram_data_to,
+         ram_we_o             => main_ram_we,
+         ram_data_i           => main_ram_data_from,
+         sys_rom_addr_o       => main_sysrom_addr,
+         sys_rom_data_i       => main_sysrom_data,
 
          -- C64 Expansion Port (aka Cartridge Port)
          cart_reset_i         => cart_reset_i, 
          cart_reset_o         => cart_reset_o,
-         cart_en_o            => cart_en_o,
-         cart_phi2_o          => cart_phi2_o,
-         cart_dotclock_o      => cart_dotclock_o,
          cart_dma_i           => cart_dma_i,
-         cart_reset_oe_o      => cart_reset_oe_o,
-         cart_reset_i         => cart_reset_i,
-         cart_reset_o         => cart_reset_o,
-         cart_game_oe_o       => cart_game_oe_o,
          cart_game_i          => cart_game_i,
-         cart_game_o          => cart_game_o,
-         cart_exrom_oe_o      => cart_exrom_oe_o,
          cart_exrom_i         => cart_exrom_i,
-         cart_exrom_o         => cart_exrom_o,
-         cart_nmi_oe_o        => cart_nmi_oe_o,
          cart_nmi_i           => cart_nmi_i,
-         cart_nmi_o           => cart_nmi_o,
-         cart_irq_oe_o        => cart_irq_oe_o,
          cart_irq_i           => cart_irq_i,
+         cart_game_o          => cart_game_o,
+         cart_exrom_o         => cart_exrom_o,
+         cart_nmi_o           => cart_nmi_o,
          cart_irq_o           => cart_irq_o,
-         cart_roml_oe_o       => cart_roml_oe_o,
-         cart_roml_i          => cart_roml_i,
          cart_roml_o          => cart_roml_o,
-         cart_romh_oe_o       => cart_romh_oe_o,
-         cart_romh_i          => cart_romh_i,
          cart_romh_o          => cart_romh_o,
-         cart_ctrl_oe_o       => cart_ctrl_oe_o,
-         cart_ba_i            => cart_ba_i,
-         cart_rw_i            => cart_rw_i,
-         cart_io1_i           => cart_io1_i,
-         cart_io2_i           => cart_io2_i,
-         cart_ba_o            => cart_ba_o,
-         cart_rw_o            => cart_rw_o,
          cart_io1_o           => cart_io1_o,
          cart_io2_o           => cart_io2_o,
-         cart_addr_oe_o       => cart_addr_oe_o,
-         cart_a_i             => cart_a_i,
-         cart_a_o             => cart_a_o,
-         cart_data_oe_o       => cart_data_oe_o,
-         cart_d_i             => cart_d_i,
-         cart_d_o             => cart_d_o
+         iec_atn_n_o          => iec_atn_n_o,
+         iec_clk_n_o          => iec_clk_n_o,
+         iec_clk_n_i          => iec_clk_n_i,
+         iec_data_n_o         => iec_data_n_o,
+         iec_data_n_i         => iec_data_n_i,
+         iec_srq_n_o          => iec_srq_n_o,
+         iec_srq_n_i          => iec_srq_n_i
       ); -- i_main
 
    ---------------------------------------------------------------------------------------------
@@ -493,14 +485,30 @@ begin
       qnice_c64_ramx_addr  <= (others => '0');
       qnice_c64_ramx_d_to  <= (others => '0');
       qnice_c64_ramx_we    <= '0';
+      qnice_sysrom_addr    <= (others => '0');
+      qnice_sysrom_d_to    <= (others => '0');
+      qnice_sysrom_we      <= '0';
+      qnice_drvrom_addr    <= (others => '0');
+      qnice_drvrom_d_to    <= (others => '0');
+      qnice_drvrom_we      <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
         when C_DEV_RAM => 
-            qnice_c64_ramx_addr <= qnice_dev_addr_i(15 downto 0);
+            qnice_c64_ramx_addr <= qnice_dev_addr_i(17 downto 0);
             qnice_c64_ramx_we   <= qnice_dev_we_i;
             qnice_c64_ramx_d_to <= qnice_dev_data_i(7 downto 0);
             qnice_dev_data_o    <= x"00" & qnice_c64_ramx_d_from;
+        when C_DEV_SYSTEM_ROM =>
+            qnice_sysrom_addr <= qnice_dev_addr_i(16 downto 0);
+            qnice_sysrom_we   <= qnice_dev_we_i;
+            qnice_sysrom_d_to <= qnice_dev_data_i(7 downto 0);
+            qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
+        when C_DEV_DRIVE_ROM =>
+            qnice_drvrom_addr <= qnice_dev_addr_i(18 downto 0);
+            qnice_drvrom_we   <= qnice_dev_we_i;
+            qnice_drvrom_d_to <= qnice_dev_data_i(7 downto 0);
+            qnice_dev_data_o  <= x"00" & qnice_drvrom_d_from;
 
          when others => null;
       end case;
@@ -515,68 +523,71 @@ begin
    -- Use the M2M framework's official RAM/ROM: dualport_2clk_ram
    -- and make sure that the you configure the port that works with QNICE as a falling edge
    -- by setting G_FALLING_A or G_FALLING_B (depending on which port you use) to true.
-
-   ---------------------------------------------------------------------------------------
-   -- Virtual drive handler
-   --
-   -- Only added for demo-purposes at this place, so that we can demonstrate the
-   -- firmware's ability to browse files and folders. It is very likely, that the
-   -- virtual drive handler needs to be placed somewhere else, for example inside
-   -- main.vhd. We advise to delete this before starting to port a core and re-adding
-   -- it later (and at the right place), if and when needed.
-   ---------------------------------------------------------------------------------------
-
-   -- @TODO:
-   -- a) In case that this is handled in main.vhd, you need to add the appropriate ports to i_main
-   -- b) You might want to change the drive led's color (just like the C64 core does) as long as
-   --    the cache is dirty (i.e. as long as the write process is not finished, yet)
-   main_drive_led_o     <= '0';
-   main_drive_led_col_o <= x"00FF00";  -- 24-bit RGB value for the led
-
-   i_vdrives : entity work.vdrives
+   i_main_ram : entity work.dualport_2clk_ram
       generic map (
-         VDNUM       => C_VDNUM
+         ADDR_WIDTH => 18,
+         DATA_WIDTH => 8,
+         FALLING_A  => true
       )
-      port map
-      (
-         clk_qnice_i       => qnice_clk_i,
-         clk_core_i        => main_clk_o,
-         reset_core_i      => main_reset_core_i,
+      port map (
+         clock_a         => qnice_clk_i,
+         address_a       => qnice_c64_ramx_addr(17 downto 0),
+         do_latch_addr_a => '0',
+         data_a          => qnice_c64_ramx_d_to,
+         wren_a          => qnice_c64_ramx_we,
+         q_a             => qnice_c64_ramx_d_from,
+         clock_b         => main_clk_o,
+         address_b       => std_logic_vector(main_ram_addr),
+         do_latch_addr_b => '0',
+         data_b          => std_logic_vector(main_ram_data_to),
+         wren_b          => main_ram_we,
+         q_b             => main_ram_q
+      );
 
-         -- Core clock domain
-         img_mounted_o     => open,
-         img_readonly_o    => open,
-         img_size_o        => open,
-         img_type_o        => open,
-         drive_mounted_o   => open,
+   main_ram_data_from <= unsigned(main_ram_q);
 
-         -- Cache output signals: The dirty flags can be used to enforce data consistency
-         -- (for example by ignoring/delaying a reset or delaying a drive unmount/mount, etc.)
-         -- The flushing flags can be used to signal the fact that the caches are currently
-         -- flushing to the user, for example using a special color/signal for example
-         -- at the drive led
-         cache_dirty_o     => open,
-         cache_flushing_o  => open,
+   i_system_rom : entity work.dualport_2clk_ram
+      generic map (
+         ADDR_WIDTH => 17,
+         DATA_WIDTH => 8,
+         FALLING_A  => true
+      )
+      port map (
+         clock_a         => qnice_clk_i,
+         address_a       => qnice_sysrom_addr,
+         do_latch_addr_a => '0',
+         data_a          => qnice_sysrom_d_to,
+         wren_a          => qnice_sysrom_we,
+         q_a             => qnice_sysrom_d_from,
+         clock_b         => main_clk_o,
+         address_b       => main_sysrom_addr,
+         do_latch_addr_b => '0',
+         data_b          => (others => '0'),
+         wren_b          => '0',
+         q_b             => main_sysrom_data
+      );
 
-         -- QNICE clock domain
-         sd_lba_i          => (others => (others => '0')),
-         sd_blk_cnt_i      => (others => (others => '0')),
-         sd_rd_i           => (others => '0'),
-         sd_wr_i           => (others => '0'),
-         sd_ack_o          => open,
+   i_drive_rom : entity work.dualport_2clk_ram
+      generic map (
+         ADDR_WIDTH => 19,
+         DATA_WIDTH => 8,
+         FALLING_A  => true
+      )
+      port map (
+         clock_a         => qnice_clk_i,
+         address_a       => qnice_drvrom_addr,
+         do_latch_addr_a => '0',
+         data_a          => qnice_drvrom_d_to,
+         wren_a          => qnice_drvrom_we,
+         q_a             => qnice_drvrom_d_from,
+         clock_b         => main_clk_o,
+         address_b       => (others => '0'),
+         do_latch_addr_b => '0',
+         data_b          => (others => '0'),
+         wren_b          => '0',
+         q_b             => open
+      );
 
-         sd_buff_addr_o    => open,
-         sd_buff_dout_o    => open,
-         sd_buff_din_i     => (others => (others => '0')),
-         sd_buff_wr_o      => open,
-
-         -- QNICE interface (MMIO, 4k-segmented)
-         -- qnice_addr is 28-bit because we have a 16-bit window selector and a 4k window: 65536*4096 = 268.435.456 = 2^28
-         qnice_addr_i      => qnice_dev_addr_i,
-         qnice_data_i      => qnice_dev_data_i,
-         qnice_data_o      => qnice_demo_vd_data_o,
-         qnice_ce_i        => qnice_demo_vd_ce,
-         qnice_we_i        => qnice_demo_vd_we
-      ); -- i_vdrives
+   main_drive_led_col_o <= x"00FF00";
 
 end architecture synthesis;
