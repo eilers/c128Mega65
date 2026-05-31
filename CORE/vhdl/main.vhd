@@ -129,6 +129,11 @@ signal vdc_b             : unsigned(7 downto 0);
 signal vic_r             : unsigned(7 downto 0);
 signal vic_g             : unsigned(7 downto 0);
 signal vic_b             : unsigned(7 downto 0);
+signal ps2_key           : std_logic_vector(10 downto 0) := (others => '0');
+signal ps2_stb           : std_logic := '0';
+
+type key_state_t is array (0 to 79) of std_logic;
+signal key_pressed : key_state_t := (others => '0');
 
 -- RESET SEMANTICS
 --
@@ -333,6 +338,97 @@ audio_left_o <= signed(sid_audio_l(17 downto 2));
 audio_right_o <= signed(sid_audio_r(17 downto 2));
 
 --------------------------------------------------------------------------------------------------
+-- Keyboard: Convert MEGA65 key scan stream to fpga64_keyboard's ps2_key event format.
+--------------------------------------------------------------------------------------------------
+keyboard_ps2_bridge : process(clk_main_i)
+  variable idx : integer range 0 to 79;
+  variable pressed_v : std_logic;
+  variable valid_v : std_logic;
+  variable ext_v : std_logic;
+  variable scancode_v : std_logic_vector(7 downto 0);
+  variable next_stb : std_logic;
+begin
+  if rising_edge(clk_main_i) then
+    idx := kb_key_num_i;
+    pressed_v := not kb_key_pressed_n_i;
+    valid_v := '0';
+    ext_v := '0';
+    scancode_v := (others => '0');
+
+    if reset_core_n = '0' then
+      key_pressed <= (others => '0');
+      ps2_stb <= '0';
+      ps2_key <= (others => '0');
+    elsif key_pressed(idx) /= pressed_v then
+      key_pressed(idx) <= pressed_v;
+
+      case idx is
+        -- Main alphanumeric keys needed for BASIC interaction.
+        when 1  => valid_v := '1'; scancode_v := x"5A"; -- Return
+        when 8  => valid_v := '1'; scancode_v := x"26"; -- 3
+        when 9  => valid_v := '1'; scancode_v := x"1D"; -- W
+        when 10 => valid_v := '1'; scancode_v := x"1C"; -- A
+        when 11 => valid_v := '1'; scancode_v := x"25"; -- 4
+        when 12 => valid_v := '1'; scancode_v := x"1A"; -- Z
+        when 13 => valid_v := '1'; scancode_v := x"1B"; -- S
+        when 14 => valid_v := '1'; scancode_v := x"24"; -- E
+        when 15 => valid_v := '1'; scancode_v := x"12"; -- Left Shift
+        when 16 => valid_v := '1'; scancode_v := x"2E"; -- 5
+        when 17 => valid_v := '1'; scancode_v := x"2D"; -- R
+        when 18 => valid_v := '1'; scancode_v := x"23"; -- D
+        when 19 => valid_v := '1'; scancode_v := x"36"; -- 6
+        when 20 => valid_v := '1'; scancode_v := x"21"; -- C
+        when 21 => valid_v := '1'; scancode_v := x"2B"; -- F
+        when 22 => valid_v := '1'; scancode_v := x"2C"; -- T
+        when 23 => valid_v := '1'; scancode_v := x"22"; -- X
+        when 24 => valid_v := '1'; scancode_v := x"3D"; -- 7
+        when 25 => valid_v := '1'; scancode_v := x"35"; -- Y
+        when 26 => valid_v := '1'; scancode_v := x"34"; -- G
+        when 27 => valid_v := '1'; scancode_v := x"3E"; -- 8
+        when 28 => valid_v := '1'; scancode_v := x"32"; -- B
+        when 29 => valid_v := '1'; scancode_v := x"33"; -- H
+        when 30 => valid_v := '1'; scancode_v := x"3C"; -- U
+        when 31 => valid_v := '1'; scancode_v := x"2A"; -- V
+        when 32 => valid_v := '1'; scancode_v := x"46"; -- 9
+        when 33 => valid_v := '1'; scancode_v := x"43"; -- I
+        when 34 => valid_v := '1'; scancode_v := x"3B"; -- J
+        when 35 => valid_v := '1'; scancode_v := x"45"; -- 0
+        when 36 => valid_v := '1'; scancode_v := x"3A"; -- M
+        when 37 => valid_v := '1'; scancode_v := x"42"; -- K
+        when 38 => valid_v := '1'; scancode_v := x"44"; -- O
+        when 39 => valid_v := '1'; scancode_v := x"31"; -- N
+        when 40 => valid_v := '1'; scancode_v := x"55"; -- +
+        when 41 => valid_v := '1'; scancode_v := x"4D"; -- P
+        when 42 => valid_v := '1'; scancode_v := x"4B"; -- L
+        when 43 => valid_v := '1'; scancode_v := x"4E"; -- -
+        when 44 => valid_v := '1'; scancode_v := x"49"; -- .
+        when 45 => valid_v := '1'; scancode_v := x"4C"; -- :
+        when 47 => valid_v := '1'; scancode_v := x"41"; -- ,
+        when 52 => valid_v := '1'; scancode_v := x"59"; -- Right Shift
+        when 53 => valid_v := '1'; scancode_v := x"09"; -- =
+        when 55 => valid_v := '1'; scancode_v := x"4A"; -- /
+        when 56 => valid_v := '1'; scancode_v := x"16"; -- 1
+        when 58 => valid_v := '1'; scancode_v := x"14"; -- Ctrl
+        when 59 => valid_v := '1'; scancode_v := x"1E"; -- 2
+        when 60 => valid_v := '1'; scancode_v := x"29"; -- Space
+        when 62 => valid_v := '1'; scancode_v := x"15"; -- Q
+        when 63 => valid_v := '1'; ext_v := '1'; scancode_v := x"69"; -- Run/Stop
+        when 71 => valid_v := '1'; scancode_v := x"76"; -- Esc
+        when 73 => valid_v := '1'; ext_v := '1'; scancode_v := x"75"; -- Cursor Up
+        when 74 => valid_v := '1'; ext_v := '1'; scancode_v := x"6B"; -- Cursor Left
+        when others => null;
+      end case;
+
+      if valid_v = '1' then
+        next_stb := not ps2_stb;
+        ps2_stb <= next_stb;
+        ps2_key <= next_stb & pressed_v & ext_v & scancode_v;
+      end if;
+    end if;
+  end if;
+end process;
+
+--------------------------------------------------------------------------------------------------
 -- MiSTer Commodore 64 core / main machine
 --------------------------------------------------------------------------------------------------
 fpga64_sid_iec_inst: entity work.fpga64_sid_iec
@@ -342,9 +438,9 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       clk_vdc       => clk_vdc_i,
       reset_n       => reset_core_n,
 
-      -- TODO: Remove PS2 Support from the core
-      ps2_key       => (others => '0'),
-      kbd_reset     => '1',
+      -- Translate MEGA65 keyboard scans to the core's ps2_key event format.
+      ps2_key       => ps2_key,
+      kbd_reset     => not reset_core_n,
       shift_mod     => "00",
       azerty        => '0',
       cpslk_mode    => '0',
