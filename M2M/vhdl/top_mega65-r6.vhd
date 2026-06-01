@@ -285,6 +285,22 @@ architecture synthesis of mega65_r6 is
    signal main_power_led_col     : std_logic_vector(23 downto 0);
    signal main_drive_led         : std_logic;
    signal main_drive_led_col     : std_logic_vector(23 downto 0);
+   signal core_main_power_led    : std_logic;
+   signal core_main_power_led_col: std_logic_vector(23 downto 0);
+   signal core_main_drive_led    : std_logic;
+   signal core_main_drive_led_col: std_logic_vector(23 downto 0);
+
+   signal fw_vga_red             : std_logic_vector(7 downto 0);
+   signal fw_vga_green           : std_logic_vector(7 downto 0);
+   signal fw_vga_blue            : std_logic_vector(7 downto 0);
+   signal fw_vga_hs              : std_logic;
+   signal fw_vga_vs              : std_logic;
+   signal dbg_vga_hs_prev        : std_logic := '0';
+   signal dbg_vga_vs_prev        : std_logic := '0';
+   signal dbg_vga_hs_seen        : std_logic := '0';
+   signal dbg_vga_vs_seen        : std_logic := '0';
+   signal dbg_hpd_seen           : std_logic := '0';
+   signal dbg_qnice_released_seen: std_logic := '0';
 
    -- QNICE On Screen Menu selections
    signal main_osm_control_m     : std_logic_vector(255 downto 0);
@@ -567,6 +583,69 @@ begin
    sdram_dq_io           <= (others => 'Z');
 
 
+   -- #region agent log: framework VGA activity probe
+   process(clk_i)
+   begin
+      if rising_edge(clk_i) then
+         if reset_button_i = '1' then
+            dbg_vga_hs_prev <= fw_vga_hs;
+            dbg_vga_vs_prev <= fw_vga_vs;
+            dbg_vga_hs_seen <= '0';
+            dbg_vga_vs_seen <= '0';
+            dbg_hpd_seen <= '0';
+            dbg_qnice_released_seen <= '0';
+         else
+            if dbg_vga_hs_prev /= fw_vga_hs then
+               dbg_vga_hs_seen <= '1';
+            end if;
+            if dbg_vga_vs_prev /= fw_vga_vs then
+               dbg_vga_vs_seen <= '1';
+            end if;
+            if hdmi_hpd_i = '1' then
+               dbg_hpd_seen <= '1';
+            end if;
+            if main_qnice_reset = '0' then
+               dbg_qnice_released_seen <= '1';
+            end if;
+            dbg_vga_hs_prev <= fw_vga_hs;
+            dbg_vga_vs_prev <= fw_vga_vs;
+         end if;
+      end if;
+   end process;
+
+   -- Override power LED with a combined framework/core video-state:
+   -- magenta = global reset generator is active
+   -- yellow  = framework reset request is active
+   -- red     = framework has no HS/VS activity (outside reset)
+   -- green/blue/yellow = forwarded from core-side diagnostics
+   main_power_led <= '1';
+   main_power_led_col <= x"FF00FF" when main_rst = '1' else
+                         x"FFFF00" when main_reset_m2m = '1' else
+                         x"FF0000" when (dbg_vga_hs_seen = '0' or dbg_vga_vs_seen = '0') else
+                         core_main_power_led_col;
+
+   -- Drive LED shows HDMI link-state + QNICE state + output format selection:
+   -- red=HPD was never observed high since boot
+   -- yellow=HPD seen high and QNICE reset never released since boot
+   -- magenta=HPD seen high and QNICE reset re-asserted after being released once
+   -- cyan=HPD seen + reset released + DVI mode selected
+   -- blue=HPD seen + reset released + non-default HDMI timing selected
+   -- green=HPD seen + reset released + default HDMI mode selected
+   main_drive_led <= '1';
+   main_drive_led_col <= x"FF0000" when dbg_hpd_seen = '0' else
+                         x"FFFF00" when (main_qnice_reset = '1' and dbg_qnice_released_seen = '0') else
+                         x"FF00FF" when main_qnice_reset = '1' else
+                         x"00FFFF" when qnice_dvi = '1' else
+                         x"0000FF" when qnice_video_mode /= C_VIDEO_HDMI_16_9_50 else
+                         x"00FF00";
+   -- #endregion
+
+   vga_red_o   <= fw_vga_red;
+   vga_green_o <= fw_vga_green;
+   vga_blue_o  <= fw_vga_blue;
+   vga_hs_o    <= fw_vga_hs;
+   vga_vs_o    <= fw_vga_vs;
+
    -----------------------------------------------------------------------------------------
    -- MiSTer2MEGA framework
    -----------------------------------------------------------------------------------------
@@ -581,11 +660,11 @@ begin
       reset_n_i               => not reset_button_i,
       uart_rxd_i              => uart_rxd_i,
       uart_txd_o              => uart_txd_o,
-      vga_red_o               => vga_red_o,
-      vga_green_o             => vga_green_o,
-      vga_blue_o              => vga_blue_o,
-      vga_hs_o                => vga_hs_o,
-      vga_vs_o                => vga_vs_o,
+      vga_red_o               => fw_vga_red,
+      vga_green_o             => fw_vga_green,
+      vga_blue_o              => fw_vga_blue,
+      vga_hs_o                => fw_vga_hs,
+      vga_vs_o                => fw_vga_vs,
       vdac_clk_o              => vdac_clk_o,
       vdac_sync_n_o           => vdac_sync_n_o,
       vdac_blank_n_o          => vdac_blank_n_o,
@@ -812,7 +891,7 @@ begin
          -- M2M's reset manager provides 2 signals:
          --    m2m:   Reset the whole machine: Core and Framework
          --    core:  Only reset the core
-         main_reset_m2m_i        => main_reset_m2m  or main_qnice_reset or main_rst,
+         main_reset_m2m_i        => main_reset_m2m or main_qnice_reset or main_rst,
          main_reset_core_i       => main_reset_core or main_qnice_reset,
          main_pause_core_i       => main_qnice_pause,
 
@@ -842,10 +921,10 @@ begin
          -- M2M Keyboard interface
          main_kb_key_num_i       => main_key_num,
          main_kb_key_pressed_n_i => main_key_pressed_n,
-         main_power_led_o        => main_power_led,
-         main_power_led_col_o    => main_power_led_col,
-         main_drive_led_o        => main_drive_led,
-         main_drive_led_col_o    => main_drive_led_col,
+         main_power_led_o        => core_main_power_led,
+         main_power_led_col_o    => core_main_power_led_col,
+         main_drive_led_o        => core_main_drive_led,
+         main_drive_led_col_o    => core_main_drive_led_col,
 
          -- Joysticks input
          main_joy_1_up_n_i       => main_joy1_up_n_in,

@@ -131,6 +131,7 @@ signal vic_g             : unsigned(7 downto 0);
 signal vic_b             : unsigned(7 downto 0);
 signal ps2_key           : std_logic_vector(10 downto 0) := (others => '0');
 signal ps2_stb           : std_logic := '0';
+signal video_ce_div      : std_logic := '0';
 
 type key_state_t is array (0 to 79) of std_logic;
 signal key_pressed : key_state_t := (others => '0');
@@ -220,14 +221,26 @@ drive_led_col_o <= x"00FF00" when cache_dirty = '0' else
 -- the drive led is on if either the C128 is writing to the virtual disk (cached in RAM)
 -- or if the dirty cache is dirty and/orcurrently being flushed
 drive_led_o <= '1';
-video_ce_o <= '1';
+video_timing_proc: process(clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    -- The framework expects a toggling CE for the 27 MHz pixel cadence on a 54 MHz clock.
+    video_ce_div <= not video_ce_div;
+  end if;
+end process;
+video_ce_o <= video_ce_div;
+-- OVL CE is expected at 2x pixel cadence (effectively every 54 MHz cycle here).
 video_ce_ovl_o <= '1';
-video_hblank_o <= '0';
-video_vblank_o <= '0';
+
+-- Provide toggling blanking signals derived from sync until native blanking is wired.
+video_hblank_o <= not video_hs_o;
+video_vblank_o <= not video_vs_o;
 video_red_o <= std_logic_vector(vic_r);
 video_green_o <= std_logic_vector(vic_g);
 video_blue_o <= std_logic_vector(vic_b);
-cart_reset_o <= not reset_core_n;
+-- cart_reset_o is low-active at the expansion port:
+-- drive low while core reset is active, high otherwise.
+cart_reset_o <= reset_core_n;
 cart_roml_o <= core_roml;
 cart_romh_o <= core_romh;
 cart_io1_o <= core_ioe;

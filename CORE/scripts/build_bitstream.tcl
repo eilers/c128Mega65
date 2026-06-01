@@ -75,7 +75,7 @@ set synth_status [get_property STATUS [get_runs synth_1]]
 puts "synth_1 status: $synth_status"
 
 puts "Starting implementation and bitstream (impl_1)..."
-launch_runs impl_1 -to_step write_bitstream -jobs 8
+launch_runs impl_1 -to_step write_bitstream -jobs 14
 wait_on_run impl_1
 set impl_status [get_property STATUS [get_runs impl_1]]
 puts "impl_1 status: $impl_status"
