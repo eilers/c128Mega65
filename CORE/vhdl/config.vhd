@@ -317,9 +317,9 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
    " Drives\n"              &
    "\n"                     &
-   " Drive X:%s\n"          &
-   " Drive Y:%s\n"          &
-   " Drive Z:%s\n"          &
+   " Drive X\n"             &
+   " Drive Y\n"             &
+   " Drive Z\n"             &
    "\n"                     &
    " Another Headline\n"    &
    "\n"                     &
@@ -376,9 +376,11 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                              -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            -- Headline "Drives"
                                              OPTM_G_LINE,                              -- Line
-                                             OPTM_G_Drive_X + OPTM_G_MOUNT_DRV,        -- Drive X
-                                             OPTM_G_Drive_Y + OPTM_G_MOUNT_DRV,        -- Drive Y
-                                             OPTM_G_Drive_Z + OPTM_G_MOUNT_DRV,        -- Drive Z
+                                             -- Virtual drives are not enabled in this core yet (C_VDNUM = 0),
+                                             -- so keep these lines as plain text entries.
+                                             OPTM_G_TEXT,                              -- Drive X
+                                             OPTM_G_TEXT,                              -- Drive Y
+                                             OPTM_G_TEXT,                              -- Drive Z
                                              OPTM_G_LINE,                              -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,            -- Headline "Another Headline"
                                              OPTM_G_LINE,                              -- Line
