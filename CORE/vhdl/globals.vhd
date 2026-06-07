@@ -147,9 +147,8 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 --       else it is a 4k window in HyperRAM or in SDRAM
 -- In case we are loading to a QNICE device, then the control and status register is located at the 4k window 0xFFFF.
 -- @TODO: See @TODO for more details about the control and status register
-constant C_CRTROMS_MAN_NUM       : natural := 1;                                       -- amount of manually loadable ROMs and carts; maximum is 16
-constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_HYPERRAM, C_HMAP_DEMO,
-                                                         x"EEEE");                     -- Always finish the array using x"EEEE"
+constant C_CRTROMS_MAN_NUM       : natural := 0;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+constant C_CRTROMS_MAN           : crtrom_buf_array := ( x"EEEE", x"EEEE", x"EEEE");   -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts
 --
