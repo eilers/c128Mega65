@@ -295,12 +295,6 @@ architecture synthesis of mega65_r6 is
    signal fw_vga_blue            : std_logic_vector(7 downto 0);
    signal fw_vga_hs              : std_logic;
    signal fw_vga_vs              : std_logic;
-   signal dbg_vga_hs_prev        : std_logic := '0';
-   signal dbg_vga_vs_prev        : std_logic := '0';
-   signal dbg_vga_hs_seen        : std_logic := '0';
-   signal dbg_vga_vs_seen        : std_logic := '0';
-   signal dbg_hpd_seen           : std_logic := '0';
-   signal dbg_qnice_released_seen: std_logic := '0';
 
    -- QNICE On Screen Menu selections
    signal main_osm_control_m     : std_logic_vector(255 downto 0);
@@ -489,7 +483,7 @@ begin
    cart_irq_io       <= cart_irq_out   when cart_irq_oe   = '1' else 'Z';
    cart_roml_io      <= cart_roml_out  when cart_roml_oe  = '1' else 'Z';
    cart_romh_io      <= cart_romh_out  when cart_romh_oe  = '1' else 'Z';
-   cart_reset_in     <= cart_reset_io;
+   cart_reset_in     <= '1' when cart_reset_oe = '1' else cart_reset_io;
    cart_game_in      <= cart_game_io;
    cart_exrom_in     <= cart_exrom_io;
    cart_nmi_in       <= cart_nmi_io;
@@ -583,62 +577,10 @@ begin
    sdram_dq_io           <= (others => 'Z');
 
 
-   -- #region agent log: framework VGA activity probe
-   process(clk_i)
-   begin
-      if rising_edge(clk_i) then
-         if reset_button_i = '1' then
-            dbg_vga_hs_prev <= fw_vga_hs;
-            dbg_vga_vs_prev <= fw_vga_vs;
-            dbg_vga_hs_seen <= '0';
-            dbg_vga_vs_seen <= '0';
-            dbg_hpd_seen <= '0';
-            dbg_qnice_released_seen <= '0';
-         else
-            if dbg_vga_hs_prev /= fw_vga_hs then
-               dbg_vga_hs_seen <= '1';
-            end if;
-            if dbg_vga_vs_prev /= fw_vga_vs then
-               dbg_vga_vs_seen <= '1';
-            end if;
-            if hdmi_hpd_i = '1' then
-               dbg_hpd_seen <= '1';
-            end if;
-            if main_qnice_reset = '0' then
-               dbg_qnice_released_seen <= '1';
-            end if;
-            dbg_vga_hs_prev <= fw_vga_hs;
-            dbg_vga_vs_prev <= fw_vga_vs;
-         end if;
-      end if;
-   end process;
-
-   -- Override power LED with a combined framework/core video-state:
-   -- magenta = global reset generator is active
-   -- yellow  = framework reset request is active
-   -- red     = framework has no HS/VS activity (outside reset)
-   -- green/blue/yellow = forwarded from core-side diagnostics
-   main_power_led <= '1';
-   main_power_led_col <= x"FF00FF" when main_rst = '1' else
-                         x"FFFF00" when main_reset_m2m = '1' else
-                         x"FF0000" when (dbg_vga_hs_seen = '0' or dbg_vga_vs_seen = '0') else
-                         core_main_power_led_col;
-
-   -- Drive LED shows HDMI link-state + QNICE state + output format selection:
-   -- red=HPD was never observed high since boot
-   -- yellow=HPD seen high and QNICE reset never released since boot
-   -- magenta=HPD seen high and QNICE reset re-asserted after being released once
-   -- cyan=HPD seen + reset released + DVI mode selected
-   -- blue=HPD seen + reset released + non-default HDMI timing selected
-   -- green=HPD seen + reset released + default HDMI mode selected
-   main_drive_led <= '1';
-   main_drive_led_col <= x"FF0000" when dbg_hpd_seen = '0' else
-                         x"FFFF00" when (main_qnice_reset = '1' and dbg_qnice_released_seen = '0') else
-                         x"FF00FF" when main_qnice_reset = '1' else
-                         x"00FFFF" when qnice_dvi = '1' else
-                         x"0000FF" when qnice_video_mode /= C_VIDEO_HDMI_16_9_50 else
-                         x"00FF00";
-   -- #endregion
+   main_power_led     <= core_main_power_led;
+   main_power_led_col <= core_main_power_led_col;
+   main_drive_led     <= core_main_drive_led;
+   main_drive_led_col <= core_main_drive_led_col;
 
    vga_red_o   <= fw_vga_red;
    vga_green_o <= fw_vga_green;

@@ -30,10 +30,11 @@ if {![catch {set readonly [get_property IS_READONLY [current_project]]}]} {
 update_compile_order -fileset sources_1
 
 # Ensure files referenced by instantiated components exist in sources_1.
-set required_sv_files [list \
+set required_source_files [list \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/video_vicIIe_jb.sv"] \
+    [file join $repo_dir "M2M/vhdl/controllers/MiSTer/video_sync.vhd"] \
 ]
-foreach required_file $required_sv_files {
+foreach required_file $required_source_files {
     if {[llength [get_files -quiet $required_file]] == 0} {
         puts "Adding missing source file: $required_file"
         add_files -norecurse -fileset [get_filesets sources_1] $required_file

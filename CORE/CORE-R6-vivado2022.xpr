@@ -6,7 +6,7 @@
 <Project Version="7" Minor="61" Path="/var/home/bazzite/Dokumente/Developer/c128Mega65/CORE/CORE-R6-vivado2022.xpr">
   <DefaultLaunch Dir="$PRUNDIR"/>
   <Configuration>
-    <Option Name="Id" Val="2c854272c4ff4751bca7a30cbf22a752"/>
+    <Option Name="Id" Val="41ed23cba61d4d34a5457dfa0a7d1dcd"/>
     <Option Name="Part" Val="xc7a200tfbg484-2"/>
     <Option Name="CompiledLibDir" Val="$PCACHEDIR/compile_simlib"/>
     <Option Name="CompiledLibDirXSim" Val=""/>
@@ -226,6 +226,12 @@
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../M2M/vhdl/controllers/MiSTer/video_sync.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>

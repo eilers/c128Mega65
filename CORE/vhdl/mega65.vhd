@@ -228,31 +228,6 @@ architecture synthesis of MEGA65_Core is
 signal vdc_clk_o : std_logic;
 
 signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
-signal dbg_heartbeat : unsigned(25 downto 0) := (others => '0');
-signal dbg_hs_prev   : std_logic := '0';
-signal dbg_vs_prev   : std_logic := '0';
-signal dbg_hblank_prev : std_logic := '0';
-signal dbg_vblank_prev : std_logic := '0';
-signal dbg_hs_seen   : std_logic := '0';
-signal dbg_vs_seen   : std_logic := '0';
-signal dbg_rgb_seen  : std_logic := '0';
-signal dbg_ce_high_seen : std_logic := '0';
-signal dbg_ce_low_seen  : std_logic := '0';
-signal dbg_ce_ovl_high_seen : std_logic := '0';
-signal dbg_ce_ovl_low_seen  : std_logic := '0';
-signal dbg_hblank_toggled : std_logic := '0';
-signal dbg_vblank_toggled : std_logic := '0';
-
-signal core_video_ce      : std_logic;
-signal core_video_ce_ovl  : std_logic;
-signal core_video_red     : std_logic_vector(7 downto 0);
-signal core_video_green   : std_logic_vector(7 downto 0);
-signal core_video_blue    : std_logic_vector(7 downto 0);
-signal core_video_vs      : std_logic;
-signal core_video_hs      : std_logic;
-signal core_video_hblank  : std_logic;
-signal core_video_vblank  : std_logic;
-signal core_cart_reset    : std_logic;
 
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
@@ -278,6 +253,12 @@ signal main_ram_data_from    : unsigned(7 downto 0);
 signal main_ram_q            : std_logic_vector(7 downto 0);
 signal main_sysrom_addr      : std_logic_vector(16 downto 0);
 signal main_sysrom_data      : std_logic_vector(7 downto 0);
+
+signal main_boot_stage       : std_logic_vector(2 downto 0);
+signal main_boot_ram_we      : std_logic;
+signal main_boot_led_col     : std_logic_vector(23 downto 0);
+signal main_boot_z80_n       : std_logic;
+signal main_boot_pwr_hint    : std_logic_vector(23 downto 0);
 
 
 begin
@@ -355,98 +336,13 @@ begin
    video_clk_o <= main_clk_o;
    video_rst_o <= main_rst_o;
 
-   -- Bring-up debug indicator: if this increments/blinks then main clock is alive.
-   process(main_clk_o)
-   begin
-      if rising_edge(main_clk_o) then
-         if main_rst_o = '1' then
-            dbg_heartbeat <= (others => '0');
-         else
-            dbg_heartbeat <= dbg_heartbeat + 1;
-         end if;
-      end if;
-   end process;
-
-   -- #region agent log: reduced video-state probe
-   process(main_clk_o)
-   begin
-      if rising_edge(main_clk_o) then
-         if main_rst_o = '1' or main_reset_m2m_i = '1' or core_cart_reset = '1' then
-            dbg_hs_prev  <= core_video_hs;
-            dbg_vs_prev  <= core_video_vs;
-            dbg_hblank_prev <= core_video_hblank;
-            dbg_vblank_prev <= core_video_vblank;
-            dbg_hs_seen  <= '0';
-            dbg_vs_seen  <= '0';
-            dbg_rgb_seen <= '0';
-            dbg_ce_high_seen <= '0';
-            dbg_ce_low_seen <= '0';
-            dbg_ce_ovl_high_seen <= '0';
-            dbg_ce_ovl_low_seen <= '0';
-            dbg_hblank_toggled <= '0';
-            dbg_vblank_toggled <= '0';
-         else
-            if dbg_hs_prev /= core_video_hs then
-               dbg_hs_seen <= '1';
-            end if;
-            if dbg_vs_prev /= core_video_vs then
-               dbg_vs_seen <= '1';
-            end if;
-            if dbg_hblank_prev /= core_video_hblank then
-               dbg_hblank_toggled <= '1';
-            end if;
-            if dbg_vblank_prev /= core_video_vblank then
-               dbg_vblank_toggled <= '1';
-            end if;
-            if core_video_ce = '1' then
-               dbg_ce_high_seen <= '1';
-            else
-               dbg_ce_low_seen <= '1';
-            end if;
-            if core_video_ce_ovl = '1' then
-               dbg_ce_ovl_high_seen <= '1';
-            else
-               dbg_ce_ovl_low_seen <= '1';
-            end if;
-            if core_video_red /= x"00" or core_video_green /= x"00" or core_video_blue /= x"00" then
-               dbg_rgb_seen <= '1';
-            end if;
-            dbg_hs_prev <= core_video_hs;
-            dbg_vs_prev <= core_video_vs;
-            dbg_hblank_prev <= core_video_hblank;
-            dbg_vblank_prev <= core_video_vblank;
-         end if;
-      end if;
-   end process;
-   -- #endregion
-
-   -- MEGA65 power LED now shows simplified video-state diagnostics after reset:
-   --   red     = no HS/VS activity
-   --   yellow  = timing control invalid (CE/blanking not toggling as expected)
-   --   magenta = CE_OVL was never observed high
-   --   cyan    = CE_OVL dropped low at least once
-   --   blue    = timing valid but RGB stayed zero
-   --   green   = timing valid and RGB activity detected
+   -- Power LED: reset/pause state only. Drive LED carries boot-stage colours (main.vhd).
    main_power_led_o     <= '1';
-   main_power_led_col_o <= x"FF0000" when (dbg_hs_seen = '0' or dbg_vs_seen = '0') else
-                           x"FFFF00" when (dbg_ce_high_seen = '0' or dbg_ce_low_seen = '0' or dbg_hblank_toggled = '0' or dbg_vblank_toggled = '0') else
-                           x"FF00FF" when dbg_ce_ovl_high_seen = '0' else
-                           x"00FFFF" when dbg_ce_ovl_low_seen = '1' else
-                           x"0000FF" when dbg_rgb_seen = '0' else
-                           x"00FF00";
-
-   -- #region agent log: LED-encoded runtime states
-   main_drive_led_o <= '1';
-   -- Reduced palette to make runtime state easy to identify:
-   --   red    = main clock/reset generator reset asserted
-   --   yellow = framework hard reset request active
-   --   blue   = core reset active
-   --   green  = core reset released
-   main_drive_led_col_o <= x"FF0000" when main_rst_o = '1' else
-                           x"FFFF00" when main_reset_m2m_i = '1' else
-                           x"0000FF" when core_cart_reset = '1' else
-                           x"00FF00";
-   -- #endregion
+   main_power_led_col_o <= x"0000FF" when main_reset_m2m_i else
+                           x"8000FF" when main_pause_core_i else
+                           x"000040" when main_reset_core_i else
+                           main_boot_pwr_hint when main_boot_pwr_hint /= x"000000" else
+                           x"002000";
 
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
@@ -464,23 +360,38 @@ begin
 
          -- Video output
          -- This is PAL 720x576 @ 50 Hz (pixel clock 27 MHz), but synchronized to main_clk (54 MHz).
-         video_ce_o           => core_video_ce,
-         video_ce_ovl_o       => core_video_ce_ovl,
-         video_red_o          => core_video_red,
-         video_green_o        => core_video_green,
-         video_blue_o         => core_video_blue,
-         video_vs_o           => core_video_vs,
-         video_hs_o           => core_video_hs,
-         video_hblank_o       => core_video_hblank,
-         video_vblank_o       => core_video_vblank,
+         video_ce_o           => video_ce_o,
+         video_ce_ovl_o       => video_ce_ovl_o,
+         video_red_o          => video_red_o,
+         video_green_o        => video_green_o,
+         video_blue_o         => video_blue_o,
+         video_vs_o           => video_vs_o,
+         video_hs_o           => video_hs_o,
+         video_hblank_o       => video_hblank_o,
+         video_vblank_o       => video_vblank_o,
 
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,
          audio_right_o        => main_audio_right_o,
 
          -- Drive led
-         drive_led_o => open, 
-         drive_led_col_o => open,
+         drive_led_o => main_drive_led_o,
+         drive_led_col_o => main_drive_led_col_o,
+         boot_stage_o => main_boot_stage,
+         boot_led_col_o => main_boot_led_col,
+         boot_z80_n_o => main_boot_z80_n,
+         boot_ram_we_o => main_boot_ram_we,
+         boot_dbg_probe_o => open,
+         boot_dbg_z80_rd_o => open,
+         boot_dbg_z80_we_o => open,
+         boot_dbg_z80_sysrom_o => open,
+         boot_dbg_vec_valid_o => open,
+         boot_dbg_vec_byte_o => open,
+         boot_dbg_sysrom_cs_o => open,
+         boot_dbg_ram_ce_o => open,
+         boot_dbg_core_run_o => open,
+         boot_dbg_vic_pixel_ce_o => open,
+         boot_pwr_hint_o     => main_boot_pwr_hint,
 
          -- M2M Keyboard interface
          kb_key_num_i         => main_kb_key_num_i,
@@ -514,7 +425,7 @@ begin
 
          -- C64 Expansion Port (aka Cartridge Port)
          cart_reset_i         => cart_reset_i, 
-         cart_reset_o         => core_cart_reset,
+         cart_reset_o         => cart_reset_o,
          cart_dma_i           => cart_dma_i,
          cart_game_i          => cart_game_i,
          cart_exrom_i         => cart_exrom_i,
@@ -537,20 +448,6 @@ begin
          iec_srq_n_i          => iec_srq_n_i
       ); -- i_main
 
-   -- #region agent log: keep core timing/blanking semantics
-   video_ce_o      <= core_video_ce;
-   video_ce_ovl_o  <= core_video_ce_ovl;
-   video_hblank_o  <= core_video_hblank;
-   video_vblank_o  <= core_video_vblank;
-   video_hs_o      <= core_video_hs;
-   video_vs_o      <= core_video_vs;
-   video_red_o     <= core_video_red;
-   video_green_o   <= core_video_green;
-   video_blue_o    <= core_video_blue;
-   -- #endregion
-
-   cart_reset_o    <= core_cart_reset;
-
    ---------------------------------------------------------------------------------------------
    -- Audio and video settings (QNICE clock domain)
    ---------------------------------------------------------------------------------------------
@@ -562,7 +459,6 @@ begin
    -- while in the 4:3 mode we are outputting a 5:4 image. This is kind of odd, but it seemed that our 4/3 aspect ratio
    -- adjusted image looks best on a 5:4 monitor and the other way round.
    -- Not sure if this will stay forever or if we will come up with a better naming convention.
-   -- Debug: force the most compatible C64-like default timing.
    qnice_video_mode_o <= C_VIDEO_HDMI_16_9_50;
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
@@ -715,5 +611,7 @@ begin
          wren_b          => '0',
          q_b             => open
       );
+
+   -- Drive LED colour comes from main.vhd (VIC/VDC probe during debug)
 
 end architecture synthesis;

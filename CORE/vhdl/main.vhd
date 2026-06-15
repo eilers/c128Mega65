@@ -46,9 +46,24 @@ entity main is
       audio_left_o            : out signed(15 downto 0);
       audio_right_o           : out signed(15 downto 0);
 
-      -- Drive led (color is RGB)
+      -- Drive led (color is RGB) + boot stage for power LED (3 bits)
       drive_led_o             : out std_logic;
       drive_led_col_o         : out std_logic_vector(23 downto 0);
+      boot_stage_o            : out std_logic_vector(2 downto 0);
+      boot_led_col_o          : out std_logic_vector(23 downto 0);
+      boot_z80_n_o            : out std_logic;
+      boot_ram_we_o           : out std_logic;  -- latched: 8502 HyperRAM write seen
+      boot_dbg_probe_o        : out std_logic_vector(6 downto 0);
+      boot_dbg_z80_rd_o       : out std_logic;
+      boot_dbg_z80_we_o       : out std_logic;
+      boot_dbg_z80_sysrom_o   : out std_logic;
+      boot_dbg_vec_valid_o    : out std_logic;
+      boot_dbg_vec_byte_o     : out std_logic_vector(7 downto 0);
+      boot_dbg_sysrom_cs_o    : out std_logic;
+      boot_dbg_ram_ce_o       : out std_logic;
+      boot_dbg_core_run_o     : out std_logic;
+      boot_dbg_vic_pixel_ce_o : out std_logic;  -- raw VIC pixel strobe for video-alignment sim
+      boot_pwr_hint_o         : out std_logic_vector(23 downto 0); -- vec-byte hint when stage 100
 
      -- C64 RAM: No address latching necessary and the chip can always be enabled
      ram_addr_o               : out unsigned(17 downto 0);    -- address bus (18 Bit!)
@@ -114,9 +129,17 @@ architecture synthesis of main is
 signal ram_ce   : std_logic;
 signal ram_we   : std_logic;
 signal ram_data : unsigned(7 downto 0);
+signal core_ram_addr     : unsigned(17 downto 0);
 signal sysrom_cs         : std_logic;
 signal sysrom_bank       : unsigned(4 downto 0);
 signal sysrom_data       : unsigned(7 downto 0);
+-- MiSTer SDRAM latches addr at ce rise; hold BRAM addr during burst, always drive read data to CPU.
+signal sysrom_cs_d       : std_logic := '0';
+signal sysrom_data_r     : unsigned(7 downto 0) := (others => '0');
+signal rom_addr_held     : std_logic_vector(16 downto 0) := (others => '0');
+signal ram_ce_d          : std_logic := '0';
+signal ram_addr_held     : unsigned(17 downto 0) := (others => '0');
+signal ram_data_r        : unsigned(7 downto 0) := (others => '0');
 signal joy_a             : std_logic_vector(6 downto 0);
 signal joy_b             : std_logic_vector(6 downto 0);
 signal sid_audio_l       : std_logic_vector(17 downto 0);
@@ -129,9 +152,40 @@ signal vdc_b             : unsigned(7 downto 0);
 signal vic_r             : unsigned(7 downto 0);
 signal vic_g             : unsigned(7 downto 0);
 signal vic_b             : unsigned(7 downto 0);
+signal vic_pixel_ce      : std_logic;
+signal vic_pixel_ce_d    : std_logic := '0';
+signal vic_r_reg         : unsigned(7 downto 0) := (others => '0');
+signal vic_g_reg         : unsigned(7 downto 0) := (others => '0');
+signal vic_b_reg         : unsigned(7 downto 0) := (others => '0');
+signal core_vic_hs       : std_logic;
+signal core_vic_vs       : std_logic;
+signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiSTer z80_n port)
+signal core_c128_n       : std_logic;
+signal boot_stage        : std_logic_vector(2 downto 0);
+signal boot_led_col      : std_logic_vector(23 downto 0);
+-- Boot-path probes (latched after core reset release)
+signal dbg_sysrom_cs_seen  : std_logic := '0';
+signal dbg_sysrom_nz_seen  : std_logic := '0';
+signal dbg_ram_ce_seen     : std_logic := '0';
+signal dbg_z80_mode_seen   : std_logic := '0';
+signal dbg_z80_ram_we_seen : std_logic := '0';
+signal dbg_8502_mode_seen  : std_logic := '0';
+signal dbg_8502_ram_we_seen: std_logic := '0';
+signal dbg_any_ram_we_seen  : std_logic := '0';
+signal dbg_z80_ram_rd_seen  : std_logic := '0';
+signal dbg_z80_sysrom_seen  : std_logic := '0';
+signal dbg_we_no_ce_seen    : std_logic := '0';
+signal dbg_vec_byte_valid   : std_logic := '0';
+signal dbg_vec_byte         : unsigned(7 downto 0) := (others => '0');
+signal dbg_vec_addr         : unsigned(11 downto 0) := (others => '0');
+signal dbg_probe_vec        : std_logic_vector(6 downto 0);
+signal dbg_z80_cpu_we_seen  : std_logic := '0';
+signal z80_cpu_we          : std_logic;
+signal core_running          : std_logic := '0';
+constant C_PWRUP_RESET_LEN   : natural := 4095;
+signal pwrup_reset_cnt       : natural range 0 to C_PWRUP_RESET_LEN := C_PWRUP_RESET_LEN;
 signal ps2_key           : std_logic_vector(10 downto 0) := (others => '0');
 signal ps2_stb           : std_logic := '0';
-signal video_ce_div      : std_logic := '0';
 
 type key_state_t is array (0 to 79) of std_logic;
 signal key_pressed : key_state_t := (others => '0');
@@ -213,31 +267,123 @@ begin
 cache_dirty <= '0';
 prevent_reset <= '0'; -- when unsigned(cache_dirty) = 0 else '1';
 
--- the color of the drive led is green normally, but it turns yellow
--- when the cache is dirty and/or currently being flushed
-drive_led_col_o <= x"00FF00" when cache_dirty = '0' else
-                   x"FFFF00";
+-- #region agent log
+-- Boot-path diagnostics: saturated colors only (RRGGBB, full 00 or FF per channel).
+--   MAGENTA FF00FF = core paused
+--   BLUE    0000FF = core in reset
+--   WHITE   FFFFFF = core running, no boot bus activity yet
+--   ORANGE  FF8000 = boot stage 000 (no sysrom cs)
+--   RED     FF0000 = boot stage 001 / stage 100 ROM miss / vec byte 00
+--   YELLOW  FFFF00 = boot stage 010 / stage 100 vec byte 94 / RAM writes
+--   MAGENTA FF00FF = boot stage 011 (Z80 mode not seen in probe)
+--   Stage 100 sub-states (drive LED):
+--   ORANGE  FF8000 = Z80 mode but no Z80 sysrom fetch (likely VIC-only / Z80 not executing)
+--   WHITE   FFFFFF = Z80 sysrom fetch ok, no RAM reads yet
+--   CYAN    00FFFF = stage 100, Z80 RAM reads, vec not $94 yet
+--   RED     FF0000 = stage 100, external ramWE but not latched as Z80 write
+--   CHARTREUSE 80FF00 = stage 100, vec $94, no Z80 cpuWe and no external ramWE
+--   ORANGE  FF8000 = stage 100, Z80 cpuWe seen but boot probe still at stage 100
+--   CYAN    00FFFF = stage 100, other stall
+--   MAGENTA FF00FF = ramWE without ramCE (bus glitch)
+--   WHITE/101 FFFFFF = boot stage 101 (8502 mode not seen yet)
+--   GREEN   00FF00 = boot stage 110+ (8502 ram writes seen)
+-- Power LED boot_pwr_hint_o when stage 100: vec-byte fingerprint (see boot_pwr_hint_proc).
+-- #endregion
+dbg_probe_vec <= dbg_8502_ram_we_seen & dbg_8502_mode_seen & dbg_z80_ram_we_seen &
+                 dbg_z80_mode_seen & dbg_ram_ce_seen & dbg_sysrom_nz_seen & dbg_sysrom_cs_seen;
+
+boot_led_proc: process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    if pause_i = '1' then
+      boot_led_col <= x"FF00FF";
+    elsif core_running = '0' then
+      boot_led_col <= x"0000FF";
+    elsif dbg_probe_vec = "0000000" then
+      boot_led_col <= x"FFFFFF";
+    else
+      case boot_stage is
+        when "000" =>
+          boot_led_col <= x"FF8000";
+        when "001" =>
+          boot_led_col <= x"FF0000";
+        when "010" =>
+          boot_led_col <= x"FFFF00";
+        when "011" =>
+          boot_led_col <= x"FF00FF";
+        when "100" =>
+          if dbg_z80_sysrom_seen = '0' then
+            boot_led_col <= x"FF8000";
+          elsif dbg_we_no_ce_seen = '1' then
+            boot_led_col <= x"FF00FF";
+          elsif dbg_vec_byte_valid = '1' and dbg_vec_byte = 148 and
+                dbg_z80_cpu_we_seen = '1' and dbg_z80_ram_we_seen = '0' then
+            boot_led_col <= x"FF8000";
+          elsif dbg_any_ram_we_seen = '1' and dbg_z80_ram_we_seen = '0' then
+            boot_led_col <= x"FF0000";
+          elsif dbg_z80_ram_rd_seen = '0' then
+            boot_led_col <= x"FFFFFF";
+          elsif dbg_vec_byte_valid = '1' and dbg_vec_byte = 148 then
+            boot_led_col <= x"80FF00";
+          else
+            boot_led_col <= x"00FFFF";
+          end if;
+        when "101" =>
+          if core_z80_n = '0' then
+            boot_led_col <= x"FF00FF";
+          else
+            boot_led_col <= x"FFFFFF";
+          end if;
+        when others =>
+          boot_led_col <= x"00FF00";
+      end case;
+    end if;
+  end if;
+end process;
+
+drive_led_col_o <= boot_led_col;
+boot_led_col_o <= boot_led_col;
+boot_z80_n_o    <= core_z80_n;
 
 -- the drive led is on if either the C128 is writing to the virtual disk (cached in RAM)
 -- or if the dirty cache is dirty and/orcurrently being flushed
 drive_led_o <= '1';
-video_timing_proc: process(clk_main_i)
+-- Sample HDMI pixels on the VIC's enablePixel strobe (not a free-running /4 divider).
+video_ce_o <= vic_pixel_ce;
+video_ce_ovl_o <= vic_pixel_ce or vic_pixel_ce_d;
+boot_dbg_vic_pixel_ce_o <= vic_pixel_ce;
+
+vic_pixel_sample_proc : process (clk_main_i)
 begin
   if rising_edge(clk_main_i) then
-    -- The framework expects a toggling CE for the 27 MHz pixel cadence on a 54 MHz clock.
-    video_ce_div <= not video_ce_div;
+    vic_pixel_ce_d <= vic_pixel_ce;
+    if vic_pixel_ce = '1' then
+      vic_r_reg <= vic_r;
+      vic_g_reg <= vic_g;
+      vic_b_reg <= vic_b;
+    end if;
   end if;
-end process;
-video_ce_o <= video_ce_div;
--- OVL CE is expected at 2x pixel cadence (effectively every 54 MHz cycle here).
-video_ce_ovl_o <= '1';
+end process vic_pixel_sample_proc;
 
--- Provide toggling blanking signals derived from sync until native blanking is wired.
-video_hblank_o <= not video_hs_o;
-video_vblank_o <= not video_vs_o;
-video_red_o <= std_logic_vector(vic_r);
-video_green_o <= std_logic_vector(vic_g);
-video_blue_o <= std_logic_vector(vic_b);
+-- Generate blanking/sync from raw VIC sync (do not derive blanking from HS/VS directly).
+-- Use the MiSTer video_sync variant with C64-validated PAL hblank timing.
+video_sync_inst : entity work.video_sync
+  port map (
+    clk32     => clk_main_i,
+    pause     => '0',
+    hsync     => core_vic_hs,
+    vsync     => core_vic_vs,
+    ntsc      => '0',
+    wide      => '0',
+    hsync_out => video_hs_o,
+    vsync_out => video_vs_o,
+    hblank    => video_hblank_o,
+    vblank    => video_vblank_o
+  );
+
+video_red_o <= std_logic_vector(vic_r_reg);
+video_green_o <= std_logic_vector(vic_g_reg);
+video_blue_o <= std_logic_vector(vic_b_reg);
 -- cart_reset_o is low-active at the expansion port:
 -- drive low while core reset is active, high otherwise.
 cart_reset_o <= reset_core_n;
@@ -292,14 +438,23 @@ combined_reset_proc: process (all)
   begin
     reset_core_n <= '1';
 
-    -- cart_reset_i becomes cart_reset_o as soon as cart_reset_oe_o = '1', and the latter one becomes '1' as soon
-    -- as reset_core_int_n = '0' so we need to ignore cart_reset_i in this case
-    if reset_core_int_n = '0' then
+    if pwrup_reset_cnt /= 0 then
+      reset_core_n <= '0';
+    elsif reset_core_int_n = '0' then
       reset_core_n <= '0';
     elsif cart_reset_i = '0' and prevent_reset = '0' then
       reset_core_n <= '0';
     end if;
   end process;
+
+pwrup_reset_proc: process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    if pwrup_reset_cnt /= 0 then
+      pwrup_reset_cnt <= pwrup_reset_cnt - 1;
+    end if;
+  end if;
+end process;
 
 -- To make sure that cartridges in the Expansion Port start properly, we must not do a hard reset and mask the $8000 memory area,
 -- when the core is launched for the first time (cold start).
@@ -315,33 +470,179 @@ handle_cold_start_proc: process (clk_main_i)
     end if;
   end process;
 
+boot_probe_proc: process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    if reset_core_n = '0' then
+      core_running         <= '0';
+      dbg_any_ram_we_seen  <= '0';
+      dbg_z80_ram_rd_seen  <= '0';
+      dbg_z80_sysrom_seen  <= '0';
+      dbg_sysrom_cs_seen   <= '0';
+      dbg_sysrom_nz_seen   <= '0';
+      dbg_ram_ce_seen      <= '0';
+      dbg_z80_mode_seen    <= '0';
+      dbg_z80_ram_we_seen  <= '0';
+      dbg_8502_mode_seen   <= '0';
+      dbg_8502_ram_we_seen <= '0';
+      dbg_we_no_ce_seen    <= '0';
+      dbg_z80_cpu_we_seen  <= '0';
+      dbg_vec_byte_valid   <= '0';
+      dbg_vec_byte         <= (others => '0');
+      dbg_vec_addr         <= (others => '0');
+    else
+      core_running <= '1';
+      if ram_we = '1' and ram_ce = '0' then
+        dbg_we_no_ce_seen <= '1';
+      end if;
+      if z80_cpu_we = '1' then
+        dbg_z80_cpu_we_seen <= '1';
+      end if;
+      if core_z80_n = '0' and sysrom_cs_d = '1' and sysrom_data_r /= 0 and dbg_vec_byte_valid = '0' then
+        dbg_vec_byte       <= sysrom_data_r;
+        dbg_vec_addr       <= unsigned(rom_addr_held(11 downto 0));
+        dbg_vec_byte_valid <= '1';
+      end if;
+      if sysrom_cs_d = '1' then
+        dbg_sysrom_cs_seen <= '1';
+        if sysrom_data_r /= 0 then
+          dbg_sysrom_nz_seen <= '1';
+        end if;
+      end if;
+      if ram_ce = '1' then
+        dbg_ram_ce_seen <= '1';
+      end if;
+      if ram_we = '1' then
+        dbg_any_ram_we_seen <= '1';
+      end if;
+      if core_z80_n = '0' then
+        dbg_z80_mode_seen <= '1';
+      end if;
+      if core_z80_n = '0' and sysrom_cs_d = '1' then
+        dbg_z80_sysrom_seen <= '1';
+      end if;
+      if core_z80_n = '0' and ram_ce = '1' and ram_we = '0' then
+        dbg_z80_ram_rd_seen <= '1';
+      end if;
+      if core_z80_n = '0' and ram_we = '1' then
+        dbg_z80_ram_we_seen <= '1';
+      end if;
+      if core_z80_n = '1' then
+        dbg_8502_mode_seen <= '1';
+      end if;
+      if core_z80_n = '1' and ram_we = '1' then
+        dbg_8502_ram_we_seen <= '1';
+      end if;
+    end if;
+  end if;
+end process;
+
+boot_stage <= "000" when dbg_sysrom_cs_seen = '0' else
+              "001" when dbg_sysrom_nz_seen = '0' else
+              "010" when dbg_ram_ce_seen = '0' else
+              "011" when dbg_z80_mode_seen = '0' else
+              "100" when dbg_z80_ram_we_seen = '0' else
+              "101" when dbg_8502_mode_seen = '0' else
+              "110" when dbg_8502_ram_we_seen = '0' else
+              "111";
+boot_stage_o  <= boot_stage;
+boot_ram_we_o <= dbg_8502_ram_we_seen;
+boot_dbg_probe_o      <= dbg_probe_vec;
+boot_dbg_z80_rd_o     <= dbg_z80_ram_rd_seen;
+boot_dbg_z80_we_o     <= dbg_z80_ram_we_seen;
+boot_dbg_z80_sysrom_o <= dbg_z80_sysrom_seen;
+boot_dbg_vec_valid_o  <= dbg_vec_byte_valid;
+boot_dbg_vec_byte_o   <= std_logic_vector(dbg_vec_byte);
+boot_dbg_sysrom_cs_o  <= sysrom_cs;
+boot_dbg_ram_ce_o     <= ram_ce;
+boot_dbg_core_run_o   <= core_running;
+
+-- #region agent log
+-- Power LED at stage 100 only: stark primaries (LED colour accuracy is poor on hardware).
+--   MAGENTA FF00FF = vec_byte 0 (ROM read returned $00 on first valid capture)
+--   RED     FF0000 = vec_byte 62 AND addr 0x3FD
+--   AMBER   FF8000 = vec_byte 62 (other addr)
+--   GREEN   00FF00 = vec_byte 148 ($94, correct Z80 reset opcode)
+--   PURPLE  800080 = any other non-zero vec byte
+-- Note: bright BLUE on power LED from mega65.vhd = M2M hard-reset, not this hint.
+boot_pwr_hint_proc: process (all)
+begin
+  boot_pwr_hint_o <= x"000000";
+  if core_running = '1' and boot_stage = "100" then
+    if dbg_vec_byte_valid = '0' then
+      boot_pwr_hint_o <= x"FFFFFF";
+    elsif dbg_vec_byte = 62 and dbg_vec_addr = 1021 then
+      boot_pwr_hint_o <= x"FF0000";
+    elsif dbg_vec_byte = 62 then
+      boot_pwr_hint_o <= x"FF8000";
+    elsif dbg_vec_byte = 148 then
+      boot_pwr_hint_o <= x"00FF00";
+    elsif dbg_vec_byte = 0 then
+      boot_pwr_hint_o <= x"FF00FF";
+    else
+      boot_pwr_hint_o <= x"800080";
+    end if;
+  end if;
+end process;
+-- #endregion
+
 --------------------------------------------------------------------------------------------------
 -- Access to C64's RAM and hardware/simulated cartridge ROM
 --------------------------------------------------------------------------------------------------
+-- #region agent log
+-- H15: latch BRAM addr at ce rise; keep ramDin valid every ROM/RAM read cycle (H14 gating rejected).
+mem_hold_proc: process (clk_main_i)
+  variable rom_addr_live : std_logic_vector(16 downto 0);
+begin
+  if rising_edge(clk_main_i) then
+    rom_addr_live := std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
+    sysrom_cs_d <= sysrom_cs;
+    ram_ce_d    <= ram_ce;
+
+    if reset_core_n = '0' then
+      rom_addr_held <= (others => '0');
+      ram_addr_held <= (others => '0');
+    else
+      if sysrom_cs = '1' then
+        if sysrom_cs_d = '0' then
+          rom_addr_held <= rom_addr_live;
+        end if;
+        sysrom_data_r <= unsigned(sys_rom_data_i);
+      end if;
+
+      if ram_ce = '1' and ram_we = '0' then
+        if ram_ce_d = '0' then
+          ram_addr_held <= core_ram_addr;
+        end if;
+        ram_data_r <= ram_data_i;
+      end if;
+    end if;
+  end if;
+end process;
+-- #endregion
+
 cpu_data_in_proc: process (all)
   begin
     ram_data <= x"00";
 
     -- We are emulating what is written here: https://www.c64-wiki.com/wiki/Reset_Button
     -- and avoid that the KERNAL ever sees the CBM80 signature during hard reset reset.
-    -- But we cannot do it like on real hardware using the exrom signal because the
-    -- MiSTer core is not supporting this.
-    if hard_reset_n = '0' and ram_addr_o(15 downto 12) = x"8" and cold_start_done = '1' then
+    if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' then
       ram_data <= x"00";
-    -- C128 system ROM bank access: each bank is 4 KiB.
-    elsif sysrom_cs = '1' then
-      ram_data <= sysrom_data;
-    -- TODO: Add REU support
-    -- Standard access to the C64's RAM
+    elsif sysrom_cs = '1' or sysrom_cs_d = '1' then
+      ram_data <= sysrom_data_r;
+    elsif ram_ce_d = '1' and ram_we = '0' then
+      ram_data <= ram_data_r;
     else
-      ram_data <= ram_data_i;
-
+      ram_data <= ram_data_r;
     end if;
   end process;
 
--- RAM write enable also needs to check for chip enable
-ram_we_o <= ram_ce and ram_we;
-sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(ram_addr_o(11 downto 0));
+-- MiSTer exposes ramWE/ramCE separately; do not AND them (Z80 latch writes miss CE).
+ram_we_o <= ram_we;
+sys_rom_addr_o <= rom_addr_held when sysrom_cs = '1' else
+                  std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
+ram_addr_o <= ram_addr_held when ram_ce = '1' and ram_we = '0' else core_ram_addr;
 sysrom_data <= unsigned(sys_rom_data_i);
 joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
          (not joy_1_down_n_i) & (not joy_1_up_n_i) & '0';
@@ -477,12 +778,12 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       pause_out     => open,      -- unused
 
       -- external memory
-      ramAddr       => ram_addr_o,
+      ramAddr       => core_ram_addr,
       ramDin        => ram_data,
       ramDout       => ram_data_o,
       ramCE         => ram_ce,
       ramWE         => ram_we,
-      ramDinFloat   => '1', -- Signalling that the Cartridge is in high impedance. ???
+      ramDinFloat   => '0', -- No cartridge: MiSTer cart_floating='0'
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
       ext_cycle     => open, -- 1 when a DMA access is happening (REU).
@@ -495,11 +796,12 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- The hsync frequency is 15.64 kHz (period 63.94 us).
       -- The hsync pulse width is 12.69 us.
       ntscMode      => '0',
-      vic_variant   => "00",     -- Add this line: "00" for 6569 (PAL-B)
+      vic_variant   => "01",
       vicJailbars   => "00",      -- disable jailbars
-      vicHsync      => video_hs_o,
-      vicVsync      => video_vs_o,
+      vicHsync      => core_vic_hs,
+      vicVsync      => core_vic_vs,
       vicR          => vic_r,
+      vic_pixel_ce_o => vic_pixel_ce,
       vicG          => vic_g,
       vicB          => vic_b,
 
@@ -511,21 +813,22 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vdcB          => vdc_b,
       vdcVersion    => '0',
       vdc64k        => '1',
-      vdcInitRam    => '0',
+      vdcInitRam    => '1',       -- MiSTer default: clear VDC RAM on reset
       vdcPalette    => "0000",
       vdcDebug      => '0',
 
       -- cartridge port
       -- TODO: Add cartridge support
-      game          => cart_game_i,    -- input: low active
-      game_mmu      => open,           -- output: 
-      exrom         => cart_exrom_i,   -- input: low active
-      exrom_mmu     => open,           -- output
+      -- No cartridge: MiSTer cart_id=255 drives exrom=game=1; do not use floating EXP port pins.
+      game          => '1',
+      game_mmu      => open,
+      exrom         => '1',
+      exrom_mmu     => open,
       io_rom        => core_io_rom,    -- input
       io_ext        => core_io_ext,    -- input
       io_data       => core_io_data,   -- input
-      irq_n         => cart_irq_i,     -- input: low active
-      nmi_n         => cart_nmi_i,     -- input
+      irq_n         => '1',         -- No cartridge: floating EXP IRQ would hold cpuIrq_n low
+      nmi_n         => '1',         -- No cartridge: floating EXP NMI
       nmi_ack       => core_nmi_ack,   -- output
       romFL         => open,           -- output
       romFH         => open,           -- output
@@ -538,8 +841,8 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       mod_key     => open,
       tape_play   => open,
       
-      -- dma access
-      dma_req       => cart_dma_i,
+      -- No cartridge: floating EXP DMA (cart_dma_i) would assert dma_active and freeze Z80.
+      dma_req       => '0',
       dma_cycle     => open,
       dma_addr      => open,
       dma_dout      => open,
@@ -571,7 +874,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       sid_fc_off_r  => (others => '0'),
       sid_digifix   => '0',           
       -- mechanism for loading custom SID filters
-      sid_ld_clk    => '0',
+      sid_ld_clk    => clk_main_i,
       sid_ld_addr   => "000000000000",
       sid_ld_data   => x"0000",
       sid_ld_wr     => '0',
@@ -617,9 +920,10 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       sys256k       => '0', -- We have 128k memory
       force64       => '0',
       pure64        => '0',
-      d4080_sel     => '0', -- TODO: Force to 40 column mode
-      c128_n        => open,
-      z80_n         => open
+      d4080_sel     => '1',       -- MiSTer default: 40-column key sense released
+      c128_n        => core_c128_n,
+      z80_n           => core_z80_n,
+      z80_we_o        => z80_cpu_we
     ); -- fpga64_sid_iec_inst
 
 
