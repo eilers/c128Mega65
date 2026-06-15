@@ -207,7 +207,8 @@ port(
    pure64      : in  std_logic;
    d4080_sel   : in  std_logic;
    c128_n      : out std_logic;
-   z80_n       : out std_logic
+   z80_n       : out std_logic;
+   z80_we_o    : out std_logic  -- MEGA65 debug: Z80 core write strobe (before bus mux)
 );
 end fpga64_sid_iec;
 
@@ -228,8 +229,8 @@ type sysCycleDef is (
 
 signal sysCycle     : sysCycleDef := sysCycleDef'low;
 signal preCycle     : sysCycleDef := sysCycleDef'low;
-signal sysEnable    : std_logic;
-signal rfsh_cycle   : unsigned(1 downto 0);
+signal sysEnable    : std_logic := '0'; -- POR=0; avoids U in behavioural sim (matches FPGA)
+signal rfsh_cycle   : unsigned(1 downto 0) := (others => '0');
 
 signal dma_active   : std_logic;
 
@@ -533,18 +534,23 @@ pause_out <= not sysEnable;
 process(clk32)
 begin
    if rising_edge(clk32) then
-      preCycle <= sysCycleDef'succ(preCycle);
-      if preCycle = sysCycleDef'high then
-         preCycle <= sysCycleDef'low;
-         if sysEnable = '1' then
-            rfsh_cycle <= rfsh_cycle + 1;
+      if reset_n = '0' then
+         sysEnable  <= '0';
+         rfsh_cycle <= (others => '0');
+      else
+         preCycle <= sysCycleDef'succ(preCycle);
+         if preCycle = sysCycleDef'high then
+            preCycle <= sysCycleDef'low;
+            if sysEnable = '1' then
+               rfsh_cycle <= rfsh_cycle + 1;
+            end if;
          end if;
-      end if;
 
-      refresh <= '0';
-      if preCycle = sysCycleDef'pred(CYCLE_EXT4) and rfsh_cycle = "00" then
-         sysEnable <= not pause;
-         refresh <= '1';
+         refresh <= '0';
+         if preCycle = sysCycleDef'pred(CYCLE_EXT4) and rfsh_cycle = "00" then
+            sysEnable <= not pause;
+            refresh <= '1';
+         end if;
       end if;
    end if;
 end process;
@@ -554,7 +560,8 @@ begin
    if rising_edge(clk32) then
       if preCycle = sysCycleDef'high then
          reset <= not reset_n;
-         reset_t80 <= not reset_n and cpuBusAk_T80_n;
+         -- MEGA65: run Z80 only in Z80 mode; hold in reset when MMU selects 8502.
+         reset_t80 <= not reset_n and mmu_z80_n;
       end if;
    end if;
 end process;
@@ -1340,6 +1347,7 @@ dma_din   <= cpuDi;
 
 c128_n <= mmu_c128_n;
 z80_n <= mmu_z80_n;
+z80_we_o <= cpuWe_T80;
 
 exrom_mmu <= mmu_exrom;
 game_mmu <= mmu_game;

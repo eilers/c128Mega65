@@ -250,6 +250,8 @@ begin
 								cs_romHLoc <= '1';
 							when B"11" =>
 								cs_ramLoc <= '1';
+							when others =>
+								null;
 						end case;
 					else
 						cs_ramLoc <= '1';
@@ -297,6 +299,8 @@ begin
 								cs_romHLoc <= '1';
 							when B"11" =>
 								cs_ramLoc <= '1';
+							when others =>
+								null;
 						end case;
 					else
 						cs_ramLoc <= '1';
@@ -316,6 +320,8 @@ begin
 								cs_romLLoc <= '1';
 							when B"11" =>
 								cs_ramLoc <= '1';
+							when others =>
+								null;
 						end case;
 					else
 						cs_ramLoc <= '1';

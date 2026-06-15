@@ -45,6 +45,7 @@ begin
 			when X"D" => r <= X"F3"; g <= X"F3"; b <= X"4E";
 			when X"E" => r <= X"C4"; g <= X"C4"; b <= X"C4";
 			when X"F" => r <= X"FF"; g <= X"FF"; b <= X"FF";
+			when others => r <= X"00"; g <= X"00"; b <= X"00";
 			end case;
 		elsif palette(3 downto 2) = B"01" then
 			r <= rgbi(3) & rgbi(0) & rgbi(3) & rgbi(0) & rgbi(3) & rgbi(0) & rgbi(3) & rgbi(0);
@@ -58,6 +59,7 @@ begin
 			when B"01" => r <= X"00"; g <= X"C4"; b <= X"00";
 			when B"10" => r <= X"C4"; g <= X"9C"; b <= X"00";
 			when B"11" => r <= X"C4"; g <= X"00"; b <= X"00";
+			when others => r <= X"00"; g <= X"00"; b <= X"00";
 			end case;
 		elsif rgbi(0) = '0' then 
 			case palette(1 downto 0) is
@@ -65,6 +67,7 @@ begin
 			when B"01" => r <= X"00"; g <= X"F8"; b <= X"00";
 			when B"10" => r <= X"F8"; g <= X"C5"; b <= X"00";
 			when B"11" => r <= X"F8"; g <= X"00"; b <= X"00";
+			when others => r <= X"00"; g <= X"00"; b <= X"00";
 			end case;
 		else
 			case palette(1 downto 0) is
@@ -72,6 +75,7 @@ begin
 			when B"01" => r <= X"00"; g <= X"FF"; b <= X"00";
 			when B"10" => r <= X"FF"; g <= X"CA"; b <= X"00";
 			when B"11" => r <= X"FF"; g <= X"00"; b <= X"00";
+			when others => r <= X"00"; g <= X"00"; b <= X"00";
 			end case;
 		end if;
 	end process;

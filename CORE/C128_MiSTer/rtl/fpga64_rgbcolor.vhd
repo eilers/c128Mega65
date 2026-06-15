@@ -53,6 +53,7 @@ begin
 			when X"D" => r <= X"a9"; g <= X"ff"; b <= X"9f";
 			when X"E" => r <= X"70"; g <= X"6d"; b <= X"eb";
 			when X"F" => r <= X"b2"; g <= X"b2"; b <= X"b2";
+			when others => r <= X"00"; g <= X"00"; b <= X"00";
 			end case;
 		else
 			case index is
@@ -72,6 +73,7 @@ begin
 			when X"D" => r <= X"FF"; g <= X"CD"; b <= X"9F";
 			when X"E" => r <= X"89"; g <= X"61"; b <= X"EB";
 			when X"F" => r <= X"B2"; g <= X"B2"; b <= X"B2";
+			when others => r <= X"00"; g <= X"00"; b <= X"00";
 			end case;
 		end if;
 	end process;

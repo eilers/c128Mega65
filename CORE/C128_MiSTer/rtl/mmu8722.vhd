@@ -225,6 +225,7 @@ begin
 		when "10" => rombank <= reg_cr(3 downto 2);
 		when "01" => rombank <= reg_cr(1) & reg_cr(1);
 		when "00" => rombank <= reg_cr(7 downto 6);
+		when others => rombank <= (others => '0');
 		end case;
 
 		tAddr <= tPage & addr(7 downto 0);
