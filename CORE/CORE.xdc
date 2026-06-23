@@ -12,6 +12,13 @@
 create_generated_clock -name main_clk [get_pins CORE/clk_gen/main_clk_bufg/O]
 create_generated_clock -name vdc_clk  [get_pins CORE/clk_vdc_gen/mmcm_adv_inst/CLKOUT0]
 
+## NOTE (investigation): the VDC<->main crossing is intentionally left UNCONSTRAINED.
+## It reports ~ -6 ns phantom failures, but the baseline boots reliably this way. Constraining
+## it (set_clock_groups -asynchronous OR bounded set_max_delay -datapath_only) was tried on HW
+## and BROKE the boot. Running the VDC on main_clk removed the crossing but overloaded main
+## timing (WNS ~+0.002 ns) -> intermittent boot. So the unconstrained crossing is kept.
+
+
 # Vivado 2022.2 flags this known feedback loop as a hard DRC error.
 # Keep the loop acknowledged so bitstream generation can continue.
 set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets CORE/i_main/cart_reset_o]

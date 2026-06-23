@@ -290,6 +290,8 @@ architecture synthesis of mega65_r6 is
    signal core_main_drive_led    : std_logic;
    signal core_main_drive_led_col: std_logic_vector(23 downto 0);
 
+   signal fw_uart_tx             : std_logic;
+
    signal fw_vga_red             : std_logic_vector(7 downto 0);
    signal fw_vga_green           : std_logic_vector(7 downto 0);
    signal fw_vga_blue            : std_logic_vector(7 downto 0);
@@ -582,6 +584,8 @@ begin
    main_drive_led     <= core_main_drive_led;
    main_drive_led_col <= core_main_drive_led_col;
 
+   uart_txd_o <= fw_uart_tx;
+
    vga_red_o   <= fw_vga_red;
    vga_green_o <= fw_vga_green;
    vga_blue_o  <= fw_vga_blue;
@@ -601,7 +605,7 @@ begin
       clk_i                   => clk_i,
       reset_n_i               => not reset_button_i,
       uart_rxd_i              => uart_rxd_i,
-      uart_txd_o              => uart_txd_o,
+      uart_txd_o              => fw_uart_tx,
       vga_red_o               => fw_vga_red,
       vga_green_o             => fw_vga_green,
       vga_blue_o              => fw_vga_blue,

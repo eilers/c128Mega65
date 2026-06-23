@@ -63,6 +63,14 @@ entity main is
       boot_dbg_ram_ce_o       : out std_logic;
       boot_dbg_core_run_o     : out std_logic;
       boot_dbg_vic_pixel_ce_o : out std_logic;  -- raw VIC pixel strobe for video-alignment sim
+      boot_dbg_ram_hold_tick_o: out std_logic; -- pulses when SDRAM-style RAM read data is latched
+      boot_dbg_vic_fetch_o    : out std_logic;
+      boot_dbg_vic_enable_o   : out std_logic;
+      boot_dbg_vic_aec_o      : out std_logic;
+      boot_dbg_vic_pipe_o     : out std_logic_vector(7 downto 0); -- pipelined VIC read data
+      boot_dbg_ram_din_o      : out std_logic_vector(7 downto 0); -- ramDin presented to core
+      boot_dbg_core_ram_addr_o: out unsigned(17 downto 0);
+      boot_dbg_bram_addr_o    : out unsigned(17 downto 0);
       boot_pwr_hint_o         : out std_logic_vector(23 downto 0); -- vec-byte hint when stage 100
 
      -- C64 RAM: No address latching necessary and the chip can always be enabled
@@ -140,6 +148,7 @@ signal rom_addr_held     : std_logic_vector(16 downto 0) := (others => '0');
 signal ram_ce_d          : std_logic := '0';
 signal ram_addr_held     : unsigned(17 downto 0) := (others => '0');
 signal ram_data_r        : unsigned(7 downto 0) := (others => '0');
+signal dbg_ram_hold_tick : std_logic := '0';
 signal joy_a             : std_logic_vector(6 downto 0);
 signal joy_b             : std_logic_vector(6 downto 0);
 signal sid_audio_l       : std_logic_vector(17 downto 0);
@@ -590,11 +599,23 @@ end process;
 -- Access to C64's RAM and hardware/simulated cartridge ROM
 --------------------------------------------------------------------------------------------------
 -- #region agent log
--- H15: latch BRAM addr at ce rise; keep ramDin valid every ROM/RAM read cycle (H14 gating rejected).
+-- H15: ROM addr hold at ce rise; RAM read data latched on ramCE (boot-validated on HW).
+-- H-V13 internal VIC/BRAM changes REJECTED on HW (magenta, black HDMI) — same class as H-V11.
+-- H-V22 8502 live addr + mega65 SDRAM hold REJECTED on HW (magenta stage-101, black HDMI).
+-- H-V23 mega65 BRAM bridge REJECTED on HW (magenta stage-101, black HDMI) — same class as H-V22.
+-- H-V24..H-V29 VIC read-timing changes ALL REJECTED on HW (magenta drive LED, black HDMI),
+--   even a change that only re-sourced the VIC's own di (vicDiAec) and left the CPU/Z80 path
+--   byte-identical. The exact baseline (this shim, no changes) was rebuilt and CONFIRMED to
+--   boot green + snow, proving the toolchain is fine. Timing analysis then showed the real
+--   problem: the VDC<->main clock crossing was unconstrained (~2700 false-failing endpoints,
+--   WNS ~-6 ns) -> a CDC constraint (CORE.xdc, set_clock_groups async) brought WNS to ~0.
+--   This file is the known-good baseline shim (boots+snow); the VIC snow fix is still open
+--   and must be developed against the now timing-clean build.
 mem_hold_proc: process (clk_main_i)
   variable rom_addr_live : std_logic_vector(16 downto 0);
 begin
   if rising_edge(clk_main_i) then
+    dbg_ram_hold_tick <= '0';
     rom_addr_live := std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
     sysrom_cs_d <= sysrom_cs;
     ram_ce_d    <= ram_ce;
@@ -602,6 +623,7 @@ begin
     if reset_core_n = '0' then
       rom_addr_held <= (others => '0');
       ram_addr_held <= (others => '0');
+      ram_data_r    <= (others => '0');
     else
       if sysrom_cs = '1' then
         if sysrom_cs_d = '0' then
@@ -615,6 +637,7 @@ begin
           ram_addr_held <= core_ram_addr;
         end if;
         ram_data_r <= ram_data_i;
+        dbg_ram_hold_tick <= '1';
       end if;
     end if;
   end if;
@@ -631,8 +654,6 @@ cpu_data_in_proc: process (all)
       ram_data <= x"00";
     elsif sysrom_cs = '1' or sysrom_cs_d = '1' then
       ram_data <= sysrom_data_r;
-    elsif ram_ce_d = '1' and ram_we = '0' then
-      ram_data <= ram_data_r;
     else
       ram_data <= ram_data_r;
     end if;
@@ -643,6 +664,14 @@ ram_we_o <= ram_we;
 sys_rom_addr_o <= rom_addr_held when sysrom_cs = '1' else
                   std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= ram_addr_held when ram_ce = '1' and ram_we = '0' else core_ram_addr;
+boot_dbg_bram_addr_o     <= ram_addr_o;
+boot_dbg_vic_fetch_o     <= '0';
+boot_dbg_vic_enable_o    <= '0';
+boot_dbg_vic_aec_o       <= '0';
+boot_dbg_vic_pipe_o      <= (others => '0');
+boot_dbg_ram_din_o       <= std_logic_vector(ram_data);
+boot_dbg_core_ram_addr_o <= core_ram_addr;
+boot_dbg_ram_hold_tick_o <= dbg_ram_hold_tick;
 sysrom_data <= unsigned(sys_rom_data_i);
 joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
          (not joy_1_down_n_i) & (not joy_1_up_n_i) & '0';

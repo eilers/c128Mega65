@@ -74,6 +74,9 @@ launch_runs synth_1 -jobs 8
 wait_on_run synth_1
 set synth_status [get_property STATUS [get_runs synth_1]]
 puts "synth_1 status: $synth_status"
+if {[string match "*ERROR*" $synth_status]} {
+    exit 2
+}
 
 puts "Starting implementation and bitstream (impl_1)..."
 launch_runs impl_1 -to_step write_bitstream -jobs 14

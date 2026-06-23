@@ -22,7 +22,7 @@ use xpm.vcomponents.all;
 
 entity MEGA65_Core is
 generic (
-   G_BOARD : string                                         -- Which platform are we running on.
+   G_BOARD           : string                              -- Which platform we are running on.
 );
 port (
    --------------------------------------------------------------------------------------------------------
@@ -391,6 +391,14 @@ begin
          boot_dbg_ram_ce_o => open,
          boot_dbg_core_run_o => open,
          boot_dbg_vic_pixel_ce_o => open,
+         boot_dbg_ram_hold_tick_o => open,
+         boot_dbg_vic_fetch_o    => open,
+         boot_dbg_vic_enable_o   => open,
+         boot_dbg_vic_aec_o      => open,
+         boot_dbg_vic_pipe_o     => open,
+         boot_dbg_ram_din_o      => open,
+         boot_dbg_core_ram_addr_o => open,
+         boot_dbg_bram_addr_o    => open,
          boot_pwr_hint_o     => main_boot_pwr_hint,
 
          -- M2M Keyboard interface
