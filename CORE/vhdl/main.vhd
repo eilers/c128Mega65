@@ -163,6 +163,13 @@ signal vic_g             : unsigned(7 downto 0);
 signal vic_b             : unsigned(7 downto 0);
 signal vic_pixel_ce      : std_logic;
 signal vic_pixel_ce_d    : std_logic := '0';
+-- ILA debug probes (from fpga64_sid_iec internal VIC/bus signals)
+signal core_vic_has_bus  : std_logic;
+signal core_enable_vic   : std_logic;
+signal core_aec          : std_logic;
+signal core_vicdi        : unsigned(7 downto 0);
+signal dbg_ram_data_i    : unsigned(7 downto 0);
+
 signal vic_r_reg         : unsigned(7 downto 0) := (others => '0');
 signal vic_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vic_b_reg         : unsigned(7 downto 0) := (others => '0');
@@ -266,6 +273,26 @@ signal prevent_reset : std_logic;
 signal cache_dirty   : std_logic; -- TODO: Hack!
 
 -- TODO: Add reu and rtc support
+
+-- #region ila
+-- Probes for Vivado ILA capture (debug builds only): boot/reset sequencing, VIC bus phase,
+-- fetch address, and the data buses (what is available vs what the VIC/CPU sample) -- to
+-- diagnose where the (magenta) boot diverges and the screen "snow".
+attribute mark_debug : string;
+attribute mark_debug of ram_ce           : signal is "true";
+attribute mark_debug of ram_we           : signal is "true";
+attribute mark_debug of core_ram_addr    : signal is "true";
+attribute mark_debug of ram_data         : signal is "true";
+attribute mark_debug of dbg_ram_data_i   : signal is "true";
+attribute mark_debug of core_vic_has_bus : signal is "true";
+attribute mark_debug of core_enable_vic  : signal is "true";
+attribute mark_debug of core_aec         : signal is "true";
+attribute mark_debug of core_vicdi       : signal is "true";
+attribute mark_debug of core_z80_n       : signal is "true";
+attribute mark_debug of sysrom_cs        : signal is "true";
+attribute mark_debug of boot_stage       : signal is "true";
+attribute mark_debug of reset_core_n     : signal is "true";
+-- #endregion ila
 
 begin
 
@@ -659,6 +686,9 @@ cpu_data_in_proc: process (all)
     end if;
   end process;
 
+-- ILA: live BRAM read data available to the core/VIC this cycle.
+dbg_ram_data_i <= ram_data_i;
+
 -- MiSTer exposes ramWE/ramCE separately; do not AND them (Z80 latch writes miss CE).
 ram_we_o <= ram_we;
 sys_rom_addr_o <= rom_addr_held when sysrom_cs = '1' else
@@ -952,7 +982,11 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       d4080_sel     => '1',       -- MiSTer default: 40-column key sense released
       c128_n        => core_c128_n,
       z80_n           => core_z80_n,
-      z80_we_o        => z80_cpu_we
+      z80_we_o        => z80_cpu_we,
+      dbg_vic_has_bus_o => core_vic_has_bus,
+      dbg_enable_vic_o  => core_enable_vic,
+      dbg_aec_o         => core_aec,
+      dbg_vicdi_o       => core_vicdi
     ); -- fpga64_sid_iec_inst
 
 
