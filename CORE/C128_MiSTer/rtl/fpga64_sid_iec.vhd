@@ -93,6 +93,7 @@ port(
    vicR        : out unsigned(7 downto 0);
    vicG        : out unsigned(7 downto 0);
    vicB        : out unsigned(7 downto 0);
+   vic_pixel_ce_o : out std_logic;  -- MEGA65: VIC pixel strobe (enablePixel)
 
    vdcHsync    : out std_logic;
    vdcVsync    : out std_logic;
@@ -208,7 +209,11 @@ port(
    d4080_sel   : in  std_logic;
    c128_n      : out std_logic;
    z80_n       : out std_logic;
-   z80_we_o    : out std_logic  -- MEGA65 debug: Z80 core write strobe (before bus mux)
+   z80_we_o    : out std_logic; -- MEGA65 debug: Z80 core write strobe (before bus mux)
+   dbg_vic_has_bus_o : out std_logic; -- ILA probe: VIC owns the bus this cycle
+   dbg_enable_vic_o  : out std_logic; -- ILA probe: VIC samples fetched data this cycle
+   dbg_aec_o         : out std_logic; -- ILA probe: VIC addrValid
+   dbg_vicdi_o       : out unsigned(7 downto 0) -- ILA probe: data presented to the VIC (vicDiAec)
 );
 end fpga64_sid_iec;
 
@@ -886,6 +891,8 @@ begin
    end if;
 end process;
 
+vic_pixel_ce_o <= enablePixel;
+
 -- -----------------------------------------------------------------------
 -- VDC 80-col video display controller
 -- -----------------------------------------------------------------------
@@ -1348,6 +1355,10 @@ dma_din   <= cpuDi;
 c128_n <= mmu_c128_n;
 z80_n <= mmu_z80_n;
 z80_we_o <= cpuWe_T80;
+dbg_vic_has_bus_o <= vicHasBus;
+dbg_enable_vic_o  <= enableVic;
+dbg_aec_o         <= aec;
+dbg_vicdi_o       <= vicDiAec;
 
 exrom_mmu <= mmu_exrom;
 game_mmu <= mmu_game;
