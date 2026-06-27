@@ -351,7 +351,11 @@ begin
       )
       port map (
          clk_main_i           => main_clk_o,
-         clk_vdc_i            => vdc_clk_o,
+         -- H-V33: run VDC on main_clk to eliminate the unconstrained VDC<->main async
+         -- crossing (the dominant WNS contributor, ~2700 false-failing endpoints). This
+         -- closes timing (WNS +0.096 vs -6.8) and makes boot robust. Combined here with
+         -- the vdcram->BRAM fix + ILA so the green-booting path is observable.
+         clk_vdc_i            => main_clk_o,
          reset_soft_i         => main_reset_core_i,
          reset_hard_i         => main_reset_m2m_i,
          pause_i              => main_pause_core_i,
