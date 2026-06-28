@@ -71,6 +71,12 @@ port(
    -- external memory
    ramAddr     : out unsigned(17 downto 0);
    ramDin      : in  unsigned(7 downto 0);
+   -- MEGA65: dedicated VIC read data. The external BRAM has 1-cycle latency; the CPU
+   -- presents its address before ce so ramDin is valid at ce, but the single-cycle VIC
+   -- fetch coincides with ce, so the VIC needs the byte one cycle later. Keeping this on
+   -- a separate port leaves the CPU/boot path (ramDin) byte-identical to the known-good
+   -- build. Defaulted to ramDin's source for the unaffected MiSTer build.
+   vicRamDin   : in  unsigned(7 downto 0) := (others => '0');
    ramDinFloat : in  std_logic;
    ramDout     : out unsigned(7 downto 0);
    ramCE       : out std_logic;
@@ -765,7 +771,10 @@ end process;
 -- VIC-II video interface chip
 -- -----------------------------------------------------------------------
 vicDi <= ramDin;
-vicDiAec <= vicDi when aec = '1' else cpuLastData;
+-- SNOW FIX: only the VIC's DISPLAY input uses the correctly-timed 1-cycle-later byte
+-- (vicRamDin = main.vhd vic_data_r). vicDi stays = ramDin so all CPU/bus feedback
+-- (lastVicDi, cpuDo_T65) is byte-identical to the known-good build.
+vicDiAec <= vicRamDin when aec = '1' else cpuLastData;
 colorDataAec <= colorData when aec = '1' else cpuLastData(3 downto 0);
 
 vic: entity work.video_vicii_656x
