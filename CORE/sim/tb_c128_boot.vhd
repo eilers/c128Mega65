@@ -412,9 +412,20 @@ begin
                vic_consume_count <= vic_consume_count + 1;
                idx := to_integer(addr_l) mod 131072;
                -- boot_dbg_vic_pipe carries the dedicated VIC read data (vic_ram_din).
-               if not is_x(boot_dbg_vic_pipe) then
+               -- Skip VIC idle accesses (low 14 bits = $3FFF): the VIC reads $3FFF when
+               -- it has no real fetch (border/blank); that byte is never displayed text,
+               -- so it must not gate the screen-correctness check.
+               if not is_x(boot_dbg_vic_pipe) and (addr_l(13 downto 0) /= "11111111111111") then
                   if unsigned(boot_dbg_vic_pipe) /= shadow_ram(idx) then
                      vic_screen_mismatch <= vic_screen_mismatch + 1;
+                     if vic_screen_mismatch < 40 then
+                        log_boot_json(LOG_PATH, C_SESSION_ID, C_RUN_ID, "VICDBG",
+                           "tb_c128_boot:vic_mismatch", "vic read mismatch",
+                           "{""addr"":" & integer'image(to_integer(addr_l)) &
+                           ",""expected"":" & integer'image(to_integer(shadow_ram(idx))) &
+                           ",""got"":" & integer'image(to_integer(unsigned(boot_dbg_vic_pipe))) &
+                           ",""aec"":""" & std_logic'image(boot_dbg_vic_aec) & """}");
+                     end if;
                   end if;
                end if;
                pend := '0';

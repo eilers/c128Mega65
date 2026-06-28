@@ -148,6 +148,12 @@ signal rom_addr_held     : std_logic_vector(16 downto 0) := (others => '0');
 signal ram_ce_d          : std_logic := '0';
 signal ram_addr_held     : unsigned(17 downto 0) := (others => '0');
 signal ram_data_r        : unsigned(7 downto 0) := (others => '0');
+-- VIC read data, latched one cycle after a VIC read launch (when the 1-cycle-latency
+-- BRAM has returned the VIC address). The CPU presents its address before ce so it uses
+-- ram_data_r; the single-cycle VIC fetch coincides with ce and needs this delayed copy.
+-- Gated on the VIC launch (not any read) so interleaved CPU reads don't clobber it.
+signal vic_data_r        : unsigned(7 downto 0) := (others => '0');
+signal vic_rd_launch_d   : std_logic := '0';
 signal dbg_ram_hold_tick : std_logic := '0';
 signal joy_a             : std_logic_vector(6 downto 0);
 signal joy_b             : std_logic_vector(6 downto 0);
@@ -420,9 +426,16 @@ video_sync_inst : entity work.video_sync
 video_red_o <= std_logic_vector(vic_r_reg);
 video_green_o <= std_logic_vector(vic_g_reg);
 video_blue_o <= std_logic_vector(vic_b_reg);
--- cart_reset_o is low-active at the expansion port:
--- drive low while core reset is active, high otherwise.
-cart_reset_o <= reset_core_n;
+-- cart_reset_o is low-active at the expansion port: drive low while an INTERNAL reset is
+-- active, high otherwise. It MUST NOT be driven from reset_core_n: with cart_reset_oe_o='1'
+-- the FPGA always drives this pin and reads it back on cart_reset_i, and combined_reset_proc
+-- feeds cart_reset_i back into reset_core_n (prevent_reset is hardwired '0'). Driving
+-- cart_reset_o <= reset_core_n therefore closes a purely combinational self-latching loop
+-- (reset_core_n -> cart_reset_o -> pin -> cart_reset_i -> reset_core_n) whose settle at
+-- reset-release depends on routing delay -> placement-dependent, STA-invisible boot lottery.
+-- Sourcing it from the internal reset request only breaks the loop and makes boot deterministic.
+cart_reset_o <= '0' when (pwrup_reset_cnt /= 0 or reset_core_int_n = '0' or cart_reset_counter /= 0)
+                else '1';
 cart_roml_o <= core_roml;
 cart_romh_o <= core_romh;
 cart_io1_o <= core_ioe;
@@ -646,6 +659,8 @@ begin
     rom_addr_live := std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
     sysrom_cs_d <= sysrom_cs;
     ram_ce_d    <= ram_ce;
+    -- VIC read launched this cycle (VIC owns bus + RAM read pulse at CYCLE_VIC0).
+    vic_rd_launch_d <= core_vic_has_bus and ram_ce and not ram_we;
 
     if reset_core_n = '0' then
       rom_addr_held <= (others => '0');
@@ -659,12 +674,23 @@ begin
         sysrom_data_r <= unsigned(sys_rom_data_i);
       end if;
 
+      -- CPU read path (unchanged): the CPU presents its address before ce, so the
+      -- BRAM data is already valid at ce.
       if ram_ce = '1' and ram_we = '0' then
         if ram_ce_d = '0' then
           ram_addr_held <= core_ram_addr;
         end if;
         ram_data_r <= ram_data_i;
         dbg_ram_hold_tick <= '1';
+      end if;
+
+      -- VIC read path (fix for snow): a single-cycle VIC fetch presents its address
+      -- AT ce (CYCLE_VIC0), so the 1-cycle-latency BRAM only returns it the next cycle
+      -- (vic_rd_launch_d='1', CYCLE_VIC1). Capture it then; it is consumed at enableVic
+      -- (CYCLE_VIC2). Latching on ce (like the CPU) gave the VIC the PREVIOUS cycle's
+      -- byte -> snow. (Confirmed on HW via ILA + boot sim.)
+      if vic_rd_launch_d = '1' then
+        vic_data_r <= ram_data_i;
       end if;
     end if;
   end if;
@@ -695,10 +721,15 @@ sys_rom_addr_o <= rom_addr_held when sysrom_cs = '1' else
                   std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= ram_addr_held when ram_ce = '1' and ram_we = '0' else core_ram_addr;
 boot_dbg_bram_addr_o     <= ram_addr_o;
-boot_dbg_vic_fetch_o     <= '0';
-boot_dbg_vic_enable_o    <= '0';
-boot_dbg_vic_aec_o       <= '0';
-boot_dbg_vic_pipe_o      <= (others => '0');
+-- Sim VIC read-correctness taps (observation only; not fed back into the core):
+--   fetch  = VIC RAM-read launch (VIC owns bus, ram_ce read pulse at CYCLE_VIC0)
+--   enable = VIC data-sample strobe (enableVic at CYCLE_VIC2)
+--   pipe   = the byte the VIC actually receives (vicDiAec)
+-- The tb latches core_ram_addr at 'fetch' and checks 'pipe' equals shadow RAM at 'enable'.
+boot_dbg_vic_fetch_o     <= core_vic_has_bus and ram_ce and not ram_we;
+boot_dbg_vic_enable_o    <= core_enable_vic;
+boot_dbg_vic_aec_o       <= core_aec;
+boot_dbg_vic_pipe_o      <= std_logic_vector(core_vicdi);
 boot_dbg_ram_din_o       <= std_logic_vector(ram_data);
 boot_dbg_core_ram_addr_o <= core_ram_addr;
 boot_dbg_ram_hold_tick_o <= dbg_ram_hold_tick;
@@ -839,6 +870,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- external memory
       ramAddr       => core_ram_addr,
       ramDin        => ram_data,
+      vicRamDin     => vic_data_r, -- dedicated VIC read data (1 cycle later than ramDin; fixes snow)
       ramDout       => ram_data_o,
       ramCE         => ram_ce,
       ramWE         => ram_we,
