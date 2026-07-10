@@ -71,17 +71,30 @@ port map (
 
 process(clk) begin
 	if rising_edge(clk) then
-		WR_n_l <= WR_n;
-		WR_f <= WR_f or (WR_n_l and not WR_n);
-		if latch = '1' then
+		if reset = '1' then
+			-- MEGA65: while the Z80 is held in reset, present address $0000 on the latched
+			-- bus so the C128 MMU/system-ROM read pipeline pre-settles on the Z80 boot
+			-- vector. Without this the pipeline is "cold" on the first opcode fetch out of
+			-- reset: the T80 samples $0000 one cycle before the 1-cycle-latency ROM data /
+			-- cs_sysRom are valid, reads a wrong first byte, and misaligns into an endless
+			-- RST 38h -> $0038 loop (boot hang). The MiSTer SDRAM path (2x clock) hides this
+			-- latency; a 1-cycle BRAM does not, so we prime the address here.
+			addr <= (others => '0');
+			WR_n_l <= '1';
 			WR_f <= '0';
-			we <= WR_f or (WR_n_l and not WR_n);
-			io <= not IORQ_n;
-			m1 <= not M1_n;
-			rd <= not RD_n;
-			busak_n <= localBusAk_n;
-			addr <= unsigned(localA);
-			do <= unsigned(localDo);
+		else
+			WR_n_l <= WR_n;
+			WR_f <= WR_f or (WR_n_l and not WR_n);
+			if latch = '1' then
+				WR_f <= '0';
+				we <= WR_f or (WR_n_l and not WR_n);
+				io <= not IORQ_n;
+				m1 <= not M1_n;
+				rd <= not RD_n;
+				busak_n <= localBusAk_n;
+				addr <= unsigned(localA);
+				do <= unsigned(localDo);
+			end if;
 		end if;
 	end if;
 end process;
