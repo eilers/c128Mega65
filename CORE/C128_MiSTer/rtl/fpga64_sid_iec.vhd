@@ -1313,6 +1313,7 @@ begin
                when "01" => t65_turbo_m <= "100";
                when "10" => t65_turbo_m <= "110";
                when "11" => t65_turbo_m <= "111";
+               when others => t65_turbo_m <= turbo_state & "00";
             end case;
             t80_turbo_m <= turbo_mode(2);
          end if;

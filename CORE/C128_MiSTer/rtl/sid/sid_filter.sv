@@ -42,7 +42,7 @@ function signed [15:0] clamp(input signed [16:0] x);
 endfunction
 
 // Clamp to 18 bits, for the widened (+2 fractional bits) integrators.
-function signed [17:0] clamp18(wire signed [18:0] x);
+function signed [17:0] clamp18(input signed [18:0] x);
 	clamp18 = ^x[18:17] ? {x[18], {17{x[17]}}} : x[17:0];
 endfunction
 
@@ -55,7 +55,7 @@ endfunction
 localparam [15:0]        COMP_KNEE = 16'd3000;
 localparam [4:0]         COMP_HG   = 5'd6;
 localparam signed [16:0] DC_LP     = -17'sd3840;
-function signed [15:0] compress(wire signed [15:0] x);
+function signed [15:0] compress(input signed [15:0] x);
 	logic [15:0] ax, over, comp;
 	ax = x[15] ? 16'(-x) : x;
 	if (ax <= COMP_KNEE) compress = x;
