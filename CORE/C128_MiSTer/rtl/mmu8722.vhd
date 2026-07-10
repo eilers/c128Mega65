@@ -61,11 +61,13 @@ architecture rtl of mmu8722 is
 	signal reg_cr : configReg;
 	signal reg_pcr : configStore;
 	signal reg_cpu : std_logic;
+	signal reg_cpu_s : std_logic;
 	signal reg_fsdir : std_logic := '0';
 	signal reg_exrom : std_logic := '0';
 	signal reg_game : std_logic := '0';
 	signal reg_d4080 : std_logic := '0';
 	signal reg_os : std_logic;
+	signal reg_os_s : std_logic;
 	signal reg_unused06 : unsigned(1 downto 0);
 	signal reg_vicbank : unsigned(1 downto 0);
 	signal reg_commonH : std_logic;
@@ -176,59 +178,72 @@ begin
 	fsdir <= fsdiri and reg_fsdir;
 	fsdiro <= fsdir;
 
+	system_control: process(clk)
+	begin
+		if rising_edge(clk) then
+			if (reset = '1') then
+				reg_cpu_s <= cpumode;
+				reg_os_s <= osmode;
+			elsif (enable = '1') then
+				reg_cpu_s <= reg_cpu;
+				reg_os_s  <= reg_os;
+			end if;
+		end if;
+	end process;
+
+	z80_n  <= reg_cpu_s;
+	c128_n <= reg_os_s;
+
 	systemMask <= sys256k & "1";
 	commonPageMask <= "11111100" when reg_commonSz = "00" else  -- 00..03 / FC..FF = 1k
-	                  "11110000" when reg_commonSz = "01" else  -- 00..0F / F0..FF = 4k
+							"11110000" when reg_commonSz = "01" else  -- 00..0F / F0..FF = 4k
 							"11100000" when reg_commonSz = "10" else  -- 00..1F / E0..FF = 8k
 							"11000000";                               -- 00..3F / C0..FF =16k
 
+	tAddr(7 downto 0) <= addr(7 downto 0);
 	page <= addr(15 downto 8);
 	commonPage <= page and commonPageMask;
 	cpuMask <= "00" when (reg_commonH = '1' and commonPage = commonPageMask) or (reg_commonL = '1' and commonPage = "00000000") else systemMask;
 	crBank <= unsigned("00" & std_logic_vector(reg_cr(7 downto 6) and cpuMask));
 
 	vicBank <= reg_vicbank and systemMask;
-
-	c128_n <= reg_os;
-	z80_n <= reg_cpu;
 	iosel <= reg_cr(0);
 
-	translate_addr: process(crBank, cpuMask, reg_cr, reg_cpu, reg_os, reg_p0h, reg_p0l, reg_p1h, reg_p1l, page, addr, we)
-	variable bank: unsigned(1 downto 0);
-	variable tPage: unsigned(15 downto 8);
+	translate_page: process(crBank, cpuMask, reg_cr, reg_cpu_s, reg_os, reg_p0h, reg_p0l, reg_p1h, reg_p1l, page, we)
+	variable rBank: unsigned(1 downto 0);
 	begin
-		bank := crBank(1 downto 0);
-		tPage := page;
-
-		if reg_cr(7 downto 6) = "00" and addr(15 downto 12) = X"0" and reg_cpu = '0' and we = '0' then
-			-- When reading from $00xxx in Z80 mode, translate to $0Dxxx. Buslogic will enable ROM
-			bank := "00";
-			tPage := X"D" & page(11 downto 8);
-		elsif page = X"01" and reg_os = '0' then
-			bank := reg_p1h(1 downto 0) and cpuMask;
-			tPage := reg_p1l;
-		elsif page = X"00" and reg_os = '0' then
-			bank := reg_p0h(1 downto 0) and cpuMask;
-			tPage := reg_p0l;
-		elsif crBank = reg_p1h and page = reg_p1l then
-			bank := reg_p1h(1 downto 0) and cpuMask;
-			tPage := X"01";
-		elsif crBank = reg_p0h and page = reg_p0l then
-			bank := reg_p0h(1 downto 0) and cpuMask;
-			tPage := X"00";
-		end if;
-
-		cpuBank <= bank;
-
-		case addr(15 downto 14) is
-		when "11" => rombank <= reg_cr(5 downto 4);
-		when "10" => rombank <= reg_cr(3 downto 2);
-		when "01" => rombank <= reg_cr(1) & reg_cr(1);
-		when "00" => rombank <= reg_cr(7 downto 6);
-		when others => rombank <= (others => '0');
+		case page(15 downto 14) is
+		when "11" => rBank := reg_cr(5 downto 4);
+		when "10" => rBank := reg_cr(3 downto 2);
+		when "01" => rBank := reg_cr(1) & reg_cr(1);
+		when "00" => rBank := "11"; -- RAM
+		when others => rBank := "11";
 		end case;
 
-		tAddr <= tPage & addr(7 downto 0);
+		cpuBank <= crBank(1 downto 0);
+		tAddr(15 downto 8) <= page;
+		romBank <= rBank;
+
+		if reg_cr(7 downto 6) = "00" and page(15 downto 12) = X"0" and reg_cpu_s = '0' then
+			-- Z80 Bios
+			cpuBank <= "00";
+			tAddr(15 downto 12) <= X"D";
+			romBank <= "00"; -- System ROM
+		elsif page = X"01" and reg_os = '0' then
+			cpuBank <= reg_p1h(1 downto 0) and cpuMask;
+			tAddr(15 downto 8) <= reg_p1l;
+			romBank <= "11"; -- RAM
+		elsif page = X"00" and reg_os = '0' then
+			cpuBank <= reg_p0h(1 downto 0) and cpuMask;
+			tAddr(15 downto 8) <= reg_p0l;
+			romBank <= "11"; -- RAM
+		elsif crBank = reg_p1h and page = reg_p1l and rBank = "11" and (page(15 downto 12) /= X"D" or reg_cr(0)='1') then
+			cpuBank <= reg_p1h(1 downto 0) and cpuMask;
+			tAddr(15 downto 8) <= X"01";
+		elsif crBank = reg_p0h and page = reg_p0l and rBank = "11" and (page(15 downto 12) /= X"D" or reg_cr(0)='1') then
+			cpuBank <= reg_p0h(1 downto 0) and cpuMask;
+			tAddr(15 downto 8) <= X"00";
+		end if;
 	end process;
 
 -- -----------------------------------------------------------------------
@@ -237,7 +252,7 @@ begin
 	readRegisters: process(clk)
 	begin
 		if rising_edge(clk) then
-			if we = '0' and (cs_io = '1' or cs_lr = '1') then
+			if cs_io = '1' or cs_lr = '1' then
 				case addr(7 downto 0) is
 				when X"00" => do <= reg_cr;
 				when X"01" => do <= reg_pcr(0);
