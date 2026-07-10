@@ -90,12 +90,17 @@ puts "Simulator console log: $sim_log"
 set probe_list {
     /tb_c128_boot/u_dut/fpga64_sid_iec_inst/baLoc
     /tb_c128_boot/u_dut/fpga64_sid_iec_inst/reset_t80
-    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/cpuBusAk_T80_n
-    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/cpuActT80
-    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/t80_cyc
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/cpuBusAkT80_n
     /tb_c128_boot/u_dut/fpga64_sid_iec_inst/reset
     /tb_c128_boot/u_dut/fpga64_sid_iec_inst/sysEnable
     /tb_c128_boot/u_dut/fpga64_sid_iec_inst/cpuAddr_T80
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/cpuIO_T80
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/cs_mmuL
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/enableMmu
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/mmu/reg_cpu
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/mmu/reg_cpu_s
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/mmu/reg_exrom
+    /tb_c128_boot/u_dut/fpga64_sid_iec_inst/mmu/reg_game
 }
 set probe_fh [open $log_file a]
 foreach p $probe_list {
