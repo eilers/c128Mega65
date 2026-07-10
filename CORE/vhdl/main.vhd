@@ -889,6 +889,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ntscMode      => '0',
       vic_variant   => "01",
       vicJailbars   => "00",      -- disable jailbars
+      vicPalette    => "000",     -- default/standard C64 palette (upstream palette-selection feature)
       vicHsync      => core_vic_hs,
       vicVsync      => core_vic_vs,
       vicR          => vic_r,
