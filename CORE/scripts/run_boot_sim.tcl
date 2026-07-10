@@ -30,6 +30,21 @@ if {[file exists $log_file]} {
 open_project $project_file
 update_compile_order -fileset sources_1
 
+# Vivado 2022 may import .sv files as plain Verilog; force SystemVerilog so the
+# simulator (xvlog) parses them correctly. Mirrors build_bitstream.tcl. Needed after
+# the upstream merge added SystemVerilog SID files (e.g. rtl/sid/sid_filter.sv).
+set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]
+foreach sv_file $sv_files {
+    set_property file_type {SystemVerilog} $sv_file
+}
+set repo_root [file normalize [file join $core_dir ..]]
+set sv_compat_v_files [list [file join $repo_root "CORE/C128_MiSTer/rtl/mos6526_8520.v"]]
+foreach v_file $sv_compat_v_files {
+    if {[llength [get_files -quiet $v_file]] > 0} {
+        set_property file_type {SystemVerilog} [get_files $v_file]
+    }
+}
+
 if {[llength [get_filesets -quiet sim_1]] == 0} {
     create_fileset -simset sim_1
 }
