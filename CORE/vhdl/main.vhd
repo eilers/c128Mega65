@@ -697,6 +697,10 @@ begin
 end process;
 -- #endregion
 
+-- Simplified memory read mux (post-upstream-merge re-tune):
+-- Present the core's LIVE address to the BRAM/ROM and return the LIVE 1-cycle-latency
+-- read data. The merged core holds systemAddr stable across an access (as the MiSTer
+-- SDRAM expects, latching addr at ce), so no address/data holding shim is needed here.
 cpu_data_in_proc: process (all)
   begin
     ram_data <= x"00";
@@ -705,10 +709,10 @@ cpu_data_in_proc: process (all)
     -- and avoid that the KERNAL ever sees the CBM80 signature during hard reset reset.
     if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' then
       ram_data <= x"00";
-    elsif sysrom_cs = '1' or sysrom_cs_d = '1' then
-      ram_data <= sysrom_data_r;
+    elsif sysrom_cs = '1' then
+      ram_data <= unsigned(sys_rom_data_i);
     else
-      ram_data <= ram_data_r;
+      ram_data <= ram_data_i;
     end if;
   end process;
 
@@ -717,9 +721,8 @@ dbg_ram_data_i <= ram_data_i;
 
 -- MiSTer exposes ramWE/ramCE separately; do not AND them (Z80 latch writes miss CE).
 ram_we_o <= ram_we;
-sys_rom_addr_o <= rom_addr_held when sysrom_cs = '1' else
-                  std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
-ram_addr_o <= ram_addr_held when ram_ce = '1' and ram_we = '0' else core_ram_addr;
+sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
+ram_addr_o <= core_ram_addr;
 boot_dbg_bram_addr_o     <= ram_addr_o;
 -- Sim VIC read-correctness taps (observation only; not fed back into the core):
 --   fetch  = VIC RAM-read launch (VIC owns bus, ram_ce read pulse at CYCLE_VIC0)
@@ -870,7 +873,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- external memory
       ramAddr       => core_ram_addr,
       ramDin        => ram_data,
-      vicRamDin     => vic_data_r, -- dedicated VIC read data (1 cycle later than ramDin; fixes snow)
+      vicRamDin     => ram_data, -- TEMP: live data (snow-fix timing to be reworked after boot)
       ramDout       => ram_data_o,
       ramCE         => ram_ce,
       ramWE         => ram_we,

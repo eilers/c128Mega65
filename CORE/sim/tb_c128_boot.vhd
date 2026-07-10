@@ -109,7 +109,10 @@ begin
 
    clk_main  <= not clk_main  after C_MAIN_PERIOD / 2;
    clk_qnice <= not clk_qnice after C_QNICE_PERIOD / 2;
-   clk_vdc   <= not clk_vdc   after C_VDC_PERIOD / 2;
+   -- H-V33: the VDC runs on main_clk in the real design (mega65.vhd clk_vdc_i => main_clk_o).
+   -- Drive the sim's clk_vdc from clk_main so the testbench matches the actual hardware
+   -- clocking (was a separate async oscillator, which does not reflect the build).
+   clk_vdc   <= clk_main;
 
    ram_data_from <= ram_data_from_held when C_MEM_BRIDGE
                     else unsigned(ram_data_from_bram);
