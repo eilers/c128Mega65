@@ -46,32 +46,11 @@ entity main is
       audio_left_o            : out signed(15 downto 0);
       audio_right_o           : out signed(15 downto 0);
 
-      -- Drive led (color is RGB) + boot stage for power LED (3 bits)
+      -- Drive led (monochrome + RGB colour)
       drive_led_o             : out std_logic;
       drive_led_col_o         : out std_logic_vector(23 downto 0);
-      boot_stage_o            : out std_logic_vector(2 downto 0);
-      boot_led_col_o          : out std_logic_vector(23 downto 0);
+      -- Active CPU indicator: '0' = Z80 (C128 boot), '1' = 8502. Used by the boot sim.
       boot_z80_n_o            : out std_logic;
-      boot_ram_we_o           : out std_logic;  -- latched: 8502 HyperRAM write seen
-      boot_dbg_probe_o        : out std_logic_vector(6 downto 0);
-      boot_dbg_z80_rd_o       : out std_logic;
-      boot_dbg_z80_we_o       : out std_logic;
-      boot_dbg_z80_sysrom_o   : out std_logic;
-      boot_dbg_vec_valid_o    : out std_logic;
-      boot_dbg_vec_byte_o     : out std_logic_vector(7 downto 0);
-      boot_dbg_sysrom_cs_o    : out std_logic;
-      boot_dbg_ram_ce_o       : out std_logic;
-      boot_dbg_core_run_o     : out std_logic;
-      boot_dbg_vic_pixel_ce_o : out std_logic;  -- raw VIC pixel strobe for video-alignment sim
-      boot_dbg_ram_hold_tick_o: out std_logic; -- pulses when SDRAM-style RAM read data is latched
-      boot_dbg_vic_fetch_o    : out std_logic;
-      boot_dbg_vic_enable_o   : out std_logic;
-      boot_dbg_vic_aec_o      : out std_logic;
-      boot_dbg_vic_pipe_o     : out std_logic_vector(7 downto 0); -- pipelined VIC read data
-      boot_dbg_ram_din_o      : out std_logic_vector(7 downto 0); -- ramDin presented to core
-      boot_dbg_core_ram_addr_o: out unsigned(17 downto 0);
-      boot_dbg_bram_addr_o    : out unsigned(17 downto 0);
-      boot_pwr_hint_o         : out std_logic_vector(23 downto 0); -- vec-byte hint when stage 100
 
      -- C64 RAM: No address latching necessary and the chip can always be enabled
      ram_addr_o               : out unsigned(17 downto 0);    -- address bus (18 Bit!)
@@ -148,13 +127,6 @@ signal rom_addr_held     : std_logic_vector(16 downto 0) := (others => '0');
 signal ram_ce_d          : std_logic := '0';
 signal ram_addr_held     : unsigned(17 downto 0) := (others => '0');
 signal ram_data_r        : unsigned(7 downto 0) := (others => '0');
--- VIC read data, latched one cycle after a VIC read launch (when the 1-cycle-latency
--- BRAM has returned the VIC address). The CPU presents its address before ce so it uses
--- ram_data_r; the single-cycle VIC fetch coincides with ce and needs this delayed copy.
--- Gated on the VIC launch (not any read) so interleaved CPU reads don't clobber it.
-signal vic_data_r        : unsigned(7 downto 0) := (others => '0');
-signal vic_rd_launch_d   : std_logic := '0';
-signal dbg_ram_hold_tick : std_logic := '0';
 signal joy_a             : std_logic_vector(6 downto 0);
 signal joy_b             : std_logic_vector(6 downto 0);
 signal sid_audio_l       : std_logic_vector(17 downto 0);
@@ -169,12 +141,6 @@ signal vic_g             : unsigned(7 downto 0);
 signal vic_b             : unsigned(7 downto 0);
 signal vic_pixel_ce      : std_logic;
 signal vic_pixel_ce_d    : std_logic := '0';
--- ILA debug probes (from fpga64_sid_iec internal VIC/bus signals)
-signal core_vic_has_bus  : std_logic;
-signal core_enable_vic   : std_logic;
-signal core_aec          : std_logic;
-signal core_vicdi        : unsigned(7 downto 0);
-signal dbg_ram_data_i    : unsigned(7 downto 0);
 
 signal vic_r_reg         : unsigned(7 downto 0) := (others => '0');
 signal vic_g_reg         : unsigned(7 downto 0) := (others => '0');
@@ -183,27 +149,6 @@ signal core_vic_hs       : std_logic;
 signal core_vic_vs       : std_logic;
 signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiSTer z80_n port)
 signal core_c128_n       : std_logic;
-signal boot_stage        : std_logic_vector(2 downto 0);
-signal boot_led_col      : std_logic_vector(23 downto 0);
--- Boot-path probes (latched after core reset release)
-signal dbg_sysrom_cs_seen  : std_logic := '0';
-signal dbg_sysrom_nz_seen  : std_logic := '0';
-signal dbg_ram_ce_seen     : std_logic := '0';
-signal dbg_z80_mode_seen   : std_logic := '0';
-signal dbg_z80_ram_we_seen : std_logic := '0';
-signal dbg_8502_mode_seen  : std_logic := '0';
-signal dbg_8502_ram_we_seen: std_logic := '0';
-signal dbg_any_ram_we_seen  : std_logic := '0';
-signal dbg_z80_ram_rd_seen  : std_logic := '0';
-signal dbg_z80_sysrom_seen  : std_logic := '0';
-signal dbg_we_no_ce_seen    : std_logic := '0';
-signal dbg_vec_byte_valid   : std_logic := '0';
-signal dbg_vec_byte         : unsigned(7 downto 0) := (others => '0');
-signal dbg_vec_addr         : unsigned(11 downto 0) := (others => '0');
-signal dbg_probe_vec        : std_logic_vector(6 downto 0);
-signal dbg_z80_cpu_we_seen  : std_logic := '0';
-signal z80_cpu_we          : std_logic;
-signal core_running          : std_logic := '0';
 constant C_PWRUP_RESET_LEN   : natural := 4095;
 signal pwrup_reset_cnt       : natural range 0 to C_PWRUP_RESET_LEN := C_PWRUP_RESET_LEN;
 signal ps2_key           : std_logic_vector(10 downto 0) := (others => '0');
@@ -280,26 +225,6 @@ signal cache_dirty   : std_logic; -- TODO: Hack!
 
 -- TODO: Add reu and rtc support
 
--- #region ila
--- Probes for Vivado ILA capture (debug builds only): boot/reset sequencing, VIC bus phase,
--- fetch address, and the data buses (what is available vs what the VIC/CPU sample) -- to
--- diagnose where the (magenta) boot diverges and the screen "snow".
-attribute mark_debug : string;
-attribute mark_debug of ram_ce           : signal is "true";
-attribute mark_debug of ram_we           : signal is "true";
-attribute mark_debug of core_ram_addr    : signal is "true";
-attribute mark_debug of ram_data         : signal is "true";
-attribute mark_debug of dbg_ram_data_i   : signal is "true";
-attribute mark_debug of core_vic_has_bus : signal is "true";
-attribute mark_debug of core_enable_vic  : signal is "true";
-attribute mark_debug of core_aec         : signal is "true";
-attribute mark_debug of core_vicdi       : signal is "true";
-attribute mark_debug of core_z80_n       : signal is "true";
-attribute mark_debug of sysrom_cs        : signal is "true";
-attribute mark_debug of boot_stage       : signal is "true";
-attribute mark_debug of reset_core_n     : signal is "true";
--- #endregion ila
-
 begin
 
 -- prevent data corruption by not allowing a soft reset to happen while the cache is still dirty
@@ -309,91 +234,16 @@ begin
 cache_dirty <= '0';
 prevent_reset <= '0'; -- when unsigned(cache_dirty) = 0 else '1';
 
--- #region agent log
--- Boot-path diagnostics: saturated colors only (RRGGBB, full 00 or FF per channel).
---   MAGENTA FF00FF = core paused
---   BLUE    0000FF = core in reset
---   WHITE   FFFFFF = core running, no boot bus activity yet
---   ORANGE  FF8000 = boot stage 000 (no sysrom cs)
---   RED     FF0000 = boot stage 001 / stage 100 ROM miss / vec byte 00
---   YELLOW  FFFF00 = boot stage 010 / stage 100 vec byte 94 / RAM writes
---   MAGENTA FF00FF = boot stage 011 (Z80 mode not seen in probe)
---   Stage 100 sub-states (drive LED):
---   ORANGE  FF8000 = Z80 mode but no Z80 sysrom fetch (likely VIC-only / Z80 not executing)
---   WHITE   FFFFFF = Z80 sysrom fetch ok, no RAM reads yet
---   CYAN    00FFFF = stage 100, Z80 RAM reads, vec not $94 yet
---   RED     FF0000 = stage 100, external ramWE but not latched as Z80 write
---   CHARTREUSE 80FF00 = stage 100, vec $94, no Z80 cpuWe and no external ramWE
---   ORANGE  FF8000 = stage 100, Z80 cpuWe seen but boot probe still at stage 100
---   CYAN    00FFFF = stage 100, other stall
---   MAGENTA FF00FF = ramWE without ramCE (bus glitch)
---   WHITE/101 FFFFFF = boot stage 101 (8502 mode not seen yet)
---   GREEN   00FF00 = boot stage 110+ (8502 ram writes seen)
--- Power LED boot_pwr_hint_o when stage 100: vec-byte fingerprint (see boot_pwr_hint_proc).
--- #endregion
-dbg_probe_vec <= dbg_8502_ram_we_seen & dbg_8502_mode_seen & dbg_z80_ram_we_seen &
-                 dbg_z80_mode_seen & dbg_ram_ce_seen & dbg_sysrom_nz_seen & dbg_sysrom_cs_seen;
+-- Active-CPU indicator for the boot simulation ('0' = Z80, '1' = 8502).
+boot_z80_n_o <= core_z80_n;
 
-boot_led_proc: process (clk_main_i)
-begin
-  if rising_edge(clk_main_i) then
-    if pause_i = '1' then
-      boot_led_col <= x"FF00FF";
-    elsif core_running = '0' then
-      boot_led_col <= x"0000FF";
-    elsif dbg_probe_vec = "0000000" then
-      boot_led_col <= x"FFFFFF";
-    else
-      case boot_stage is
-        when "000" =>
-          boot_led_col <= x"FF8000";
-        when "001" =>
-          boot_led_col <= x"FF0000";
-        when "010" =>
-          boot_led_col <= x"FFFF00";
-        when "011" =>
-          boot_led_col <= x"FF00FF";
-        when "100" =>
-          if dbg_z80_sysrom_seen = '0' then
-            boot_led_col <= x"FF8000";
-          elsif dbg_we_no_ce_seen = '1' then
-            boot_led_col <= x"FF00FF";
-          elsif dbg_vec_byte_valid = '1' and dbg_vec_byte = 148 and
-                dbg_z80_cpu_we_seen = '1' and dbg_z80_ram_we_seen = '0' then
-            boot_led_col <= x"FF8000";
-          elsif dbg_any_ram_we_seen = '1' and dbg_z80_ram_we_seen = '0' then
-            boot_led_col <= x"FF0000";
-          elsif dbg_z80_ram_rd_seen = '0' then
-            boot_led_col <= x"FFFFFF";
-          elsif dbg_vec_byte_valid = '1' and dbg_vec_byte = 148 then
-            boot_led_col <= x"80FF00";
-          else
-            boot_led_col <= x"00FFFF";
-          end if;
-        when "101" =>
-          if core_z80_n = '0' then
-            boot_led_col <= x"FF00FF";
-          else
-            boot_led_col <= x"FFFFFF";
-          end if;
-        when others =>
-          boot_led_col <= x"00FF00";
-      end case;
-    end if;
-  end if;
-end process;
+-- Drive LED: virtual disk drives are not implemented yet, so there is no activity to show.
+drive_led_o     <= '0';
+drive_led_col_o <= x"00FF00";
 
-drive_led_col_o <= boot_led_col;
-boot_led_col_o <= boot_led_col;
-boot_z80_n_o    <= core_z80_n;
-
--- the drive led is on if either the C128 is writing to the virtual disk (cached in RAM)
--- or if the dirty cache is dirty and/orcurrently being flushed
-drive_led_o <= '1';
 -- Sample HDMI pixels on the VIC's enablePixel strobe (not a free-running /4 divider).
 video_ce_o <= vic_pixel_ce;
 video_ce_ovl_o <= vic_pixel_ce or vic_pixel_ce_d;
-boot_dbg_vic_pixel_ce_o <= vic_pixel_ce;
 
 vic_pixel_sample_proc : process (clk_main_i)
 begin
@@ -519,148 +369,16 @@ handle_cold_start_proc: process (clk_main_i)
     end if;
   end process;
 
-boot_probe_proc: process (clk_main_i)
-begin
-  if rising_edge(clk_main_i) then
-    if reset_core_n = '0' then
-      core_running         <= '0';
-      dbg_any_ram_we_seen  <= '0';
-      dbg_z80_ram_rd_seen  <= '0';
-      dbg_z80_sysrom_seen  <= '0';
-      dbg_sysrom_cs_seen   <= '0';
-      dbg_sysrom_nz_seen   <= '0';
-      dbg_ram_ce_seen      <= '0';
-      dbg_z80_mode_seen    <= '0';
-      dbg_z80_ram_we_seen  <= '0';
-      dbg_8502_mode_seen   <= '0';
-      dbg_8502_ram_we_seen <= '0';
-      dbg_we_no_ce_seen    <= '0';
-      dbg_z80_cpu_we_seen  <= '0';
-      dbg_vec_byte_valid   <= '0';
-      dbg_vec_byte         <= (others => '0');
-      dbg_vec_addr         <= (others => '0');
-    else
-      core_running <= '1';
-      if ram_we = '1' and ram_ce = '0' then
-        dbg_we_no_ce_seen <= '1';
-      end if;
-      if z80_cpu_we = '1' then
-        dbg_z80_cpu_we_seen <= '1';
-      end if;
-      if core_z80_n = '0' and sysrom_cs_d = '1' and sysrom_data_r /= 0 and dbg_vec_byte_valid = '0' then
-        dbg_vec_byte       <= sysrom_data_r;
-        dbg_vec_addr       <= unsigned(rom_addr_held(11 downto 0));
-        dbg_vec_byte_valid <= '1';
-      end if;
-      if sysrom_cs_d = '1' then
-        dbg_sysrom_cs_seen <= '1';
-        if sysrom_data_r /= 0 then
-          dbg_sysrom_nz_seen <= '1';
-        end if;
-      end if;
-      if ram_ce = '1' then
-        dbg_ram_ce_seen <= '1';
-      end if;
-      if ram_we = '1' then
-        dbg_any_ram_we_seen <= '1';
-      end if;
-      if core_z80_n = '0' then
-        dbg_z80_mode_seen <= '1';
-      end if;
-      if core_z80_n = '0' and sysrom_cs_d = '1' then
-        dbg_z80_sysrom_seen <= '1';
-      end if;
-      if core_z80_n = '0' and ram_ce = '1' and ram_we = '0' then
-        dbg_z80_ram_rd_seen <= '1';
-      end if;
-      if core_z80_n = '0' and ram_we = '1' then
-        dbg_z80_ram_we_seen <= '1';
-      end if;
-      if core_z80_n = '1' then
-        dbg_8502_mode_seen <= '1';
-      end if;
-      if core_z80_n = '1' and ram_we = '1' then
-        dbg_8502_ram_we_seen <= '1';
-      end if;
-    end if;
-  end if;
-end process;
-
-boot_stage <= "000" when dbg_sysrom_cs_seen = '0' else
-              "001" when dbg_sysrom_nz_seen = '0' else
-              "010" when dbg_ram_ce_seen = '0' else
-              "011" when dbg_z80_mode_seen = '0' else
-              "100" when dbg_z80_ram_we_seen = '0' else
-              "101" when dbg_8502_mode_seen = '0' else
-              "110" when dbg_8502_ram_we_seen = '0' else
-              "111";
-boot_stage_o  <= boot_stage;
-boot_ram_we_o <= dbg_8502_ram_we_seen;
-boot_dbg_probe_o      <= dbg_probe_vec;
-boot_dbg_z80_rd_o     <= dbg_z80_ram_rd_seen;
-boot_dbg_z80_we_o     <= dbg_z80_ram_we_seen;
-boot_dbg_z80_sysrom_o <= dbg_z80_sysrom_seen;
-boot_dbg_vec_valid_o  <= dbg_vec_byte_valid;
-boot_dbg_vec_byte_o   <= std_logic_vector(dbg_vec_byte);
-boot_dbg_sysrom_cs_o  <= sysrom_cs;
-boot_dbg_ram_ce_o     <= ram_ce;
-boot_dbg_core_run_o   <= core_running;
-
--- #region agent log
--- Power LED at stage 100 only: stark primaries (LED colour accuracy is poor on hardware).
---   MAGENTA FF00FF = vec_byte 0 (ROM read returned $00 on first valid capture)
---   RED     FF0000 = vec_byte 62 AND addr 0x3FD
---   AMBER   FF8000 = vec_byte 62 (other addr)
---   GREEN   00FF00 = vec_byte 148 ($94, correct Z80 reset opcode)
---   PURPLE  800080 = any other non-zero vec byte
--- Note: bright BLUE on power LED from mega65.vhd = M2M hard-reset, not this hint.
-boot_pwr_hint_proc: process (all)
-begin
-  boot_pwr_hint_o <= x"000000";
-  if core_running = '1' and boot_stage = "100" then
-    if dbg_vec_byte_valid = '0' then
-      boot_pwr_hint_o <= x"FFFFFF";
-    elsif dbg_vec_byte = 62 and dbg_vec_addr = 1021 then
-      boot_pwr_hint_o <= x"FF0000";
-    elsif dbg_vec_byte = 62 then
-      boot_pwr_hint_o <= x"FF8000";
-    elsif dbg_vec_byte = 148 then
-      boot_pwr_hint_o <= x"00FF00";
-    elsif dbg_vec_byte = 0 then
-      boot_pwr_hint_o <= x"FF00FF";
-    else
-      boot_pwr_hint_o <= x"800080";
-    end if;
-  end if;
-end process;
--- #endregion
-
 --------------------------------------------------------------------------------------------------
 -- Access to C64's RAM and hardware/simulated cartridge ROM
 --------------------------------------------------------------------------------------------------
--- #region agent log
--- H15: ROM addr hold at ce rise; RAM read data latched on ramCE (boot-validated on HW).
--- H-V13 internal VIC/BRAM changes REJECTED on HW (magenta, black HDMI) — same class as H-V11.
--- H-V22 8502 live addr + mega65 SDRAM hold REJECTED on HW (magenta stage-101, black HDMI).
--- H-V23 mega65 BRAM bridge REJECTED on HW (magenta stage-101, black HDMI) — same class as H-V22.
--- H-V24..H-V29 VIC read-timing changes ALL REJECTED on HW (magenta drive LED, black HDMI),
---   even a change that only re-sourced the VIC's own di (vicDiAec) and left the CPU/Z80 path
---   byte-identical. The exact baseline (this shim, no changes) was rebuilt and CONFIRMED to
---   boot green + snow, proving the toolchain is fine. Timing analysis then showed the real
---   problem: the VDC<->main clock crossing was unconstrained (~2700 false-failing endpoints,
---   WNS ~-6 ns) -> a CDC constraint (CORE.xdc, set_clock_groups async) brought WNS to ~0.
---   This file is the known-good baseline shim (boots+snow); the VIC snow fix is still open
---   and must be developed against the now timing-clean build.
 mem_hold_proc: process (clk_main_i)
   variable rom_addr_live : std_logic_vector(16 downto 0);
 begin
   if rising_edge(clk_main_i) then
-    dbg_ram_hold_tick <= '0';
     rom_addr_live := std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
     sysrom_cs_d <= sysrom_cs;
     ram_ce_d    <= ram_ce;
-    -- VIC read launched this cycle (VIC owns bus + RAM read pulse at CYCLE_VIC0).
-    vic_rd_launch_d <= core_vic_has_bus and ram_ce and not ram_we;
 
     if reset_core_n = '0' then
       rom_addr_held <= (others => '0');
@@ -681,21 +399,10 @@ begin
           ram_addr_held <= core_ram_addr;
         end if;
         ram_data_r <= ram_data_i;
-        dbg_ram_hold_tick <= '1';
-      end if;
-
-      -- VIC read path (fix for snow): a single-cycle VIC fetch presents its address
-      -- AT ce (CYCLE_VIC0), so the 1-cycle-latency BRAM only returns it the next cycle
-      -- (vic_rd_launch_d='1', CYCLE_VIC1). Capture it then; it is consumed at enableVic
-      -- (CYCLE_VIC2). Latching on ce (like the CPU) gave the VIC the PREVIOUS cycle's
-      -- byte -> snow. (Confirmed on HW via ILA + boot sim.)
-      if vic_rd_launch_d = '1' then
-        vic_data_r <= ram_data_i;
       end if;
     end if;
   end if;
 end process;
--- #endregion
 
 -- Simplified memory read mux (post-upstream-merge re-tune):
 -- Present the core's LIVE address to the BRAM/ROM and return the LIVE 1-cycle-latency
@@ -716,26 +423,10 @@ cpu_data_in_proc: process (all)
     end if;
   end process;
 
--- ILA: live BRAM read data available to the core/VIC this cycle.
-dbg_ram_data_i <= ram_data_i;
-
 -- MiSTer exposes ramWE/ramCE separately; do not AND them (Z80 latch writes miss CE).
 ram_we_o <= ram_we;
 sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= core_ram_addr;
-boot_dbg_bram_addr_o     <= ram_addr_o;
--- Sim VIC read-correctness taps (observation only; not fed back into the core):
---   fetch  = VIC RAM-read launch (VIC owns bus, ram_ce read pulse at CYCLE_VIC0)
---   enable = VIC data-sample strobe (enableVic at CYCLE_VIC2)
---   pipe   = the byte the VIC actually receives (vicDiAec)
--- The tb latches core_ram_addr at 'fetch' and checks 'pipe' equals shadow RAM at 'enable'.
-boot_dbg_vic_fetch_o     <= core_vic_has_bus and ram_ce and not ram_we;
-boot_dbg_vic_enable_o    <= core_enable_vic;
-boot_dbg_vic_aec_o       <= core_aec;
-boot_dbg_vic_pipe_o      <= std_logic_vector(core_vicdi);
-boot_dbg_ram_din_o       <= std_logic_vector(ram_data);
-boot_dbg_core_ram_addr_o <= core_ram_addr;
-boot_dbg_ram_hold_tick_o <= dbg_ram_hold_tick;
 sysrom_data <= unsigned(sys_rom_data_i);
 joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
          (not joy_1_down_n_i) & (not joy_1_up_n_i) & '0';
@@ -1018,11 +709,11 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       d4080_sel     => '1',       -- MiSTer default: 40-column key sense released
       c128_n        => core_c128_n,
       z80_n           => core_z80_n,
-      z80_we_o        => z80_cpu_we,
-      dbg_vic_has_bus_o => core_vic_has_bus,
-      dbg_enable_vic_o  => core_enable_vic,
-      dbg_aec_o         => core_aec,
-      dbg_vicdi_o       => core_vicdi
+      z80_we_o        => open,
+      dbg_vic_has_bus_o => open,
+      dbg_enable_vic_o  => open,
+      dbg_aec_o         => open,
+      dbg_vicdi_o       => open
     ); -- fpga64_sid_iec_inst
 
 

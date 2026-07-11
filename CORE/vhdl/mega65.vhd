@@ -254,12 +254,6 @@ signal main_ram_q            : std_logic_vector(7 downto 0);
 signal main_sysrom_addr      : std_logic_vector(16 downto 0);
 signal main_sysrom_data      : std_logic_vector(7 downto 0);
 
-signal main_boot_stage       : std_logic_vector(2 downto 0);
-signal main_boot_ram_we      : std_logic;
-signal main_boot_led_col     : std_logic_vector(23 downto 0);
-signal main_boot_z80_n       : std_logic;
-signal main_boot_pwr_hint    : std_logic_vector(23 downto 0);
-
 
 begin
 
@@ -336,13 +330,9 @@ begin
    video_clk_o <= main_clk_o;
    video_rst_o <= main_rst_o;
 
-   -- Power LED: reset/pause state only. Drive LED carries boot-stage colours (main.vhd).
+   -- Power LED: solid on.
    main_power_led_o     <= '1';
-   main_power_led_col_o <= x"0000FF" when main_reset_m2m_i else
-                           x"8000FF" when main_pause_core_i else
-                           x"000040" when main_reset_core_i else
-                           main_boot_pwr_hint when main_boot_pwr_hint /= x"000000" else
-                           x"002000";
+   main_power_led_col_o <= x"00FF00";
 
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
@@ -351,10 +341,8 @@ begin
       )
       port map (
          clk_main_i           => main_clk_o,
-         -- H-V33: run VDC on main_clk to eliminate the unconstrained VDC<->main async
-         -- crossing (the dominant WNS contributor, ~2700 false-failing endpoints). This
-         -- closes timing (WNS +0.096 vs -6.8) and makes boot robust. Combined here with
-         -- the vdcram->BRAM fix + ILA so the green-booting path is observable.
+         -- Run the VDC on main_clk to eliminate the unconstrained VDC<->main async clock
+         -- crossing (previously the dominant WNS contributor, ~2700 false-failing endpoints).
          clk_vdc_i            => main_clk_o,
          reset_soft_i         => main_reset_core_i,
          reset_hard_i         => main_reset_m2m_i,
@@ -381,29 +369,7 @@ begin
          -- Drive led
          drive_led_o => main_drive_led_o,
          drive_led_col_o => main_drive_led_col_o,
-         boot_stage_o => main_boot_stage,
-         boot_led_col_o => main_boot_led_col,
-         boot_z80_n_o => main_boot_z80_n,
-         boot_ram_we_o => main_boot_ram_we,
-         boot_dbg_probe_o => open,
-         boot_dbg_z80_rd_o => open,
-         boot_dbg_z80_we_o => open,
-         boot_dbg_z80_sysrom_o => open,
-         boot_dbg_vec_valid_o => open,
-         boot_dbg_vec_byte_o => open,
-         boot_dbg_sysrom_cs_o => open,
-         boot_dbg_ram_ce_o => open,
-         boot_dbg_core_run_o => open,
-         boot_dbg_vic_pixel_ce_o => open,
-         boot_dbg_ram_hold_tick_o => open,
-         boot_dbg_vic_fetch_o    => open,
-         boot_dbg_vic_enable_o   => open,
-         boot_dbg_vic_aec_o      => open,
-         boot_dbg_vic_pipe_o     => open,
-         boot_dbg_ram_din_o      => open,
-         boot_dbg_core_ram_addr_o => open,
-         boot_dbg_bram_addr_o    => open,
-         boot_pwr_hint_o     => main_boot_pwr_hint,
+         boot_z80_n_o => open,
 
          -- M2M Keyboard interface
          kb_key_num_i         => main_kb_key_num_i,

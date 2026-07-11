@@ -2,6 +2,5 @@
 library ieee;
 package boot_paths_pkg is
    constant BOOT0_PATH : string := "/var/home/bazzite/Dokumente/Developer/c128Mega65/sdcard/c128/boot0.rom";
-   constant LOG_PATH   : string := "/var/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-b576b7.log";
-   constant C_MEM_BRIDGE : boolean := false;
+   constant LOG_PATH   : string := "/var/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-boot.log";
 end package boot_paths_pkg;
