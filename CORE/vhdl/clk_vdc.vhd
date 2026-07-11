@@ -68,7 +68,14 @@ begin
       DO        => open,
       DRDY      => open,
       DWE       => '0',
+      -- Fine phase shift interface (unused)
+      PSCLK     => '0',
+      PSEN      => '0',
+      PSINCDEC  => '0',
+      PSDONE    => open,
       -- Other control and status signals
+      CLKINSTOPPED => open,
+      CLKFBSTOPPED => open,
       LOCKED    => locked,
       PWRDWN    => '0',
       RST       => '0'

@@ -2,7 +2,7 @@
 ; YOUR-PROJECT-NAME (GITHUB-REPO-SHORTNAME) QNICE ROM
 ;
 ; Main program that is used to build m2m-rom.rom by make-rom.sh.
-; The ROM is loaded by TODO-ADD-NAME-OF-VHDL-FILE-HERE.
+; The ROM is loaded by CORE/vhdl/globals.vhd via QNICE_FIRMWARE_M2M.
 ;
 ; The execution starts at the label START_FIRMWARE.
 ;

@@ -81,7 +81,7 @@ begin
        powerled_col        => power_led_col_i(7 downto 0) & power_led_col_i(15 downto 8) & power_led_col_i(23 downto 16), -- RGB to BGR
        driveled_steady     => drive_led_i,
        driveled_blinking   => '0',   
-       driveled_col        => drive_led_col_i(7 downto 0) & drive_led_col_i(15 downto 8) & drive_led_col_i(23 downto 16), -- RGB to BGR    
+      driveled_col        => drive_led_col_i(7 downto 0) & drive_led_col_i(15 downto 8) & drive_led_col_i(23 downto 16), -- RGB to BGR    
        
        kio8             => kio8_o,
        kio9             => kio9_o,

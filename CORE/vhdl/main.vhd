@@ -46,19 +46,45 @@ entity main is
       audio_left_o            : out signed(15 downto 0);
       audio_right_o           : out signed(15 downto 0);
 
-      -- Drive led (color is RGB)
+      -- Drive led (monochrome + RGB colour)
       drive_led_o             : out std_logic;
       drive_led_col_o         : out std_logic_vector(23 downto 0);
+      -- Active CPU indicator: '0' = Z80 (C128 boot), '1' = 8502. Used by the boot sim.
+      boot_z80_n_o            : out std_logic;
 
      -- C64 RAM: No address latching necessary and the chip can always be enabled
      ram_addr_o               : out unsigned(17 downto 0);    -- address bus (18 Bit!)
      ram_data_o               : out unsigned(7 downto 0);     -- RAM data out
      ram_we_o                 : out std_logic;                -- RAM write enable
      ram_data_i               : in unsigned(7 downto 0);      -- RAM data in
+      sys_rom_addr_o           : out std_logic_vector(16 downto 0);
+      sys_rom_data_i           : in  std_logic_vector(7 downto 0);
 
       -- C64 Expansion Port (aka Cartridge Port)
       cart_reset_i           : in  std_logic;
       cart_reset_o           : out std_logic;
+      cart_dma_i             : in  std_logic;
+      cart_game_i            : in  std_logic;
+      cart_exrom_i           : in  std_logic;
+      cart_nmi_i             : in  std_logic;
+      cart_irq_i             : in  std_logic;
+      cart_game_o            : out std_logic;
+      cart_exrom_o           : out std_logic;
+      cart_nmi_o             : out std_logic;
+      cart_irq_o             : out std_logic;
+      cart_roml_o            : out std_logic;
+      cart_romh_o            : out std_logic;
+      cart_io1_o             : out std_logic;
+      cart_io2_o             : out std_logic;
+
+      -- IEC serial bus interface to MEGA65 pins (active low at top level)
+      iec_atn_n_o            : out std_logic;
+      iec_clk_n_o            : out std_logic;
+      iec_clk_n_i            : in  std_logic;
+      iec_data_n_o           : out std_logic;
+      iec_data_n_i           : in  std_logic;
+      iec_srq_n_o            : out std_logic;
+      iec_srq_n_i            : in  std_logic;
 
       -- M2M Keyboard interface
       kb_key_num_i            : in  integer range 0 to 79;    -- cycles through all MEGA65 keys
@@ -90,6 +116,46 @@ architecture synthesis of main is
 signal ram_ce   : std_logic;
 signal ram_we   : std_logic;
 signal ram_data : unsigned(7 downto 0);
+signal core_ram_addr     : unsigned(17 downto 0);
+signal sysrom_cs         : std_logic;
+signal sysrom_bank       : unsigned(4 downto 0);
+signal sysrom_data       : unsigned(7 downto 0);
+-- MiSTer SDRAM latches addr at ce rise; hold BRAM addr during burst, always drive read data to CPU.
+signal sysrom_cs_d       : std_logic := '0';
+signal sysrom_data_r     : unsigned(7 downto 0) := (others => '0');
+signal rom_addr_held     : std_logic_vector(16 downto 0) := (others => '0');
+signal ram_ce_d          : std_logic := '0';
+signal ram_addr_held     : unsigned(17 downto 0) := (others => '0');
+signal ram_data_r        : unsigned(7 downto 0) := (others => '0');
+signal joy_a             : std_logic_vector(6 downto 0);
+signal joy_b             : std_logic_vector(6 downto 0);
+signal sid_audio_l       : std_logic_vector(17 downto 0);
+signal sid_audio_r       : std_logic_vector(17 downto 0);
+signal vdc_hs            : std_logic;
+signal vdc_vs            : std_logic;
+signal vdc_r             : unsigned(7 downto 0);
+signal vdc_g             : unsigned(7 downto 0);
+signal vdc_b             : unsigned(7 downto 0);
+signal vic_r             : unsigned(7 downto 0);
+signal vic_g             : unsigned(7 downto 0);
+signal vic_b             : unsigned(7 downto 0);
+signal vic_pixel_ce      : std_logic;
+signal vic_pixel_ce_d    : std_logic := '0';
+
+signal vic_r_reg         : unsigned(7 downto 0) := (others => '0');
+signal vic_g_reg         : unsigned(7 downto 0) := (others => '0');
+signal vic_b_reg         : unsigned(7 downto 0) := (others => '0');
+signal core_vic_hs       : std_logic;
+signal core_vic_vs       : std_logic;
+signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiSTer z80_n port)
+signal core_c128_n       : std_logic;
+constant C_PWRUP_RESET_LEN   : natural := 4095;
+signal pwrup_reset_cnt       : natural range 0 to C_PWRUP_RESET_LEN := C_PWRUP_RESET_LEN;
+signal ps2_key           : std_logic_vector(10 downto 0) := (others => '0');
+signal ps2_stb           : std_logic := '0';
+
+type key_state_t is array (0 to 79) of std_logic;
+signal key_pressed : key_state_t := (others => '0');
 
 -- RESET SEMANTICS
 --
@@ -139,32 +205,11 @@ signal core_roml            : std_logic;
 signal core_romh            : std_logic;
 signal core_ioe             : std_logic;
 signal core_iof             : std_logic;
-signal core_nmi_n           : std_logic;
 signal core_nmi_ack         : std_logic;
-signal core_irq_n           : std_logic;
-signal core_dma             : std_logic;
-signal core_exrom_n         : std_logic;
-signal core_game_n          : std_logic;
 signal core_umax_romh       : std_logic;
 signal core_io_rom          : std_logic;
 signal core_io_ext          : std_logic;
 signal core_io_data         : unsigned(7 downto 0);
-signal core_dotclk          : std_logic;
-signal core_phi2            : std_logic;
-signal core_phi2_prev       : std_logic;
-signal cartridge_bank_raddr : std_logic_vector(24 downto 0);
-
--- Hardware Expansion Port (aka Cartridge Port)
-signal cart_roml_n    : std_logic;
-signal cart_romh_n    : std_logic;
-signal cart_io1_n     : std_logic;
-signal cart_io2_n     : std_logic;
-signal cart_nmi_n     : std_logic;
-signal cart_irq_n     : std_logic;
-signal cart_dma_n     : std_logic;
-signal cart_exrom_n   : std_logic;
-signal cart_game_n    : std_logic;
-signal data_from_cart : unsigned(7 downto 0);
 
 -- Hardware Expansion Port: Handle specifics of certain cartridges
 constant C_EF3_RESET_LEN : natural := 7; -- measured in phi2 cycles
@@ -189,14 +234,66 @@ begin
 cache_dirty <= '0';
 prevent_reset <= '0'; -- when unsigned(cache_dirty) = 0 else '1';
 
--- the color of the drive led is green normally, but it turns yellow
--- when the cache is dirty and/or currently being flushed
-drive_led_col_o <= x"00FF00" when unsigned(cache_dirty) = 0 else
-                   x"FFFF00";
+-- Active-CPU indicator for the boot simulation ('0' = Z80, '1' = 8502).
+boot_z80_n_o <= core_z80_n;
 
--- the drive led is on if either the C128 is writing to the virtual disk (cached in RAM)
--- or if the dirty cache is dirty and/orcurrently being flushed
-drive_led_o <= '1';
+-- Drive LED: virtual disk drives are not implemented yet, so there is no activity to show.
+drive_led_o     <= '0';
+drive_led_col_o <= x"00FF00";
+
+-- Sample HDMI pixels on the VIC's enablePixel strobe (not a free-running /4 divider).
+video_ce_o <= vic_pixel_ce;
+video_ce_ovl_o <= vic_pixel_ce or vic_pixel_ce_d;
+
+vic_pixel_sample_proc : process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    vic_pixel_ce_d <= vic_pixel_ce;
+    if vic_pixel_ce = '1' then
+      vic_r_reg <= vic_r;
+      vic_g_reg <= vic_g;
+      vic_b_reg <= vic_b;
+    end if;
+  end if;
+end process vic_pixel_sample_proc;
+
+-- Generate blanking/sync from raw VIC sync (do not derive blanking from HS/VS directly).
+-- Use the MiSTer video_sync variant with C64-validated PAL hblank timing.
+video_sync_inst : entity work.video_sync
+  port map (
+    clk32     => clk_main_i,
+    pause     => '0',
+    hsync     => core_vic_hs,
+    vsync     => core_vic_vs,
+    ntsc      => '0',
+    wide      => '0',
+    hsync_out => video_hs_o,
+    vsync_out => video_vs_o,
+    hblank    => video_hblank_o,
+    vblank    => video_vblank_o
+  );
+
+video_red_o <= std_logic_vector(vic_r_reg);
+video_green_o <= std_logic_vector(vic_g_reg);
+video_blue_o <= std_logic_vector(vic_b_reg);
+-- cart_reset_o is low-active at the expansion port: drive low while an INTERNAL reset is
+-- active, high otherwise. It MUST NOT be driven from reset_core_n: with cart_reset_oe_o='1'
+-- the FPGA always drives this pin and reads it back on cart_reset_i, and combined_reset_proc
+-- feeds cart_reset_i back into reset_core_n (prevent_reset is hardwired '0'). Driving
+-- cart_reset_o <= reset_core_n therefore closes a purely combinational self-latching loop
+-- (reset_core_n -> cart_reset_o -> pin -> cart_reset_i -> reset_core_n) whose settle at
+-- reset-release depends on routing delay -> placement-dependent, STA-invisible boot lottery.
+-- Sourcing it from the internal reset request only breaks the loop and makes boot deterministic.
+cart_reset_o <= '0' when (pwrup_reset_cnt /= 0 or reset_core_int_n = '0' or cart_reset_counter /= 0)
+                else '1';
+cart_roml_o <= core_roml;
+cart_romh_o <= core_romh;
+cart_io1_o <= core_ioe;
+cart_io2_o <= core_iof;
+cart_game_o <= '1';
+cart_exrom_o <= '1';
+cart_nmi_o <= not core_nmi_ack;
+cart_irq_o <= '1';
 
 
 --------------------------------------------------------------------------------------------------
@@ -240,14 +337,23 @@ combined_reset_proc: process (all)
   begin
     reset_core_n <= '1';
 
-    -- cart_reset_i becomes cart_reset_o as soon as cart_reset_oe_o = '1', and the latter one becomes '1' as soon
-    -- as reset_core_int_n = '0' so we need to ignore cart_reset_i in this case
-    if reset_core_int_n = '0' then
+    if pwrup_reset_cnt /= 0 then
+      reset_core_n <= '0';
+    elsif reset_core_int_n = '0' then
       reset_core_n <= '0';
     elsif cart_reset_i = '0' and prevent_reset = '0' then
       reset_core_n <= '0';
     end if;
   end process;
+
+pwrup_reset_proc: process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    if pwrup_reset_cnt /= 0 then
+      pwrup_reset_cnt <= pwrup_reset_cnt - 1;
+    end if;
+  end if;
+end process;
 
 -- To make sure that cartridges in the Expansion Port start properly, we must not do a hard reset and mask the $8000 memory area,
 -- when the core is launched for the first time (cold start).
@@ -266,26 +372,159 @@ handle_cold_start_proc: process (clk_main_i)
 --------------------------------------------------------------------------------------------------
 -- Access to C64's RAM and hardware/simulated cartridge ROM
 --------------------------------------------------------------------------------------------------
+mem_hold_proc: process (clk_main_i)
+  variable rom_addr_live : std_logic_vector(16 downto 0);
+begin
+  if rising_edge(clk_main_i) then
+    rom_addr_live := std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
+    sysrom_cs_d <= sysrom_cs;
+    ram_ce_d    <= ram_ce;
+
+    if reset_core_n = '0' then
+      rom_addr_held <= (others => '0');
+      ram_addr_held <= (others => '0');
+      ram_data_r    <= (others => '0');
+    else
+      if sysrom_cs = '1' then
+        if sysrom_cs_d = '0' then
+          rom_addr_held <= rom_addr_live;
+        end if;
+        sysrom_data_r <= unsigned(sys_rom_data_i);
+      end if;
+
+      -- CPU read path (unchanged): the CPU presents its address before ce, so the
+      -- BRAM data is already valid at ce.
+      if ram_ce = '1' and ram_we = '0' then
+        if ram_ce_d = '0' then
+          ram_addr_held <= core_ram_addr;
+        end if;
+        ram_data_r <= ram_data_i;
+      end if;
+    end if;
+  end if;
+end process;
+
+-- Simplified memory read mux (post-upstream-merge re-tune):
+-- Present the core's LIVE address to the BRAM/ROM and return the LIVE 1-cycle-latency
+-- read data. The merged core holds systemAddr stable across an access (as the MiSTer
+-- SDRAM expects, latching addr at ce), so no address/data holding shim is needed here.
 cpu_data_in_proc: process (all)
   begin
     ram_data <= x"00";
 
     -- We are emulating what is written here: https://www.c64-wiki.com/wiki/Reset_Button
     -- and avoid that the KERNAL ever sees the CBM80 signature during hard reset reset.
-    -- But we cannot do it like on real hardware using the exrom signal because the
-    -- MiSTer core is not supporting this.
-    if hard_reset_n = '0' and ram_addr_o(15 downto 12) = x"8" and cold_start_done = '1' then
+    if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' then
       ram_data <= x"00";
-    -- TODO: Add REU support
-    -- Standard access to the C64's RAM
+    elsif sysrom_cs = '1' then
+      ram_data <= unsigned(sys_rom_data_i);
     else
       ram_data <= ram_data_i;
-
     end if;
   end process;
 
--- RAM write enable also needs to check for chip enable
-ram_we_o <= ram_ce and ram_we;
+-- MiSTer exposes ramWE/ramCE separately; do not AND them (Z80 latch writes miss CE).
+ram_we_o <= ram_we;
+sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
+ram_addr_o <= core_ram_addr;
+sysrom_data <= unsigned(sys_rom_data_i);
+joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
+         (not joy_1_down_n_i) & (not joy_1_up_n_i) & '0';
+joy_b <= '0' & (not joy_2_fire_n_i) & (not joy_2_right_n_i) & (not joy_2_left_n_i) &
+         (not joy_2_down_n_i) & (not joy_2_up_n_i) & '0';
+audio_left_o <= signed(sid_audio_l(17 downto 2));
+audio_right_o <= signed(sid_audio_r(17 downto 2));
+
+--------------------------------------------------------------------------------------------------
+-- Keyboard: Convert MEGA65 key scan stream to fpga64_keyboard's ps2_key event format.
+--------------------------------------------------------------------------------------------------
+keyboard_ps2_bridge : process(clk_main_i)
+  variable idx : integer range 0 to 79;
+  variable pressed_v : std_logic;
+  variable valid_v : std_logic;
+  variable ext_v : std_logic;
+  variable scancode_v : std_logic_vector(7 downto 0);
+  variable next_stb : std_logic;
+begin
+  if rising_edge(clk_main_i) then
+    idx := kb_key_num_i;
+    pressed_v := not kb_key_pressed_n_i;
+    valid_v := '0';
+    ext_v := '0';
+    scancode_v := (others => '0');
+
+    if reset_core_n = '0' then
+      key_pressed <= (others => '0');
+      ps2_stb <= '0';
+      ps2_key <= (others => '0');
+    elsif key_pressed(idx) /= pressed_v then
+      key_pressed(idx) <= pressed_v;
+
+      case idx is
+        -- Main alphanumeric keys needed for BASIC interaction.
+        when 1  => valid_v := '1'; scancode_v := x"5A"; -- Return
+        when 8  => valid_v := '1'; scancode_v := x"26"; -- 3
+        when 9  => valid_v := '1'; scancode_v := x"1D"; -- W
+        when 10 => valid_v := '1'; scancode_v := x"1C"; -- A
+        when 11 => valid_v := '1'; scancode_v := x"25"; -- 4
+        when 12 => valid_v := '1'; scancode_v := x"1A"; -- Z
+        when 13 => valid_v := '1'; scancode_v := x"1B"; -- S
+        when 14 => valid_v := '1'; scancode_v := x"24"; -- E
+        when 15 => valid_v := '1'; scancode_v := x"12"; -- Left Shift
+        when 16 => valid_v := '1'; scancode_v := x"2E"; -- 5
+        when 17 => valid_v := '1'; scancode_v := x"2D"; -- R
+        when 18 => valid_v := '1'; scancode_v := x"23"; -- D
+        when 19 => valid_v := '1'; scancode_v := x"36"; -- 6
+        when 20 => valid_v := '1'; scancode_v := x"21"; -- C
+        when 21 => valid_v := '1'; scancode_v := x"2B"; -- F
+        when 22 => valid_v := '1'; scancode_v := x"2C"; -- T
+        when 23 => valid_v := '1'; scancode_v := x"22"; -- X
+        when 24 => valid_v := '1'; scancode_v := x"3D"; -- 7
+        when 25 => valid_v := '1'; scancode_v := x"35"; -- Y
+        when 26 => valid_v := '1'; scancode_v := x"34"; -- G
+        when 27 => valid_v := '1'; scancode_v := x"3E"; -- 8
+        when 28 => valid_v := '1'; scancode_v := x"32"; -- B
+        when 29 => valid_v := '1'; scancode_v := x"33"; -- H
+        when 30 => valid_v := '1'; scancode_v := x"3C"; -- U
+        when 31 => valid_v := '1'; scancode_v := x"2A"; -- V
+        when 32 => valid_v := '1'; scancode_v := x"46"; -- 9
+        when 33 => valid_v := '1'; scancode_v := x"43"; -- I
+        when 34 => valid_v := '1'; scancode_v := x"3B"; -- J
+        when 35 => valid_v := '1'; scancode_v := x"45"; -- 0
+        when 36 => valid_v := '1'; scancode_v := x"3A"; -- M
+        when 37 => valid_v := '1'; scancode_v := x"42"; -- K
+        when 38 => valid_v := '1'; scancode_v := x"44"; -- O
+        when 39 => valid_v := '1'; scancode_v := x"31"; -- N
+        when 40 => valid_v := '1'; scancode_v := x"55"; -- +
+        when 41 => valid_v := '1'; scancode_v := x"4D"; -- P
+        when 42 => valid_v := '1'; scancode_v := x"4B"; -- L
+        when 43 => valid_v := '1'; scancode_v := x"4E"; -- -
+        when 44 => valid_v := '1'; scancode_v := x"49"; -- .
+        when 45 => valid_v := '1'; scancode_v := x"4C"; -- :
+        when 47 => valid_v := '1'; scancode_v := x"41"; -- ,
+        when 52 => valid_v := '1'; scancode_v := x"59"; -- Right Shift
+        when 53 => valid_v := '1'; scancode_v := x"09"; -- =
+        when 55 => valid_v := '1'; scancode_v := x"4A"; -- /
+        when 56 => valid_v := '1'; scancode_v := x"16"; -- 1
+        when 58 => valid_v := '1'; scancode_v := x"14"; -- Ctrl
+        when 59 => valid_v := '1'; scancode_v := x"1E"; -- 2
+        when 60 => valid_v := '1'; scancode_v := x"29"; -- Space
+        when 62 => valid_v := '1'; scancode_v := x"15"; -- Q
+        when 63 => valid_v := '1'; ext_v := '1'; scancode_v := x"69"; -- Run/Stop
+        when 71 => valid_v := '1'; scancode_v := x"76"; -- Esc
+        when 73 => valid_v := '1'; ext_v := '1'; scancode_v := x"75"; -- Cursor Up
+        when 74 => valid_v := '1'; ext_v := '1'; scancode_v := x"6B"; -- Cursor Left
+        when others => null;
+      end case;
+
+      if valid_v = '1' then
+        next_stb := not ps2_stb;
+        ps2_stb <= next_stb;
+        ps2_key <= next_stb & pressed_v & ext_v & scancode_v;
+      end if;
+    end if;
+  end if;
+end process;
 
 --------------------------------------------------------------------------------------------------
 -- MiSTer Commodore 64 core / main machine
@@ -297,82 +536,85 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       clk_vdc       => clk_vdc_i,
       reset_n       => reset_core_n,
 
-      -- TODO: Remove PS2 Support from the core
-      ps2_key       => (others => '0'),
-      kbd_reset     => '1',
-      shift_mod     => '0',
+      -- Translate MEGA65 keyboard scans to the core's ps2_key event format.
+      ps2_key       => ps2_key,
+      kbd_reset     => not reset_core_n,
+      shift_mod     => "00",
       azerty        => '0',
       cpslk_mode    => '0',
-      sftlk_sense   => '0',
-      cpslk_sense   => '0',
-      d4080_sense   => open,  -- TODO: 40/80 column mode sense. 
+      sftlk_sense   => open,
+      cpslk_sense   => open,
+      d4080_sense   => open,
       -- keyboard interface: directly connect the CIA1
       -- cia1_pa_i     => cia1_pa_in,
       -- cia1_pa_o     => cia1_pa_out,
       -- cia1_pb_i     => cia1_pb_in,
       -- cia1_pb_o     => cia1_pb_out,
 
-      noscr_sense  => '0',  -- Add this line: '0' for normal screen mode
+      noscr_sense  => open,
       go64         => '0',  -- Add this line: '0' for C128 mode
 
-      -- Select C128's ROMs
-      -- TODO: IMPORTANT FIXME NOW!!
-      sysRom        => open,      -- chip select for system ROM
-      sysRomBank    => open,      -- select bank for system ROM
+      -- Select C128's system ROM banks (boot0.rom)
+      sysRom        => sysrom_cs,
+      sysRomBank    => sysrom_bank,
 
       pause         => pause_i,
       pause_out     => open,      -- unused
 
       -- external memory
-      ramAddr       => ram_addr_o,
+      ramAddr       => core_ram_addr,
       ramDin        => ram_data,
+      vicRamDin     => ram_data, -- TEMP: live data (snow-fix timing to be reworked after boot)
       ramDout       => ram_data_o,
       ramCE         => ram_ce,
       ramWE         => ram_we,
-      ramDinFloat   => '1', -- Signalling that the Cartridge is in high impedance. ???
+      ramDinFloat   => '0', -- No cartridge: MiSTer cart_floating='0'
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
       ext_cycle     => open, -- 1 when a DMA access is happening (REU).
       refresh       => open, -- 1 when a refresh cycle is happening (Not relevant for us)
 
-      cia_mode      => "01",  -- 0 - 6526 "old", 1 - 8521 "new"
-      turbo_mode    => "00",
+      cia_mode      => '1',  -- 0 - 6526 "old", 1 - 8521 "new"
+      turbo_mode    => "000",
 
       -- VGA/SCART interface
       -- The hsync frequency is 15.64 kHz (period 63.94 us).
       -- The hsync pulse width is 12.69 us.
       ntscMode      => '0',
-      vic_variant   => "00",     -- Add this line: "00" for 6569 (PAL-B)
-      vicJailbars   => '0',      -- Add this line: '0' to disable jailbars
-      vicHsync      => video_hs_o,
-      vicVsync      => video_vs_o,
-      vicR          => video_red_o,
-      vicG          => video_green_o,
-      vicB          => video_blue_o,
+      vic_variant   => "01",
+      vicJailbars   => "00",      -- disable jailbars
+      vicPalette    => "000",     -- default/standard C64 palette (upstream palette-selection feature)
+      vicHsync      => core_vic_hs,
+      vicVsync      => core_vic_vs,
+      vicR          => vic_r,
+      vic_pixel_ce_o => vic_pixel_ce,
+      vicG          => vic_g,
+      vicB          => vic_b,
 
       -- TODO: Add VDC support
-      vdcHsync      => open,     -- Add this line: VDC hsync output
-      vdcVsync      => open,     -- Add this line: VDC vsync output
-      vdcR          => open,     -- Add this line: VDC red output
-      vdcG          => open,     -- Add this line: VDC green output
-      vdcB          => open,     -- Add this line: VDC blue output
-      vdcVersion    => open,
-      vdc64k        => open,
-      vdcInitRam    => open,
-      vdcPalette    => open,
-      vdcDebug      => open,
+      vdcHsync      => vdc_hs,
+      vdcVsync      => vdc_vs,
+      vdcR          => vdc_r,
+      vdcG          => vdc_g,
+      vdcB          => vdc_b,
+      vdcVersion    => '0',
+      vdc64k        => '1',
+      vdcInitRam    => '1',       -- MiSTer default: clear VDC RAM on reset
+      vdcPalette    => "0000",
+      vdcDebug      => '0',
 
       -- cartridge port
       -- TODO: Add cartridge support
-      game          => core_game_n,    -- input: low active
-      game_mmu      => open,           -- output: 
-      exrom         => core_exrom_n,   -- input: low active
-      exrom_mmu     => open,           -- output
+      -- No cartridge: MiSTer cart_id=255 drives exrom=game=1; do not use floating EXP port pins.
+      game          => '1',
+      game_mmu      => open,
+      exrom         => '1',
+      exrom_mmu     => open,
       io_rom        => core_io_rom,    -- input
       io_ext        => core_io_ext,    -- input
       io_data       => core_io_data,   -- input
-      irq_n         => core_irq_n,     -- input: low active
-      nmi_n         => core_nmi_n,     -- input
+      irq_n         => '1',         -- No cartridge: floating EXP IRQ would hold cpuIrq_n low
+      nmi_n         => '1',         -- No cartridge: floating EXP NMI
       nmi_ack       => core_nmi_ack,   -- output
       romFL         => open,           -- output
       romFH         => open,           -- output
@@ -385,7 +627,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       mod_key     => open,
       tape_play   => open,
       
-      -- dma access
+      -- No cartridge: floating EXP DMA (cart_dma_i) would assert dma_active and freeze Z80.
       dma_req       => '0',
       dma_cycle     => open,
       dma_addr      => open,
@@ -404,21 +646,21 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- Joystick ports
       -- TODO: See removal of the ps2_key and kbd_reset signals. 
       -- The C64 core added a keyboard controller.
-      joyA          => open,
-      joyB          => open,
+      joyA          => joy_a,
+      joyB          => joy_b,
 
       -- SID
-      audio_l       => open,
-      audio_r       => open,
+      audio_l       => sid_audio_l,
+      audio_r       => sid_audio_r,
       sid_filter    => "11",           -- filter enable = true for both SIDs, low bit = left SID
       sid_ver       => "01",           -- SID version, 0=6581, 1=8580, low bit = left SID
-      sid_mode      => "00",           -- Right SID Port: 0=same as left, 1=DE00, 2=D420, 3=D500, 4=DF00
+      sid_mode      => "000",          -- Right SID Port: 0=same as left, 1=DE00, 2=D420, 3=D500, 4=DF00
       sid_cfg       => "0000",         -- filter type: 0=Default, 1=Custom 1, 2=Custom 2, 3=Custom 3, lower two bits = left SID
-      sid_fc_off_l  => '0',           
-      sid_fc_off_r  => '0',           
+      sid_fc_off_l  => (others => '0'),
+      sid_fc_off_r  => (others => '0'),
       sid_digifix   => '0',           
       -- mechanism for loading custom SID filters
-      sid_ld_clk    => '0',
+      sid_ld_clk    => clk_main_i,
       sid_ld_addr   => "000000000000",
       sid_ld_data   => x"0000",
       sid_ld_wr     => '0',
@@ -442,19 +684,19 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
 
       -- IEC
       -- TODO: Add IEC support
-      iec_srq_n_o   => open,
-      iec_srq_n_i   => '1',
-      iec_clk_i     => '1',
-      iec_clk_o     => open,
-      iec_atn_o     => open,
-      iec_data_i    => '1',
-      iec_data_o    => open,
+      iec_srq_n_o   => iec_srq_n_o,
+      iec_srq_n_i   => iec_srq_n_i,
+      iec_clk_i     => iec_clk_n_i,
+      iec_clk_o     => iec_clk_n_o,
+      iec_atn_o     => iec_atn_n_o,
+      iec_data_i    => iec_data_n_i,
+      iec_data_o    => iec_data_n_o,
 
       -- Cassette drive
       cass_write    => open,     -- output
       cass_motor    => open,     -- output
-      cass_sense    => open,     -- input
-      cass_read     => open,     -- default is '1' according to MiSTer's c1530.vhd
+      cass_sense    => '1',
+      cass_read     => '1',
 
       -- D7xx port
       d7port        => open,
@@ -462,11 +704,16 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
 
       -- System mode
       sys256k       => '0', -- We have 128k memory
-      force64       => '1', -- TODO: We will start running the 64 mode first
-      pure64        => '1', -- TODO: We will start running the 64 mode first
-      d4080_sel     => '0', -- TODO: Force to 40 column mode
-      c128_n        => open,
-      z80_n         => open
+      force64       => '0',
+      pure64        => '0',
+      d4080_sel     => '1',       -- MiSTer default: 40-column key sense released
+      c128_n        => core_c128_n,
+      z80_n           => core_z80_n,
+      z80_we_o        => open,
+      dbg_vic_has_bus_o => open,
+      dbg_enable_vic_o  => open,
+      dbg_aec_o         => open,
+      dbg_vicdi_o       => open
     ); -- fpga64_sid_iec_inst
 
 
