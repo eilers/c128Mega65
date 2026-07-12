@@ -116,7 +116,12 @@ set_false_path -quiet -from [get_pins -hierarchical -regexp ".*/i_ascal/o_.*_reg
 set_false_path -from [get_clocks hdmi_clk]  -to [get_clocks audio_clk]
 set_false_path -from [get_clocks audio_clk] -to [get_clocks hdmi_clk]
 set_false_path -from [get_clocks qnice_clk] -to [get_clocks hdmi_clk]
-set_false_path -through [get_pins i_framework/i_av_pipeline/i_digital_pipeline/i_ascal/reset_na]
+## ascal's reset (reset_na) is an asynchronous reset fanned out to its three clock domains
+## (i_/o_/avl_reset_na_reg). The recovery/removal checks on those async clears are false
+## paths. The previous "-through .../i_ascal/reset_na" matched no object (reset_na is a net,
+## not a pin), so the waiver never applied and left ~-7ns phantom violations on these
+## cross-domain reset recovery paths. Target the register clear pins directly instead.
+set_false_path -to [get_pins -hierarchical -regexp {.*/i_ascal/.*reset_na_reg/(CLR|PRE)}]
 
 
 ################################
