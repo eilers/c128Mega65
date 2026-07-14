@@ -163,6 +163,14 @@ signal ps2_stb           : std_logic := '0';
 type key_state_t is array (0 to 79) of std_logic;
 signal key_pressed : key_state_t := (others => '0');
 
+-- Caps Lock (MEGA65 key 72) drives the C128 40/80-column sense line as a level.
+signal d4080_sel_s       : std_logic := '1';
+-- RESTORE (key 75) -> NMI: latched on the RESTORE key edge, cleared by nmi_ack.
+signal restore_key_s     : std_logic := '0';
+signal restore_key_d     : std_logic := '0';
+signal nmi_q             : std_logic := '0';
+signal core_nmi_n_s      : std_logic := '1';
+
 -- RESET SEMANTICS
 --
 -- The C64 core implements core specific semantics: A standard reset of the core is a soft reset and
@@ -494,7 +502,14 @@ begin
 
       case idx is
         -- Main alphanumeric keys needed for BASIC interaction.
+        when 0  => valid_v := '1'; scancode_v := x"66"; -- INS/DEL
         when 1  => valid_v := '1'; scancode_v := x"5A"; -- Return
+        when 2  => valid_v := '1'; ext_v := '1'; scancode_v := x"74"; -- Cursor Right
+        when 3  => valid_v := '1'; scancode_v := x"83"; -- F7
+        when 4  => valid_v := '1'; scancode_v := x"05"; -- F1
+        when 5  => valid_v := '1'; scancode_v := x"04"; -- F3
+        when 6  => valid_v := '1'; scancode_v := x"03"; -- F5
+        when 7  => valid_v := '1'; ext_v := '1'; scancode_v := x"72"; -- Cursor Down
         when 8  => valid_v := '1'; scancode_v := x"26"; -- 3
         when 9  => valid_v := '1'; scancode_v := x"1D"; -- W
         when 10 => valid_v := '1'; scancode_v := x"1C"; -- A
@@ -542,10 +557,23 @@ begin
         when 59 => valid_v := '1'; scancode_v := x"1E"; -- 2
         when 60 => valid_v := '1'; scancode_v := x"29"; -- Space
         when 62 => valid_v := '1'; scancode_v := x"15"; -- Q
+        when 46 => valid_v := '1'; scancode_v := x"54"; -- @
+        when 48 => valid_v := '1'; scancode_v := x"5D"; -- GBP
+        when 49 => valid_v := '1'; scancode_v := x"5B"; -- *
+        when 50 => valid_v := '1'; scancode_v := x"52"; -- ;
+        when 51 => valid_v := '1'; ext_v := '1'; scancode_v := x"6C"; -- CLR/HOME
+        when 54 => valid_v := '1'; scancode_v := x"01"; -- up-arrow symbol
+        when 57 => valid_v := '1'; scancode_v := x"0E"; -- left-arrow symbol
+        when 61 => valid_v := '1'; ext_v := '1'; scancode_v := x"1F"; -- Commodore (C=)
         when 63 => valid_v := '1'; ext_v := '1'; scancode_v := x"69"; -- Run/Stop
+        when 64 => valid_v := '1'; ext_v := '1'; scancode_v := x"77"; -- NO SCROLL
+        when 65 => valid_v := '1'; scancode_v := x"0D"; -- TAB
+        when 66 => valid_v := '1'; scancode_v := x"11"; -- ALT
+        when 67 => valid_v := '1'; scancode_v := x"7C"; -- HELP
         when 71 => valid_v := '1'; scancode_v := x"76"; -- Esc
         when 73 => valid_v := '1'; ext_v := '1'; scancode_v := x"75"; -- Cursor Up
         when 74 => valid_v := '1'; ext_v := '1'; scancode_v := x"6B"; -- Cursor Left
+        when 75 => valid_v := '1'; ext_v := '1'; scancode_v := x"78"; -- RESTORE
         when others => null;
       end case;
 
@@ -557,6 +585,34 @@ begin
     end if;
   end if;
 end process;
+
+-- Caps Lock is a mechanical locking switch on the MEGA65, so its scan feedback is a level.
+-- key_pressed(72) tracks that level (updated for every index in keyboard_ps2_bridge). Drive the
+-- C128 40/80-column sense line from it: released -> '1' (40 col, power-on default), engaged -> '0'.
+d4080_sel_s <= not key_pressed(72);
+
+--------------------------------------------------------------------------------------------------
+-- RESTORE key -> NMI: the core exposes the RESTORE key as restore_key_s (freeze_key). Turn a
+-- key-press edge into an NMI request that is held until the CPU acknowledges it (nmi_ack), just
+-- like the MiSTer cartridge module does. RUN/STOP+RESTORE reset is handled by the KERNAL.
+--------------------------------------------------------------------------------------------------
+restore_nmi : process(clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    restore_key_d <= restore_key_s;
+    if reset_core_n = '0' then
+      nmi_q <= '0';
+    else
+      if restore_key_s = '1' and restore_key_d = '0' then
+        nmi_q <= '1';
+      elsif core_nmi_ack = '1' then
+        nmi_q <= '0';
+      end if;
+    end if;
+  end if;
+end process;
+
+core_nmi_n_s <= not nmi_q;
 
 --------------------------------------------------------------------------------------------------
 -- MiSTer Commodore 64 core / main machine
@@ -571,7 +627,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- Translate MEGA65 keyboard scans to the core's ps2_key event format.
       ps2_key       => ps2_key,
       kbd_reset     => not reset_core_n,
-      shift_mod     => "00",
+      shift_mod     => "11",
       azerty        => '0',
       cpslk_mode    => '0',
       sftlk_sense   => open,
@@ -646,7 +702,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       io_ext        => core_io_ext,    -- input
       io_data       => core_io_data,   -- input
       irq_n         => '1',         -- No cartridge: floating EXP IRQ would hold cpuIrq_n low
-      nmi_n         => '1',         -- No cartridge: floating EXP NMI
+      nmi_n         => core_nmi_n_s, -- RESTORE key generates NMI (see restore_nmi process)
       nmi_ack       => core_nmi_ack,   -- output
       romFL         => open,           -- output
       romFH         => open,           -- output
@@ -655,7 +711,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       UMAXromH      => core_umax_romh, -- output
       IOE           => core_ioe,       -- output. aka IO1. CPU access to 0xDExx
       IOF           => core_iof,       -- output. aka IO2. CPU access to 0xDFxx
-      freeze_key  => open,
+      freeze_key  => restore_key_s,
       mod_key     => open,
       tape_play   => open,
       
@@ -739,7 +795,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       sys256k       => '0', -- We have 128k memory
       force64       => '0',
       pure64        => '0',
-      d4080_sel     => '1',       -- MiSTer default: 40-column key sense released
+      d4080_sel     => d4080_sel_s, -- Caps Lock acts as the 40/80-column key (see d4080_sel_s)
       c128_n        => core_c128_n,
       z80_n           => core_z80_n,
       z80_we_o        => open,
