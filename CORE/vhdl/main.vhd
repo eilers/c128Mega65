@@ -573,7 +573,7 @@ begin
         when 71 => valid_v := '1'; scancode_v := x"76"; -- Esc
         when 73 => valid_v := '1'; ext_v := '1'; scancode_v := x"75"; -- Cursor Up
         when 74 => valid_v := '1'; ext_v := '1'; scancode_v := x"6B"; -- Cursor Left
-        when 75 => valid_v := '1'; ext_v := '1'; scancode_v := x"78"; -- RESTORE
+        when 75 => valid_v := '1'; scancode_v := x"78"; -- RESTORE (non-extended; fpga64_keyboard matches "0"&X"78")
         when others => null;
       end case;
 
