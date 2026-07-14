@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build C128 MEGA65 cores for R3–R6, convert to .core files, and package a release zip.
+# Build C128 MEGA65 cores for R3–R6, convert to .cor files, and package a release zip.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,7 +85,7 @@ for rev in "${BOARDS[@]}"; do
 
   bit_src="$(find_bitstream "$rev")"
   bit_out="$STAGING_DIR/${PREFIX}_R${rev}.bit"
-  core_out="$STAGING_DIR/${PREFIX}_R${rev}.core"
+  core_out="$STAGING_DIR/${PREFIX}_R${rev}.cor"
 
   cp -f "$bit_src" "$bit_out"
   echo "Bitstream: $bit_out"
