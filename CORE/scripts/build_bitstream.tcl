@@ -41,6 +41,20 @@ foreach required_file $required_source_files {
     }
 }
 
+# Board-specific sources not present in the shared R6-derived project template.
+set project_base [file rootname [file tail $project_file]]
+if {[regexp {CORE-R3} $project_base]} {
+    foreach required_file [list \
+        [file join $repo_dir "M2M/vhdl/controllers/M65/max10.vhdl"] \
+        [file join $repo_dir "M2M/vhdl/controllers/M65/pcm_to_pdm.vhdl"] \
+    ] {
+        if {[llength [get_files -quiet $required_file]] == 0} {
+            puts "Adding R3-specific source file: $required_file"
+            add_files -norecurse -fileset [get_filesets sources_1] $required_file
+        }
+    }
+}
+
 # Vivado 2022 may import .sv files as plain Verilog from newer project files.
 # Force all .sv sources to SystemVerilog before synthesis.
 set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]

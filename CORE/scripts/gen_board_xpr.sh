@@ -13,7 +13,12 @@ fi
 
 # Drop machine-specific duplicate sim paths Vivado may have added to the R6 project.
 scrub_template() {
-  grep -v '/var/home/' "$TEMPLATE" | grep -v '/home/bazzite/' | grep -v '/home/mike/'
+  awk '
+    /^      <File Path="\$PPRDIR\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\// { skip = 1; next }
+    skip && /^      <\/File>/ { skip = 0; next }
+    skip { next }
+    { print }
+  ' "$TEMPLATE"
 }
 
 board_variant() {
@@ -38,3 +43,32 @@ for rev in 3 4 5; do
   board_variant "$rev" "CORE-R${rev}-vivado2022.xpr"
   board_variant "$rev" "CORE-R${rev}.xpr"
 done
+
+add_r3_sources() {
+  local out_path="$1"
+  local tmp
+  tmp="$(mktemp)"
+  awk '
+    /<File Path="\$PPRDIR\/\.\.\/M2M\/vhdl\/top_mega65-r3\.vhd">/ && !done {
+      print "      <File Path=\"$PPRDIR/../M2M/vhdl/controllers/M65/max10.vhdl\">"
+      print "        <FileInfo SFType=\"VHDL2008\">"
+      print "          <Attr Name=\"UsedIn\" Val=\"synthesis\"/>"
+      print "          <Attr Name=\"UsedIn\" Val=\"simulation\"/>"
+      print "        </FileInfo>"
+      print "      </File>"
+      print "      <File Path=\"$PPRDIR/../M2M/vhdl/controllers/M65/pcm_to_pdm.vhdl\">"
+      print "        <FileInfo SFType=\"VHDL2008\">"
+      print "          <Attr Name=\"UsedIn\" Val=\"synthesis\"/>"
+      print "          <Attr Name=\"UsedIn\" Val=\"simulation\"/>"
+      print "        </FileInfo>"
+      print "      </File>"
+      done = 1
+    }
+    { print }
+  ' "$out_path" > "$tmp"
+  mv "$tmp" "$out_path"
+}
+
+add_r3_sources "$CORE_DIR/CORE-R3-vivado2022.xpr"
+add_r3_sources "$CORE_DIR/CORE-R3.xpr"
+echo "Added R3-specific sources to CORE-R3 project files"
