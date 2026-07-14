@@ -77,14 +77,20 @@ entity main is
       cart_io1_o             : out std_logic;
       cart_io2_o             : out std_logic;
 
-      -- IEC serial bus interface to MEGA65 pins (active low at top level)
+      -- IEC serial bus interface to MEGA65 pins (active low at top level).
+      -- CLK/DATA/SRQ are open-collector: *_en_o = '1' pulls the line low, '0' releases it.
+      -- ATN is push-pull (driven by the computer only). RESET resets attached real drives.
+      iec_reset_n_o          : out std_logic;
       iec_atn_n_o            : out std_logic;
-      iec_clk_n_o            : out std_logic;
+      iec_clk_en_o           : out std_logic;
       iec_clk_n_i            : in  std_logic;
-      iec_data_n_o           : out std_logic;
+      iec_clk_n_o            : out std_logic;
+      iec_data_en_o          : out std_logic;
       iec_data_n_i           : in  std_logic;
-      iec_srq_n_o            : out std_logic;
+      iec_data_n_o           : out std_logic;
+      iec_srq_en_o           : out std_logic;
       iec_srq_n_i            : in  std_logic;
+      iec_srq_n_o            : out std_logic;
 
       -- M2M Keyboard interface
       kb_key_num_i            : in  integer range 0 to 79;    -- cycles through all MEGA65 keys
@@ -223,6 +229,13 @@ signal cart_is_an_EF3     : std_logic;
 signal prevent_reset : std_logic;
 signal cache_dirty   : std_logic; -- TODO: Hack!
 
+-- Core's IEC serial bus line levels (fpga64_sid_iec convention: '1' = line released/high,
+-- '0' = line asserted/low; srq is active low: '0' = asserted).
+signal core_iec_clk_o   : std_logic;
+signal core_iec_data_o  : std_logic;
+signal core_iec_atn_o   : std_logic;
+signal core_iec_srq_n_o : std_logic;
+
 -- TODO: Add reu and rtc support
 
 begin
@@ -294,6 +307,25 @@ cart_game_o <= '1';
 cart_exrom_o <= '1';
 cart_nmi_o <= not core_nmi_ack;
 cart_irq_o <= '1';
+
+--------------------------------------------------------------------------------------------------
+-- Hardware IEC serial port (real Commodore drives, e.g. 1541/1571/1581)
+--------------------------------------------------------------------------------------------------
+-- The MEGA65 drives the physical IEC lines through bidirectional level shifters. CLK, DATA and
+-- SRQ are open-collector: every participant either pulls the line low or releases it (never
+-- actively drives it high). We emulate this by tri-stating the driver (via *_en_o = '0') whenever
+-- the core releases the line, and enabling it to drive a hard '0' whenever the core asserts it.
+-- ATN is only ever driven by the computer (the bus controller), so it is a plain push-pull output.
+-- The input lines are sensed active-high (1 = line released) which is exactly what
+-- fpga64_sid_iec expects, so iec_*_n_i pass straight through into the core (see instantiation).
+iec_reset_n_o <= reset_core_n;            -- reset attached real drives together with the core
+iec_atn_n_o   <= core_iec_atn_o;          -- push-pull: '0' = ATN asserted (low) on the bus
+iec_clk_n_o   <= '0';
+iec_clk_en_o  <= not core_iec_clk_o;      -- pull CLK low while the core asserts it (core = '0')
+iec_data_n_o  <= '0';
+iec_data_en_o <= not core_iec_data_o;     -- pull DATA low while the core asserts it (core = '0')
+iec_srq_n_o   <= '0';
+iec_srq_en_o  <= not core_iec_srq_n_o;    -- srq is active low: assert ('0') -> enable the driver
 
 
 --------------------------------------------------------------------------------------------------
@@ -682,15 +714,16 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       cnt1_i        => '1',
       cnt1_o        => open,
 
-      -- IEC
-      -- TODO: Add IEC support
-      iec_srq_n_o   => iec_srq_n_o,
+      -- IEC serial bus. The open-collector output emulation lives in the concurrent
+      -- assignments above; here we only tap the core's raw line-level signals. Inputs are
+      -- sensed active-high (1 = released), matching the MEGA65 IEC buffer, so pass through.
+      iec_srq_n_o   => core_iec_srq_n_o,
       iec_srq_n_i   => iec_srq_n_i,
       iec_clk_i     => iec_clk_n_i,
-      iec_clk_o     => iec_clk_n_o,
-      iec_atn_o     => iec_atn_n_o,
+      iec_clk_o     => core_iec_clk_o,
+      iec_atn_o     => core_iec_atn_o,
       iec_data_i    => iec_data_n_i,
-      iec_data_o    => iec_data_n_o,
+      iec_data_o    => core_iec_data_o,
 
       -- Cassette drive
       cass_write    => open,     -- output

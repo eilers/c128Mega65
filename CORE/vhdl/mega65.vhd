@@ -278,10 +278,9 @@ begin
    cart_irq_oe_o        <= '0';
    cart_roml_oe_o       <= '1';
    cart_romh_oe_o       <= '1';
-   iec_reset_n_o        <= '1';
-   iec_clk_en_o         <= '1';
-   iec_data_en_o        <= '1';
-   iec_srq_en_o         <= '1';
+   -- IEC buffer enables (iec_*_en_o), the reset line (iec_reset_n_o) and the line drivers are
+   -- now driven from main.vhd, which implements the open-collector behaviour required to talk
+   -- to real Commodore drives on the physical IEC bus. See i_main port map below.
 
    -- Default values for all signals
    cart_phi2_o          <= '0';
@@ -417,11 +416,15 @@ begin
          cart_romh_o          => cart_romh_o,
          cart_io1_o           => cart_io1_o,
          cart_io2_o           => cart_io2_o,
+         iec_reset_n_o        => iec_reset_n_o,
          iec_atn_n_o          => iec_atn_n_o,
+         iec_clk_en_o         => iec_clk_en_o,
          iec_clk_n_o          => iec_clk_n_o,
          iec_clk_n_i          => iec_clk_n_i,
+         iec_data_en_o        => iec_data_en_o,
          iec_data_n_o         => iec_data_n_o,
          iec_data_n_i         => iec_data_n_i,
+         iec_srq_en_o         => iec_srq_en_o,
          iec_srq_n_o          => iec_srq_n_o,
          iec_srq_n_i          => iec_srq_n_i
       ); -- i_main
