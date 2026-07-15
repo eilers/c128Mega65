@@ -562,7 +562,12 @@ begin
    if rising_edge(clk32) then
       if preCycle = sysCycleDef'high then
          reset <= not reset_n;
-         reset_t80 <= not reset_n and cpuBusAkT80_n;
+         -- Hold Z80 in reset for the whole core-reset pulse so cpu_z80 can prime $0000
+         -- on the latched bus (MEGA65 BRAM has 1-cycle ROM latency). The original MiSTer
+         -- "not reset_n and cpuBusAkT80_n" skipped that when the 8502 still held the bus
+         -- at warm-reset entry. After reset release, T80 runs normally and is halted via
+         -- BUSRQ only — do not tie reset_t80 to bus ack outside of core reset.
+         reset_t80 <= not reset_n;
       end if;
    end if;
 end process;
