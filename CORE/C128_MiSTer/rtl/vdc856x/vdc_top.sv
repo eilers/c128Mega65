@@ -32,10 +32,12 @@ module vdc_top #(
 	output   [3:0] rgbi
 );
 
-reg enable;
+// clkdiv must be module-scope: Vivado xsim re-initializes variables declared
+// inside always @(posedge) on every edge, which permanently stuck enable at 0
+// and left the KERNAL hanging on BIT $D600 (even in 40-column/VIC mode).
+reg        enable;
+reg  [1:0] clkdiv = 0;
 always @(posedge clk) begin
-	reg [1:0] clkdiv = 0;
-
 	clkdiv <= clkdiv + 1'd1;
 	enable <= ~(reg_dbl & clkdiv[1]) & clkdiv[0];
 end

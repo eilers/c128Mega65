@@ -560,14 +560,22 @@ end process;
 process(clk32)
 begin
    if rising_edge(clk32) then
-      if preCycle = sysCycleDef'high then
-         reset <= not reset_n;
+      -- ASSERT unconditionally, DE-ASSERT cycle-aligned. The process above freezes
+      -- preCycle while reset_n = '0', so gating the assertion on preCycle would only
+      -- catch a reset whose falling edge happens to freeze preCycle exactly at
+      -- sysCycleDef'high - 1 phase in 32. Cold start survived that because `reset`
+      -- powers up as '1'; a warm reset silently did nothing at all.
+      if reset_n = '0' then
+         reset <= '1';
          -- Hold Z80 in reset for the whole core-reset pulse so cpu_z80 can prime $0000
          -- on the latched bus (MEGA65 BRAM has 1-cycle ROM latency). The original MiSTer
          -- "not reset_n and cpuBusAkT80_n" skipped that when the 8502 still held the bus
          -- at warm-reset entry. After reset release, T80 runs normally and is halted via
          -- BUSRQ only — do not tie reset_t80 to bus ack outside of core reset.
-         reset_t80 <= not reset_n;
+         reset_t80 <= '1';
+      elsif preCycle = sysCycleDef'high then
+         reset     <= '0';
+         reset_t80 <= '0';
       end if;
    end if;
 end process;
