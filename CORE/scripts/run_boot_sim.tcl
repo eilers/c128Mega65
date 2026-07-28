@@ -26,6 +26,17 @@ if {[file exists $log_file]} {
 open_project $project_file
 update_compile_order -fileset sources_1
 
+# Ensure new core sources exist in the project (same list as build_bitstream.tcl).
+foreach required_file [list \
+    [file join $repo_dir "CORE/vhdl/video_sync_c128.sv"] \
+    [file join $repo_dir "CORE/vhdl/clk_vdc.vhd"] \
+] {
+    if {[llength [get_files -quiet $required_file]] == 0} {
+        puts "Adding missing source file: $required_file"
+        add_files -norecurse -fileset [get_filesets sources_1] $required_file
+    }
+}
+
 # Vivado 2022 may import .sv files as plain Verilog; force SystemVerilog so the
 # simulator (xvlog) parses them correctly. Mirrors build_bitstream.tcl.
 set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]

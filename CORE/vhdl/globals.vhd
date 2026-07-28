@@ -55,6 +55,28 @@ constant BOARD_CLK_SPEED      : natural := 100_000_000;
 constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has dependencies in qnice_globals.vhd
 
 ----------------------------------------------------------------------------------------------------------
+-- On-Screen-Menu control bit indices (must match OPTM_ITEMS line order in config.vhd)
+----------------------------------------------------------------------------------------------------------
+
+constant C_MENU_VIDEO_FOLLOW     : natural := 2;   -- Video Out: Follow 40/80
+constant C_MENU_VIDEO_VIC        : natural := 3;   -- Video Out: VIC
+constant C_MENU_VIDEO_VDC        : natural := 4;   -- Video Out: VDC
+constant C_MENU_HDMI_720p_50     : natural := 9;
+constant C_MENU_HDMI_720p_60     : natural := 10;
+constant C_MENU_HDMI_576p_50     : natural := 11;
+constant C_MENU_HDMI_576p_50_5_4 : natural := 12;
+constant C_MENU_HDMI_640_60      : natural := 13;
+constant C_MENU_HDMI_720_5994    : natural := 14;
+constant C_MENU_HDMI_800_60      : natural := 15;
+constant C_MENU_CRT_EMULATION    : natural := 19;
+constant C_MENU_HDMI_ZOOM        : natural := 20;
+constant C_MENU_IMPROVE_AUDIO    : natural := 21;
+constant C_MENU_JAILBARS_OFF     : natural := 25;
+constant C_MENU_JAILBARS_LOW     : natural := 26;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 27;
+constant C_MENU_JAILBARS_HIGH    : natural := 28;
+
+----------------------------------------------------------------------------------------------------------
 -- Video Mode
 ----------------------------------------------------------------------------------------------------------
 

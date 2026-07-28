@@ -116,6 +116,7 @@ begin
          reset_hard_i         => reset_hard,
          pause_i              => pause,
          clk_main_speed_i     => CORE_CLK_SPEED,
+         osm_control_i        => (others => '0'), -- Follow 40/80 (default decode)
          video_ce_o           => open,
          video_ce_ovl_o       => open,
          video_red_o          => open,
@@ -125,6 +126,7 @@ begin
          video_hs_o           => open,
          video_hblank_o       => open,
          video_vblank_o       => open,
+         video_select_vdc_o   => open,
          audio_left_o         => open,
          audio_right_o        => open,
          drive_led_o          => open,

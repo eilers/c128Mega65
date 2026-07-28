@@ -33,6 +33,8 @@ update_compile_order -fileset sources_1
 set required_source_files [list \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/video_vicIIe_jb.sv"] \
     [file join $repo_dir "M2M/vhdl/controllers/MiSTer/video_sync.vhd"] \
+    [file join $repo_dir "CORE/vhdl/video_sync_c128.sv"] \
+    [file join $repo_dir "CORE/vhdl/clk_vdc.vhd"] \
 ]
 foreach required_file $required_source_files {
     if {[llength [get_files -quiet $required_file]] == 0} {

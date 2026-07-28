@@ -21,17 +21,20 @@ entity main is
       G_VDNUM                 : natural                     -- amount of virtual drives
    );
    port (
-      clk_main_i              : in  std_logic;  -- Main core clock (54 MHz)
-      clk_vdc_i               : in  std_logic;  -- VDC clock (32 MHz)
+      clk_main_i              : in  std_logic;  -- Main core clock (~31.53 MHz PAL)
+      clk_vdc_i               : in  std_logic;  -- VDC clock (32.000 MHz)
       reset_soft_i            : in  std_logic;  -- Soft reset
       reset_hard_i            : in  std_logic;  -- Hard reset
-      pause_i                 : in  std_logic;  -- Pause  
+      pause_i                 : in  std_logic;  -- Pause
 
       -- MiSTer core main clock speed:
       -- Make sure you pass very exact numbers here, because they are used for avoiding clock drift at derived clocks
       clk_main_speed_i        : in  natural;
 
-      -- Video output
+      -- Help-menu selections (main clock domain; bit index = OPTM_ITEMS line)
+      osm_control_i           : in  std_logic_vector(255 downto 0);
+
+      -- Video output (synchronous to VIC or VDC clock; see video_select_vdc_o)
       video_ce_o              : out std_logic;
       video_ce_ovl_o          : out std_logic;
       video_red_o             : out std_logic_vector(7 downto 0);
@@ -41,6 +44,8 @@ entity main is
       video_hs_o              : out std_logic;
       video_hblank_o          : out std_logic;
       video_vblank_o          : out std_logic;
+      -- '1' = HDMI shows VDC (video_* on clk_vdc); '0' = VIC (video_* on clk_main)
+      video_select_vdc_o      : out std_logic;
 
       -- Audio output (Signed PCM)
       audio_left_o            : out signed(15 downto 0);
@@ -153,6 +158,27 @@ signal vic_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vic_b_reg         : unsigned(7 downto 0) := (others => '0');
 signal core_vic_hs       : std_logic;
 signal core_vic_vs       : std_logic;
+
+signal vic_hs_out        : std_logic;
+signal vic_vs_out        : std_logic;
+signal vic_hblank        : std_logic;
+signal vic_vblank        : std_logic;
+
+signal vdc_hs_out        : std_logic;
+signal vdc_vs_out        : std_logic;
+signal vdc_hblank        : std_logic;
+signal vdc_vblank        : std_logic;
+signal vdc_ce            : std_logic;
+signal vdc_ce_d          : std_logic := '0';
+signal vdc_r_reg         : unsigned(7 downto 0) := (others => '0');
+signal vdc_g_reg         : unsigned(7 downto 0) := (others => '0');
+signal vdc_b_reg         : unsigned(7 downto 0) := (others => '0');
+
+signal sel_vdc           : std_logic := '0';
+signal sel_vdc_d         : std_logic := '0';
+signal video_switching   : std_logic := '0';
+signal video_switch_cnt  : natural range 0 to 65535 := 0;
+signal vic_jailbars      : std_logic_vector(1 downto 0) := "00";
 signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiSTer z80_n port)
 signal core_c128_n       : std_logic;
 constant C_PWRUP_RESET_LEN   : natural := 4095;
@@ -262,10 +288,22 @@ boot_z80_n_o <= core_z80_n;
 drive_led_o     <= '0';
 drive_led_col_o <= x"00FF00";
 
--- Sample HDMI pixels on the VIC's enablePixel strobe (not a free-running /4 divider).
-video_ce_o <= vic_pixel_ce;
-video_ce_ovl_o <= vic_pixel_ce or vic_pixel_ce_d;
+--------------------------------------------------------------------------------------------------
+-- Video Out select (MiSTer status[106:105] / auto_config): Follow 40/80, force VIC, force VDC.
+-- Follow uses Caps Lock -> d4080_sel ('1'=40-col/VIC, '0'=80-col/VDC).
+--------------------------------------------------------------------------------------------------
+sel_vdc <= '1' when osm_control_i(C_MENU_VIDEO_VDC) = '1' else
+           '0' when osm_control_i(C_MENU_VIDEO_VIC) = '1' else
+           not d4080_sel_s;
 
+video_select_vdc_o <= sel_vdc;
+
+vic_jailbars <= "11" when osm_control_i(C_MENU_JAILBARS_HIGH)   = '1' else
+                "10" when osm_control_i(C_MENU_JAILBARS_MEDIUM) = '1' else
+                "01" when osm_control_i(C_MENU_JAILBARS_LOW)    = '1' else
+                "00";
+
+-- VIC path: sample on enablePixel; blanking via M2M/C64 video_sync.
 vic_pixel_sample_proc : process (clk_main_i)
 begin
   if rising_edge(clk_main_i) then
@@ -278,9 +316,7 @@ begin
   end if;
 end process vic_pixel_sample_proc;
 
--- Generate blanking/sync from raw VIC sync (do not derive blanking from HS/VS directly).
--- Use the MiSTer video_sync variant with C64-validated PAL hblank timing.
-video_sync_inst : entity work.video_sync
+video_sync_vic : entity work.video_sync
   port map (
     clk32     => clk_main_i,
     pause     => '0',
@@ -288,15 +324,75 @@ video_sync_inst : entity work.video_sync
     vsync     => core_vic_vs,
     ntsc      => '0',
     wide      => '0',
-    hsync_out => video_hs_o,
-    vsync_out => video_vs_o,
-    hblank    => video_hblank_o,
-    vblank    => video_vblank_o
+    hsync_out => vic_hs_out,
+    vsync_out => vic_vs_out,
+    hblank    => vic_hblank,
+    vblank    => vic_vblank
   );
 
-video_red_o <= std_logic_vector(vic_r_reg);
-video_green_o <= std_logic_vector(vic_g_reg);
-video_blue_o <= std_logic_vector(vic_b_reg);
+-- VDC path: C128 MiSTer video_sync (centered PAL/NTSC shifts) + ~16 MHz CE.
+video_sync_vdc : entity work.video_sync_c128
+  port map (
+    reset       => reset_soft_i or reset_hard_i,
+    clk32       => clk_vdc_i,
+    pause       => '0',
+    hshift_r60  => std_logic_vector(to_unsigned(43, 12)),   -- centered, not wide
+    hshift_l60  => std_logic_vector(to_unsigned(236, 12)),
+    hshift_r50  => std_logic_vector(to_unsigned(87, 12)),
+    hshift_l50  => std_logic_vector(to_unsigned(290, 12)),
+    hsync       => vdc_hs,
+    vsync       => vdc_vs,
+    hsync_out   => vdc_hs_out,
+    vsync_out   => vdc_vs_out,
+    hblank      => vdc_hblank,
+    vblank      => vdc_vblank,
+    ilace       => open,
+    field       => open,
+    valid       => open,
+    ce          => vdc_ce
+  );
+
+vdc_pixel_sample_proc : process (clk_vdc_i)
+begin
+  if rising_edge(clk_vdc_i) then
+    vdc_ce_d <= vdc_ce;
+    if vdc_ce = '1' then
+      vdc_r_reg <= vdc_r;
+      vdc_g_reg <= vdc_g;
+      vdc_b_reg <= vdc_b;
+    end if;
+  end if;
+end process vdc_pixel_sample_proc;
+
+-- Blank briefly when HDMI source changes (video_clk BUFGMUX switches with sel_vdc).
+video_switch_blank_proc : process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    sel_vdc_d <= sel_vdc;
+    if sel_vdc /= sel_vdc_d then
+      video_switching  <= '1';
+      video_switch_cnt <= 65535;
+    elsif video_switch_cnt /= 0 then
+      video_switch_cnt <= video_switch_cnt - 1;
+    else
+      video_switching <= '0';
+    end if;
+  end if;
+end process video_switch_blank_proc;
+
+-- Native-domain mux: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes video_clk to match.
+video_ce_o     <= vdc_ce when sel_vdc = '1' else vic_pixel_ce;
+video_ce_ovl_o <= (vdc_ce or vdc_ce_d) when sel_vdc = '1' else (vic_pixel_ce or vic_pixel_ce_d);
+video_hs_o     <= vdc_hs_out when sel_vdc = '1' else vic_hs_out;
+video_vs_o     <= vdc_vs_out when sel_vdc = '1' else vic_vs_out;
+video_hblank_o <= vdc_hblank when sel_vdc = '1' else vic_hblank;
+video_vblank_o <= vdc_vblank when sel_vdc = '1' else vic_vblank;
+video_red_o    <= (others => '0') when video_switching = '1' else
+                  std_logic_vector(vdc_r_reg) when sel_vdc = '1' else std_logic_vector(vic_r_reg);
+video_green_o  <= (others => '0') when video_switching = '1' else
+                  std_logic_vector(vdc_g_reg) when sel_vdc = '1' else std_logic_vector(vic_g_reg);
+video_blue_o   <= (others => '0') when video_switching = '1' else
+                  std_logic_vector(vdc_b_reg) when sel_vdc = '1' else std_logic_vector(vic_b_reg);
 -- cart_reset_o is low-active at the expansion port: drive low while an INTERNAL reset is
 -- active, high otherwise. It MUST NOT be driven from reset_core_n: with cart_reset_oe_o='1'
 -- the FPGA always drives this pin and reads it back on cart_reset_i, and combined_reset_proc
@@ -670,7 +766,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- The hsync pulse width is 12.69 us.
       ntscMode      => '0',
       vic_variant   => "01",
-      vicJailbars   => "00",      -- disable jailbars
+      vicJailbars   => vic_jailbars,
       vicPalette    => "000",     -- default/standard C64 palette (upstream palette-selection feature)
       vicHsync      => core_vic_hs,
       vicVsync      => core_vic_vs,

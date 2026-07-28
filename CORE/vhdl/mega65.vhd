@@ -17,6 +17,9 @@ use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
 
+library unisim;
+use unisim.vcomponents.all;
+
 library xpm;
 use xpm.vcomponents.all;
 
@@ -225,7 +228,13 @@ architecture synthesis of MEGA65_Core is
 ---------------------------------------------------------------------------------------------
 -- Clocks and active high reset signals for each clock domain
 ---------------------------------------------------------------------------------------------
-signal vdc_clk_o : std_logic;
+signal vdc_clk             : std_logic;
+signal vdc_clk_raw         : std_logic;
+signal main_clk_raw        : std_logic;
+signal vdc_clk_locked      : std_logic;
+signal vdc_rst             : std_logic;
+signal main_video_sel_vdc  : std_logic;
+signal video_clk_sel       : std_logic;
 
 signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
 
@@ -313,21 +322,44 @@ begin
          sys_clk_i         => clk_i,           -- expects 100 MHz
          core_speed_i      => hr_core_speed,   -- 0=PAL/original C64, 1=PAL/HDMI flicker-free, 2=NTSC
          main_clk_o        => main_clk_o,        -- CORE's clock
+         main_clk_raw_o    => main_clk_raw,      -- MMCM CLKOUT for video mux
          main_rst_o        => main_rst_o         -- CORE's reset, synchronized
       ); -- clk_gen
 
 
-   -- VDC clock generator
-   -- TODO: Maybe we can integrate this into the clk.vhd?
+   -- Dedicated 32.000 MHz VDC clock (MiSTer pll_vdc). Bus CDC to main stays unconstrained
+   -- (see CORE.xdc); do not add set_clock_groups on this crossing.
    clk_vdc_gen: entity work.vdc_clk
       port map (
-         refclk   => clk_i,
-         outclk_0 => vdc_clk_o,
-         locked   => open        -- TODO: Do we need to detect the locked state?
-      ); -- clk_vdc_gen
+         refclk       => clk_i,
+         outclk_0     => vdc_clk,
+         outclk_raw_o => vdc_clk_raw,
+         locked       => vdc_clk_locked
+      );
 
-   video_clk_o <= main_clk_o;
-   video_rst_o <= main_rst_o;
+   i_xpm_cdc_async_rst_vdc: xpm_cdc_async_rst
+      generic map (
+         RST_ACTIVE_HIGH => 1,
+         DEST_SYNC_FF    => 6
+      )
+      port map (
+         src_arst  => not vdc_clk_locked,
+         dest_clk  => vdc_clk,
+         dest_arst => vdc_rst
+      );
+
+   -- HDMI video_clk: mux MMCM CLKOUT nets (not BUFG outputs) to avoid illegal cascade.
+   -- When VDC is shown, video_* are synchronous to vdc_clk / this mux output.
+   video_clk_sel <= main_video_sel_vdc;
+   i_video_clk_mux: bufgmux_ctrl
+      port map (
+         i0 => main_clk_raw,
+         i1 => vdc_clk_raw,
+         s  => video_clk_sel,
+         o  => video_clk_o
+      );
+
+   video_rst_o <= vdc_rst when main_video_sel_vdc = '1' else main_rst_o;
 
    -- Power LED: solid on.
    main_power_led_o     <= '1';
@@ -340,17 +372,15 @@ begin
       )
       port map (
          clk_main_i           => main_clk_o,
-         -- Run the VDC on main_clk to eliminate the unconstrained VDC<->main async clock
-         -- crossing (previously the dominant WNS contributor, ~2700 false-failing endpoints).
-         clk_vdc_i            => main_clk_o,
+         clk_vdc_i            => vdc_clk,
          reset_soft_i         => main_reset_core_i,
          reset_hard_i         => main_reset_m2m_i,
          pause_i              => main_pause_core_i,
 
          clk_main_speed_i     => CORE_CLK_SPEED,
+         osm_control_i        => main_osm_control_i,
 
-         -- Video output
-         -- This is PAL 720x576 @ 50 Hz (pixel clock 27 MHz), but synchronized to main_clk (54 MHz).
+         -- Video output (domain follows video_select_vdc_o / BUFGMUX above)
          video_ce_o           => video_ce_o,
          video_ce_ovl_o       => video_ce_ovl_o,
          video_red_o          => video_red_o,
@@ -360,6 +390,7 @@ begin
          video_hs_o           => video_hs_o,
          video_hblank_o       => video_hblank_o,
          video_vblank_o       => video_vblank_o,
+         video_select_vdc_o   => main_video_sel_vdc,
 
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,
@@ -469,7 +500,7 @@ begin
 
    -- If polyphase is '1' then the ascal filter mode is ignored and polyphase filters are used instead
    -- @TODO: Right now, the filters are hardcoded in the M2M framework, we need to make them changeable inside m2m-rom.asm
-   qnice_ascal_polyphase_o    <= '0'; -- qnice_osm_control_i(C_MENU_CRT_EMULATION);
+   qnice_ascal_polyphase_o    <= qnice_osm_control_i(C_MENU_CRT_EMULATION);
 
    -- ascal triple-buffering
    -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded

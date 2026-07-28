@@ -22,3 +22,5 @@ M2M/rom/*.out
 M2M/rom/*.rom
 M2M/video_filters/*.out
 *.sublime-*
+artifacts/*
+CORE/artifacts/*

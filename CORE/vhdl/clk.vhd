@@ -66,6 +66,9 @@ entity clk is
     core_speed_i :     unsigned(1 downto 0); -- asynchronous
 
     main_clk_o   : out std_logic;
+    -- Unbuffered MMCM CLKOUT (PAL orig). For video BUFGMUX only — do not use as a
+    -- fabric clock without a BUFG/BUFGMUX. Avoids BUFG→BUFGMUX cascade.
+    main_clk_raw_o : out std_logic;
     main_rst_o   : out std_logic
   );
 end entity;
@@ -208,6 +211,9 @@ begin
       I => main_clk_mmcm,
       O => main_clk_o
     );
+
+  -- Raw PAL clock for HDMI source mux (hr_core_speed is fixed to "00" today).
+  main_clk_raw_o <= main_clk_mmcm_orig;
 
   -------------------------------------
   -- Reset generation
