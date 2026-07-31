@@ -286,6 +286,9 @@ automatically when needed.
 ## Related documentation
 
 - [README.md](../README.md) — project overview and SD card layout
-- [doc/r6-boot-validation-checklist.md](r6-boot-validation-checklist.md) — hardware validation
 - [doc/r6-constraints-rationale.md](r6-constraints-rationale.md) — timing constraints
-- [doc/z80-first-fetch-boot-hang.md](z80-first-fetch-boot-hang.md) — boot hang post-mortem
+- [doc/HANDOVER-z80-cpm.md](HANDOVER-z80-cpm.md) — machine handoff for Z80/CP/M debug
+- [doc/plans/z80-cpm-test-env.md](plans/z80-cpm-test-env.md) — full test-env plan
+- [doc/z80-cpm-debug.md](z80-cpm-debug.md) — CP/M / Z80 integration debug (MEGA65 glue)
+- [doc/c128-mister-patch-audit.md](c128-mister-patch-audit.md) — local C128_MiSTer diff audit
+- [CORE/diag/z80/README.md](../CORE/diag/z80/README.md) — offline VICE Z80 diagnostic
