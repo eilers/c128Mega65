@@ -256,7 +256,7 @@ set_property -dict {PACKAGE_PIN G22  IOSTANDARD LVCMOS33} [get_ports {grove_sda_
 set_property -dict {PACKAGE_PIN U22  IOSTANDARD LVCMOS33} [get_ports {led_o}];                  # ULED
 
 # Pmod Header
-set_property -dict {PACKAGE_PIN A18  IOSTANDARD LVCMOS33} [get_ports {p1hi_io[0]}];             # B16_L17_P
+set_property -dict {PACKAGE_PIN G1   IOSTANDARD LVCMOS33} [get_ports {p1hi_io[0]}];             # B35_L5_P
 set_property -dict {PACKAGE_PIN E1   IOSTANDARD LVCMOS33} [get_ports {p1hi_io[1]}];             # B35_L3_P
 set_property -dict {PACKAGE_PIN C2   IOSTANDARD LVCMOS33} [get_ports {p1hi_io[2]}];             # B35_L2_P
 set_property -dict {PACKAGE_PIN B1   IOSTANDARD LVCMOS33} [get_ports {p1hi_io[3]}];             # B35_L1_P
@@ -284,6 +284,11 @@ set_property -dict {PULLUP TRUE}                          [get_ports {qspidb_io[
 ################################
 ## PLACEMENT CONSTRAINTS
 ################################
+
+# Place HyperRAM close to I/O pins
+create_pblock pblock_i_hyperram
+add_cells_to_pblock pblock_i_hyperram [get_cells [list i_framework/i_hyperram]]
+resize_pblock pblock_i_hyperram -add {SLICE_X0Y200:SLICE_X7Y224}
 
 # Place MAX10 close to I/O pins
 create_pblock pblock_MAX10

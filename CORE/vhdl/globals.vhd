@@ -91,6 +91,32 @@ constant C_MENU_JAILBARS_HIGH    : natural := 28;
 constant VGA_DX               : natural := 720;
 constant VGA_DY               : natural := 540;
 
+-- Optional analog VGA Standard-mode sync reshaping.
+-- Keep this OFF unless the core's scandoubled timing needs different sync
+-- pulse widths or polarities for reliable PC-VGA monitor classification.
+-- Example using the canonical 640x480@60 pulse profile when video_clk equals
+-- CORE_CLK_SPEED:
+-- constant VGA_STD_SYNC : vga_sync_reshaper_cfg_t :=
+--    make_vga_sync_reshaper_cfg(C_VGA_SYNC_DMT_640X480_60, CORE_CLK_SPEED);
+constant VGA_STD_SYNC         : vga_sync_reshaper_cfg_t := C_VGA_SYNC_RESHAPER_OFF;
+
+-- Optional digital HDMI output fitting. UNCROPPED is selected while the
+-- core's qnice_zoom_crop_o signal is low; CROPPED is selected while it is
+-- high. The aspect presets describe the intended physical picture shape, so
+-- M2M also handles HDMI modes with non-square encoded pixels correctly.
+-- qnice_hdmi_view_size_o optionally selects one of four rational size
+-- fractions for the cropped fit; its binary value indexes slots 0 through 3.
+-- Every slot defaults to full size. Example:
+-- constant HDMI_VIEW : hdmi_view_cfg_t :=
+--    make_hdmi_view_cfg(
+--       C_HDMI_FIT_LEGACY,
+--       C_HDMI_FIT_10_9,
+--       (0 => C_HDMI_SCALE_FULL,
+--        1 => make_hdmi_scale(4, 5),
+--        2 => make_hdmi_scale(9, 14),
+--        3 => C_HDMI_SCALE_FULL));
+constant HDMI_VIEW            : hdmi_view_cfg_t := C_HDMI_VIEW_LEGACY;
+
 --    FONT_*  size of one OSM character
 constant FONT_FILE            : string  := "../font/Anikki-16x16-m2m.rom";
 constant FONT_DX              : natural := 16;

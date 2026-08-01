@@ -285,18 +285,6 @@ architecture synthesis of mega65_r6 is
    signal main_power_led_col     : std_logic_vector(23 downto 0);
    signal main_drive_led         : std_logic;
    signal main_drive_led_col     : std_logic_vector(23 downto 0);
-   signal core_main_power_led    : std_logic;
-   signal core_main_power_led_col: std_logic_vector(23 downto 0);
-   signal core_main_drive_led    : std_logic;
-   signal core_main_drive_led_col: std_logic_vector(23 downto 0);
-
-   signal fw_uart_tx             : std_logic;
-
-   signal fw_vga_red             : std_logic_vector(7 downto 0);
-   signal fw_vga_green           : std_logic_vector(7 downto 0);
-   signal fw_vga_blue            : std_logic_vector(7 downto 0);
-   signal fw_vga_hs              : std_logic;
-   signal fw_vga_vs              : std_logic;
 
    -- QNICE On Screen Menu selections
    signal main_osm_control_m     : std_logic_vector(255 downto 0);
@@ -430,6 +418,7 @@ architecture synthesis of mega65_r6 is
    signal qnice_audio_mute       : std_logic;
    signal qnice_audio_filter     : std_logic;
    signal qnice_zoom_crop        : std_logic;
+   signal qnice_hdmi_view_size   : std_logic_vector(1 downto 0);
    signal qnice_ascal_mode       : std_logic_vector(1 downto 0);
    signal qnice_ascal_polyphase  : std_logic;
    signal qnice_ascal_triplebuf  : std_logic;
@@ -485,7 +474,7 @@ begin
    cart_irq_io       <= cart_irq_out   when cart_irq_oe   = '1' else 'Z';
    cart_roml_io      <= cart_roml_out  when cart_roml_oe  = '1' else 'Z';
    cart_romh_io      <= cart_romh_out  when cart_romh_oe  = '1' else 'Z';
-   cart_reset_in     <= '1' when cart_reset_oe = '1' else cart_reset_io;
+   cart_reset_in     <= cart_reset_io;
    cart_game_in      <= cart_game_io;
    cart_exrom_in     <= cart_exrom_io;
    cart_nmi_in       <= cart_nmi_io;
@@ -579,19 +568,6 @@ begin
    sdram_dq_io           <= (others => 'Z');
 
 
-   main_power_led     <= core_main_power_led;
-   main_power_led_col <= core_main_power_led_col;
-   main_drive_led     <= core_main_drive_led;
-   main_drive_led_col <= core_main_drive_led_col;
-
-   uart_txd_o <= fw_uart_tx;
-
-   vga_red_o   <= fw_vga_red;
-   vga_green_o <= fw_vga_green;
-   vga_blue_o  <= fw_vga_blue;
-   vga_hs_o    <= fw_vga_hs;
-   vga_vs_o    <= fw_vga_vs;
-
    -----------------------------------------------------------------------------------------
    -- MiSTer2MEGA framework
    -----------------------------------------------------------------------------------------
@@ -605,12 +581,12 @@ begin
       clk_i                   => clk_i,
       reset_n_i               => not reset_button_i,
       uart_rxd_i              => uart_rxd_i,
-      uart_txd_o              => fw_uart_tx,
-      vga_red_o               => fw_vga_red,
-      vga_green_o             => fw_vga_green,
-      vga_blue_o              => fw_vga_blue,
-      vga_hs_o                => fw_vga_hs,
-      vga_vs_o                => fw_vga_vs,
+      uart_txd_o              => uart_txd_o,
+      vga_red_o               => vga_red_o,
+      vga_green_o             => vga_green_o,
+      vga_blue_o              => vga_blue_o,
+      vga_hs_o                => vga_hs_o,
+      vga_vs_o                => vga_vs_o,
       vdac_clk_o              => vdac_clk_o,
       vdac_sync_n_o           => vdac_sync_n_o,
       vdac_blank_n_o          => vdac_blank_n_o,
@@ -744,6 +720,7 @@ begin
       qnice_audio_mute_i      => qnice_audio_mute,
       qnice_audio_filter_i    => qnice_audio_filter,
       qnice_zoom_crop_i       => qnice_zoom_crop,
+      qnice_hdmi_view_size_i  => qnice_hdmi_view_size,
       qnice_osm_cfg_scaling_i => qnice_osm_cfg_scaling,
       qnice_retro15kHz_i      => qnice_retro15kHz,
       qnice_ascal_mode_i      => qnice_ascal_mode,
@@ -806,6 +783,7 @@ begin
          qnice_audio_mute_o      => qnice_audio_mute,
          qnice_audio_filter_o    => qnice_audio_filter,
          qnice_zoom_crop_o       => qnice_zoom_crop,
+         qnice_hdmi_view_size_o  => qnice_hdmi_view_size,
          qnice_ascal_mode_o      => qnice_ascal_mode,
          qnice_ascal_polyphase_o => qnice_ascal_polyphase,
          qnice_ascal_triplebuf_o => qnice_ascal_triplebuf,
@@ -837,7 +815,7 @@ begin
          -- M2M's reset manager provides 2 signals:
          --    m2m:   Reset the whole machine: Core and Framework
          --    core:  Only reset the core
-         main_reset_m2m_i        => main_reset_m2m or main_qnice_reset or main_rst,
+         main_reset_m2m_i        => main_reset_m2m  or main_qnice_reset or main_rst,
          main_reset_core_i       => main_reset_core or main_qnice_reset,
          main_pause_core_i       => main_qnice_pause,
 
@@ -867,10 +845,10 @@ begin
          -- M2M Keyboard interface
          main_kb_key_num_i       => main_key_num,
          main_kb_key_pressed_n_i => main_key_pressed_n,
-         main_power_led_o        => core_main_power_led,
-         main_power_led_col_o    => core_main_power_led_col,
-         main_drive_led_o        => core_main_drive_led,
-         main_drive_led_col_o    => core_main_drive_led_col,
+         main_power_led_o        => main_power_led,
+         main_power_led_col_o    => main_power_led_col,
+         main_drive_led_o        => main_drive_led,
+         main_drive_led_col_o    => main_drive_led_col,
 
          -- Joysticks input
          main_joy_1_up_n_i       => main_joy1_up_n_in,
@@ -990,4 +968,3 @@ begin
       ); -- CORE
 
 end architecture synthesis;
-

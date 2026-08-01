@@ -190,6 +190,7 @@ port (
    qnice_audio_mute_i      : in    std_logic;
    qnice_audio_filter_i    : in    std_logic;
    qnice_zoom_crop_i       : in    std_logic;
+   qnice_hdmi_view_size_i  : in    std_logic_vector(1 downto 0) := (others => '0');
    qnice_ascal_mode_i      : in    std_logic_vector(1 downto 0);
    qnice_ascal_polyphase_i : in    std_logic;
    qnice_ascal_triplebuf_i : in    std_logic;
@@ -869,7 +870,9 @@ begin
          G_VGA_DY                => VGA_DY,
          G_FONT_FILE             => FONT_FILE,
          G_FONT_DX               => FONT_DX,
-         G_FONT_DY               => FONT_DY
+         G_FONT_DY               => FONT_DY,
+         G_VGA_STD_SYNC          => VGA_STD_SYNC,
+         G_HDMI_VIEW             => HDMI_VIEW
       )
       port map (
          -- Input from Core
@@ -898,6 +901,7 @@ begin
          qnice_scandoubler_i     => qnice_scandoubler_i,
          qnice_csync_i           => qnice_csync_i,
          qnice_zoom_crop_i       => qnice_zoom_crop_i,
+         qnice_hdmi_view_size_i  => qnice_hdmi_view_size_i,
          qnice_audio_filter_i    => qnice_audio_filter_i,
          qnice_audio_mute_i      => qnice_audio_mute_i,
          qnice_video_mode_i      => video_mode_to_slv(qnice_video_mode_i),
@@ -1051,4 +1055,3 @@ begin
    audio_scl_io <= '0' when scl_out(5) = '0' else 'Z';
 
 end architecture synthesis;
-
