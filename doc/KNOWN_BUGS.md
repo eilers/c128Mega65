@@ -21,7 +21,6 @@
 
 # Missing Features
 * Video:
-    * VDC Position / palette / variant menu options
     * HDMI resolution / Zoom menu bits still hardwired in `mega65.vhd`
     * ...
 * Virtual devices (IEC)
