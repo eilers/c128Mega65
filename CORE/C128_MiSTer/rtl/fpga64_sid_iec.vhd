@@ -57,16 +57,26 @@ port(
    pause_out   : out std_logic;
 
    -- keyboard interface (use any ordinairy PS2 keyboard)
-   ps2_key     : in  std_logic_vector(10 downto 0);
+   -- MEGA65: the PS/2 path is unused, the matrix is driven externally via cia1_p*_i/o below.
+   -- These ports are kept with defaults so that they stay unassociated instead of widening the
+   -- diff against upstream MiSTer.
+   ps2_key     : in  std_logic_vector(10 downto 0) := (others => '0');
    kbd_reset   : in  std_logic := '0';
-   shift_mod   : in  std_logic_vector(1 downto 0);
-   azerty      : in  std_logic;
+   shift_mod   : in  std_logic_vector(1 downto 0) := "11";
+   azerty      : in  std_logic := '0';
    cpslk_mode  : in  std_logic;
    sftlk_sense : out std_logic;
    cpslk_sense : out std_logic;
    d4080_sense : out std_logic;
    noscr_sense : out std_logic;
-   go64        : in  std_logic;
+   go64        : in  std_logic := '0';
+
+   -- MEGA65: external keyboard matrix driver (CORE/vhdl/keyboard.vhd) in place of fpga64_keyboard
+   cia1_pa_i   : in  std_logic_vector(7 downto 0);
+   cia1_pa_o   : out std_logic_vector(7 downto 0);
+   cia1_pb_i   : in  std_logic_vector(7 downto 0);
+   cia1_pb_o   : out std_logic_vector(7 downto 0);
+   vic_ko_o    : out std_logic_vector(2 downto 0);
 
    -- external memory
    ramAddr     : out unsigned(17 downto 0);
@@ -1050,6 +1060,11 @@ port map (
    irq_n => irq_cia1
 );
 
+cia1_pa_o <= std_logic_vector(cia1_pao);
+cia1_pb_o <= std_logic_vector(cia1_pbo);
+cia1_pai  <= unsigned(cia1_pa_i);
+cia1_pbi  <= unsigned(cia1_pb_i);
+
 cia2: mos6526_8520
 port map (
    clk => clk32,
@@ -1362,41 +1377,26 @@ game_mmu  <= mmu_game;
 
 -- -----------------------------------------------------------------------
 -- Keyboard
+--
+-- MEGA65: fpga64_keyboard is not instantiated. The MEGA65 keyboard has C64 key positions, so it
+-- drives the CIA1 matrix directly from CORE/vhdl/keyboard.vhd instead of going through PS/2
+-- scancodes, which avoids fpga64_keyboard's European number-row remapping (shift+6..0, shift+8=*).
+-- CIA1 ports A/B are routed out below, the VIC-IIe extension scan lines via vic_ko_o.
 -- -----------------------------------------------------------------------
 cpslk_sense <= cpslk_sense_kb;
 
-Keyboard: entity work.fpga64_keyboard
-port map (
-   clk => clk32,
-   reset => kbd_reset,
-   pure64 => pure64,
-   c128_n => mmu_c128_n,
+vic_ko_o <= std_logic_vector(vicKo);
 
-   ps2_key => ps2_key,
-   go64 => go64,
+-- CAPS LOCK is repurposed as the MEGA65's 40/80 column key (see d4080_sel), so the DIN/ASCII
+-- sense line on 8502 port bit 6 always reads "released", matching fpga64_keyboard's power-on state.
+cpslk_sense_kb <= '1';
 
-   joyA => not unsigned(joyA(6 downto 0)),
-   joyB => not unsigned(joyB(6 downto 0)),
-   pai => cia1_pao,
-   pbi => cia1_pbo,
-   pao => cia1_pai,
-   pbo => cia1_pbi,
-   ki => vicKo,
-
-   alt_crsr => cpuBusAkT80_n,
-   shift_mod => shift_mod,
-   azerty => azerty,
-
-   restore_key => freeze_key,
-   tape_play => tape_play,
-   mod_key => mod_key,
-
-   sftlk_sense => sftlk_sense,
-   cpslk_sense => cpslk_sense_kb,
-   d4080_sense => d4080_sense,
-   noscr_sense => noscr_sense,
-
-   backwardsReadingEnabled => '1'
-);
+-- Keyboard LED / switch feedback and the tape and freeze keys have no MEGA65 equivalent here.
+sftlk_sense <= '0';
+d4080_sense <= '0';
+noscr_sense <= '0';
+freeze_key  <= '0';
+mod_key     <= '0';
+tape_play   <= '0';
 
 end architecture;
