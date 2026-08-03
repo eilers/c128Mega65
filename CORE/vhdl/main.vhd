@@ -183,11 +183,14 @@ signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiS
 signal core_c128_n       : std_logic;
 constant C_PWRUP_RESET_LEN   : natural := 4095;
 signal pwrup_reset_cnt       : natural range 0 to C_PWRUP_RESET_LEN := C_PWRUP_RESET_LEN;
-signal ps2_key           : std_logic_vector(10 downto 0) := (others => '0');
-signal ps2_stb           : std_logic := '0';
 
-type key_state_t is array (0 to 79) of std_logic;
-signal key_pressed : key_state_t := (others => '0');
+-- Direct CIA1 keyboard matrix (MEGA65 -> keyboard.vhd -> fpga64_sid_iec)
+signal cia1_pa_in            : std_logic_vector(7 downto 0);
+signal cia1_pa_out           : std_logic_vector(7 downto 0);
+signal cia1_pb_in            : std_logic_vector(7 downto 0);
+signal cia1_pb_out           : std_logic_vector(7 downto 0);
+signal vic_ko_s              : std_logic_vector(2 downto 0);
+signal capslock_engaged_n    : std_logic := '1';
 
 -- Caps Lock (MEGA65 key 72) drives the C128 40/80-column sense line as a level.
 signal d4080_sel_s       : std_logic := '1';
@@ -572,120 +575,65 @@ audio_left_o <= signed(sid_audio_l(17 downto 2));
 audio_right_o <= signed(sid_audio_r(17 downto 2));
 
 --------------------------------------------------------------------------------------------------
--- Keyboard: Convert MEGA65 key scan stream to fpga64_keyboard's ps2_key event format.
+-- Keyboard: direct MEGA65 matrix emulation (same approach as C64 MEGA65 core).
 --------------------------------------------------------------------------------------------------
-keyboard_ps2_bridge : process(clk_main_i)
-  variable idx : integer range 0 to 79;
-  variable pressed_v : std_logic;
-  variable valid_v : std_logic;
-  variable ext_v : std_logic;
-  variable scancode_v : std_logic_vector(7 downto 0);
-  variable next_stb : std_logic;
+capslock_tracker : process(clk_main_i)
 begin
   if rising_edge(clk_main_i) then
-    idx := kb_key_num_i;
-    pressed_v := not kb_key_pressed_n_i;
-    valid_v := '0';
-    ext_v := '0';
-    scancode_v := (others => '0');
-
     if reset_core_n = '0' then
-      key_pressed <= (others => '0');
-      ps2_stb <= '0';
-      ps2_key <= (others => '0');
-    elsif key_pressed(idx) /= pressed_v then
-      key_pressed(idx) <= pressed_v;
-
-      case idx is
-        -- Main alphanumeric keys needed for BASIC interaction.
-        when 0  => valid_v := '1'; scancode_v := x"66"; -- INS/DEL
-        when 1  => valid_v := '1'; scancode_v := x"5A"; -- Return
-        when 2  => valid_v := '1'; ext_v := '1'; scancode_v := x"74"; -- Cursor Right
-        when 3  => valid_v := '1'; scancode_v := x"83"; -- F7
-        when 4  => valid_v := '1'; scancode_v := x"05"; -- F1
-        when 5  => valid_v := '1'; scancode_v := x"04"; -- F3
-        when 6  => valid_v := '1'; scancode_v := x"03"; -- F5
-        when 7  => valid_v := '1'; ext_v := '1'; scancode_v := x"72"; -- Cursor Down
-        when 8  => valid_v := '1'; scancode_v := x"26"; -- 3
-        when 9  => valid_v := '1'; scancode_v := x"1D"; -- W
-        when 10 => valid_v := '1'; scancode_v := x"1C"; -- A
-        when 11 => valid_v := '1'; scancode_v := x"25"; -- 4
-        when 12 => valid_v := '1'; scancode_v := x"1A"; -- Z
-        when 13 => valid_v := '1'; scancode_v := x"1B"; -- S
-        when 14 => valid_v := '1'; scancode_v := x"24"; -- E
-        when 15 => valid_v := '1'; scancode_v := x"12"; -- Left Shift
-        when 16 => valid_v := '1'; scancode_v := x"2E"; -- 5
-        when 17 => valid_v := '1'; scancode_v := x"2D"; -- R
-        when 18 => valid_v := '1'; scancode_v := x"23"; -- D
-        when 19 => valid_v := '1'; scancode_v := x"36"; -- 6
-        when 20 => valid_v := '1'; scancode_v := x"21"; -- C
-        when 21 => valid_v := '1'; scancode_v := x"2B"; -- F
-        when 22 => valid_v := '1'; scancode_v := x"2C"; -- T
-        when 23 => valid_v := '1'; scancode_v := x"22"; -- X
-        when 24 => valid_v := '1'; scancode_v := x"3D"; -- 7
-        when 25 => valid_v := '1'; scancode_v := x"35"; -- Y
-        when 26 => valid_v := '1'; scancode_v := x"34"; -- G
-        when 27 => valid_v := '1'; scancode_v := x"3E"; -- 8
-        when 28 => valid_v := '1'; scancode_v := x"32"; -- B
-        when 29 => valid_v := '1'; scancode_v := x"33"; -- H
-        when 30 => valid_v := '1'; scancode_v := x"3C"; -- U
-        when 31 => valid_v := '1'; scancode_v := x"2A"; -- V
-        when 32 => valid_v := '1'; scancode_v := x"46"; -- 9
-        when 33 => valid_v := '1'; scancode_v := x"43"; -- I
-        when 34 => valid_v := '1'; scancode_v := x"3B"; -- J
-        when 35 => valid_v := '1'; scancode_v := x"45"; -- 0
-        when 36 => valid_v := '1'; scancode_v := x"3A"; -- M
-        when 37 => valid_v := '1'; scancode_v := x"42"; -- K
-        when 38 => valid_v := '1'; scancode_v := x"44"; -- O
-        when 39 => valid_v := '1'; scancode_v := x"31"; -- N
-        when 40 => valid_v := '1'; scancode_v := x"55"; -- +
-        when 41 => valid_v := '1'; scancode_v := x"4D"; -- P
-        when 42 => valid_v := '1'; scancode_v := x"4B"; -- L
-        when 43 => valid_v := '1'; scancode_v := x"4E"; -- -
-        when 44 => valid_v := '1'; scancode_v := x"49"; -- .
-        when 45 => valid_v := '1'; scancode_v := x"4C"; -- :
-        when 47 => valid_v := '1'; scancode_v := x"41"; -- ,
-        when 52 => valid_v := '1'; scancode_v := x"59"; -- Right Shift
-        when 53 => valid_v := '1'; scancode_v := x"09"; -- =
-        when 55 => valid_v := '1'; scancode_v := x"4A"; -- /
-        when 56 => valid_v := '1'; scancode_v := x"16"; -- 1
-        when 58 => valid_v := '1'; scancode_v := x"14"; -- Ctrl
-        when 59 => valid_v := '1'; scancode_v := x"1E"; -- 2
-        when 60 => valid_v := '1'; scancode_v := x"29"; -- Space
-        when 62 => valid_v := '1'; scancode_v := x"15"; -- Q
-        when 46 => valid_v := '1'; scancode_v := x"54"; -- @
-        when 48 => valid_v := '1'; scancode_v := x"5D"; -- GBP
-        when 49 => valid_v := '1'; scancode_v := x"5B"; -- *
-        when 50 => valid_v := '1'; scancode_v := x"52"; -- ;
-        when 51 => valid_v := '1'; ext_v := '1'; scancode_v := x"6C"; -- CLR/HOME
-        when 54 => valid_v := '1'; scancode_v := x"01"; -- up-arrow symbol
-        when 57 => valid_v := '1'; scancode_v := x"0E"; -- left-arrow symbol
-        when 61 => valid_v := '1'; ext_v := '1'; scancode_v := x"1F"; -- Commodore (C=)
-        when 63 => valid_v := '1'; ext_v := '1'; scancode_v := x"69"; -- Run/Stop
-        when 64 => valid_v := '1'; ext_v := '1'; scancode_v := x"77"; -- NO SCROLL
-        when 65 => valid_v := '1'; scancode_v := x"0D"; -- TAB
-        when 66 => valid_v := '1'; scancode_v := x"11"; -- ALT
-        when 67 => valid_v := '1'; scancode_v := x"7C"; -- HELP
-        when 71 => valid_v := '1'; scancode_v := x"76"; -- Esc
-        when 73 => valid_v := '1'; ext_v := '1'; scancode_v := x"75"; -- Cursor Up
-        when 74 => valid_v := '1'; ext_v := '1'; scancode_v := x"6B"; -- Cursor Left
-        when 75 => valid_v := '1'; scancode_v := x"78"; -- RESTORE (non-extended; fpga64_keyboard matches "0"&X"78")
-        when others => null;
-      end case;
-
-      if valid_v = '1' then
-        next_stb := not ps2_stb;
-        ps2_stb <= next_stb;
-        ps2_key <= next_stb & pressed_v & ext_v & scancode_v;
-      end if;
+      capslock_engaged_n <= '1';
+    elsif kb_key_num_i = 72 then
+      capslock_engaged_n <= kb_key_pressed_n_i;
     end if;
   end if;
 end process;
 
--- Caps Lock is a mechanical locking switch on the MEGA65, so its scan feedback is a level.
--- key_pressed(72) tracks that level (updated for every index in keyboard_ps2_bridge). Drive the
--- C128 40/80-column sense line from it: released -> '1' (40 col, power-on default), engaged -> '0'.
-d4080_sel_s <= not key_pressed(72);
+-- capslock_engaged_n is the raw low-active scan level: released = '1' = 40 col (power-on default).
+d4080_sel_s <= capslock_engaged_n;
+
+keyboard_inst : entity work.keyboard
+  port map (
+    clk_main_i           => clk_main_i,
+    reset_i              => not reset_core_n,
+
+    trigger_run_i        => '0',
+
+    key_num_i            => kb_key_num_i,
+    key_pressed_n_i      => kb_key_pressed_n_i,
+
+    joy_1_up_n_i         => joy_1_up_n_i,
+    joy_1_down_n_i       => joy_1_down_n_i,
+    joy_1_left_n_i       => joy_1_left_n_i,
+    joy_1_right_n_i      => joy_1_right_n_i,
+    joy_1_fire_n_i       => joy_1_fire_n_i,
+
+    joy_1_up_n_o         => open,
+    joy_1_down_n_o       => open,
+    joy_1_left_n_o       => open,
+    joy_1_right_n_o      => open,
+    joy_1_fire_n_o       => open,
+
+    joy_2_up_n_i         => joy_2_up_n_i,
+    joy_2_down_n_i       => joy_2_down_n_i,
+    joy_2_left_n_i       => joy_2_left_n_i,
+    joy_2_right_n_i      => joy_2_right_n_i,
+    joy_2_fire_n_i       => joy_2_fire_n_i,
+
+    joy_2_up_n_o         => open,
+    joy_2_down_n_o       => open,
+    joy_2_left_n_o       => open,
+    joy_2_right_n_o      => open,
+    joy_2_fire_n_o       => open,
+
+    vic_ko_i             => vic_ko_s,
+
+    cia1_pai_o           => cia1_pa_in,
+    cia1_pao_i           => cia1_pa_out,
+    cia1_pbi_o           => cia1_pb_in,
+    cia1_pbo_i           => cia1_pb_out,
+
+    restore_key_o        => restore_key_s
+  );
 
 --------------------------------------------------------------------------------------------------
 -- RESTORE key -> NMI: the core exposes the RESTORE key as restore_key_s (freeze_key). Turn a
@@ -720,23 +668,18 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       clk_vdc       => clk_vdc_i,
       reset_n       => reset_core_n,
 
-      -- Translate MEGA65 keyboard scans to the core's ps2_key event format.
-      ps2_key       => ps2_key,
-      kbd_reset     => not reset_core_n,
-      shift_mod     => "11",
-      azerty        => '0',
+      -- Direct MEGA65 keyboard matrix on CIA1
+      cia1_pa_i     => cia1_pa_in,
+      cia1_pa_o     => cia1_pa_out,
+      cia1_pb_i     => cia1_pb_in,
+      cia1_pb_o     => cia1_pb_out,
+      vic_ko_o      => vic_ko_s,
+
       cpslk_mode    => '0',
       sftlk_sense   => open,
       cpslk_sense   => open,
       d4080_sense   => open,
-      -- keyboard interface: directly connect the CIA1
-      -- cia1_pa_i     => cia1_pa_in,
-      -- cia1_pa_o     => cia1_pa_out,
-      -- cia1_pb_i     => cia1_pb_in,
-      -- cia1_pb_o     => cia1_pb_out,
-
-      noscr_sense  => open,
-      go64         => '0',  -- Add this line: '0' for C128 mode
+      noscr_sense   => open,
 
       -- Select C128's system ROM banks (boot0.rom)
       sysRom        => sysrom_cs,
@@ -807,7 +750,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       UMAXromH      => core_umax_romh, -- output
       IOE           => core_ioe,       -- output. aka IO1. CPU access to 0xDExx
       IOF           => core_iof,       -- output. aka IO2. CPU access to 0xDFxx
-      freeze_key  => restore_key_s,
+      freeze_key  => open,
       mod_key     => open,
       tape_play   => open,
       
@@ -828,8 +771,6 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       pot4          => pot2_y_i,
 
       -- Joystick ports
-      -- TODO: See removal of the ps2_key and kbd_reset signals. 
-      -- The C64 core added a keyboard controller.
       joyA          => joy_a,
       joyB          => joy_b,
 
