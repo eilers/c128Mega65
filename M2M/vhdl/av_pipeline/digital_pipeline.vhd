@@ -288,7 +288,9 @@ begin
    -- The purpose is to right-shift the position of the OSM
    -- on the HDMI output. This will be removed when the
    -- M2M framework supports two different OSM VRAMs.
-   hdmi_shift <= hdmi_video_mode.H_PIXELS - integer(G_VGA_DX);
+   -- vga_cfg_shift_i is a natural, so modes narrower than G_VGA_DX must not wrap around.
+   hdmi_shift <= hdmi_video_mode.H_PIXELS - integer(G_VGA_DX)
+                 when hdmi_video_mode.H_PIXELS > integer(G_VGA_DX) else 0;
 
    ---------------------------------------------------------------------------------------------
    -- Digital output (HDMI) - Audio part
@@ -342,8 +344,11 @@ begin
 
          INTER     => false,        -- Not needed: Progressive input only
          HEADER    => false,        -- Not needed: Used on MiSTer to read the sampled image back from the ARM side to do screenshots. The header provides informations such as image size.
-         DOWNSCALE => false,        -- Not needed: We use ascal only to upscale
-         DOWNSCALE_NN => true,      -- Not needed: true = remove logic
+         DOWNSCALE => true,         -- Needed: the C128's VDC delivers ~760 active pixels per line,
+                                    -- which is wider than the 720 and 640 pixel wide HDMI modes.
+                                    -- Without this, ascal's output stage cannot consume the input
+                                    -- line fast enough and the 80-column picture gets truncated.
+         DOWNSCALE_NN => false,     -- false = interpolate while downscaling instead of dropping columns
          BYTESWAP  => true,
          ADAPTIVE  => true,         -- Needed for advanced scanlines emulation in polyphase mode
          PALETTE   => false,        -- Not needed: Only useful for the framebuffer mode, where the scaler is used to upscale a framebuffer in RAM, without using the scaler input.

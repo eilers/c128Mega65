@@ -472,7 +472,17 @@ begin
    -- while in the 4:3 mode we are outputting a 5:4 image. This is kind of odd, but it seemed that our 4/3 aspect ratio
    -- adjusted image looks best on a 5:4 monitor and the other way round.
    -- Not sure if this will stay forever or if we will come up with a better naming convention.
-   qnice_video_mode_o <= C_VIDEO_HDMI_16_9_50;
+   --
+   -- The selection is independent of whether the VIC or the VDC is shown: ascal detects the
+   -- incoming image geometry on its own (iauto='1'), so both sources are scaled into the very
+   -- same output rectangle of the selected HDMI mode.
+   qnice_video_mode_o <= C_VIDEO_SVGA_800_60   when qnice_osm_control_i(C_MENU_HDMI_800_60)      = '1' else
+                         C_VIDEO_HDMI_720_5994 when qnice_osm_control_i(C_MENU_HDMI_720_5994)    = '1' else
+                         C_VIDEO_HDMI_640_60   when qnice_osm_control_i(C_MENU_HDMI_640_60)      = '1' else
+                         C_VIDEO_HDMI_5_4_50   when qnice_osm_control_i(C_MENU_HDMI_576p_50_5_4) = '1' else
+                         C_VIDEO_HDMI_4_3_50   when qnice_osm_control_i(C_MENU_HDMI_576p_50)     = '1' else
+                         C_VIDEO_HDMI_16_9_60  when qnice_osm_control_i(C_MENU_HDMI_720p_60)     = '1' else
+                         C_VIDEO_HDMI_16_9_50;                       -- C_MENU_HDMI_720p_50
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
