@@ -88,12 +88,22 @@ vdc_signals_h signals_h (
 
 wire [7:0] hp = (reg_hp ? reg_hp-8'd1 : reg_ht);
 
+// Field-1 vsync starts half a line past the hsync position, wrapping at the line end.
+// Written as a conditional subtract rather than "% reg_ht": a modulo by a runtime
+// register synthesizes into a combinational divider (133 logic levels, 92 carry
+// chains) on the vsCount clock enable, which cannot close at the 32 MHz VDC clock.
+// One subtract is sufficient because hp <= reg_ht for any register set that produces
+// a picture, so the sum stays below 2*reg_ht.
+wire [8:0] vsStartSum  = {1'b0, hp} + {2'b00, reg_ht[7:1]} - 9'd1;
+wire [8:0] vsStartWrap = vsStartSum - {1'b0, reg_ht};
+wire [7:0] vsStartCol  = vsStartSum >= {1'b0, reg_ht} ? vsStartWrap[7:0] : vsStartSum[7:0];
+
 wire lineStart    = newCol && col==0;
 wire displayStart = endCol && col==7;
 wire half1End     = endCol && col==(reg_ht/2)-1;
 wire half2Start   = newCol && col==reg_ht/2;
 wire hSyncStart   = endCol && col==hp;
-wire vSyncStartF1 = endCol && col==(hp + (reg_ht>>1) - 1) % reg_ht;
+wire vSyncStartF1 = endCol && col==vsStartCol;
 wire lineEnd      = endCol && col==reg_ht;
 
 reg  updateBlink;
