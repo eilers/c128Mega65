@@ -7,7 +7,32 @@ CORE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(cd "$CORE_DIR/.." && pwd)"
 
 CORETOOL="${CORETOOL:-/var/home/bazzite/Desktop/m65tools-develo-207-c5bf0c-linux/coretool}"
-BOARDS=(3 4 5 6)
+BOARDS=(6 5 4 3)
+
+# Corefile capabilities and active boot flags (coretool --caps / --flags).
+#
+# MEGAFLASH looks at these on power-on to decide which core to start. Two separate sets:
+#   --caps  : what this core is able to do. Only these can be switched on inside MEGAFLASH.
+#   --flags : which of those capabilities are active out of the box.
+#
+# The MEGA65's slot is electrically a C64 expansion port and the C128 runs both cartridge
+# families (a C64 cartridge pulls EXROM/GAME low and the C128 comes up in C64 mode; a C128
+# cartridge is found by the boot ROM as External Function ROM), so we claim both cartridge
+# types as capabilities.
+#
+# Only c128cart is active by default, though. A C64 cartridge belongs to the C64 core, and
+# whichever core sits in the lower slot wins the auto-start, so claiming c64cart out of the box
+# would let the C128 hijack cartridges the user expects to boot the C64 core. Anyone who does
+# want that can switch c64cart on inside MEGAFLASH, or build with CORE_FLAGS=c64cart,c128cart.
+# "default" is left inactive for the same reason: becoming the machine's default core is the
+# user's decision, not the release's.
+#
+# Note for whoever wonders about "--flags 3": coretool takes names, not numbers. It rejects a
+# numeric argument with 'unknown capability "3"'. Run `coretool --caps list` for valid values.
+# Also note that every value in --flags must also appear in --caps, otherwise `coretool
+# --verify` reports "Flags without Caps".
+CORE_CAPS="${CORE_CAPS:-default,c64cart,c128cart}"
+CORE_FLAGS="${CORE_FLAGS:-c128cart}"
 
 die() {
   echo "ERROR: $*" >&2
@@ -95,8 +120,20 @@ for rev in "${BOARDS[@]}"; do
     -b "$bit_out" \
     -n "C128" \
     -v "$RELEASE_NAME" \
-    -t "mega65r${rev}"
+    -t "mega65r${rev}" \
+    --caps "$CORE_CAPS" \
+    --flags "$CORE_FLAGS"
   echo "Core file: $core_out"
+
+  # Fail the build if the corefile does not come out the way we asked for it, so that a
+  # mistyped capability cannot silently ship a core MEGAFLASH will not auto-start. coretool
+  # still exits 0 when it only marks a problem (e.g. "Flags without Caps"), so inspect its
+  # report rather than trusting the exit code alone.
+  verify_out="$("$CORETOOL" -V "$core_out" 2>&1)" || die "coretool could not read $core_out"
+  if grep -q '✗' <<<"$verify_out"; then
+    printf '%s\n' "$verify_out" >&2
+    die "coretool reported problems in $core_out"
+  fi
   echo
 done
 

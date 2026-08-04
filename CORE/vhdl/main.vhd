@@ -18,6 +18,7 @@ use work.globals.all;
 
 entity main is
    generic (
+      G_BOARD                 : string;                     -- Which MEGA65 revision are we running on
       G_VDNUM                 : natural                     -- amount of virtual drives
    );
    port (
@@ -65,22 +66,51 @@ entity main is
       sys_rom_addr_o           : out std_logic_vector(16 downto 0);
       sys_rom_data_i           : in  std_logic_vector(7 downto 0);
 
-      -- C64 Expansion Port (aka Cartridge Port)
+      -- Expansion Port (aka Cartridge Port). The MEGA65's slot is electrically a C64
+      -- expansion port, so it takes both C64 and C128 cartridges.
+      -- Every line comes as an *_i / *_o / *_oe_o triple: *_oe_o = '1' switches the board's
+      -- level shifter to FPGA->Port, '0' to Port->FPGA. Which of them actually exist depends
+      -- on the board revision; the top level ties off what it cannot do (see top_mega65-r*.vhd).
+      cart_en_o              : out std_logic;   -- Enable the slot, active high
+      cart_phi2_o            : out std_logic;
+      cart_dotclock_o        : out std_logic;
+      cart_dma_i             : in  std_logic;
+      cart_reset_oe_o        : out std_logic;
       cart_reset_i           : in  std_logic;
       cart_reset_o           : out std_logic;
-      cart_dma_i             : in  std_logic;
+      cart_game_oe_o         : out std_logic;
       cart_game_i            : in  std_logic;
-      cart_exrom_i           : in  std_logic;
-      cart_nmi_i             : in  std_logic;
-      cart_irq_i             : in  std_logic;
       cart_game_o            : out std_logic;
+      cart_exrom_oe_o        : out std_logic;
+      cart_exrom_i           : in  std_logic;
       cart_exrom_o           : out std_logic;
+      cart_nmi_oe_o          : out std_logic;
+      cart_nmi_i             : in  std_logic;
       cart_nmi_o             : out std_logic;
+      cart_irq_oe_o          : out std_logic;
+      cart_irq_i             : in  std_logic;
       cart_irq_o             : out std_logic;
+      cart_roml_oe_o         : out std_logic;
+      cart_roml_i            : in  std_logic;
       cart_roml_o            : out std_logic;
+      cart_romh_oe_o         : out std_logic;
+      cart_romh_i            : in  std_logic;
       cart_romh_o            : out std_logic;
+      cart_ctrl_oe_o         : out std_logic;
+      cart_ba_i              : in  std_logic;
+      cart_rw_i              : in  std_logic;
+      cart_io1_i             : in  std_logic;
+      cart_io2_i             : in  std_logic;
+      cart_ba_o              : out std_logic;
+      cart_rw_o              : out std_logic;
       cart_io1_o             : out std_logic;
       cart_io2_o             : out std_logic;
+      cart_addr_oe_o         : out std_logic;
+      cart_a_i               : in  unsigned(15 downto 0);
+      cart_a_o               : out unsigned(15 downto 0);
+      cart_data_oe_o         : out std_logic;
+      cart_d_i               : in  unsigned( 7 downto 0);
+      cart_d_o               : out unsigned( 7 downto 0);
 
       -- IEC serial bus interface to MEGA65 pins (active low at top level).
       -- CLK/DATA/SRQ are open-collector: *_en_o = '1' pulls the line low, '0' releases it.
@@ -127,6 +157,7 @@ architecture synthesis of main is
 signal ram_ce   : std_logic;
 signal ram_we   : std_logic;
 signal ram_data : unsigned(7 downto 0);
+signal core_ram_data_out : unsigned(7 downto 0);   -- what the CPU writes (the core's ramDout)
 signal core_ram_addr     : unsigned(17 downto 0);
 signal sysrom_cs         : std_logic;
 signal sysrom_bank       : unsigned(4 downto 0);
@@ -253,11 +284,34 @@ signal core_umax_romh       : std_logic;
 signal core_io_rom          : std_logic;
 signal core_io_ext          : std_logic;
 signal core_io_data         : unsigned(7 downto 0);
+signal core_game_n          : std_logic;
+signal core_exrom_n         : std_logic;
+signal core_irq_n           : std_logic;
+signal core_nmi_n           : std_logic;
+signal core_phi2            : std_logic;
+signal core_phi2_prev       : std_logic := '0';
+
+-- Hardware Expansion Port
+signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
+signal cart_roml_n          : std_logic;
+signal cart_romh_n          : std_logic;
+signal cart_io1_n           : std_logic;
+signal cart_io2_n           : std_logic;
+signal cart_nmi_n           : std_logic;
+signal cart_irq_n           : std_logic;
+signal cart_exrom_n         : std_logic;
+signal cart_game_n          : std_logic;
+signal data_from_cart       : unsigned(7 downto 0);
+-- What the C128 itself puts on the data bus. Kept separate from ram_data (which may carry
+-- data_from_cart) so that driving the cartridge's data bus cannot create a combinational loop.
+signal machine_data         : unsigned(7 downto 0);
+-- Low active reset request towards the cartridge, from the core's point of view
+signal cart_reset_n_int     : std_logic;
 
 -- Hardware Expansion Port: Handle specifics of certain cartridges
 constant C_EF3_RESET_LEN : natural := 7; -- measured in phi2 cycles
 signal cart_reset_counter : natural range 0 to C_EF3_RESET_LEN := 0;
-signal cart_res_flckr_ign : natural range 0 to 2; -- avoid a short cart_reset_o after cart_reset_counter reached zero
+signal cart_res_flckr_ign : natural range 0 to 2 := 0; -- avoid a short cart_reset_o after cart_reset_counter reached zero
 signal cart_is_an_EF3     : std_logic;
 
 -- Simulated IEC drives
@@ -396,24 +450,224 @@ video_green_o  <= (others => '0') when video_switching = '1' else
                   std_logic_vector(vdc_g_reg) when sel_vdc = '1' else std_logic_vector(vic_g_reg);
 video_blue_o   <= (others => '0') when video_switching = '1' else
                   std_logic_vector(vdc_b_reg) when sel_vdc = '1' else std_logic_vector(vic_b_reg);
--- cart_reset_o is low-active at the expansion port: drive low while an INTERNAL reset is
--- active, high otherwise. It MUST NOT be driven from reset_core_n: with cart_reset_oe_o='1'
--- the FPGA always drives this pin and reads it back on cart_reset_i, and combined_reset_proc
--- feeds cart_reset_i back into reset_core_n (prevent_reset is hardwired '0'). Driving
--- cart_reset_o <= reset_core_n therefore closes a purely combinational self-latching loop
--- (reset_core_n -> cart_reset_o -> pin -> cart_reset_i -> reset_core_n) whose settle at
--- reset-release depends on routing delay -> placement-dependent, STA-invisible boot lottery.
--- Sourcing it from the internal reset request only breaks the loop and makes boot deterministic.
-cart_reset_o <= '0' when (pwrup_reset_cnt /= 0 or reset_core_int_n = '0' or cart_reset_counter /= 0)
-                else '1';
-cart_roml_o <= core_roml;
-cart_romh_o <= core_romh;
-cart_io1_o <= core_ioe;
-cart_io2_o <= core_iof;
-cart_game_o <= '1';
-cart_exrom_o <= '1';
-cart_nmi_o <= not core_nmi_ack;
-cart_irq_o <= '1';
+--------------------------------------------------------------------------------------------------
+-- Expansion Port (aka Cartridge Port): real cartridges in the MEGA65's slot
+--------------------------------------------------------------------------------------------------
+-- The MEGA65's slot is electrically a C64 expansion port, so it accepts both C64 cartridges
+-- (which pull EXROM and/or GAME low and thereby make the C128 come up in C64 mode) and C128
+-- cartridges (which leave both released and are found by the C128 boot ROM as External Function
+-- ROM at $8000, i.e. through the same ROML line).
+--
+-- Nothing here is registered: the C128 bus and the pins are in the same clock domain
+-- (clk_main_i) and a cartridge expects to see address, data and the chip selects settle
+-- within the PHI2 cycle they belong to, so an extra pipeline stage is not an option.
+exp_port_hw <= osm_control_i(C_MENU_EXP_PORT_HW);
+
+-- Low-active chip selects as the expansion port expects them. The core reports these accesses
+-- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
+-- Ultimax character fetch, which a cartridge cannot tell apart.
+cart_roml_n <= not core_roml;
+cart_romh_n <= (not core_romh) and (not core_umax_romh);
+cart_io1_n  <= not core_ioe;
+cart_io2_n  <= not core_iof;
+
+-- What the cartridge tells the C128. Forced to the inactive level while the slot is unused so
+-- that an empty slot can never inject an interrupt or map a phantom cartridge into the address
+-- space.
+cart_game_n  <= cart_game_i  when exp_port_hw = '1' else '1';
+cart_exrom_n <= cart_exrom_i when exp_port_hw = '1' else '1';
+cart_irq_n   <= cart_irq_i   when exp_port_hw = '1' else '1';
+cart_nmi_n   <= cart_nmi_i   when exp_port_hw = '1' else '1';
+
+-- Low-active reset request towards the cartridge. This tracks the INTERNAL reset request only,
+-- never reset_core_n: a cartridge that pulls RESET wants to reset the C128, not itself, and
+-- routing reset_core_n back out closes a purely combinational self-latching loop through the pin
+-- (reset_core_n -> cart_reset_o -> pin -> cart_reset_i -> reset_core_n) whose settling at
+-- reset release depends on routing delay, i.e. a placement-dependent, STA-invisible boot lottery.
+cart_reset_n_int <= '0' when (pwrup_reset_cnt /= 0 or reset_core_int_n = '0') else '1';
+
+handle_hardware_expansion_proc : process (all)
+begin
+   -- Tri-state everything we can directly control. As long as we do not support cartridges
+   -- that can become bus master, the C128 owns address, data and the control lines.
+   cart_ctrl_oe_o  <= '0';
+   cart_addr_oe_o  <= '0';
+   cart_data_oe_o  <= '0';
+
+   -- Due to a bug in the R5/R6 boards the slot has to be enabled ALWAYS, otherwise joystick
+   -- port B does not work correctly.
+   cart_en_o       <= '1';
+
+   -- GAME, EXROM, NMI and IRQ stay read-only on every board revision. The C128's MMU can force
+   -- GAME/EXROM low internally (mmu8722.vhd applies that to the bus logic), but we do not
+   -- transmit it to the cartridge, just like the C64 core does not.
+   cart_game_oe_o  <= '0';
+   cart_exrom_oe_o <= '0';
+   cart_nmi_oe_o   <= '0';
+   cart_irq_oe_o   <= '0';
+
+   -- ROML/ROMH become write-only as soon as the slot is in use
+   cart_roml_oe_o  <= '0';
+   cart_romh_oe_o  <= '0';
+
+   cart_phi2_o     <= '0';
+   cart_dotclock_o <= '0';
+   cart_game_o     <= '1';
+   cart_exrom_o    <= '1';
+   cart_nmi_o      <= '1';
+   cart_irq_o      <= '1';
+   cart_roml_o     <= '1';
+   cart_romh_o     <= '1';
+   cart_ba_o       <= '0';
+   cart_rw_o       <= '1';
+   cart_io1_o      <= '1';
+   cart_io2_o      <= '1';
+   cart_a_o        <= (others => '0');
+   cart_d_o        <= (others => '0');
+
+   -- While the slot is unused, keep driving RESET unconditionally, exactly as this core did
+   -- before it had expansion port support, so that switching the feature off restores the
+   -- known-good boot behaviour bit for bit.
+   cart_reset_o    <= cart_reset_n_int;
+   cart_reset_oe_o <= '1';
+
+   data_from_cart  <= x"00";
+
+   if exp_port_hw = '1' then
+      cart_ctrl_oe_o  <= '1';
+      cart_roml_oe_o  <= '1';
+      cart_romh_oe_o  <= '1';
+
+      -- Bi-directional RESET: drive the line only while we want to reset the cartridge and read
+      -- it otherwise, so that the reset button of a freezer cartridge reaches the C128 (see
+      -- combined_reset_proc). On R3/R3A/R4 the pin is output-only and the top level feeds back a
+      -- constant '1', so those boards simply never sense a reset and rely on the EF3 heuristics
+      -- below instead. cart_reset_counter/cart_res_flckr_ign suppress our driver while such a
+      -- faked cartridge-triggered reset is in progress.
+      cart_reset_o    <= cart_reset_n_int when cart_reset_counter = 0 and cart_res_flckr_ign = 0 else '1';
+      cart_reset_oe_o <= not cart_reset_o;
+
+      cart_roml_o     <= cart_roml_n;
+      cart_romh_o     <= cart_romh_n;
+      cart_io1_o      <= cart_io1_n;
+      cart_io2_o      <= cart_io2_n;
+      cart_rw_o       <= not ram_we;
+      cart_phi2_o     <= core_phi2;
+      cart_dotclock_o <= vic_pixel_ce;
+
+      -- BA is held high. Handing the cartridge the core's real bus arbitration state was tried
+      -- in the C64 core and reduced compatibility rather than improving it (the Kung Fu Flash
+      -- stopped working altogether).
+      cart_ba_o       <= '1';
+
+      -- Address bus. Only the low 16 bits of the core's address are a CPU/VIC address; bits
+      -- 17..16 are the C128's RAM bank select and must not leave the machine.
+      cart_addr_oe_o  <= '1';
+      if core_umax_romh = '0' then
+         cart_a_o     <= core_ram_addr(15 downto 0);
+      else
+         -- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up
+         -- by RP4 whenever the VIC has the bus, so a cartridge sees them as %1111.
+         cart_a_o     <= "11" & core_ram_addr(13 downto 0);
+      end if;
+
+      -- Data bus: turn it into an input while the cartridge answers a read, drive it otherwise,
+      -- so that the CPU can also write to the cartridge (bank switching).
+      if ram_we = '0' and (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0') then
+         cart_data_oe_o <= '0';  -- input
+         data_from_cart <= cart_d_i;
+      else
+         cart_data_oe_o <= '1';  -- output
+         if ram_we = '0' then
+            cart_d_o    <= machine_data;
+         else
+            cart_d_o    <= core_ram_data_out;
+         end if;
+      end if;
+   end if;
+end process handle_hardware_expansion_proc;
+
+-- Route the cartridge back into the C128
+handle_cores_expansion_port_signals_proc : process (all)
+begin
+   core_game_n  <= '1';
+   core_exrom_n <= '1';
+   core_io_rom  <= '0';
+   core_io_ext  <= '0';
+   core_io_data <= x"FF";
+   core_irq_n   <= '1';
+   core_nmi_n   <= core_nmi_n_s;    -- RESTORE key, see restore_nmi
+
+   if exp_port_hw = '1' then
+      core_game_n  <= cart_game_n;
+      core_exrom_n <= cart_exrom_n;
+      core_irq_n   <= cart_irq_n;
+      core_nmi_n   <= cart_nmi_n and core_nmi_n_s;
+      -- Let the cartridge win every $DExx/$DFxx read. io_rom stays '0' because that would map
+      -- the I/O windows into cartridge ROM held in the core's own memory, which only applies to
+      -- emulated cartridges.
+      core_io_ext  <= core_ioe or core_iof;
+      core_io_data <= data_from_cart;
+   end if;
+end process handle_cores_expansion_port_signals_proc;
+
+-- Detect cartridges that need special treatment because R3/R3A/R4 boards cannot sense a
+-- cartridge-driven reset. Harmless (and optimised away) on R5 and newer.
+cartridge_heuristics_inst : entity work.cartridge_heuristics
+   port map (
+      clk_main_i     => clk_main_i,
+      reset_core_n_i => reset_core_n,
+      cart_exrom_n_i => cart_exrom_n,
+      cart_game_n_i  => cart_game_n,
+      cart_io1_n_i   => cart_io1_n,
+      ram_we_i       => ram_we,
+      ram_addr_i     => std_logic_vector(core_ram_addr(15 downto 0)),
+      phi2_i         => core_phi2,
+      is_an_EF3_o    => cart_is_an_EF3
+   ); -- cartridge_heuristics_inst
+
+-- Workaround for R3/R3A/R4 boards, which cannot let a cartridge pull the reset line low.
+-- We watch for the EasyFlash 3 asking for a reset and generate it ourselves.
+-- Background: https://github.com/MJoergen/C64MEGA65/issues/60
+handle_cartridge_triggered_resets_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      if G_BOARD = "MEGA65_R3" or G_BOARD = "MEGA65_R4" then
+         core_phi2_prev <= core_phi2;
+
+         -- We cannot use reset_core_n here: it goes low as soon as cart_reset_counter is > 0,
+         -- which would clear the counter again prematurely.
+         if reset_soft_i = '1' or reset_hard_i = '1' then
+            cart_reset_counter <= 0;
+            cart_res_flckr_ign <= 0;
+         elsif cart_reset_counter > 0 and core_phi2_prev = '1' and core_phi2 = '0' then
+            -- The reset duration is measured in phi2 cycles
+            cart_reset_counter <= cart_reset_counter - 1;
+         end if;
+
+         -- Suppress the trailing reset pulse towards the cartridge after the counter reached
+         -- zero but reset_core_n has not been released yet.
+         if reset_core_n = '0' and cart_reset_counter = 0 and cart_res_flckr_ign /= 0 then
+            cart_res_flckr_ign <= cart_res_flckr_ign - 1;
+         end if;
+
+         -- The EF3 signals "reset me and start the selected mode" by writing the mode to $DE0F.
+         -- Mode $02 (Kernal) is deliberately not supported: in Kernal mode the EF3 manipulates
+         -- A14 itself and would fight the MEGA65's address transceiver, which could damage
+         -- either side.
+         if cart_is_an_EF3 = '1' and ram_we = '1' and cart_io1_n = '0' and core_ram_addr(15 downto 0) = x"DE0F" then
+            if core_ram_data_out = x"00" or core_ram_data_out = x"04" or
+               core_ram_data_out = x"05" or core_ram_data_out = x"07" then
+               cart_reset_counter <= C_EF3_RESET_LEN;
+               cart_res_flckr_ign <= 2;
+            end if;
+         end if;
+      else
+         cart_reset_counter <= 0;
+         cart_res_flckr_ign <= 0;
+      end if;
+   end if;
+end process handle_cartridge_triggered_resets_proc;
 
 --------------------------------------------------------------------------------------------------
 -- Hardware IEC serial port (real Commodore drives, e.g. 1541/1571/1581)
@@ -480,7 +734,9 @@ combined_reset_proc: process (all)
       reset_core_n <= '0';
     elsif reset_core_int_n = '0' then
       reset_core_n <= '0';
-    elsif cart_reset_i = '0' and prevent_reset = '0' then
+    elsif cart_reset_i = '0' and prevent_reset = '0' and exp_port_hw = '1' then
+      -- A cartridge (or its reset button) pulls RESET low. Only honoured while the slot is in
+      -- use, because otherwise we drive cart_reset_o permanently and would read back our own level.
       reset_core_n <= '0';
     end if;
   end process;
@@ -547,6 +803,10 @@ end process;
 -- Present the core's LIVE address to the BRAM/ROM and return the LIVE 1-cycle-latency
 -- read data. The merged core holds systemAddr stable across an access (as the MiSTer
 -- SDRAM expects, latching addr at ce), so no address/data holding shim is needed here.
+-- What the C128 itself puts on the data bus. Deliberately free of any dependency on ram_data so
+-- that feeding it to the cartridge's data bus cannot create a combinational loop.
+machine_data <= unsigned(sys_rom_data_i) when sysrom_cs = '1' else ram_data_i;
+
 cpu_data_in_proc: process (all)
   begin
     ram_data <= x"00";
@@ -555,15 +815,19 @@ cpu_data_in_proc: process (all)
     -- and avoid that the KERNAL ever sees the CBM80 signature during hard reset reset.
     if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' then
       ram_data <= x"00";
-    elsif sysrom_cs = '1' then
-      ram_data <= unsigned(sys_rom_data_i);
+    -- A cartridge in the slot answers the read instead of RAM/ROM. The C128's bus logic routes
+    -- ROML/ROMH reads (both the C64 cartridge windows and the C128's External Function ROM)
+    -- through ramDin, which is exactly this signal.
+    elsif exp_port_hw = '1' and (cart_roml_n = '0' or cart_romh_n = '0') then
+      ram_data <= data_from_cart;
     else
-      ram_data <= ram_data_i;
+      ram_data <= machine_data;
     end if;
   end process;
 
 -- MiSTer exposes ramWE/ramCE separately; do not AND them (Z80 latch writes miss CE).
 ram_we_o <= ram_we;
+ram_data_o <= core_ram_data_out;
 sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= core_ram_addr;
 sysrom_data <= unsigned(sys_rom_data_i);
@@ -692,10 +956,12 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ramAddr       => core_ram_addr,
       ramDin        => ram_data,
       vicRamDin     => ram_data, -- TEMP: live data (snow-fix timing to be reworked after boot)
-      ramDout       => ram_data_o,
+      ramDout       => core_ram_data_out,
       ramCE         => ram_ce,
       ramWE         => ram_we,
-      ramDinFloat   => '0', -- No cartridge: MiSTer cart_floating='0'
+      -- Reads answered by a hardware cartridge are substituted into ramDin (see cpu_data_in_proc),
+      -- so from the bus logic's point of view the data bus is never floating.
+      ramDinFloat   => '0',
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
       ext_cycle     => open, -- 1 when a DMA access is happening (REU).
@@ -715,6 +981,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vicVsync      => core_vic_vs,
       vicR          => vic_r,
       vic_pixel_ce_o => vic_pixel_ce,
+      phi2_o        => core_phi2,      -- output. Expansion Port PHI2
       vicG          => vic_g,
       vicB          => vic_b,
 
@@ -730,19 +997,21 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vdcPalette    => "0000",
       vdcDebug      => '0',
 
-      -- cartridge port
-      -- TODO: Add cartridge support
-      -- No cartridge: MiSTer cart_id=255 drives exrom=game=1; do not use floating EXP port pins.
-      game          => '1',
-      game_mmu      => open,
-      exrom         => '1',
-      exrom_mmu     => open,
+      -- cartridge port. Driven by handle_cores_expansion_port_signals_proc, which forces
+      -- everything inactive while the Expansion Port is switched off so that an empty or
+      -- floating slot cannot disturb the machine.
+      game          => core_game_n,
+      game_mmu      => open,           -- output. MMU's view of GAME; only needed by soft carts
+      exrom         => core_exrom_n,
+      exrom_mmu     => open,           -- output. MMU's view of EXROM; only needed by soft carts
       io_rom        => core_io_rom,    -- input
       io_ext        => core_io_ext,    -- input
       io_data       => core_io_data,   -- input
-      irq_n         => '1',         -- No cartridge: floating EXP IRQ would hold cpuIrq_n low
-      nmi_n         => core_nmi_n_s, -- RESTORE key generates NMI (see restore_nmi process)
+      irq_n         => core_irq_n,
+      nmi_n         => core_nmi_n,     -- RESTORE key and/or cartridge NMI
       nmi_ack       => core_nmi_ack,   -- output
+      -- Internal Function ROM selects. These live in a socket inside the C128, not on the
+      -- expansion port, so a hardware cartridge never drives them.
       romFL         => open,           -- output
       romFH         => open,           -- output
       romL          => core_roml,      -- output. CPU access to 0x8000-0x9FFF
@@ -754,7 +1023,9 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       mod_key     => open,
       tape_play   => open,
       
-      -- No cartridge: floating EXP DMA (cart_dma_i) would assert dma_active and freeze Z80.
+      -- The expansion port's /DMA line (cart_dma_i) is deliberately ignored: dma_req is the
+      -- REU-style bus-master interface, and asserting it from a floating pin would freeze the
+      -- Z80. Cartridges that need to become bus master are therefore not supported yet.
       dma_req       => '0',
       dma_cycle     => open,
       dma_addr      => open,

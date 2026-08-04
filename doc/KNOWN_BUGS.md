@@ -3,6 +3,7 @@
 * Mega65 Keyboard
 * Joystick Port
 * IEC (Serial) bus (inclusive Burst Mode)
+* Real cartridges in the expansion port (C64 and C128 cartridges)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Go64 and native C128 Mode
 * Reset-Button
@@ -27,6 +28,16 @@
   - Keymap (CXKYCODE/CXINTR): `1` = col7/bit0 → code `$38` → ASCII `$31`.
     Visible `↑D` is `$5E` + `D` — **not** the normal `1` mapping.
 * GEOS for C128 does not boot and is crashing. 
+* Expansion port on R3/R3A/R4 boards: those boards drive the slot's RESET line
+  output-only, so a cartridge cannot reset the C128. Freezer/menu buttons that work
+  by pulling RESET therefore do nothing. The EasyFlash 3 is detected by
+  `cartridge_heuristics.vhd` and gets a synthesized reset, but only for its Menu,
+  EasyFlash, and C64 modes — Kernal mode is refused on purpose, because the EF3
+  drives A14 itself and would fight the MEGA65's address transceiver. R5/R6 sense
+  the real RESET and need none of this.
+* Expansion port: the "Use hardware slot" menu item defaults to ON, so a core built
+  from this tree ignores an existing 33-byte `/m2m/m2mcfg` (the menu grew to 37
+  entries). Copy the new `m2mcfg` to the SD card to get saved settings back. 
 
 # Missing Features
 * Video:
@@ -39,7 +50,9 @@
       hardwired to '0' in `mega65.vhd`
     * ...
 * Virtual devices (IEC)
-* Cartridge support
+* Expansion port: only real cartridges are supported. Emulated cartridges (`.crt`
+  files), a simulated 1750 REU and cartridges that want to become bus master
+  (`/DMA` is ignored) are not implemented.
 * Supporting the internal drive as 1581. 
 
 # Fixed

@@ -74,6 +74,7 @@ constant C_MENU_JAILBARS_OFF     : natural := 25;
 constant C_MENU_JAILBARS_LOW     : natural := 26;
 constant C_MENU_JAILBARS_MEDIUM  : natural := 27;
 constant C_MENU_JAILBARS_HIGH    : natural := 28;
+constant C_MENU_EXP_PORT_HW      : natural := 32;  -- Expansion Port: Use hardware slot
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode

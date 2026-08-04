@@ -278,31 +278,11 @@ begin
    hr_core_byteenable_o <= (others => '0');
    hr_core_burstcount_o <= (others => '0');
 
-   -- Tristate all expansion port drivers that we can directly control
-   -- @TODO: As soon as we support modules that can act as busmaster, we need to become more flexible here
-   cart_ctrl_oe_o       <= '0';
-   cart_addr_oe_o       <= '0';
-   cart_data_oe_o       <= '0';
-   cart_en_o            <= '1'; -- Enable expansion port
-
-   cart_reset_oe_o      <= '1';
-   cart_game_oe_o       <= '0';
-   cart_exrom_oe_o      <= '0';
-   cart_nmi_oe_o        <= '0';
-   cart_irq_oe_o        <= '0';
-   cart_roml_oe_o       <= '1';
-   cart_romh_oe_o       <= '1';
-   -- IEC buffer enables (iec_*_en_o), the reset line (iec_reset_n_o) and the line drivers are
-   -- now driven from main.vhd, which implements the open-collector behaviour required to talk
-   -- to real Commodore drives on the physical IEC bus. See i_main port map below.
-
-   -- Default values for all signals
-   cart_phi2_o          <= '0';
-   cart_dotclock_o      <= '0';
-   cart_ba_o            <= '0';
-   cart_rw_o            <= '0';
-   cart_a_o             <= (others => '0');
-   cart_d_o             <= (others => '0');
+   -- The Expansion Port is a pure pass-through here: every cart_* signal goes straight to
+   -- main.vhd, which owns the bus timing and the transceiver directions. The same is true for
+   -- the IEC buffer enables (iec_*_en_o), the reset line (iec_reset_n_o) and the line drivers,
+   -- which implement the open-collector behaviour needed to talk to real Commodore drives.
+   -- See the i_main port map below.
 
    main_joy_1_up_n_o    <= '1';
    main_joy_1_down_n_o  <= '1';
@@ -416,6 +396,7 @@ begin
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
       generic map (
+         G_BOARD              => G_BOARD,   -- Which platform are we running on
          G_VDNUM              => C_VDNUM
       )
       port map (
@@ -479,22 +460,48 @@ begin
          sys_rom_addr_o       => main_sysrom_addr,
          sys_rom_data_i       => main_sysrom_data,
 
-         -- C64 Expansion Port (aka Cartridge Port)
-         cart_reset_i         => cart_reset_i, 
-         cart_reset_o         => cart_reset_o,
+         -- Expansion Port (aka Cartridge Port)
+         cart_en_o            => cart_en_o,
+         cart_phi2_o          => cart_phi2_o,
+         cart_dotclock_o      => cart_dotclock_o,
          cart_dma_i           => cart_dma_i,
+         cart_reset_oe_o      => cart_reset_oe_o,
+         cart_reset_i         => cart_reset_i,
+         cart_reset_o         => cart_reset_o,
+         cart_game_oe_o       => cart_game_oe_o,
          cart_game_i          => cart_game_i,
-         cart_exrom_i         => cart_exrom_i,
-         cart_nmi_i           => cart_nmi_i,
-         cart_irq_i           => cart_irq_i,
          cart_game_o          => cart_game_o,
+         cart_exrom_oe_o      => cart_exrom_oe_o,
+         cart_exrom_i         => cart_exrom_i,
          cart_exrom_o         => cart_exrom_o,
+         cart_nmi_oe_o        => cart_nmi_oe_o,
+         cart_nmi_i           => cart_nmi_i,
          cart_nmi_o           => cart_nmi_o,
+         cart_irq_oe_o        => cart_irq_oe_o,
+         cart_irq_i           => cart_irq_i,
          cart_irq_o           => cart_irq_o,
+         cart_roml_oe_o       => cart_roml_oe_o,
+         cart_roml_i          => cart_roml_i,
          cart_roml_o          => cart_roml_o,
+         cart_romh_oe_o       => cart_romh_oe_o,
+         cart_romh_i          => cart_romh_i,
          cart_romh_o          => cart_romh_o,
+         cart_ctrl_oe_o       => cart_ctrl_oe_o,
+         cart_ba_i            => cart_ba_i,
+         cart_rw_i            => cart_rw_i,
+         cart_io1_i           => cart_io1_i,
+         cart_io2_i           => cart_io2_i,
+         cart_ba_o            => cart_ba_o,
+         cart_rw_o            => cart_rw_o,
          cart_io1_o           => cart_io1_o,
          cart_io2_o           => cart_io2_o,
+         cart_addr_oe_o       => cart_addr_oe_o,
+         cart_a_i             => cart_a_i,
+         cart_a_o             => cart_a_o,
+         cart_data_oe_o       => cart_data_oe_o,
+         cart_d_i             => cart_d_i,
+         cart_d_o             => cart_d_o,
+
          iec_reset_n_o        => iec_reset_n_o,
          iec_atn_n_o          => iec_atn_n_o,
          iec_clk_en_o         => iec_clk_en_o,

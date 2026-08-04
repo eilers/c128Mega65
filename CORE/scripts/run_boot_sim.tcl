@@ -30,6 +30,7 @@ update_compile_order -fileset sources_1
 foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/video_sync_c128.sv"] \
     [file join $repo_dir "CORE/vhdl/clk_vdc.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cartridge_heuristics.vhd"] \
 ] {
     if {[llength [get_files -quiet $required_file]] == 0} {
         puts "Adding missing source file: $required_file"

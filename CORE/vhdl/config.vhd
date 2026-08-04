@@ -271,7 +271,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 33;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 37;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -279,7 +279,7 @@ constant OPTM_SIZE         : natural := 33;  -- amount of items including empty 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters)
 -- Without submenus: Use OPTM_SIZE as height, otherwise count how large the actually visible main menu is.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 20;
+constant OPTM_DY           : natural := 24;   -- 7 lines before the HDMI submenu + 17 lines after it
 
 constant OPTM_ITEMS        : string :=
 
@@ -315,6 +315,12 @@ constant OPTM_ITEMS        : string :=
    " Medium\n"              &
    " High\n"                &
    "\n"                     &
+
+   " Expansion Port\n"      &
+   "\n"                     &
+   " Use hardware slot\n"   &
+   "\n"                     &
+
    " Credits\n"             &
    "\n"                     &
    " Close Menu\n";
@@ -330,6 +336,7 @@ constant OPTM_G_FF         : integer := 3;
 constant OPTM_G_CRT        : integer := 4;
 constant OPTM_G_JAILBARS   : integer := 5;
 constant OPTM_G_CREDITS    : integer := 6;
+constant OPTM_G_EXP_PORT   : integer := 7;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -369,6 +376,12 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_JAILBARS,                                     -- Medium
                                              OPTM_G_JAILBARS,                                     -- High
                                              OPTM_G_LINE,                                         -- Line
+
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Expansion Port
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
+                                             OPTM_G_LINE,                                         -- Line
+
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE                                         -- Close Menu
