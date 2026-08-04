@@ -66,8 +66,10 @@ entity clk is
     core_speed_i :     unsigned(1 downto 0); -- asynchronous
 
     main_clk_o   : out std_logic;
-    -- Unbuffered MMCM CLKOUT (PAL orig). For video BUFGMUX only — do not use as a
-    -- fabric clock without a BUFG/BUFGMUX. Avoids BUFG→BUFGMUX cascade.
+    -- Same clock as main_clk_o, but taken directly off the flicker-free BUFGMUX_CTRL
+    -- instead of the BUFG behind it. For the video BUFGMUX in mega65.vhd only — do not
+    -- use it as a fabric clock. main_clk_o and video_clk are then both one buffer stage
+    -- behind the same BUFGMUX_CTRL, which keeps their skew symmetric.
     main_clk_raw_o : out std_logic;
     main_rst_o   : out std_logic
   );
@@ -212,8 +214,12 @@ begin
       O => main_clk_o
     );
 
-  -- Raw PAL clock for HDMI source mux (hr_core_speed is fixed to "00" today).
-  main_clk_raw_o <= main_clk_mmcm_orig;
+  -- Speed-selected PAL clock for the video source mux in mega65.vhd. This must be taken
+  -- after the flicker-free mux, not from the "orig" MMCM: the VIC video stream is generated
+  -- in the main_clk domain, so sampling it with a clock that stays at the original speed
+  -- while main_clk is slowed down would turn the video path into an asynchronous crossing
+  -- with a 0.25% drift.
+  main_clk_raw_o <= main_clk_mmcm;
 
   -------------------------------------
   -- Reset generation

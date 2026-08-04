@@ -68,13 +68,14 @@ constant C_MENU_HDMI_576p_50_5_4 : natural := 12;
 constant C_MENU_HDMI_640_60      : natural := 13;
 constant C_MENU_HDMI_720_5994    : natural := 14;
 constant C_MENU_HDMI_800_60      : natural := 15;
-constant C_MENU_CRT_EMULATION    : natural := 19;
-constant C_MENU_HDMI_ZOOM        : natural := 20;
-constant C_MENU_IMPROVE_AUDIO    : natural := 21;
-constant C_MENU_JAILBARS_OFF     : natural := 25;
-constant C_MENU_JAILBARS_LOW     : natural := 26;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 27;
-constant C_MENU_JAILBARS_HIGH    : natural := 28;
+constant C_MENU_HDMI_FF          : natural := 17;  -- HDMI: Flicker-free
+constant C_MENU_CRT_EMULATION    : natural := 21;
+constant C_MENU_HDMI_ZOOM        : natural := 22;
+constant C_MENU_IMPROVE_AUDIO    : natural := 23;
+constant C_MENU_JAILBARS_OFF     : natural := 27;
+constant C_MENU_JAILBARS_LOW     : natural := 28;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 29;
+constant C_MENU_JAILBARS_HIGH    : natural := 30;
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode

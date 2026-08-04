@@ -279,7 +279,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 31;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 33;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -309,6 +309,8 @@ constant OPTM_ITEMS        : string :=
    " 720x480 59.94 Hz\n"    &
    " 800x600 60 Hz\n"       &
    "\n"                     &
+   " Flicker-free\n"        &
+   "\n"                     &
    " Back to main menu\n"   &
 
    "\n"                     &
@@ -332,10 +334,11 @@ constant OPTM_ITEMS        : string :=
 -- single-select items and therefore also drive mount items need to have unique identifiers
 constant OPTM_G_VIDEO_OUT  : integer := 1;
 constant OPTM_G_HDMI       : integer := 2;
-constant OPTM_G_CRT        : integer := 3;
-constant OPTM_G_Zoom       : integer := 4;
-constant OPTM_G_Audio      : integer := 5;
-constant OPTM_G_JAILBARS   : integer := 6;
+constant OPTM_G_FF         : integer := 3;
+constant OPTM_G_CRT        : integer := 4;
+constant OPTM_G_Zoom       : integer := 5;
+constant OPTM_G_Audio      : integer := 6;
+constant OPTM_G_JAILBARS   : integer := 7;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -360,6 +363,8 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_HDMI,                                         -- 640x480 60 Hz
                                              OPTM_G_HDMI,                                         -- 720x480 59.94 Hz
                                              OPTM_G_HDMI,                                         -- 800x600 60 Hz
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_FF      + OPTM_G_SINGLESEL,                   -- Flicker-free
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 

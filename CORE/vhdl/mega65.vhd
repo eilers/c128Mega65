@@ -237,7 +237,11 @@ signal vdc_rst             : std_logic;
 signal main_video_sel_vdc  : std_logic;
 signal video_clk_sel       : std_logic;
 
-signal hr_core_speed : unsigned(1 downto 0); -- see clock.vhd for details
+-- Power-on default is the original PAL speed; the process below has no reset, so the
+-- initial value also keeps the clock mux select defined in simulation.
+signal hr_core_speed : unsigned(1 downto 0) := "00"; -- see clock.vhd for details
+signal hr_hdmi_ff          : std_logic;      -- "HDMI: Flicker-free" menu bit, synced to hr_clk
+signal hr_video_sel_vdc    : std_logic;      -- VDC is the displayed source, synced to hr_clk
 
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
@@ -314,7 +318,6 @@ begin
   ---------------------------------------------------------------------------------------------
   -- main_clk (MiSTer core's clock)
   ---------------------------------------------------------------------------------------------
-   hr_core_speed        <= "00"; -- TODO: This is fixed to PAL for now, check whether frequency changes are required!?
    -- MMCME2_ADV clock generators
    --   PAL: 31.528 MHz (main) and 63.056 MHz (video)
    --        HDMI: Flicker-free: 0.25% slower
@@ -323,7 +326,7 @@ begin
          sys_clk_i         => clk_i,           -- expects 100 MHz
          core_speed_i      => hr_core_speed,   -- 0=PAL/original C64, 1=PAL/HDMI flicker-free, 2=NTSC
          main_clk_o        => main_clk_o,        -- CORE's clock
-         main_clk_raw_o    => main_clk_raw,      -- MMCM CLKOUT for video mux
+         main_clk_raw_o    => main_clk_raw,      -- speed-selected core clock for the video mux
          main_rst_o        => main_rst_o         -- CORE's reset, synchronized
       ); -- clk_gen
 
@@ -349,7 +352,9 @@ begin
          dest_arst => vdc_rst
       );
 
-   -- HDMI video_clk: mux MMCM CLKOUT nets (not BUFG outputs) to avoid illegal cascade.
+   -- HDMI video_clk: mux the clock nets in front of the BUFGs to avoid a BUFG->BUFGMUX
+   -- cascade. main_clk_raw follows the flicker-free selection, so the VIC video stream is
+   -- always sampled by the same frequency that generated it.
    -- When VDC is shown, video_* are synchronous to vdc_clk / this mux output.
    video_clk_sel <= main_video_sel_vdc;
    i_video_clk_mux: bufgmux_ctrl
@@ -361,6 +366,48 @@ begin
       );
 
    video_rst_o <= vdc_rst when main_video_sel_vdc = '1' else main_rst_o;
+
+   ---------------------------------------------------------------------------------------------
+   -- hr_clk (HyperRAM clock): "HDMI: Flicker-free"
+   ---------------------------------------------------------------------------------------------
+
+   -- Clock Domain Crossing: CORE -> HyperRAM
+   i_cdc_main2hr : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE => 2
+      )
+      port map (
+         src_clk_i     => main_clk_o,
+         src_data_i(0) => main_osm_control_i(C_MENU_HDMI_FF),
+         src_data_i(1) => main_video_sel_vdc,
+         dst_clk_i     => hr_clk_i,
+         dst_data_o(0) => hr_hdmi_ff,
+         dst_data_o(1) => hr_video_sel_vdc
+      ); -- i_cdc_main2hr
+
+   -- The core's PAL frame rate of 50.124 Hz does not match the exactly 50 Hz that every HDMI
+   -- mode outputs, so ascal's frame buffer in HyperRAM slowly drifts until read and write
+   -- cross over and the picture tears. The framework reports the drift direction through
+   -- hr_high_i / hr_low_i, and we answer by selecting one of the two core clocks that
+   -- "embrace" 50 Hz (see clk.vhd). On average the core then runs at exactly 50 Hz.
+   --
+   -- Only the VIC benefits: the VDC has its own 32 MHz MMCM that is not part of the switch,
+   -- so while the VDC is the displayed source we keep the core at full speed instead of
+   -- slowing it down without gaining anything.
+   p_core_speed : process (hr_clk_i)
+   begin
+      if rising_edge(hr_clk_i) then
+         if hr_low_i = '1' then     -- the core is too slow ...
+            hr_core_speed <= "00";  -- ... switch to PAL original (50.124 Hz)
+         end if;
+         if hr_high_i = '1' then    -- the core is too fast ...
+            hr_core_speed <= "01";  -- ... switch to PAL slow (49.999 Hz)
+         end if;
+         if hr_hdmi_ff = '0' or hr_video_sel_vdc = '1' then
+            hr_core_speed <= "00";
+         end if;
+      end if;
+   end process p_core_speed;
 
    -- Power LED: solid on.
    main_power_led_o     <= '1';
