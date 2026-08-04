@@ -112,6 +112,13 @@ port(
    vicB        : out unsigned(7 downto 0);
    vic_pixel_ce_o : out std_logic;  -- MEGA65: VIC pixel strobe (enablePixel)
 
+   -- MEGA65: PHI2 for the physical Expansion Port. Upstream C128_MiSTer has no such output
+   -- because MiSTer only ever emulates cartridges. A real cartridge in the MEGA65's slot is
+   -- clocked by this pin, so its phase relative to the bus must match a real 8502 cycle:
+   -- 50% duty at clk32/32 (985.243 kHz), high during the CPU phase, one clk32 ahead of
+   -- phi0_cpu (see the generating process for why).
+   phi2_o      : out std_logic;
+
    vdcHsync    : out std_logic;
    vdcVsync    : out std_logic;
    vdcR        : out unsigned(7 downto 0);
@@ -279,6 +286,7 @@ signal enableVdc    : std_logic;
 signal enableVdc_sl : std_logic_vector(1 downto 0);
 signal enablePixel  : std_logic;
 signal enableSid    : std_logic;
+signal phi2         : std_logic := '0';
 signal enable8502   : std_logic;
 signal enableZ80    : std_logic;
 
@@ -607,13 +615,21 @@ begin
       enableCia_p <= '0';
       enableSid <= '0';
 
+      -- MEGA65: phi2 for the Expansion Port is registered here so that it toggles on the
+      -- same two cycles that clock the VIC. Being registered, it is high across sysCycle
+      -- VIC3..CPU6 (16 of 32 states, so 50% duty), i.e. exactly one clk32 ahead of the
+      -- combinational phi0_cpu (EXT4..CPU7) that drives the VIC and the CPU cycle machine.
+      -- C64MEGA65 arrived at the same one-cycle lead for the C64 core after measuring real
+      -- cartridges; anything later makes address and data arrive too late in the cycle.
       case sysCycle is
       when CYCLE_VIC2 =>
          enableVic <= '1';
+         phi2 <= '1';
       when CYCLE_CPU0 =>
          enableCia_n <= '1';
       when CYCLE_CPU6 =>
          enableVic <= '1';
+         phi2 <= '0';
       when CYCLE_CPU7 =>
          enableCia_p <= '1';
          enableSid <= '1';
@@ -622,6 +638,8 @@ begin
       end case;
    end if;
 end process;
+
+phi2_o <= phi2;
 
 -- -----------------------------------------------------------------------
 -- Color RAM
