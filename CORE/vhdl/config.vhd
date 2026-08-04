@@ -74,58 +74,50 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- Within a selector's address range, address 0 is the beginning of the string itself, while address 0xFFF of the 4k
 -- window contains the amount of pages, so each zero-terminated string can be up to 4095 bytes = 4094 characters long.
 
-constant SCR_WELCOME : string :=
+-- No Welcome Screen is used (WELCOME_ACTIVE is false), therefore WHS array position 0 stays empty.
+
+constant SCR_CREDITS : string :=
 
    "\n Commodore 128 for MEGA65\n\n" &
-   "Work-in-progress R6 integration build.\n\n" &
+   "Core port to the MEGA65\n" &
+   "  Stefan Eilers\n\n" &
+   "MiSTer C128 core\n" &
+   "  Erik Scheffers, based on C64_MiSTer\n" &
+   "  by sorgelig and on FPGA64 by\n" &
+   "  Peter Wendrich\n\n" &
 
    -- We are not insisting. But it would be nice if you gave us credit for MiSTer2MEGA65 by leaving these lines in
-   "Powered by MiSTer2MEGA65,\n" &
-   "done by sy2002 and MJoergen in 2022\n" &
+   "MiSTer2MEGA65 framework\n" &
+   "  sy2002 and MJoergen\n\n" &
 
-   "\nROM files required on SD card:\n" &
-   "/c128/boot0.rom and /c128/boot1.rom\n\n" &
-   "Press Help for options.\n\n\n" &
-
-
-   "\n\n    Press Space to continue.\n\n\n";
-
-constant HELP_1 : string :=
-
-   "\nCommodore 128 for MEGA65\n\n" &
-   "Current integration status:\n" &
-   "- MiSTer C128 machine wrapper connected\n" &
-   "- System RAM + ROM devices connected\n" &
-   "- IEC and cartridge pin plumbing in progress\n\n" &
-   "Required SD files:\n" &
+   "Licensed under GPL v3\n\n" &
+   "ROM files required on SD card:\n" &
    "  /c128/boot0.rom\n" &
    "  /c128/boot1.rom\n\n" &
-   "Use Help menu to mount images and tune video.\n\n" &
-   " Press Space to close the help screen.";
+   " Press Space to close this screen.";
 
 
 -- Concatenate all your Welcome and Help screens into one large string, so that during synthesis one large string ROM can be build.
-constant WHS_DATA : string := SCR_WELCOME & HELP_1;
+constant WHS_DATA : string := SCR_CREDITS;
 
 -- The WHS array needs the start address of each page. As a best practice: Just define some constants, that you can name for example
 -- just like you named the string constants and then add _START. Use the 'length attribute of VHDL to add up all previous strings
 -- so that the Synthesis tool can calculate the start addresses: Your first string starts at zero, your next one at the address which
 -- is equal to the length of the first one, your next one at the address which is equal to the sum of the previous ones, and so on.
-constant SCR_WELCOME_START : natural := 0;
-constant HELP_1_START      : natural := SCR_WELCOME'length;
+constant SCR_CREDITS_START : natural := 0;
 
 -- Fill the WHS array with page start addresses and the length of each page.
 -- Make sure that array element 0 is always your Welcome page. If you don't use a welcome page, fill everything with zeros.
 constant WHS : WHS_RECORD_ARRAY_TYPE := (
-   --- Welcome Screen
-   (page_count    => 1,
-    page_start    => (SCR_WELCOME_START,  0, 0),
-    page_length   => (SCR_WELCOME'length, 0, 0)),
+   --- Welcome Screen: not used
+   (page_count    => 0,
+    page_start    => (0, 0, 0),
+    page_length   => (0, 0, 0)),
 
    --- Help pages
    (page_count    => 1,
-    page_start    => (HELP_1_START, 0, 0),
-    page_length   => (HELP_1'length, 0, 0))
+    page_start    => (SCR_CREDITS_START,  0, 0),
+    page_length   => (SCR_CREDITS'length, 0, 0))
 );
 
 --------------------------------------------------------------------------------------------------------------------
@@ -157,11 +149,11 @@ constant RESET_COUNTER     : natural := 100;
 constant OPTM_PAUSE        : boolean := false;
 
 -- show the welcome screen in general
-constant WELCOME_ACTIVE    : boolean := true;
+constant WELCOME_ACTIVE    : boolean := false;
 
 -- shall the welcome screen also be shown after the core is reset?
 -- (only relevant if WELCOME_ACTIVE is true)
-constant WELCOME_AT_RESET  : boolean := true;
+constant WELCOME_AT_RESET  : boolean := false;
 
 -- keyboard and joystick connection during reset and OSD
 constant KEYBOARD_AT_RESET : boolean := false;
@@ -315,8 +307,6 @@ constant OPTM_ITEMS        : string :=
 
    "\n"                     &
    " HDMI: CRT emulation\n" &
-   " HDMI: Zoom-in\n"       &
-   " Audio improvements\n"  &
    "\n"                     &
    " VIC-II Jailbars\n"     &
    "\n"                     &
@@ -324,6 +314,8 @@ constant OPTM_ITEMS        : string :=
    " Low\n"                 &
    " Medium\n"              &
    " High\n"                &
+   "\n"                     &
+   " Credits\n"             &
    "\n"                     &
    " Close Menu\n";
 
@@ -336,9 +328,8 @@ constant OPTM_G_VIDEO_OUT  : integer := 1;
 constant OPTM_G_HDMI       : integer := 2;
 constant OPTM_G_FF         : integer := 3;
 constant OPTM_G_CRT        : integer := 4;
-constant OPTM_G_Zoom       : integer := 5;
-constant OPTM_G_Audio      : integer := 6;
-constant OPTM_G_JAILBARS   : integer := 7;
+constant OPTM_G_JAILBARS   : integer := 5;
+constant OPTM_G_CREDITS    : integer := 6;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -370,8 +361,6 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
 
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CRT     + OPTM_G_SINGLESEL,                   -- CRT emulation
-                                             OPTM_G_Zoom    + OPTM_G_SINGLESEL,                   -- Zoom-in
-                                             OPTM_G_Audio   + OPTM_G_SINGLESEL,                   -- Audio improvements
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- VIC-II Jailbars
                                              OPTM_G_LINE,                                         -- Line
@@ -379,6 +368,8 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_JAILBARS,                                     -- Low
                                              OPTM_G_JAILBARS,                                     -- Medium
                                              OPTM_G_JAILBARS,                                     -- High
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE                                         -- Close Menu
                                            );

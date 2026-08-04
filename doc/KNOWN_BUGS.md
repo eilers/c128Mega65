@@ -27,23 +27,16 @@
   - Keymap (CXKYCODE/CXINTR): `1` = col7/bit0 → code `$38` → ASCII `$31`.
     Visible `↑D` is `$5E` + `D` — **not** the normal `1` mapping.
 * GEOS for C128 does not boot and is crashing. 
-* Timing: every clock domain closes on its own, but the **VDC/main and QNICE/main
-  crossings are still analysed as if synchronous**, so `report_timing_summary`
-  reports a negative overall WNS (-10.7 ns, ~15.5k endpoints, all in the Inter Clock
-  Table). The requirements shown are nonsense (0.027 ns / 0.044 ns), because
-  `main_clk` (31.53 MHz) and `vdc_clk_raw` (32 MHz) are unrelated. `CORE.xdc`
-  deliberately keeps this crossing unconstrained since `set_clock_groups` broke the
-  boot. The 3 `qnice_clk` endpoints are ascal's `mode` input, which ascal itself
-  marks `<ASYNC>`, and only need a `set_false_path`.
-
 
 # Missing Features
 * Video:
     * "Flicker-free" has no effect in 80-column mode. 
-    * "HDMI: Zoom-in" menu bit still hardwired in `mega65.vhd`. `crop.vhd` uses
-      fixed VIC-II geometry (border 33/35, image 320x200), so it has to become
-      source-aware before the bit can be wired for the VDC.
-    * "Audio improvements" menu bit still hardwired in `mega65.vhd`
+    * "HDMI: Zoom-in": removed from the menu, `qnice_zoom_crop_o` is hardwired to
+      '0' in `mega65.vhd`. `crop.vhd` uses fixed VIC-II geometry (border 33/35,
+      image 320x200), so it has to become source-aware before the menu item can
+      come back and be wired for the VDC.
+    * "Audio improvements": removed from the menu, `qnice_audio_filter_o` is
+      hardwired to '0' in `mega65.vhd`
     * ...
 * Virtual devices (IEC)
 * Cartridge support
@@ -53,11 +46,7 @@
 * VDC timing closure: `vdc_signals.sv` computed the interlace field-1 vsync column
   with a **modulo by a runtime register** (`(hp + (reg_ht>>1) - 1) % reg_ht`), which
   Vivado turned into a combinational divider — 133 logic levels, 92 `CARRY4`, 54 ns —
-  on the `vsCount` clock enable. `vdc_clk_raw` missed its 31.25 ns period by
-  **-23.1 ns** on 6 endpoints. Replaced with a single conditional subtract, which is
-  exactly equivalent for every register set where `hp <= reg_ht` (verified
-  exhaustively over the 8-bit input space, and on the NTSC/PAL sets `ht=126/127`,
-  `hp=102`). `vdc_clk_raw` now closes at **+12.2 ns with 0 failing endpoints**.
+  on the `vsCount` clock enable. 
 * "Flicker-free" (HDMI submenu, default OFF). 
 * HDMI resolution switching via the Help menu in order to support 4:3 screens.
 * Reset Button is now working.
