@@ -13,7 +13,7 @@
   for Cartridges that are for the C128 only (as set by default).
 
 # Known Bugs
-Please note that this is an early alpha version! So please report any issues [on github](https://github.com/csoren/c128cpm/issues)
+Please note that this is an early alpha version! So please report any issues [on github](https://github.com/eilers/c128Mega65/issues)
 * C128-Mode: Core does not show a READY prompt when a device is on the IEC bus without power. This might be a normal behavior
   with a (or my) 1571. It blocks the check for a bootable disk.
 * Software compatibility:
