@@ -1,4 +1,5 @@
 # What works
+
 * Sound
 * Mega65 Keyboard
 * Joystick Port
@@ -7,63 +8,41 @@
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Go64 and native C128 Mode
 * Reset-Button
+* Added various screen resolutions.
+* Added support of physical cartridges. Please do not expect the compatibilty that is provided by the C64Mega65 core! Just use it
+  for Cartridges that are for the C128 only (as set by default).
 
 # Known Bugs
-* C128-Mode: Core does not show a READY prompt when a device is on the IEC bus without power. This might be a normal behavior 
-  with a (or my) 1571. It blocks the check for a bootable disk.   
-* CP/M mode: Keyboard broken (`1` → `↑D` or dead, `Z` dead; C128 OK).
-  - **Verify on 40-col VIC only.** 80-col uses the VDC; its HDMI path is
-    menu-selectable but still early.
-  - Fix 1 (ILA-proven): live CIA PRA/PRB in `mos6526_8520.v` — `cpuDi` now
-    matches matrix on `$DC01` reads (see `iladata12` / `iladata14`).
-  - Fix 2 (testing): Z80 `WAIT_n` while IORQ && !cpuHasBus so IN cannot sample
-    a floated bus during VIC AEC (`cpu_z80.vhd` / `fpga64_sid_iec.vhd`).
-  - Fix 3 (testing): `alt_crsr` from `mmu_z80_n` (not BUSAK); VIC `$D02F`
-    `k_reg` resets to idle `111` (active-low K lines).
-  - Fix 4 (did not fix symptom): level-sensitive port writes without `phi2_n`.
-  - Fix 5 (testing): port writes = `phi2_n` write **or** 2nd+ consecutive
-    CS+write cycle (avoid re-sampling `db_in` every clk). ILA depth 64k for
-    press-edge captures. Still: col7 `cpuDi=FE` proven (`iladata14`/`17`);
-    suspect missed `OUT FF` / VIC-phase mis-index if `↑D` persists.
-  - Keymap (CXKYCODE/CXINTR): `1` = col7/bit0 → code `$38` → ASCII `$31`.
-    Visible `↑D` is `$5E` + `D` — **not** the normal `1` mapping.
-* GEOS for C128 does not boot and is crashing. 
-* Expansion port on R3/R3A/R4 boards: those boards drive the slot's RESET line
-  output-only, so a cartridge cannot reset the C128. Freezer/menu buttons that work
-  by pulling RESET therefore do nothing. The EasyFlash 3 is detected by
-  `cartridge_heuristics.vhd` and gets a synthesized reset, but only for its Menu,
-  EasyFlash, and C64 modes — Kernal mode is refused on purpose, because the EF3
-  drives A14 itself and would fight the MEGA65's address transceiver. R5/R6 sense
-  the real RESET and need none of this.
-* Expansion port: the "Use hardware slot" menu item defaults to ON, so a core built
-  from this tree ignores an existing 33-byte `/m2m/m2mcfg` (the menu grew to 37
-  entries). Copy the new `m2mcfg` to the SD card to get saved settings back. 
+Please note that this is an early alpha version! So please report any issues [on github](https://github.com/csoren/c128cpm/issues)
+* C128-Mode: Core does not show a READY prompt when a device is on the IEC bus without power. This might be a normal behavior
+  with a (or my) 1571. It blocks the check for a bootable disk.
+* Software compatibility:
+  * CP/M is not booting properly or the keyboard is broken.
+  * GEOS for C128 does not boot and is crashing.
+  * Microsoft Multiplan v1.06 is reported to crash.
 
 # Missing Features
+
 * Video:
-    * "Flicker-free" has no effect in 80-column mode. 
-    * "HDMI: Zoom-in": removed from the menu, `qnice_zoom_crop_o` is hardwired to
-      '0' in `mega65.vhd`. `crop.vhd` uses fixed VIC-II geometry (border 33/35,
-      image 320x200), so it has to become source-aware before the menu item can
-      come back and be wired for the VDC.
-    * "Audio improvements": removed from the menu, `qnice_audio_filter_o` is
-      hardwired to '0' in `mega65.vhd`
-    * ...
+  * "Flicker-free" has no effect in 80-column mode.
+  * "HDMI: Zoom-in"
+* "Audio improvements"
 * Virtual devices (IEC)
 * Expansion port: only real cartridges are supported. Emulated cartridges (`.crt`
   files), a simulated 1750 REU and cartridges that want to become bus master
   (`/DMA` is ignored) are not implemented.
-* Supporting the internal drive as 1581. 
+* Supporting the internal drive as 1581.
 
 # Fixed
+
 * VDC timing closure: `vdc_signals.sv` computed the interlace field-1 vsync column
   with a **modulo by a runtime register** (`(hp + (reg_ht>>1) - 1) % reg_ht`), which
   Vivado turned into a combinational divider — 133 logic levels, 92 `CARRY4`, 54 ns —
-  on the `vsCount` clock enable. 
-* "Flicker-free" (HDMI submenu, default OFF). 
+  on the `vsCount` clock enable.
+* "Flicker-free" (HDMI submenu, default OFF).
 * HDMI resolution switching via the Help menu in order to support 4:3 screens.
 * Reset Button is now working.
 * Dedicated 32.000 MHz VDC MMCM (`clk_vdc.vhd`) wired; Help menu Video Out
   (Follow 40/80 / VIC / VDC), CRT emulation, and VIC-II Jailbars.
 * C128-Mode: Joystick fire button was reported as not working (discord)
-* Fixing keyboard layout. See https://github.com/eilers/c128Mega65/issues/1
+* Fixing keyboard layout. See <https://github.com/eilers/c128Mega65/issues/1>
