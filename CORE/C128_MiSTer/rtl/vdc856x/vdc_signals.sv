@@ -56,6 +56,11 @@ module vdc_signals (
 	output reg       vsync           // vertical sync
 );
 
+// MEGA65 port: declared before the instance below so that the port connection binds
+// to this net rather than to an implicitly created one. Driven further down, where the
+// columns it depends on are in scope.
+wire hSyncStart;
+
 vdc_signals_h signals_h (
 	.clk(clk),
 	.reset(reset),
@@ -102,7 +107,7 @@ wire lineStart    = newCol && col==0;
 wire displayStart = endCol && col==7;
 wire half1End     = endCol && col==(reg_ht/2)-1;
 wire half2Start   = newCol && col==reg_ht/2;
-wire hSyncStart   = endCol && col==hp;
+assign hSyncStart = endCol && col==hp;
 wire vSyncStartF1 = endCol && col==vsStartCol;
 wire lineEnd      = endCol && col==reg_ht;
 

@@ -41,12 +41,19 @@ module floppy (
 	output       sector_data,  // valid sector data under head
 	       
 	output       ready,        // drive is ready, data can be read
-	output reg   index
+	output reg   index,
+
+	// MEGA65 port: "the disk is turning". ready only goes high once the spin-up ramp
+	// has reached full speed, so on its own it cannot tell a motor that never started
+	// from a ramp that is climbing but has not arrived yet.
+	output       spinning
 );
 
 // The sysclock is the value all floppy timings are derived from. 
 // Default: 8 MHz
 parameter CLK_EN = 8000;
+
+assign spinning = |rate;
 
 assign sector_hdr = (sec_state == SECTOR_STATE_HDR);
 assign sector_data = (sec_state == SECTOR_STATE_DATA);
@@ -84,7 +91,7 @@ assign ready = select && (rate == (fm ? RATESD : hd ? RATEHD : RATEDD));
 // Index pulse generation. Pulse starts with the begin of index_pulse_start
 // and lasts INDEX_PULSE_CYCLES system clock cycles
 localparam INDEX_PULSE_CYCLES = INDEX_PULSE_LEN * CLK_EN;
-reg [18:0] index_pulse_cnt;
+reg [18:0] index_pulse_cnt = 0;
 always @(posedge clk) if(clk8m_en) begin
 	if(index_pulse_start && (index_pulse_cnt == INDEX_PULSE_CYCLES-1)) begin
 		index <= 1'b0;
@@ -104,9 +111,9 @@ localparam STEP_BUSY_CLKS = CLK_EN*STEPBUSY;  // steprate is in ms
 assign track = current_track;
 reg [6:0] current_track /* verilator public */ = 7'd0;
 
-reg step_inD;
-reg step_outD;
-reg [19:0] step_busy /* verilator public */;
+reg step_inD = 0;
+reg step_outD = 0;
+reg [19:0] step_busy /* verilator public */ = 0;
    
 always @(posedge clk) begin
 	step_inD <= step_in;
@@ -146,8 +153,8 @@ localparam SECTOR_STATE_DATA = 2'd2;
 // we simulate an interleave of 1
 reg [4:0] start_sector = 4'd1;
 
-reg [1:0] sec_state;
-reg [9:0] sec_byte_cnt;  // counting bytes within sectors
+reg [1:0] sec_state = 0;
+reg [9:0] sec_byte_cnt = 0;  // counting bytes within sectors
 reg [4:0] current_sector = 4'd1;
   
 always @(posedge clk) begin
@@ -194,8 +201,8 @@ end
 
 // An ed floppy at 300rpm with 1MBit/s has max 31.250 bytes/track
 // thus we need to support up to 31250 events
-reg [14:0] byte_cnt;
-reg 	   index_pulse_start;
+reg [14:0] byte_cnt = 0;
+reg 	   index_pulse_start = 0;
 always @(posedge clk) begin
 	if (byte_clk_en) begin
 		index_pulse_start <= 1'b0;
@@ -211,8 +218,8 @@ end
 // Make byte clock from bit clock.
 // When a DD disk spins at 300RPM every 32us a byte passes the disk head
 assign dclk_en = byte_clk_en;
-reg byte_clk_en;
-reg [2:0] clk_cnt2;
+reg byte_clk_en = 0;
+reg [2:0] clk_cnt2 = 0;
 always @(posedge clk) begin
 	byte_clk_en <= 0;
 	if (data_clk_en) begin
@@ -229,14 +236,14 @@ end
 // full speed
 localparam SPIN_UP_CLKS = CLK_EN*SPINUP;
 localparam SPIN_DOWN_CLKS = CLK_EN*SPINDOWN;
-reg [31:0] spin_up_counter;
+reg [31:0] spin_up_counter = 0;
 
 // internal motor on signal that is only true if the drive is selected
 wire motor_on_sel = motor_on && select;
    
 // data rate determines rotation speed
 reg [31:0] rate /* verilator public */ = 0;
-reg motor_onD;
+reg motor_onD = 0;
 
 always @(posedge clk) begin
 	motor_onD <= motor_on_sel;
@@ -268,9 +275,9 @@ end
 // Generate a data clock from the system clock. This depends on motor
 // speed and reaches the full rate when the disk rotates at 300RPM. No
 // valid data can be read until the disk has reached it's full speed.
-reg data_clk;
-reg data_clk_en;
-reg [31:0] clk_cnt;
+reg data_clk = 0;
+reg data_clk_en = 0;
+reg [31:0] clk_cnt = 0;
 always @(posedge clk) begin
 	data_clk_en <= 0;
 	if(clk8m_en) begin

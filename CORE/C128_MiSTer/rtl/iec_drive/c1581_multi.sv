@@ -35,7 +35,7 @@ module c1581_multi #(parameter PARPORT=1,DRIVES=2)
 	// parallel bus
 	input   [7:0] par_data_i,
 	input         par_stb_i,
-	output  [7:0] par_data_o,
+	output logic [7:0] par_data_o,
 	output        par_stb_o,
 
 	//clk_sys ports

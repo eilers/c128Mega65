@@ -24,8 +24,11 @@ module iec_drive #(parameter PARPORT=1,DRIVES=2)
 
    output  [N:0] led,
    output        disk_ready,
-   output  [7:0] out_track[NDR],
+
    output  [N:0] out_we,
+
+   output logic [7:0] out_track[NDR],
+   output logic [N:0] out_we,
 
    input         iec_atn_i,
    input         iec_data_i,
@@ -44,14 +47,14 @@ module iec_drive #(parameter PARPORT=1,DRIVES=2)
    //clk_sys ports
    input         clk_sys,
 
-   output [31:0] sd_lba[NDR],
-   output  [5:0] sd_blk_cnt[NDR],
-   output  [N:0] sd_rd,
-   output  [N:0] sd_wr,
+   output logic [31:0] sd_lba[NDR],
+   output logic  [5:0] sd_blk_cnt[NDR],
+   output logic  [N:0] sd_rd,
+   output logic  [N:0] sd_wr,
    input   [N:0] sd_ack,
    input  [15:0] sd_buff_addr,
    input   [7:0] sd_buff_dout,
-   output  [7:0] sd_buff_din[NDR],
+   output logic  [7:0] sd_buff_din[NDR],
    input         sd_buff_wr,
 
    // input  [31:0] rom_file_ext,
@@ -65,10 +68,13 @@ module iec_drive #(parameter PARPORT=1,DRIVES=2)
 localparam NDR = (DRIVES < 1) ? 1 : (DRIVES > 4) ? 4 : DRIVES;
 localparam N   = NDR - 1;
 
-reg [N:0] img_ds;        // dual sided disk image (d71/g71)
-reg [N:0] img_gcr;       // gcr enabled disk image (d64/g64/d71/g71)
-reg [N:0] img_mfm;       // mfm enabled disk image (g64/g71)
-reg [N:0] img_hd;        // HD (3.5") disk image (d81)
+// MEGA65 port: these power up as 0 on a Xilinx FPGA, but without an initialiser xsim
+// starts them at X. That X reaches the combinationally cross-coupled IEC lines of the
+// two drive cores and the head logic, where it never resolves and stalls the simulator.
+reg [N:0] img_ds  = 0;   // dual sided disk image (d71/g71)
+reg [N:0] img_gcr = 0;   // gcr enabled disk image (d64/g64/d71/g71)
+reg [N:0] img_mfm = 0;   // mfm enabled disk image (g64/g71)
+reg [N:0] img_hd  = 0;   // HD (3.5") disk image (d81)
 reg [3:0] rom_bank[NDR]; // ROM bank selector
 always @(posedge clk_sys)
    for(int i=0; i<NDR; i=i+1) begin
@@ -83,7 +89,8 @@ always @(posedge clk_sys)
          rom_bank[i] = 4'((1*NDR)+i);  // 1571 ROM
    end
 
-wire  [14:0] mem_a[NDR], rom_addr_d[NDR];
+logic [14:0] mem_a[NDR];
+wire  [14:0] rom_addr_d[NDR];
 wire  [18:0] rom_io_addr[NDR+1];
 wire   [7:0] rom_do[NDR];
 wire   [N:0] empty8k;
@@ -149,6 +156,11 @@ always_comb for(int i=0; i<NDR; i=i+1) begin
    out_track[i]   = (img_hd[i] ? c1581_out_track[i]    : c157x_out_track[i]    );
    out_we[i]      = (img_hd[i] ? c1581_out_we[i]       : c157x_out_we[i]       );
 end
+
+// MEGA65 port: the c1581_* IEC nets are declared here, ahead of the c157x_multi
+// instance that merges them into its inputs, so that Vivado resolves them to these
+// declarations instead of creating implicit nets at the port connections.
+wire        c1581_iec_data, c1581_iec_clk, c1581_iec_fclk, c1581_stb_o;
 
 wire        c157x_iec_data, c157x_iec_clk, c157x_iec_fclk, c157x_stb_o;
 wire  [7:0] c157x_par_o;
@@ -216,7 +228,6 @@ c157x_multi #(.PARPORT(PARPORT), .DRIVES(DRIVES)) c157x
 );
 
 
-wire        c1581_iec_data, c1581_iec_clk, c1581_iec_fclk, c1581_stb_o;
 wire  [7:0] c1581_par_o;
 wire  [N:0] c1581_led;
 wire  [7:0] c1581_sd_buff_dout[NDR];
@@ -268,7 +279,7 @@ c1581_multi #(.PARPORT(PARPORT), .DRIVES(DRIVES)) c1581
    .sd_buff_din(c1581_sd_buff_dout),
    .sd_buff_wr(sd_buff_wr),
    .out_track(c1581_out_track),
-   .out_we(c1581_out_we)
+   .out_we(c1581_out_we),
 );
 
 endmodule

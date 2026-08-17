@@ -88,6 +88,14 @@ wire [23:0] cpu_a;
 wire  [7:0] cpu_do;
 wire        cpu_rw;
 
+// MEGA65 port: declared up here because a port connection below names them before
+// their original declaration site, which made Vivado create 1-bit implicit nets.
+// track_fdc is the one that hurt: truncating it to a single bit left the drive
+// unable to report any track number but 0 or 1.
+wire        cia_irq_n;
+wire        via_irq;
+wire  [7:0] track_fdc;
+
 T65 cpu
 (
    .clk(clk),
@@ -169,7 +177,6 @@ mos6526_8520 cia
 
 
 wire [7:0] via_do;
-wire       via_irq;
 wire [7:0] via_pa_o;
 wire [7:0] via_pa_oe;
 wire       via_ca2_o;
@@ -237,6 +244,7 @@ wire floppy_ready;
 c1581_fdc1772 #(.IMG_TYPE(1), .EXT_MOTOR(1), .FD_NUM(1)) fdc
 (
    .clkcpu(clk),
+   .clk_sys(clk_sys),
    .clk8m_en(wd_ce),
 
    .floppy_drive(1'b0),
@@ -265,7 +273,8 @@ c1581_fdc1772 #(.IMG_TYPE(1), .EXT_MOTOR(1), .FD_NUM(1)) fdc
    .sd_din(sd_buff_din),
    .sd_dout_strobe(sd_buff_wr),
    .out_track(track_fdc),
-   .out_we(out_we)
+   .out_we(out_we),
+
 );
 
 wire [7:0] track_fdc;

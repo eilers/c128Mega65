@@ -18,6 +18,13 @@
 // Extended with support for 157x models by Erik Scheffers
 //
 //-------------------------------------------------------------------------------
+//
+// Adjusted for the MEGA65 port (Vivado instead of Quartus):
+//
+//   reset_drv was declared as a wire and then assigned inside an always block.
+//   Quartus accepts that, Vivado rejects it outright, so it is a reg now.
+//
+//-------------------------------------------------------------------------------
 
 module c157x_drv #(parameter DRIVE)
 (
@@ -105,7 +112,7 @@ always @(posedge clk) begin
 end
 
 // reset drive when drive mode changes
-wire reset_drv;
+reg reset_drv;
 always @(posedge clk) begin
 	reg [1:0] last_drv_mode;
 	reg [3:0] reset_hold;
@@ -134,6 +141,17 @@ wire       mtr;
 wire       act;
 wire       fdc_busy;
 wire [1:0] freq;
+
+// MEGA65 port: everything from here down to save_track is declared before the three
+// instances that follow, because a port connection naming an identifier ahead of its
+// declaration makes Vivado create a 1-bit implicit net instead. track is the one that
+// mattered: as a single bit it left the head permanently reporting track 0.
+wire       hinit, hclk, hf, ht, index, we, write, sd_update;
+wire       side;
+wire       busy;
+reg  [7:0] track;
+reg        save_track = 0;
+wire       drive_enable = disk_present & mtr;
 
 c157x_logic #(.DRIVE(DRIVE)) c157x_logic
 (
@@ -259,9 +277,6 @@ iecdrv_sync busy_sync(clk, busy, sd_busy);
 // 	.sd_buff_wr(sd_ack & sd_buff_wr /*& gcr_mode*/)
 // );
 
-wire hinit, hclk, hf, ht, index, we, write, sd_update;
-wire drive_enable = disk_present & mtr;
-
 c157x_heads #(.DRIVE(DRIVE), .TRACK_BUF_LEN(SD_BLK_CNT_157X*256)) c157x_heads
 (
 	.clk(clk),
@@ -294,8 +309,6 @@ c157x_heads #(.DRIVE(DRIVE), .TRACK_BUF_LEN(SD_BLK_CNT_157X*256)) c157x_heads
 	.sd_update(sd_update)
 );
 
-wire busy;
-
 c157x_track c157x_track
 (
 	.clk(clk_sys),
@@ -314,9 +327,6 @@ c157x_track c157x_track
 	.busy(busy)
 );
 
-wire      side;
-reg [7:0] track;
-reg       save_track = 0;
 reg       track_modified = 0;
 reg [6:0] track_num = 36;
 reg [1:0] move = 0, stp_old = 0;

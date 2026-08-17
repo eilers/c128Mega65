@@ -2,6 +2,10 @@
 //
 // Based on fdc1772.v by Till Harbaum <till@harbaum.org>,
 // modified by Erik Scheffers to process externally generated MFM bit stream
+//
+// Adjusted for the MEGA65 port (Vivado instead of Quartus): the hinit output was
+// declared as a plain wire and then assigned inside an always block. Quartus accepts
+// that, Vivado rejects it outright, so it is an output reg now.
 
 module c157x_fdc1772
 (
@@ -23,7 +27,7 @@ module c157x_fdc1772
     output           busy,
 
     // signals to/from heads
-    output           hinit,
+    output reg       hinit,
     input            hclk,
     output           ht,
     input            hf,

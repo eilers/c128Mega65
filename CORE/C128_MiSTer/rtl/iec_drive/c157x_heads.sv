@@ -7,6 +7,12 @@
 // Changes for 157x by Erik Scheffers
 //
 //-------------------------------------------------------------------------------
+//
+// Adjusted for the MEGA65 port (Vivado instead of Quartus): hclk, hf and index were
+// declared as plain wire outputs and then assigned inside always blocks. Quartus accepts
+// that, Vivado rejects it outright, so they are output regs now.
+//
+//-------------------------------------------------------------------------------
 
 module c157x_heads #(parameter DRIVE, parameter TRACK_BUF_LEN)
 (
@@ -26,11 +32,11 @@ module c157x_heads #(parameter DRIVE, parameter TRACK_BUF_LEN)
 	output       write,    // Write mode
 
 	input	     hinit,	
-	output       hclk,
-	output       hf,       // signal from head
+	output reg   hclk,
+	output reg   hf,       // signal from head
 	input        ht,       // signal to head
 
-	output       index,
+	output reg   index,
 	
 	input        sd_busy,
 	input        sd_clk,

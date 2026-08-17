@@ -1,3 +1,17 @@
+/*
+   Adjusted for the MEGA65 port (Vivado instead of Quartus):
+
+   1. iecdrv_mem lost its "ram_init_file" attribute. It is Quartus-only and every
+      call site that passed an INITFILE is commented out upstream.
+
+   2. iecdrv_trackmem was an altsyncram instance, which Vivado cannot synthesize.
+      It is now inferred block RAM using the same shape as iecdrv_mem above.
+      Both take address, data and wren on one edge, the way altsyncram registers
+      them: every caller strobes wren for a single cycle, so a pipeline stage that
+      does not carry the data along stores the wrong byte. See CORE/sim/tb_iecdrv_mem.vhd.
+
+   3. iecdrv_sync needs a set_false_path entry in CORE.xdc for every instantiation.
+*/
 
 module iecdrv_sync #(parameter WIDTH = 1) 
 (
@@ -55,37 +69,28 @@ module iecdrv_mem #(parameter DATAWIDTH, ADDRWIDTH, INITFILE=" ")
 	output reg [DATAWIDTH-1:0] q_b
 );
 
-(* ram_init_file = INITFILE *) reg [DATAWIDTH-1:0] ram[1<<ADDRWIDTH];
-
-reg                 wren_a_d;
-reg [ADDRWIDTH-1:0] address_a_d;
-always @(posedge clock_a) begin
-	wren_a_d    <= wren_a;
-	address_a_d <= address_a;
-end
+// Every caller drives wren_a from a single-cycle strobe (ena_r or ph2_f) while the CPU
+// holds address and data for the whole ph2 cycle, so address, data and wren have to be
+// consumed on the same edge. Registering the address ahead of the data writes the byte
+// that follows the strobe, which corrupts the drive's work RAM: the DOS then still runs
+// from ROM and answers ATN, but has no status message, no directory and no buffers.
+reg [DATAWIDTH-1:0] ram[1<<ADDRWIDTH];
 
 always @(posedge clock_a) begin
-	if(wren_a_d) begin
-		ram[address_a_d] <= data_a;
+	if(wren_a) begin
+		ram[address_a] <= data_a;
 		q_a <= data_a;
 	end else begin
-		q_a <= ram[address_a_d];
+		q_a <= ram[address_a];
 	end
 end
 
-reg                 wren_b_d;
-reg [ADDRWIDTH-1:0] address_b_d;
 always @(posedge clock_b) begin
-	wren_b_d    <= wren_b;
-	address_b_d <= address_b;
-end
-
-always @(posedge clock_b) begin
-	if(wren_b_d) begin
-		ram[address_b_d] <= data_b;
+	if(wren_b) begin
+		ram[address_b] <= data_b;
 		q_b <= data_b;
 	end else begin
-		q_b <= ram[address_b_d];
+		q_b <= ram[address_b];
 	end
 end
 
@@ -106,51 +111,30 @@ module iecdrv_trackmem #(parameter ADDRWIDTH, parameter WORDS, parameter DATAWID
 	output reg [DATAWIDTH-1:0] q_b
 );
 
-altsyncram altsyncram_component (
-	.clock0 (clock_a),
-	.address_a (address_a),
-	.addressstall_a (1'b0),
-	.byteena_a (1'b1),
-	.data_a (data_a),
-	.rden_a (1'b1),
-	.wren_a (wren_a),
-	.q_a (q_a),
+// The array covers the whole address space rather than just WORDS entries, because
+// callers read past the end of the track and mask the result off afterwards. On a
+// Xilinx BRAM both depths cost the same number of tiles.
+//
+// Same single-edge timing as iecdrv_mem above: the head side writes one byte per
+// bit-cell with a single-cycle buff_we, so its data must not lag its address either.
+reg [DATAWIDTH-1:0] ram[1<<ADDRWIDTH];
 
-	.clock1 (clock_b),
-	.address_b (address_b),
-	.addressstall_b (1'b0),
-	.byteena_b (1'b1),
-	.data_b (data_b),
-	.rden_b (1'b1),
-	.wren_b (wren_b),
-	.q_b (q_b)
-);
+always @(posedge clock_a) begin
+	if(wren_a) begin
+		ram[address_a] <= data_a;
+		q_a <= data_a;
+	end else begin
+		q_a <= ram[address_a];
+	end
+end
 
-defparam
-	altsyncram_component.byte_size = DATAWIDTH,
-	altsyncram_component.intended_device_family = "Cyclone V",
-	altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
-	altsyncram_component.lpm_type = "altsyncram",
-
-	altsyncram_component.operation_mode = "BIDIR_DUAL_PORT",
-	altsyncram_component.power_up_uninitialized = "FALSE",
-
-	altsyncram_component.clock_enable_input_a = "BYPASS",
-	altsyncram_component.clock_enable_output_a = "BYPASS",
-	altsyncram_component.outdata_reg_a = "CLOCK0",
-	altsyncram_component.outdata_aclr_a = "NONE",
-	altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
-	altsyncram_component.widthad_a = ADDRWIDTH,
-	altsyncram_component.width_a = DATAWIDTH,
-	altsyncram_component.numwords_a = WORDS,
-
-	altsyncram_component.clock_enable_input_b = "BYPASS",
-	altsyncram_component.clock_enable_output_b = "BYPASS",
-	altsyncram_component.outdata_reg_b = "CLOCK1",
-	altsyncram_component.outdata_aclr_b = "NONE",
-	altsyncram_component.read_during_write_mode_port_b = "NEW_DATA_NO_NBE_READ",
-	altsyncram_component.widthad_b = ADDRWIDTH,
-	altsyncram_component.width_b = DATAWIDTH,
-	altsyncram_component.numwords_b = WORDS;
+always @(posedge clock_b) begin
+	if(wren_b) begin
+		ram[address_b] <= data_b;
+		q_b <= data_b;
+	end else begin
+		q_b <= ram[address_b];
+	end
+end
 
 endmodule

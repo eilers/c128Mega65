@@ -44,7 +44,7 @@ module c157x_multi #(parameter PARPORT=1,DRIVES=2)
 	// parallel bus
 	input   [7:0] par_data_i,
 	input         par_stb_i,
-	output  [7:0] par_data_o,
+	output logic [7:0] par_data_o,
 	output        par_stb_o,
 
 	//clk_sys ports
@@ -198,7 +198,7 @@ iecdrv_reset_filter #(NDR) rst_flt_clk  (clk, reset_drv, iec_clk_d, iec_clk_o);
 iecdrv_reset_filter #(NDR) rst_flt_data (clk, reset_drv, iec_data_d, iec_data_o);
 iecdrv_reset_filter #(NDR) rst_flt_fclk (clk, reset_drv, iec_fclk_d, iec_fclk_o);
 
-wire [N:0] ext_en;
+logic [N:0] ext_en;
 wire [7:0] par_data_d[NDR];
 wire [N:0] par_stb_d;
 assign     par_stb_o = &{par_stb_d | ~ext_en};

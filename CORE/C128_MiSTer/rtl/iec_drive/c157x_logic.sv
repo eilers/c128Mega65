@@ -106,6 +106,15 @@ wire  [7:0] cpu_do;
 wire        cpu_rw;
 wire        cpu_irq_n = ~(via1_irq | via2_irq) & cia_irq_n;
 
+// MEGA65 port: the 64H156 signals below are declared here rather than next to their
+// instance further down, because the port connections in this file name them first
+// and Vivado answers that by creating 1-bit implicit nets. gcr_do is the byte the
+// read head delivers to VIA2 port A, so truncating it to one bit meant the 1541/1571
+// could never read anything off a disk.
+wire [7:0] gcr_do;
+wire       sync_n, byte_n, dgcr_we;
+wire       gcr_ht, gcr_hinit;
+
 T65 cpu
 (
 	.mode(2'b00),
@@ -351,10 +360,6 @@ assign     ht = gcr_ht | (mfm_ht & |drv_mode);
 assign     hinit = gcr_hinit | (mfm_hinit & |drv_mode);
 
 // 64H156 1571-U6 signals
-
-wire [7:0] gcr_do;
-wire       sync_n, byte_n, dgcr_we;
-wire       gcr_ht, gcr_hinit;
 
 c157x_h156 c157x_h156
 (

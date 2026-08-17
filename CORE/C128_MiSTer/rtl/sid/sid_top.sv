@@ -225,6 +225,15 @@ endgenerate
 wire [15:0] F0;
 wire n = DUAL && state[3];
 
+// MEGA65 port: declared ahead of the instance below, because naming them in a port
+// connection first makes Vivado create 1-bit implicit nets, which truncated the
+// combined-waveform table outputs to a single bit.
+wire  [7:0] f__st_out;
+wire  [7:0] f_p_t_out;
+wire  [7:0] f_ps__out;
+wire  [7:0] f_pst_out;
+reg  [11:0] f_acc_t;
+
 sid_tables #(MULTI_FILTERS) sid_tables
 (
 	.clock(clk),
@@ -246,11 +255,6 @@ sid_tables #(MULTI_FILTERS) sid_tables
 	.ld_wr(ld_wr)
 );
 
-wire  [7:0] f__st_out;
-wire  [7:0] f_p_t_out;
-wire  [7:0] f_ps__out;
-wire  [7:0] f_pst_out;
-reg  [11:0] f_acc_t;
 reg   [3:0] state;
 
 always @(posedge clk) begin

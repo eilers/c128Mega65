@@ -20,9 +20,14 @@ module iecdrv_rom
 
 assign rom_req = ~(reset | rom_loading | rom_valid);
 
-always @(posedge clk_sys) begin
-   reg [3:0] rom_bank_n = 0;
+// MEGA65 port: rom_bank_n was declared inside the always block below. Vivado synthesis
+// gives such a declaration static lifetime and infers a register (rom_bank_n_reg), but
+// xsim re-initialises it on every invocation, so the "rom_bank != rom_bank_n" compare
+// below never settles and rom_addr is held at 0 forever for any bank other than 0.
+// Hoisting it to module scope makes both agree and costs nothing in hardware.
+reg [3:0] rom_bank_n = 0;
 
+always @(posedge clk_sys) begin
    if (rom_loading)
       rom_valid <= 0;
 
@@ -49,43 +54,40 @@ always @(posedge clk_sys) begin
       empty8k <= 0;
 end
 
-altsyncram altsyncram_component (
-   .clock0 (clk_sys),
-   .address_a (rom_addr),
-   .addressstall_a (1'b0),
-   .byteena_a (1'b1),
-   .data_a (rom_data),
-   .wren_a (rom_wr & rom_req),
+// MEGA65 port: the Quartus altsyncram instance is replaced by MiSTer2MEGA65's
+// dualport_2clk_ram, which Vivado infers as a true dual port block RAM.
+// altsyncram registered both its inputs and, via outdata_reg, its outputs, so the
+// extra register stage on each port here preserves the original two-cycle latency.
 
-   .clock1 (clk),
-   .address_b (mem_a),
-   .addressstall_b (1'b0),
-   .byteena_b (1'b1),
-   .rden_b (~reset & rom_valid),
-   .q_b (rom_do)
+reg        rom_wr_d;
+reg [14:0] rom_addr_d;
+reg  [7:0] rom_data_d;
+always @(posedge clk_sys) begin
+   rom_wr_d   <= rom_wr & rom_req;
+   rom_addr_d <= rom_addr;
+   rom_data_d <= rom_data;
+end
+
+reg [14:0] mem_a_d;
+always @(posedge clk) mem_a_d <= mem_a;
+
+dualport_2clk_ram #(
+   .ADDR_WIDTH(15),
+   .DATA_WIDTH(8)
+) rom (
+   .clock_a(clk_sys),
+   .address_a(rom_addr_d),
+   .do_latch_addr_a(1'b0),
+   .data_a(rom_data_d),
+   .wren_a(rom_wr_d),
+   .q_a(),
+
+   .clock_b(clk),
+   .address_b(mem_a_d),
+   .do_latch_addr_b(1'b0),
+   .data_b(8'h00),
+   .wren_b(1'b0),
+   .q_b(rom_do)
 );
-
-defparam
-   altsyncram_component.byte_size = 8,
-   altsyncram_component.intended_device_family = "Cyclone V",
-   altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
-   altsyncram_component.lpm_type = "altsyncram",
-
-   altsyncram_component.operation_mode = "DUAL_PORT",
-   altsyncram_component.power_up_uninitialized = "FALSE",
-
-   altsyncram_component.clock_enable_input_a = "BYPASS",
-   altsyncram_component.clock_enable_output_a = "BYPASS",
-   altsyncram_component.outdata_reg_a = "CLOCK0",
-   altsyncram_component.outdata_aclr_a = "NONE",
-   altsyncram_component.widthad_a = 15,
-   altsyncram_component.width_a = 8,
-
-   altsyncram_component.clock_enable_input_b = "BYPASS",
-   altsyncram_component.clock_enable_output_b = "BYPASS",
-   altsyncram_component.outdata_reg_b = "CLOCK1",
-   altsyncram_component.outdata_aclr_b = "NONE",
-   altsyncram_component.widthad_b = 15,
-   altsyncram_component.width_b = 8;
 
 endmodule

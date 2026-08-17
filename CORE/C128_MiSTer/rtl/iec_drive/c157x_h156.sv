@@ -7,6 +7,12 @@
 // Changes for 157x by Erik Scheffers
 //
 //-------------------------------------------------------------------------------
+//
+// Adjusted for the MEGA65 port (Vivado instead of Quartus): hinit, dout and byte_n were
+// declared as plain wire outputs and then assigned inside always blocks. Quartus accepts
+// that, Vivado rejects it outright, so they are output regs now.
+//
+//-------------------------------------------------------------------------------
 
 module c157x_h156
 (
@@ -15,18 +21,18 @@ module c157x_h156
 	input        enable,
 	input        mhz1_2,
 	
-	output		 hinit,
+	output reg   hinit,
 	input        hclk,
 	input        hf,
 	output       ht,
 	input        mode,
 
 	input  [7:0] din,
-	output [7:0] dout,
+	output reg [7:0] dout,
 	input        ted,
 	input        soe,
 	output       sync_n,
-	output       byte_n
+	output reg   byte_n
 );
 
 assign     sync_n     = ~enable | ~mode | ~&shcur;
