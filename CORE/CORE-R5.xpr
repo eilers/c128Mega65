@@ -57,7 +57,7 @@
     <Option Name="IPUserFilesDir" Val="$PIPUSERFILESDIR"/>
     <Option Name="IPStaticSourceDir" Val="$PIPUSERFILESDIR/ipstatic"/>
     <Option Name="EnableBDX" Val="FALSE"/>
-    <Option Name="WTXSimLaunchSim" Val="140"/>
+    <Option Name="WTXSimLaunchSim" Val="151"/>
     <Option Name="WTModelSimLaunchSim" Val="0"/>
     <Option Name="WTQuestaLaunchSim" Val="0"/>
     <Option Name="WTIesLaunchSim" Val="0"/>
@@ -222,6 +222,13 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/vhdl/video_sync_c128.sv">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/C128_MiSTer/rtl/video_vicIIe_jb.sv">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -337,6 +344,12 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/../M2M/vhdl/av_pipeline/video_modes_pkg.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/../M2M/vhdl/av_pipeline/vga_recover_counters.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -386,12 +399,6 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../M2M/QNICE/vhdl/tools.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../M2M/vhdl/av_pipeline/video_modes_pkg.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
@@ -625,12 +632,6 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/C128_MiSTer/rtl/fpga64_keyboard.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
       <File Path="$PPRDIR/C128_MiSTer/rtl/fpga64_rgbcolor.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -835,7 +836,25 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/vhdl/keyboard.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../M2M/vhdl/vdrives.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/vhdl/main.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/vhdl/drive_rom_server.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
@@ -865,7 +884,7 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/vhdl/keyboard.vhd">
+      <File Path="$PPRDIR/C128_MiSTer/rtl/fpga64_keyboard.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="AutoDisabled" Val="1"/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -928,13 +947,6 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../M2M/vhdl/vdrives.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="AutoDisabled" Val="1"/>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
       <File Path="$PPRDIR/sim/sim_support_pkg.vhd">
         <FileInfo>
           <Attr Name="AutoDisabled" Val="1"/>
@@ -946,6 +958,122 @@
         <FileInfo>
           <Attr Name="AutoDisabled" Val="1"/>
           <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/vhdl/cartridge_heuristics.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/vhdl/mount_buf_wrapper.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/iec_drive.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/iecdrv_rom.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/iecdrv_via6522.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c157x_multi.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c157x_drv.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c157x_logic.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c157x_h156.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c157x_heads.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c157x_track.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c157x_fdc1772.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c1581_multi.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c1581_drv.sv">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/c1581_fdc1772.v">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/C128_MiSTer/rtl/iec_drive/floppy.v">
+        <FileInfo SFType="SVerilog">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>

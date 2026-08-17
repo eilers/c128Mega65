@@ -45,3 +45,46 @@ set_property CLOCK_DEDICATED_ROUTE BACKBONE [get_nets -quiet clk_i_IBUF]
 set_property SEVERITY Warning [get_drc_checks RTRES-1]
 
 
+## ---------------------------------------------------------------------------
+## qnice_clk <-> main_clk: asynchronous, every crossing handled in the RTL
+## ---------------------------------------------------------------------------
+## These two clocks come from different MMCMs and have no phase relationship, so STA
+## computes a meaningless requirement for the crossings between them (0.088 ns for the
+## pair as generated here) and reports them as violations no matter how the design is
+## placed. Every crossing is synchronized in the source, so cut the pair in both
+## directions. This is what the C64 MEGA65 core does for the identical drive hierarchy.
+##
+## The crossings this covers, and why each is safe:
+##
+##   M2M framework   xpm_cdc_* instances (including i_cdc_main2qnice_rst in mega65.vhd,
+##                   which is what makes the drive-ROM server wait for the core reset)
+##                   and ascal's quasi-static mode register.
+##
+##   vdrives.vhd     Its own xpm_cdc chains towards the core, plus the MiSTer SD
+##                   handshake: sd_lba/sd_blk_cnt are stable long before sd_rd/sd_wr
+##                   rise and sd_ack stays high for the whole transfer.
+##
+##   iec_drive.sv    img_ds/img_gcr/img_mfm/img_hd and rom_bank change only on a
+##                   (re-)mount, hundreds of milliseconds before anything reads them.
+##
+##   c157x_track     Four iecdrv_sync 2-FF chains inbound (track, change, save, reset)
+##                   and busy_sync outbound. A 2-FF synchronizer is by construction a
+##                   path that cannot meet setup.
+##
+##   c157x_heads     track_len and the bit rate derived from VIA2's PCR are shared
+##                   between both domains without a synchronizer, but they only move
+##                   while sd_busy gates the head machine, i.e. during a track load.
+##
+##   c1581_fdc1772   SD FSM and sd_lba latch on clk_sys (qnice_clk); request/done
+##                   cross via iecdrv_sync. FIFO is dual-clock (clk_sys / main_clk).
+##
+## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
+## logic of all of the above is still fully analysed.
+##
+## This deliberately replaces the earlier per-instance exceptions. Those matched cells by
+## hierarchical name and went silently dead the moment iec_drive moved into a generate
+## block, which is precisely the failure mode a name-based exception invites.
+set_false_path -from [get_clocks qnice_clk] -to [get_clocks main_clk]
+set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
+
+

@@ -80,6 +80,33 @@ that it exists before starting xsim.
 Copy both files to the MEGA65 SD card before testing on hardware. Without them
 the core cannot boot correctly.
 
+### Saved settings file
+
+The on-screen menu only persists its settings if a file of exactly `OPTM_SIZE`
+bytes exists at the `CFG_FILE` path from `CORE/vhdl/config.vhd`. The filename
+carries `CORE_VERSION`, so it changes with every release:
+
+| File | Size | SD card path |
+|------|------|--------------|
+| `CORE/m2m-rom/c128mega65-<version>.cfg` | one byte per menu line | `/c128/c128mega65-<version>.cfg` |
+
+Regenerate it whenever `OPTM_SIZE` or `CORE_VERSION` changes, and delete the
+file belonging to the previous version:
+
+```bash
+cd M2M/tools
+./make_config.sh ../../CORE/m2m-rom/c128mega65-<version>.cfg auto
+```
+
+`build_release.sh` ships this file with the release zip.
+
+### Disk images
+
+Disk images are mounted from `/c128` on the SD card. The core accepts `.D64`
+(1541), `.D71` (1571) and `.D81` (1581) for both drive 8 and drive 9; the
+mounted image decides whether that drive behaves as a 1581, while the menu
+chooses between 1541 and 1571 for the 5.25" formats.
+
 ### Vivado
 
 Scripts invoke Vivado through the Flatpak package `com.github.corna.Vivado`,
@@ -120,10 +147,33 @@ cd CORE/scripts
    checked-in project file is read-only).
 2. Normalizes SystemVerilog file types (Vivado 2022 compatibility).
 3. Runs synthesis (`synth_1`, 14 jobs).
-4. Runs implementation through bitstream generation (`impl_1`, 14 jobs).
+4. Rejects the run if synthesis created any implicit net (see below).
+5. Runs implementation through bitstream generation (`impl_1`, 14 jobs).
 
 A full build typically takes on the order of **30–60 minutes**, depending on
 the machine.
+
+### Why the build fails on implicit nets
+
+Verilog creates a one-bit net when a port connection names an identifier that has
+not been declared yet, and Vivado then ignores the wider declaration further down
+the file, reporting only `WARNING: [Synth 8-8895] '<name>' is already implicitly
+declared`. An eight-bit signal silently becomes one bit, and the design still
+builds and mostly runs.
+
+This cost several days of debugging on the virtual drives. It is how the 1581 lost
+the seek target in its FDC data register, so the drive could only ever reach track
+0 and 1 while looking healthy in every other respect; how the 1541/1571 lost the
+byte its read head hands to VIA2 and its track number; and how the SID lost its
+combined waveforms. Quartus resolves these references against module scope, so
+none of it is visible upstream on MiSTer.
+
+No simulation can catch this, which is the important part: xsim resolves names
+against the whole scope, so the testbenches see correct full-width signals and
+pass while the bitstream is broken. The synthesis log is the only place the
+problem shows up, so the build now treats it as a hard error, and
+`rtl_elab_check.tcl` promotes the same message with `set_msg_config` for a check
+that takes about two minutes instead of a full build.
 
 ### Output
 
@@ -155,11 +205,35 @@ CORE/scripts/vivado.sh -mode batch \
   -tclargs CORE/CORE-R6-vivado2022.xpr
 ```
 
+### Inspecting clock-domain-crossing violations
+
+The timing summary only prints the ten worst paths per clock pair, which is not
+enough to tell a handful of genuinely unconstrained crossings from hundreds of
+paths belonging to a single missing exception. To list *every* violating path
+between two clocks, from an already routed checkpoint:
+
+```bash
+CORE/scripts/vivado.sh -mode batch \
+  -source CORE/scripts/report_cdc_violations.tcl \
+  -tclargs CORE/CORE-R6-vivado2022.runs/impl_1/mega65_r6_routed.dcp qnice_clk main_clk
+```
+
+Grouping the resulting `PATH` lines by source and destination module usually
+points straight at the module whose exception is missing or no longer matches.
+Note that a `set_false_path` naming cells by hierarchical path fails *silently*
+when a module moves — Vivado only prints a critical warning that is easy to lose
+in a build log. Grep the log for `12-4739` after changing the hierarchy.
+
 ## Running simulations
 
-The repository ships one focused simulation: **C128 boot path** (`CORE/sim/tb_c128_boot.vhd`).
-It instantiates `main` with BRAM-backed RAM/ROM preloaded from `boot0.rom` — no
-M2M menu, HDMI, or SD-card model.
+The repository ships four focused simulations:
+
+| Simulation | Testbench | Covers |
+|------------|-----------|--------|
+| C128 boot path | `CORE/sim/tb_c128_boot.vhd` | `main` with BRAM-backed RAM/ROM preloaded from `boot0.rom` — no M2M menu, HDMI, or SD-card model |
+| Drive DOS ROM handover | `CORE/sim/tb_drive_rom.vhd` | `drive_rom_server.vhd` feeding the real `iecdrv_rom.sv`, byte for byte, across a bank switch |
+| Drive RAM | `CORE/sim/tb_iecdrv_mem.vhd` | `iecdrv_mem` and `iecdrv_trackmem` storing what the drive CPU and the head actually wrote |
+| 1581 drive ready | `CORE/sim/tb_c1581_ready.sv` | `c1581_fdc1772.v` plus `floppy.v` from mounting a D81 through spin-up to the first `sd_rd` |
 
 ### Boot simulation
 
@@ -179,6 +253,107 @@ Exit codes:
 |------|---------|
 | `0` | Gate passed — safe to proceed to hardware flash |
 | non-zero | Gate failed — do not flash until the boot path is fixed |
+
+### Drive DOS ROM simulation
+
+```bash
+CORE/scripts/vivado.sh -mode batch \
+  -source CORE/scripts/run_drive_rom_sim.tcl \
+  -tclargs CORE/CORE-R6-vivado2022.xpr
+```
+
+Run this after touching `drive_rom_server.vhd`, the drive-ROM block RAM in
+`mega65.vhd`, or `iecdrv_rom.sv`. It loads two banks of a synthetic `boot1.rom`
+through the real pull handshake and compares all 65536 bytes, then checks that
+switching the bank (what changing the drive model in the menu does) invalidates
+the old image.
+
+This matters because a broken handover is completely silent: `iecdrv_rom` raises
+`rom_valid` after 32768 write strobes regardless of *which* bytes arrived, so the
+drive leaves reset and executes garbage. The only symptom on hardware is
+"device not present", with the mount itself appearing to work.
+
+### Drive RAM simulation
+
+```bash
+CORE/scripts/vivado.sh -mode batch \
+  -source CORE/scripts/run_drive_mem_sim.tcl \
+  -tclargs CORE/CORE-R6-vivado2022.xpr
+```
+
+Run this after touching `iecdrv_misc.sv`. Both `iecdrv_mem` (the drives' work RAM)
+and `iecdrv_trackmem` (the GCR track buffer) were `altsyncram` instances upstream
+and had to be re-inferred for Vivado, and there is one way to get that wrong that
+neither synthesis nor a boot test will show you: every caller strobes `wren` for a
+single cycle (`ena_r` and `ph2_f` for the CPU, `buff_we` per bit-cell for the head)
+while address and data are only valid during that strobe. A version that registers
+the address a cycle ahead of the data stores the byte that *follows* the write.
+
+The drive then still boots — its DOS runs from ROM, so it answers ATN and does not
+report "device not present" — but every RAM-held variable is wrong. On hardware that
+looks like a disk-data problem: `DS$` comes back empty, `DIRECTORY` produces no
+output, and the drive stalls the IEC bus so a real drive on the physical port stops
+working too. The testbench drives the same bus pattern the 6502 does, including the
+bus activity right after the strobe, and writes the array twice (ascending, then
+descending) so that an off-by-one address cannot look self-consistent.
+
+Exit code `0` means all bytes matched; non-zero means the image was corrupted or
+the handshake stalled.
+
+### 1581 drive ready and sector data path simulation
+
+```bash
+CORE/scripts/vivado.sh -mode batch \
+  -source CORE/scripts/run_c1581_ready_sim.tcl \
+  -tclargs CORE/CORE-R6-vivado2022.xpr
+```
+
+Run this after touching `c1581_fdc1772.v`, `floppy.v`, or the drive clock enables in
+`main.vhd`. It mounts a D81-sized image, checks the geometry the FDC derives from the
+image size, turns the motor on and waits for `floppy_ready`. It then issues a READ SECTOR
+and follows the sector the whole way: the request must appear on `sd_rd` with the right
+LBA, all 512 bytes must land in the sector buffer, and the drive CPU must be able to fetch
+those same 512 bytes back out of the data register with no `RECORD NOT FOUND` and no lost
+data. In short, it reproduces both the chain the DOS walks before it can read a byte and
+the path that byte then takes.
+
+The host side of it is modelled on what the QNICE Shell really does rather than on what
+the protocol comment says: it runs on a 50 MHz clock, spends many cycles per register
+store, writes the buffer address before the data, and — like `HANDLE_DRV_RD` — never
+lowers the write enable between bytes. That last detail matters, because it is why the
+write strobe cannot be used to count how many bytes arrived.
+
+This exists because that chain broke in a way no boot test could show. The generate
+block instantiating the `floppy` models connects `.select(fd_any && fdn == i)` and
+`.motor_on(fd_motor)`, but all three signals are declared *below* it in the upstream
+source. Quartus binds those to module scope; Verilog instead creates an implicit net
+where an undeclared identifier appears in a port connection, and inside a generate block
+that net is local to the block. Vivado said so — `Net fdd[0].fd_any ... does not have
+driver` — but only as a warning among hundreds. The drive booted, answered the IEC bus
+and reported the right DOS version; it simply could never spin its disk, so every
+command came back `74, DRIVE NOT READY`.
+
+Three things had to change before the module could be simulated at all. `fdn` was driven
+from an `always` block with neither a sensitivity list nor a timing control, which
+synthesis reads as combinational logic but a simulator has to execute as an infinite
+zero-delay loop — xsim hangs at time zero. The registers in both files had no
+initialisers, so xsim starts them at X where a Xilinx FPGA powers them up at 0; the X on
+`motor_spin_up_sequence` alone is enough to stop every command from ever executing. And
+every variable that the upstream source declares inside an `always` block had to move to
+module scope, because xsim treats such a variable as automatic and re-initialises it on
+every clock edge. Nothing that has to remember anything survives that: `sd_ackD` never saw
+the falling edge of `sd_ack` so the FDC stayed in `SD_READ` forever, and
+`data_transfer_state` kept re-requesting the same sector. Vivado's synthesiser does *not*
+do this — the netlist has real `sd_ackD_reg` and `data_transfer_state_reg` flip-flops — so
+this was purely the simulator disagreeing with the hardware, and until it was fixed the
+gate blamed the design for a fault that only existed in xsim.
+
+The testbench tells the FDC its clock enable is ten times slower than it really is. Every
+modelled floppy time is derived from that parameter, so a 500 ms spin-up and a 200 ms
+revolution compress to a tenth without changing any logic, which is the difference
+between a 15 second gate and a 30 minute one.
+
+Exit code `0` means the drive reached ready and read a complete, correct sector.
 
 ### Regression wrapper
 

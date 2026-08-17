@@ -76,9 +76,14 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 -- No Welcome Screen is used (WELCOME_ACTIVE is false), therefore WHS array position 0 stays empty.
 
+-- Version of this core. It ends up inside a FAT32 path (see CFG_FILE), so keep it to characters
+-- that are legal there and use "_" instead of spaces. CORE/scripts/build_release.sh refuses to
+-- build unless this matches the release name that is being packaged.
+constant CORE_VERSION : string := "Alpha_4";
+
 constant SCR_CREDITS : string :=
 
-   "\n Commodore 128 for MEGA65\n\n" &
+   "\n Commodore 128 for MEGA65 " & CORE_VERSION & "\n\n" &
    "Core port to the MEGA65\n" &
    "  Stefan Eilers\n\n" &
    "MiSTer C128 core\n" &
@@ -130,8 +135,12 @@ constant SEL_CFG_FILE      : std_logic_vector(15 downto 0) := x"0101";
 
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
-constant DIR_START         : string := "/m2m";
-constant CFG_FILE          : string := "/m2m/m2mcfg";
+-- The file browser opens here, and this is where the ROM files and the disk images live.
+constant DIR_START         : string := "/c128";
+
+-- The saved-settings file carries the core version, so that a menu layout change automatically
+-- retires the old file instead of loading it with a mismatched length. See doc/KNOWN_BUGS.md.
+constant CFG_FILE          : string := "/c128/c128mega65-" & CORE_VERSION & ".cfg";
 
 --------------------------------------------------------------------------------------------------------------------
 -- General configuration settings: Reset, Pause, OSD behavior, Ascal, etc. (Selector 0x0110)
@@ -271,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 37;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 49;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -279,9 +288,25 @@ constant OPTM_SIZE         : natural := 37;  -- amount of items including empty 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters)
 -- Without submenus: Use OPTM_SIZE as height, otherwise count how large the actually visible main menu is.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 24;   -- 7 lines before the HDMI submenu + 17 lines after it
+-- The screen is CHARS_DY = 33 rows tall and the frame adds two, so this must stay below 32.
+-- Counted in main-menu lines: 6 for the Drives block (the drive model group is a submenu and
+-- only contributes its header line) + 7 before the HDMI submenu + 17 after it.
+constant OPTM_DY           : natural := 30;
 
 constant OPTM_ITEMS        : string :=
+
+   " Drives\n"              &
+   "\n"                     &
+   " 8:%s\n"                &    -- %s becomes OPTM_S_MOUNT or the mounted filename
+   " 9:%s\n"                &
+   " Model: %s\n"           &    -- 5.25" drive model submenu; %s shows the current selection
+   " 5.25 inch drive\n"     &
+   "\n"                     &
+   " 1541\n"                &
+   " 1571\n"                &
+   "\n"                     &
+   " Back to main menu\n"   &
+   "\n"                     &
 
    " Audio & Video\n"       &
    "\n"                     &
@@ -337,6 +362,9 @@ constant OPTM_G_CRT        : integer := 4;
 constant OPTM_G_JAILBARS   : integer := 5;
 constant OPTM_G_CREDITS    : integer := 6;
 constant OPTM_G_EXP_PORT   : integer := 7;
+constant OPTM_G_MOUNT_D8   : integer := 8;
+constant OPTM_G_MOUNT_D9   : integer := 9;
+constant OPTM_G_DRV_MODEL  : integer := 10;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -344,9 +372,24 @@ type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC-
 -- define your menu groups: which menu items are belonging together to form a group?
 -- where are separator lines? which items should be selected by default?
 -- make sure that you have exactly the same amount of entries here than in OPTM_ITEMS and defined by OPTM_SIZE
-constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Audio & Video
+constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drives
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_VIDEO_OUT + OPTM_G_START + OPTM_G_STDSEL,     -- Follow 40/80
+                                             OPTM_G_MOUNT_D8 + OPTM_G_MOUNT_DRV + OPTM_G_START,   -- 8:%s  (virtual drive 0)
+                                             OPTM_G_MOUNT_D9 + OPTM_G_MOUNT_DRV,                  -- 9:%s  (virtual drive 1)
+
+                                             OPTM_G_SUBMENU,                                      -- Drive model submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- 5.25 inch drive
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_DRV_MODEL,                                    -- 1541
+                                             OPTM_G_DRV_MODEL + OPTM_G_STDSEL,                    -- 1571
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_LINE,                                         -- Line
+
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Audio & Video
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_VIDEO_OUT + OPTM_G_STDSEL,                    -- Follow 40/80
                                              OPTM_G_VIDEO_OUT,                                    -- VIC
                                              OPTM_G_VIDEO_OUT,                                    -- VDC
                                              OPTM_G_LINE,                                         -- Line

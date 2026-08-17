@@ -12,14 +12,37 @@ if [[ ! -f "$TEMPLATE" ]]; then
 fi
 
 # Drop machine-specific duplicate sim paths Vivado may have added to the R6 project.
-scrub_template() {
+scrub_file() {
   awk '
     /^      <File Path="\$PPRDIR\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\// { skip = 1; next }
     skip && /^      <\/File>/ { skip = 0; next }
     skip { next }
     { print }
-  ' "$TEMPLATE"
+  ' "$1"
 }
+
+scrub_template() {
+  scrub_file "$TEMPLATE"
+}
+
+# Scrub the R6 projects in place too. Vivado re-adds these absolute duplicates on every
+# save, and a duplicate shadows the maintained $PPRDIR entry -- including its SFType, so a
+# VHDL-2008 source silently gets compiled as VHDL-93 and the build fails somewhere else.
+scrub_in_place() {
+  local path="$1"
+  local tmp="${path}.scrubbed"
+  [[ -f "$path" ]] || return 0
+  scrub_file "$path" > "$tmp"
+  if cmp -s "$path" "$tmp"; then
+    rm -f "$tmp"
+  else
+    mv "$tmp" "$path"
+    echo "Scrubbed machine-specific duplicate sources from $path"
+  fi
+}
+
+scrub_in_place "$CORE_DIR/CORE-R6-vivado2022.xpr"
+scrub_in_place "$CORE_DIR/CORE-R6.xpr"
 
 board_variant() {
   local rev="$1"

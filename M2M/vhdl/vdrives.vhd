@@ -208,8 +208,8 @@ signal img_size_out     : std_logic_vector(31 downto 0);
 signal img_type_out     : std_logic_vector(1 downto 0);
 
 -- Drive mounted register in core's and QNICE's clock domain
-signal drive_mounted_reg         : std_logic_vector(VDNUM - 1 downto 0);
-signal drive_mounted_reg_qnice   : std_logic_vector(VDNUM - 1 downto 0);
+signal drive_mounted_reg         : std_logic_vector(VDNUM - 1 downto 0) := (others => '0');
+signal drive_mounted_reg_qnice   : std_logic_vector(VDNUM - 1 downto 0) := (others => '0');
 
 -- Cache signalling registers in core's and QNICE's clock domain
 signal cache_dirty_r_core        : std_logic_vector(VDNUM - 1 downto 0);
@@ -300,15 +300,20 @@ begin
       sd_lba_4k_offs(i) <= sd_lba_bytes(i)(11 downto 0);
    end generate g_bytecalc;
 
-   -- the protocol demands for a strobed img_mounted signal, but we need a constant signal
-   -- to control the drive's reset line
+   -- Latches the MiSTer mount strobe into a level used as the drive's "power switch"
+   -- (main.vhd holds an unmounted drive in reset so it stays silent on the IEC bus).
+   --
+   -- Soft/hard reset of the *computer* must NOT clear this. A real 1581 stays powered
+   -- and keeps its disk across a C128 reset; clearing drive_mounted_reg on reset_core_i
+   -- left the emulated drive permanently in reset after soft reset, so the next
+   -- LOAD"$",8 reported DEVICE NOT PRESENT until the user remounted from the menu.
+   -- Unmount is only the explicit size-zero mount strobe (and power-up, where the
+   -- register starts at 0).
    handle_drive_mounted : process(clk_core_i)
    begin
       if rising_edge(clk_core_i) then
          for i in 0 to VDNUM - 1 loop
-            if reset_core_i = '1' then
-               drive_mounted_reg(i) <= '0';
-            elsif img_mounted_out(i) = '1' then
+            if img_mounted_out(i) = '1' then
                -- to unmount a drive: strobe img_mounted while having the image size set to zero
                if img_size_out = x"00000000" then
                   drive_mounted_reg(i) <= '0';

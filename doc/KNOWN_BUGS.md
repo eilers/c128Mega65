@@ -3,6 +3,10 @@
 * Mega65 Keyboard
 * Joystick Port
 * IEC (Serial) bus (inclusive Burst Mode)
+* Virtual drives: device 8 and 9, mountable from `/c128` on the SD card. Only `.D81`
+  (1581) is expected to work at the moment — see the `.D64` / `.D71` entry under Known
+  Bugs. The menu picks 1541 or 1571 for the 5.25" formats; mounting a `.D81` turns that
+  drive into a 1581 regardless of the menu.
 * Real cartridges in the expansion port (C64 and C128 cartridges)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Go64 and native C128 Mode
@@ -35,9 +39,144 @@
   EasyFlash, and C64 modes — Kernal mode is refused on purpose, because the EF3
   drives A14 itself and would fight the MEGA65's address transceiver. R5/R6 sense
   the real RESET and need none of this.
-* Expansion port: the "Use hardware slot" menu item defaults to ON, so a core built
-  from this tree ignores an existing 33-byte `/m2m/m2mcfg` (the menu grew to 37
-  entries). Copy the new `m2mcfg` to the SD card to get saved settings back. 
+* Saved settings live at `/c128/c128mega65-<version>.cfg` now, and the filename carries
+  the core version, so a settings file from an older release is simply not found instead
+  of being found with the wrong length. Copy the `.cfg` shipped with the release to the
+  SD card to get saved settings back after upgrading.
+* Virtual drives are newly added and took four rounds of fixes, all invisible from the
+  outside:
+  1. "Device not present" while mounting worked: the drive-ROM handover in `mega65.vhd`
+     re-read its address in the same cycle as the write strobe, shifting the whole DOS
+     image by one byte. `iecdrv_rom` reports `rom_valid` for a corrupted image, so nothing
+     complained. Covered by `CORE/sim/tb_drive_rom.vhd`.
+  2. `DS$` empty, no directory output, and the IEC bus stalled so that a real drive on the
+     physical port stopped working too: `iecdrv_mem` (the drives' work RAM, and the same
+     mistake in `iecdrv_trackmem`) registered the address and write enable one clock ahead
+     of the data. Every caller strobes `wren` for a single cycle (`ena_r`, `ph2_f`,
+     `buff_we`), so each write stored the byte that followed it — in practice the idle bus
+     value. The DOS runs from ROM and therefore still answered ATN, which is why this
+     looked like a disk-data problem rather than dead RAM. Covered by
+     `CORE/sim/tb_iecdrv_mem.vhd`.
+  3. A mounted `.D81` answered `73, CBM DOS V3.0 1571`, i.e. it stayed a 1571 and behaved
+     exactly like a `.D64`. The image type never reached the core: `LOAD_IMAGE` in
+     `M2M/rom/shell.asm` takes the type from `PREP_LOAD_IMAGE` into `R7`, then reuses `R7`
+     as the high word of the progress bar counter and clears it again at end of file, so
+     the type it returns — and that `VD_STROBE_IM` writes into `vdrives` — was always 0,
+     which decodes to D64. The type now travels in the `LI_IMGTYPE` variable instead.
+     This is framework code and affects every M2M core that uses more than one image
+     type; C64MEGA65 never hit it because its 1581 is commented out in `iec_drive.sv`.
+     `CORE/sim/tb_vdrive_mount.vhd` covers the hardware half of this path (it confirmed
+     `vdrives` and the `img_type` decode were correct, which is what pointed at the
+     firmware).
+  4. With the `.D81` finally arriving as a 1581, `DIRECTORY` still returned nothing and
+     `DS$` answered `74, DRIVE NOT READY` with the drive motor never running. The DOS
+     polls that state through `floppy_ready = fd_ready && fd_present`, and `fd_ready`
+     requires the disk to have span up. In `c1581_fdc1772.v` the generate block that
+     instantiates the `floppy` models connects `.select(fd_any && fdn == i)` and
+     `.motor_on(fd_motor)`, but `fd_any`, `fdn` and `fd_motor` are all declared *below*
+     that generate block. Quartus resolves such references against module scope, so this
+     works on MiSTer; Verilog instead creates an implicit net where an undeclared
+     identifier is used in a port connection, and inside a generate block that net is
+     local to the block. On Vivado every `floppy` therefore ran with its own private,
+     undriven `select` and `motor_on` (xsim shows them as `x` and `z`), the disk never
+     span up and `ready` could never assert. Moving the declarations above the generate
+     block fixes it. Confirmed on hardware: with the ready chain colour-coded onto the
+     drive LED, mounting a `.D81` now walks red (no disk) to blue (no motor) to yellow
+     (spinning up) to green (ready), and back to blue when the DOS lets the motor time
+     out. Covered by `CORE/sim/tb_c1581_ready.sv`, which also had to give
+     `floppy.v`'s registers explicit power-up values and turn the sensitivity-less
+     `always` block driving `fdn` into `always @*` — the latter is an infinite
+     zero-delay loop that hangs any simulator at time zero, which is why this module had
+     never been simulated.
+
+  5. The `.D81` was then ready, identified correctly and could read a sector — the
+     colour-coded drive LED went green, meaning a full 512-byte block reached the drive
+     CPU without `RECORD NOT FOUND` — yet `DIRECTORY` returned nothing, `DS$` answered
+     `74, DRIVE NOT READY`, and `LOAD"$",8` in C64 mode answered `?FILE NOT FOUND`. The
+     cause is the same Verilog rule as in round 4, in the same file, but this time it hit
+     `data_in`: the FDC's data register, declared as `reg [7:0]` *below* the `fifo`
+     instance whose `.data_b(data_in)` connection names it first. Vivado created a 1-bit
+     implicit net and ignored the 8-bit declaration, so every byte the drive CPU wrote to
+     the FDC data register kept only bit 0 — including `step_to <= data_in`, the target of
+     a SEEK. The drive could physically only reach track 0 and 1. Everything the DOS does
+     on the disk lives on track 40 (header, BAM, directory), so the drive answered ATN,
+     reported its DOS version out of ROM and could read the one track it was already
+     sitting on, while every real access failed. Three more truncated vectors came from the
+     same rule and are fixed with it: `track_fdc` in `c1581_drv.sv` (the FDC's track
+     number, 8 bits), and `gcr_do` plus `track` in the 157x (see the `.D64` entry), and the
+     SID's combined-waveform table outputs in `sid_top.sv`.
+
+     What made this expensive: the drive-LED diagnostic was sticky since mount, so it
+     saturated at green on the drive's very first read and then reported nothing about the
+     failing directory access. The synthesis log had been naming every one of these signals
+     all along, as `WARNING: [Synth 8-8895] '<name>' is already implicitly declared`.
+     `rtl_elab_check.tcl` now promotes that message to an error and `build_bitstream.tcl`
+     refuses to package a bitstream whose synthesis log contains it, because no simulation
+     can catch this class of bug: xsim resolves names against the whole scope, so the
+     testbenches saw correct 8-bit signals and passed.
+
+  Ruled out along the way, all by reading the RTL rather than by measurement:
+
+  * The request geometry. `iec_drive.sv` shifts the 1581's 512-byte LBA left by one for our
+    `BLKSZ=1` 256-byte blocks and asks for `sd_blk_cnt=1`, which `vdrives` turns into
+    `VD_SIZEB` = 512 bytes, transferred in a single acknowledge cycle.
+  * The width of the sector-buffer address, which is 9 bits from `iec_drive.sv` down to the
+    FDC, i.e. wide enough for 512 bytes.
+  * The host-side signal mux in `iec_drive.sv`, which routes `sd_rd`, `sd_lba` and the
+    buffer from either the 157x or the 1581 depending on `img_hd`. A `.D81` decodes to
+    `img_hd = 1`, which also holds the 157x in reset, so the two cannot compete for the
+    host.
+  * The QNICE-to-core clock crossing on the sector buffer. `sd_buff_wr` stays asserted for
+    hundreds of core cycles with address and data stable, so the core clock simply writes
+    the same byte to the same address several times.
+  * The whole path from the FDC's request to the byte arriving at the drive CPU, now
+    covered by `CORE/sim/tb_c1581_ready.sv` with a faithful model of the QNICE side (see
+    below). It passes: one request, 512 correct bytes in the sector buffer, 512 correct
+    bytes fetched by the CPU, no `RECORD NOT FOUND`, command completed.
+
+  Two things found along the way that are worth knowing but were not the 1581 bug:
+
+  * `HANDLE_DRV_RD` in `M2M/rom/shell.asm` means to lower the buffer write enable again
+    after each byte, but wrote `XOR 0, R9`, which computes `R9 xor 0` and therefore left it
+    at 1. The write enable went high on the first byte of a block and stayed high until the
+    acknowledge dropped. For the 1581 that is harmless — the firmware writes the address
+    before the data, so the RAM briefly stores the previous byte at the new address and then
+    the correct one — but it does mean that counting write strobes is not a way to measure
+    how much of a block arrived, and an earlier drive-LED diagnostic did exactly that and
+    reported "short block" for a transfer that was in fact complete. It is *not* harmless
+    for the 157x: `c157x_heads.sv` holds the head machine's bit counters in reset while
+    `sd_buff_wr` is high, which is meant to park the head during a track load but with a
+    stuck strobe parks it forever. Now fixed to `XOR R9, R9`. This is framework code, so it
+    affects every M2M core whose drive keys anything off the write strobe.
+  * Vivado's *simulator* treats a variable declared inside an `always` block as automatic
+    and re-initialises it on every clock edge, so `c1581_fdc1772.v`'s delayed copies and
+    state variables never retained anything: `sd_ackD` could not see the falling edge of
+    `sd_ack`, the FDC stayed in `SD_READ` forever, and `data_transfer_state` re-requested
+    the same sector endlessly. Vivado's *synthesiser* does not do this — the flashed
+    bitstream contains real `sd_ackD_reg`, `data_transfer_state_reg` and `seek_state_reg`
+    flip-flops — so this was a simulation artefact that made the gate lie. The
+    declarations are now at module scope, which is what the code always meant, and it is
+    what makes the data-path gate above possible at all.
+
+  Still unverified on hardware: write back to the SD card, whether an unmounted (and
+  therefore reset-held) emulated drive really stays electrically silent on the IEC bus, and
+  coexistence with a real drive on the physical port.
+* `.D64` and `.D71` cannot work yet, independently of the bugs above, and mounting one
+  will stall the bus. Two truncated vectors in the 157x were found while chasing the 1581
+  and are fixed (`gcr_do`, the byte the read head hands to VIA2 port A, and the 8-bit
+  `track`; both were 1-bit implicit nets — see round 5 above), as is the stuck buffer write
+  strobe that held `c157x_heads` in reset. None of that changes the verdict below: the
+  format needs an FPGA-side GCR encoder that does not exist yet. This gap was masked for a long time by bug 3: with the image type stuck
+  at 0 every image, including a `.D81`, was routed through the 157x, so all three formats
+  failed the same way. The C128's `iec_drive` is Erik Scheffers' 157x rewrite, which dropped
+  the sector-addressing mode the older MiSTer 1541 still has. `c157x_track.sv` emits
+  `sd_lba = {20'h00000, 1'b01, freq, lba}` — a track *request*, not a file offset — and
+  `c157x_heads` expects a fully GCR/MFM-encoded raw track back. On MiSTer the ARM does that
+  conversion in software; the QNICE Shell does not. C64MEGA65 avoids the problem entirely:
+  its `c1541_track.sv` uses a `start_sectors[]` table to ask for plain linear sectors and
+  GCR-encodes in the FPGA (`c1541_gcr.sv`), and it deliberately refuses `.G64`, the one
+  format that would need host-side encoding. `.D81` is unaffected, because the 1581 goes
+  through `c1581_fdc1772.v` with a linear 512-byte LBA.
 
 # Missing Features
 * Video:
@@ -49,7 +188,15 @@
     * "Audio improvements": removed from the menu, `qnice_audio_filter_o` is
       hardwired to '0' in `mega65.vhd`
     * ...
-* Virtual devices (IEC)
+* Virtual drives: a GCR encoder in the FPGA, so that `.D64` / `.D71` can be served as
+  linear sectors the way C64MEGA65 does. This is the agreed direction (rather than
+  encoding in QNICE firmware or backporting the old 1541, which would cost the 1571 and
+  with it C128 burst mode) and is what makes the 5.25" formats usable at all.
+* Virtual drives: raw GCR images (`.G64` / `.G71`) and `.T64` tape images. The 2-bit
+  image type the M2M framework carries is fully used by D64, D71 and D81, so raw GCR
+  would need a framework change. Also missing: the MiSTer "Always" and "Never" drive
+  enable modes (a drive is enabled exactly while an image is mounted) and the
+  track-number overlay (`drv_overlay.sv`).
 * Expansion port: only real cartridges are supported. Emulated cartridges (`.crt`
   files), a simulated 1750 REU and cartridges that want to become bus master
   (`/DMA` is ignored) are not implemented.

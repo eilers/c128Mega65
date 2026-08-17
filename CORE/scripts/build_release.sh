@@ -47,6 +47,40 @@ sanitize_version_slug() {
   printf '%s' "$slug"
 }
 
+CONFIG_VHD_PATH="$CORE_DIR/vhdl/config.vhd"
+CORE_VERSION_RE='constant[[:space:]]+CORE_VERSION[[:space:]]*:[[:space:]]*string[[:space:]]*:=[[:space:]]*"([^"]+)"[[:space:]]*;'
+
+# CORE_VERSION is baked into the bitstream at synthesis time: it names the saved-settings file
+# and appears on the credits screen. A mismatch between it and the release name would silently
+# ship a core whose settings file and about screen disagree with the zip, so check before the
+# build loop rather than after four synthesis runs.
+check_core_version() {
+  [[ -f "$CONFIG_VHD_PATH" ]] || die "config.vhd not found: $CONFIG_VHD_PATH"
+
+  local matches
+  mapfile -t matches < <(grep -oEi "$CORE_VERSION_RE" "$CONFIG_VHD_PATH" | sed -E "s/$CORE_VERSION_RE/\1/I")
+
+  case ${#matches[@]} in
+    0) die "No 'constant CORE_VERSION : string := \"...\";' found in $CONFIG_VHD_PATH." ;;
+    1) ;;
+    *) die "Found ${#matches[@]} CORE_VERSION assignments in $CONFIG_VHD_PATH; expected exactly one." ;;
+  esac
+
+  CORE_VERSION_VHDL="${matches[0]}"
+
+  if [[ "$CORE_VERSION_VHDL" != "$VERSION_SLUG" ]]; then
+    local msg="Version mismatch: config.vhd has CORE_VERSION=\"$CORE_VERSION_VHDL\" but this release is \"$VERSION_SLUG\".
+     Update CORE_VERSION in $CONFIG_VHD_PATH (and re-run make_rom.sh), or enter a matching release name."
+    if [[ "${SKIP_VERSION_CHECK:-0}" == "1" ]]; then
+      echo "WARNING: $msg" >&2
+      echo "WARNING: continuing anyway because SKIP_VERSION_CHECK=1." >&2
+      return 0
+    fi
+    die "$msg"
+  fi
+  echo "CORE_VERSION check: config.vhd matches \"$VERSION_SLUG\"."
+}
+
 read -r -p "Release name (e.g. Alpha 1): " RELEASE_NAME
 [[ -n "${RELEASE_NAME//[[:space:]]/}" ]] || die "Release name cannot be empty."
 
@@ -68,6 +102,16 @@ echo
 if [[ ! -x "$ROOT_DIR/M2M/QNICE/assembler/qasm" ]]; then
   die "QNICE assembler missing. Run: cd M2M/QNICE/tools && ./make-toolchain.sh"
 fi
+
+check_core_version
+
+# The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
+# on the SD card, so the release has to carry it next to the .cor files.
+SETTINGS_FILE="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}.cfg"
+[[ -f "$SETTINGS_FILE" ]] || die "Settings file missing: $SETTINGS_FILE
+     Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE\" auto"
+cp -f "$SETTINGS_FILE" "$STAGING_DIR/"
+echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE")"
 
 echo "Building M2M shell ROM..."
 (

@@ -88,6 +88,7 @@ LOG_STR_ITM_AMT .ASCII_W "Items in current directory (in hex): "
 LOG_STR_FILE    .ASCII_W "Selected file: "
 LOG_STR_LOADOK  .ASCII_W "Successfully loaded disk image to buffer RAM.\n"
 LOG_STR_MOUNT   .ASCII_W "Mounted disk image for drive #"
+LOG_STR_DRVRD   .ASCII_W "DRV_RD LBA256="
 LOG_STR_CONFIG  .ASCII_W "Configuration: Remember settings: "
 LOG_STR_CFG_ON  .ASCII_W "ON  "
 LOG_STR_CFG_OFF .ASCII_W "OFF  " 
@@ -155,6 +156,8 @@ WRN_EMPTY_BRW   .ASCII_P "The root directory of the SD card contains\n"
                 .ASCII_W "Press Space to continue."
 
 WRN_ERROR_CODE  .ASCII_W "Error code: "
+WRN_HR_READBACK .ASCII_P "HyperRAM mount readback failed at T40.\n"
+                .ASCII_P "Expected header track byte $28, got: "
 
 ; ----------------------------------------------------------------------------
 ; Error Messages

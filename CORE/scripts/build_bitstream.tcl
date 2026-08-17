@@ -36,11 +36,34 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/video_sync_c128.sv"] \
     [file join $repo_dir "CORE/vhdl/clk_vdc.vhd"] \
     [file join $repo_dir "CORE/vhdl/cartridge_heuristics.vhd"] \
+    [file join $repo_dir "CORE/vhdl/mount_buf_wrapper.vhd"] \
+    [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_rom.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_via6522.vhd"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c157x_multi.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c157x_drv.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c157x_logic.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c157x_h156.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c157x_heads.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c157x_track.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c157x_fdc1772.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_multi.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_drv.sv"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_fdc1772.v"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/floppy.v"] \
 ]
 foreach required_file $required_source_files {
     if {[llength [get_files -quiet $required_file]] == 0} {
         puts "Adding missing source file: $required_file"
         add_files -norecurse -fileset [get_filesets sources_1] $required_file
+    }
+    # A freshly added .vhd defaults to VHDL-93, and every VHDL source in this design needs
+    # 2008. Vivado also drops the type back to the default whenever it rewrites the .xpr,
+    # so set it on every run rather than only when the file was missing.
+    if {[file extension $required_file] in {.vhd .vhdl}} {
+        set_property file_type {VHDL 2008} [get_files $required_file]
     }
 }
 
@@ -71,6 +94,8 @@ if {[llength $sv_files] > 0} {
 # Some C128 MiSTer files use SystemVerilog constructs despite .v extension.
 set sv_compat_v_files [list \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/mos6526_8520.v"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_fdc1772.v"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/floppy.v"] \
 ]
 foreach v_file $sv_compat_v_files {
     if {[llength [get_files -quiet $v_file]] > 0} {
@@ -93,6 +118,29 @@ set synth_status [get_property STATUS [get_runs synth_1]]
 puts "synth_1 status: $synth_status"
 if {[string match "*ERROR*" $synth_status]} {
     exit 2
+}
+
+# Refuse to build a bitstream that contains implicit nets. When a port connection names
+# an identifier before its declaration, Vivado silently creates a 1-bit net and ignores
+# the wider declaration that follows, so an 8-bit signal quietly becomes 1 bit. That is
+# how the 1541/1571 lost its GCR read byte and its track number, and how the 1581 lost
+# its seek target. Simulation cannot catch it, because xsim resolves names across the
+# whole scope. This is a log scan rather than a set_msg_config promotion because
+# launch_runs synthesizes in a separate Vivado process.
+set synth_log [file join [get_property DIRECTORY [get_runs synth_1]] runme.log]
+if {[file exists $synth_log]} {
+    set fh [open $synth_log r]
+    set log_text [read $fh]
+    close $fh
+    set implicit_nets [lsearch -all -inline [split $log_text "\n"] "*Synth 8-8895*"]
+    if {[llength $implicit_nets] > 0} {
+        puts "ERROR: synthesis created implicit nets, which silently truncate vectors."
+        puts "       Declare each of these before the port connection that names it:"
+        foreach line $implicit_nets {
+            puts "       [string trim $line]"
+        }
+        exit 2
+    }
 }
 
 puts "Starting implementation and bitstream (impl_1)..."

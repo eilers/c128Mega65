@@ -537,6 +537,39 @@ _HM_SDMOUNTED5A RSUB    HANDLE_IO, 1            ; wait for Space to be pressed
                 RBRA    _HM_SDMOUNTED2, 1
 
 _HM_SDMOUNTED6A MOVE    R9, R6                  ; R6: disk image type
+
+                ; #region agent log
+                ; Debug H33: for D81, read back T40 header byte at file offset
+                ; 399360 (4k window 97, offset 2048). Empty.d81 starts with $28.
+                ; Fail => HyperRAM staging did not retain the image (map/wait).
+                ; Pass + still-zero track cache => FDC/LBA path, not mount_buf.
+                MOVE    LI_IMGTYPE, R8
+                MOVE    @R8, R8
+                CMP     2, R8                   ; IMGTYPE_D81
+                RBRA    _HM_SDMOUNTED6A_OSM, !Z
+                MOVE    VDRIVES_BUFS, R8
+                ADD     R7, R8
+                MOVE    M2M$RAMROM_DEV, R9
+                MOVE    @R8, @R9                ; select this drives mount buf
+                MOVE    M2M$RAMROM_4KWIN, R9
+                MOVE    97, @R9                 ; 97*4096 = 397312
+                MOVE    M2M$RAMROM_DATA, R8
+                ADD     2048, R8                ; +2048 => absolute 399360
+                MOVE    @R8, R9                 ; HyperRAM read (honours wait)
+                CMP     0x0028, R9              ; Empty/real D81 header track link
+                RBRA    _HM_SDMOUNTED6A_OSM, Z
+                RSUB    SCR$CLRINNER, 1
+                MOVE    WRN_HR_READBACK, R8
+                RSUB    SCR$PRINTSTR, 1
+                MOVE    R9, R8
+                MOVE    SCRATCH_HEX, R9
+                RSUB    WORD2HEXSTR, 1
+                MOVE    R9, R8
+                RSUB    SCR$PRINTSTR, 1
+                RBRA    _HM_SDMOUNTED5A, 1      ; Space, then remount
+                ; #endregion
+
+_HM_SDMOUNTED6A_OSM
                 RSUB    SCR$OSM_OFF, 1          ; hide the big window
 
                 ; Step #5: Notify MiSTer using the "SD" protocol, if we
@@ -722,6 +755,8 @@ _LI_FOPEN_OK    MOVE    R5, R8
                 RSUB    PREP_LOAD_IMAGE, 1
                 MOVE    R8, R6                  ; R6: error code=0 (means OK)
                 MOVE    R9, R7                  ; R7: img type or error msg
+                MOVE    LI_IMGTYPE, R8          ; the progress bar code below
+                MOVE    R9, @R8                 ; reuses R7, so park the type
                 CMP     0, R6                   ; everything OK?
                 RBRA    _LI_FREAD_RET, !Z       ; no
 
@@ -874,7 +909,9 @@ _LI_FREAD_EOF   XOR     R6, R6                  ; R6 and R7 are status flags
                 XOR     R7, R7                  ; 0 means all good
                 CMP     0, R4                   ; disk image mode?
                 RBRA    _LI_FREAD_PM, !Z        ; no
-                MOVE    LOG_STR_LOADOK, R8      ; yes
+                MOVE    LI_IMGTYPE, R7          ; yes: hand the image type back,
+                MOVE    @R7, R7                 ; it is what selects the drive
+                MOVE    LOG_STR_LOADOK, R8
                 SYSCALL(puts, 1)
                 RBRA    _LI_FREAD_RET, 1
 
@@ -1010,6 +1047,21 @@ HANDLE_DRV_RD   SYSCALL(enter, 1)
                 RSUB    VD_DRV_READ, 1
                 MOVE    R8, R2                  ; R2=start offs in 4k win
 
+                ; #region agent log
+                ; UART (JTAG 115200): 256-byte LBA the FDC asked for. D81 BAM
+                ; is 512-byte LBA 780 = 256-byte LBA 1560. Do not enter the
+                ; QNICE monitor; this prints from the running Shell.
+                MOVE    R11, R8
+                MOVE    VD_LBA_L, R9
+                RSUB    VD_DRV_READ, 1
+                MOVE    R8, R12
+                MOVE    LOG_STR_DRVRD, R8
+                SYSCALL(puts, 1)
+                MOVE    R12, R8
+                SYSCALL(puthex, 1)
+                SYSCALL(crlf, 1)
+                ; #endregion
+
                 ; transmit data to internal buffer of drive
                 MOVE    R11, R8
                 MOVE    VD_ACK, R9              ; ackknowledge sd_rd_i
@@ -1044,8 +1096,10 @@ _HDR_SEND_LOOP  CMP     R6, R0                  ; transmission done?
                 MOVE    VD_B_WREN, R8           ; strobe write enable
                 MOVE    1, R9
                 RSUB    VD_CAD_WRITE, 1
-                XOR     0, R9
-                RSUB    VD_CAD_WRITE, 1
+                XOR     R9, R9                  ; ...and release it again: "XOR 0, R9"
+                RSUB    VD_CAD_WRITE, 1         ; left R9 at 1, so sd_buff_wr stuck
+                                                ; high, which holds c157x_heads in
+                                                ; reset for the whole transfer
 
                 ADD     1, R6                   ; next byte
 

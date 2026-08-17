@@ -105,6 +105,10 @@ begin
          q_b             => sys_rom_data
       );
 
+   -- Built without emulated drives on purpose. This testbench guards the Z80 boot path,
+   -- and two bit-level 1541/1571/1581 models would turn a several-minute run into an
+   -- hours-long one without touching anything the gate actually checks. An unmounted
+   -- drive is held in reset and releases every IEC line, which is what G_VDNUM = 0 does.
    u_dut : entity work.main
       generic map (
          G_BOARD => "MEGA65_R6",
@@ -113,6 +117,17 @@ begin
       port map (
          clk_main_i           => clk_main,
          clk_vdc_i            => clk_main,
+         clk_sd_i             => clk_qnice,
+         qnice_vd_addr_i      => (others => '0'),
+         qnice_vd_data_i      => (others => '0'),
+         qnice_vd_data_o      => open,
+         qnice_vd_ce_i        => '0',
+         qnice_vd_we_i        => '0',
+         drv_rom_loading_i    => '0',
+         drv_rom_req_o        => open,
+         drv_rom_addr_o       => open,
+         drv_rom_data_i       => (others => '0'),
+         drv_rom_wr_i         => '0',
          reset_soft_i         => reset_soft,
          reset_hard_i         => reset_hard,
          pause_i              => pause,

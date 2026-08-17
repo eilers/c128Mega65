@@ -15,6 +15,7 @@ use ieee.numeric_std_unsigned.all;
 library work;
 use work.video_modes_pkg.all;
 use work.globals.all;
+use work.vdrives_pkg.all;
 
 entity main is
    generic (
@@ -24,6 +25,7 @@ entity main is
    port (
       clk_main_i              : in  std_logic;  -- Main core clock (~31.53 MHz PAL)
       clk_vdc_i               : in  std_logic;  -- VDC clock (32.000 MHz)
+      clk_sd_i                : in  std_logic;  -- QNICE clock: "SD card" side of the virtual drives
       reset_soft_i            : in  std_logic;  -- Soft reset
       reset_hard_i            : in  std_logic;  -- Hard reset
       pause_i                 : in  std_logic;  -- Pause
@@ -147,7 +149,22 @@ entity main is
       pot1_x_i                : in  std_logic_vector(7 downto 0);
       pot1_y_i                : in  std_logic_vector(7 downto 0);
       pot2_x_i                : in  std_logic_vector(7 downto 0);
-      pot2_y_i                : in  std_logic_vector(7 downto 0)
+      pot2_y_i                : in  std_logic_vector(7 downto 0);
+
+      -- Virtual drives: QNICE device interface of vdrives.vhd (clk_sd_i domain)
+      qnice_vd_addr_i         : in  std_logic_vector(27 downto 0);
+      qnice_vd_data_i         : in  std_logic_vector(15 downto 0);
+      qnice_vd_data_o         : out std_logic_vector(15 downto 0);
+      qnice_vd_ce_i           : in  std_logic;
+      qnice_vd_we_i           : in  std_logic;
+
+      -- Drive ROM pull interface (clk_sd_i domain). The drives fetch their DOS ROM
+      -- byte by byte out of the boot1.rom block RAM that mega65.vhd serves.
+      drv_rom_loading_i       : in  std_logic;
+      drv_rom_req_o           : out std_logic;
+      drv_rom_addr_o          : out std_logic_vector(18 downto 0);
+      drv_rom_data_i          : in  std_logic_vector(7 downto 0);
+      drv_rom_wr_i            : in  std_logic
    );
 end entity main;
 
@@ -315,10 +332,63 @@ signal cart_res_flckr_ign : natural range 0 to 2 := 0; -- avoid a short cart_res
 signal cart_is_an_EF3     : std_logic;
 
 -- Simulated IEC drives
--- TODO: I only added the minimum signals that I might need for a first start.
--- signal cache_dirty : std_logic_vector(G_VDNUM - 1 downto 0);
 signal prevent_reset : std_logic;
-signal cache_dirty   : std_logic; -- TODO: Hack!
+signal cache_dirty   : std_logic_vector(G_VDNUM - 1 downto 0);
+
+-- Scalar summaries of the per-drive vectors above. They exist so that the rest of the
+-- architecture works unchanged when G_VDNUM is 0 (the boot simulation builds main that
+-- way to stay fast): a reduction over a null vector is not something numeric_std does
+-- usefully, so the drives_gen block below decides these two instead.
+signal drives_dirty  : std_logic;
+signal drives_busy   : std_logic;
+
+-- 16 MHz chip enable for iec_drive, see iec_drive_ce_proc
+signal iec_drive_ce  : std_logic;
+signal iec_dce_sum   : integer := 0;   -- 32-bit integer, initialized to 0
+
+signal iec_img_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
+signal iec_img_readonly : std_logic;
+signal iec_img_size     : std_logic_vector(31 downto 0);
+signal iec_img_type     : std_logic_vector(1 downto 0);
+signal iec_img_type4    : std_logic_vector(3 downto 0);
+
+signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
+signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
+signal iec_drive_led    : std_logic_vector(G_VDNUM - 1 downto 0);
+
+-- Temporary: turns the drive LED into a colour-coded readout of the 1581's ready
+-- chain. Set to false to restore the normal green/yellow LED.
+constant C_DRIVE_LED_DEBUG : boolean := true;
+signal iec_dbg          : std_logic_vector(9 downto 0);
+signal iec_out_track    : vd_vec_array(G_VDNUM - 1 downto 0)(7 downto 0);
+signal iec_out_we       : std_logic_vector(G_VDNUM - 1 downto 0);
+signal iec_drv_mode     : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0);
+
+-- Debug H35/H57: last 512-byte image LBA (iec_sd_lba is already <<1 for BLKSZ=1).
+-- Empty.d81 is nonzero only at T40 side0 (LBA 780-781; fill may end on 782-789).
+-- dbg_saw_nz: QNICE wrote a nonzero byte while ack+wr (same clock as HANDLE_DRV_RD).
+-- c1581_drv doubles out_track ({track,1'b0}); dbg_fdc_trk is the WD1772 register.
+signal dbg_lba512       : unsigned(31 downto 0) := (others => '0');
+signal dbg_lba_valid    : std_logic := '0';
+signal dbg_saw_nz       : std_logic := '0';
+signal dbg_saw_t40      : std_logic := '0';
+signal dbg_saw_800      : std_logic := '0';
+signal dbg_rd_d         : std_logic := '0';
+signal dbg_flash_cnt    : unsigned(23 downto 0) := (others => '0');
+signal dbg_rd_edges     : unsigned(7 downto 0) := (others => '0');
+signal dbg_fdc_trk      : unsigned(7 downto 0) := (others => '0');
+
+signal iec_sd_lba          : vd_vec_array(G_VDNUM - 1 downto 0)(31 downto 0);
+signal iec_sd_blk_cnt      : vd_vec_array(G_VDNUM - 1 downto 0)( 5 downto 0);
+signal iec_sd_rd           : vd_std_array(G_VDNUM - 1 downto 0);
+signal iec_sd_wr           : vd_std_array(G_VDNUM - 1 downto 0);
+signal iec_sd_ack          : vd_std_array(G_VDNUM - 1 downto 0);
+signal iec_sd_buf_addr     : std_logic_vector(13 downto 0);
+-- vdrives addresses 16 kB, iec_drive expects 16 bits; see the BLKSZ note at vdrives_inst
+signal iec_sd_buf_addr16   : std_logic_vector(15 downto 0);
+signal iec_sd_buf_data_in  : std_logic_vector( 7 downto 0);
+signal iec_sd_buf_data_out : vd_vec_array(G_VDNUM - 1 downto 0)(7 downto 0);
+signal iec_sd_buf_wr       : std_logic;
 
 -- Core's IEC serial bus line levels (fpga64_sid_iec convention: '1' = line released/high,
 -- '0' = line asserted/low; srq is active low: '0' = asserted).
@@ -327,23 +397,94 @@ signal core_iec_data_o  : std_logic;
 signal core_iec_atn_o   : std_logic;
 signal core_iec_srq_n_o : std_logic;
 
+-- Same convention, driven by the emulated drives
+signal drv_iec_clk_o    : std_logic;
+signal drv_iec_data_o   : std_logic;
+signal drv_iec_srq_o    : std_logic;
+
 -- TODO: Add reu and rtc support
 
 begin
 
--- prevent data corruption by not allowing a soft reset to happen while the cache is still dirty
--- since we can have more than one cache that might be dirty, we convert the std_logic_vector of length G_VDNUM
--- into an unsigned and check for zero
--- TODO: Add cache_dirty support when virtual drives are implemented
-cache_dirty <= '0';
-prevent_reset <= '0'; -- when unsigned(cache_dirty) = 0 else '1';
+-- prevent data corruption by not allowing a soft reset to happen while a write-back cache
+-- still has to reach the SD card
+prevent_reset <= drives_dirty;
 
 -- Active-CPU indicator for the boot simulation ('0' = Z80, '1' = 8502).
 boot_z80_n_o <= core_z80_n;
 
--- Drive LED: virtual disk drives are not implemented yet, so there is no activity to show.
-drive_led_o     <= '0';
-drive_led_col_o <= x"00FF00";
+-- Drive LED: on while a drive is accessing its image or while the write-back cache
+-- still has to reach the SD card. Yellow signals "do not switch off yet".
+drive_led_normal_gen : if not C_DRIVE_LED_DEBUG generate
+   drive_led_o     <= drives_busy or drives_dirty;
+   drive_led_col_o <= x"FFFF00" when drives_dirty = '1' else x"00FF00";
+end generate drive_led_normal_gen;
+
+-- Debug build, round 28: LBA 800-809 rejected (still cyan). Show FDC track.
+--    magenta flash   new sd_rd (400 ms)
+--    white           FDC track 39 (Commodore T40 / BAM)
+--    red             FDC track 1 (1-bit seek leftover)
+--    green           FDC track 0
+--    yellow          other FDC track, motor on
+--    cyan            motor off, never saw track 39 or 1
+--    blue            spin-up
+-- Serial: DRV_RD LBA256=.... on JTAG 115200 (do not enter the monitor).
+drive_led_debug_gen : if C_DRIVE_LED_DEBUG generate
+   -- #region agent log
+   dbg_lba_proc : process (clk_sd_i)
+   begin
+      if rising_edge(clk_sd_i) then
+         dbg_rd_d <= iec_sd_rd(0);
+         if vdrives_mounted(0) = '0' then
+            dbg_lba_valid <= '0';
+            dbg_lba512    <= (others => '0');
+            dbg_fdc_trk   <= (others => '0');
+            dbg_saw_nz    <= '0';
+            dbg_saw_t40   <= '0';
+            dbg_saw_800   <= '0';
+            dbg_flash_cnt <= (others => '0');
+            dbg_rd_edges  <= (others => '0');
+         else
+            if iec_sd_rd(0) = '1' and dbg_rd_d = '0' then
+               dbg_flash_cnt <= to_unsigned(20_000_000, 24); -- 400 ms at 50 MHz
+               dbg_lba_valid <= '1';
+               dbg_lba512    <= shift_right(unsigned(iec_sd_lba(0)), 1);
+               dbg_fdc_trk   <= shift_right(unsigned(iec_out_track(0)), 1);
+               if dbg_rd_edges /= x"FF" then
+                  dbg_rd_edges <= dbg_rd_edges + 1;
+               end if;
+               if shift_right(unsigned(iec_out_track(0)), 1) = to_unsigned(39, 8) then
+                  dbg_saw_t40 <= '1';
+               end if;
+               if shift_right(unsigned(iec_out_track(0)), 1) = to_unsigned(1, 8) then
+                  dbg_saw_800 <= '1';
+               end if;
+               if shift_right(unsigned(iec_sd_lba(0)), 1) < to_unsigned(780, 32) or
+                  shift_right(unsigned(iec_sd_lba(0)), 1) > to_unsigned(789, 32) then
+                  dbg_saw_nz <= '0';
+               end if;
+            elsif dbg_flash_cnt /= 0 then
+               dbg_flash_cnt <= dbg_flash_cnt - 1;
+            end if;
+            if iec_sd_ack(0) = '1' and iec_sd_buf_wr = '1' and iec_sd_buf_data_in /= x"00" then
+               dbg_saw_nz    <= '1';
+            end if;
+         end if;
+      end if;
+   end process dbg_lba_proc;
+   -- #endregion
+
+   drive_led_o     <= '1';
+   drive_led_col_o <= x"FF00FF" when vdrives_mounted(0) = '0' or dbg_flash_cnt /= 0 else
+                      x"FFFFFF" when iec_dbg(1) = '0' and dbg_saw_t40 = '1' else
+                      x"FF0000" when iec_dbg(1) = '0' and dbg_saw_800 = '1' else
+                      x"00FFFF" when iec_dbg(1) = '0' else
+                      x"0000FF" when iec_dbg(3) = '0' else
+                      x"FFFFFF" when dbg_lba_valid = '1' and dbg_fdc_trk = to_unsigned(39, 8) else
+                      x"FF0000" when dbg_lba_valid = '1' and dbg_fdc_trk = to_unsigned(1, 8) else
+                      x"00FF00" when dbg_lba_valid = '1' and dbg_fdc_trk = to_unsigned(0, 8) else
+                      x"FFFF00";
+end generate drive_led_debug_gen;
 
 --------------------------------------------------------------------------------------------------
 -- Video Out select (MiSTer status[106:105] / auto_config): Follow 40/80, force VIC, force VDC.
@@ -679,14 +820,20 @@ end process handle_cartridge_triggered_resets_proc;
 -- ATN is only ever driven by the computer (the bus controller), so it is a plain push-pull output.
 -- The input lines are sensed active-high (1 = line released) which is exactly what
 -- fpga64_sid_iec expects, so iec_*_n_i pass straight through into the core (see instantiation).
+--
+-- The emulated drives share this bus with the physical port, so every open-collector line is
+-- merged by a wired-AND, exactly as the wire itself would do on a real C128: the computer sees
+-- the pin AND the emulated drives, the emulated drives see the computer AND the pin, and the pin
+-- is pulled low as soon as either of them asserts. ATN stays push-pull and computer-driven, since
+-- only the bus controller ever drives it.
 iec_reset_n_o <= reset_core_n;            -- reset attached real drives together with the core
 iec_atn_n_o   <= core_iec_atn_o;          -- push-pull: '0' = ATN asserted (low) on the bus
 iec_clk_n_o   <= '0';
-iec_clk_en_o  <= not core_iec_clk_o;      -- pull CLK low while the core asserts it (core = '0')
+iec_clk_en_o  <= not (core_iec_clk_o   and drv_iec_clk_o);
 iec_data_n_o  <= '0';
-iec_data_en_o <= not core_iec_data_o;     -- pull DATA low while the core asserts it (core = '0')
+iec_data_en_o <= not (core_iec_data_o  and drv_iec_data_o);
 iec_srq_n_o   <= '0';
-iec_srq_en_o  <= not core_iec_srq_n_o;    -- srq is active low: assert ('0') -> enable the driver
+iec_srq_en_o  <= not (core_iec_srq_n_o and drv_iec_srq_o);
 
 
 --------------------------------------------------------------------------------------------------
@@ -1082,11 +1229,11 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- assignments above; here we only tap the core's raw line-level signals. Inputs are
       -- sensed active-high (1 = released), matching the MEGA65 IEC buffer, so pass through.
       iec_srq_n_o   => core_iec_srq_n_o,
-      iec_srq_n_i   => iec_srq_n_i,
-      iec_clk_i     => iec_clk_n_i,
+      iec_srq_n_i   => iec_srq_n_i  and drv_iec_srq_o,
+      iec_clk_i     => iec_clk_n_i  and drv_iec_clk_o,
       iec_clk_o     => core_iec_clk_o,
       iec_atn_o     => core_iec_atn_o,
-      iec_data_i    => iec_data_n_i,
+      iec_data_i    => iec_data_n_i and drv_iec_data_o,
       iec_data_o    => core_iec_data_o,
 
       -- Cassette drive
@@ -1113,6 +1260,187 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       dbg_vicdi_o       => open
     ); -- fpga64_sid_iec_inst
 
+--------------------------------------------------------------------------------------------------
+-- Virtual disk drives (device 8 and 9)
+--------------------------------------------------------------------------------------------------
 
+-- G_VDNUM = 0 builds the core without any emulated drive. The boot simulation uses that to
+-- keep its runtime in minutes: two full 1541/1571/1581 models with bit-level GCR and MFM
+-- emulation dominate a behavioural run of the C128 boot path they have nothing to do with.
+drives_gen : if G_VDNUM > 0 generate
+
+-- 16 MHz chip enable for the IEC drives, so that ph2_r and ph2_f can be 1 MHz (the 1541's CPU
+-- runs at 1 MHz). A counter compensates for the fact that the input clock is not exactly 32 MHz.
+--
+-- clk_main_speed_i is deliberately the vanilla CORE_CLK_SPEED_PAL and not the speed-adjusted
+-- version used by HDMI Flicker-free: otherwise the compensation would cancel out the slow-down
+-- and change the C128-to-drive frequency ratio, which breaks fastloaders.
+-- See https://github.com/MJoergen/C64MEGA65/issues/2
+iec_drive_ce_proc : process (all)
+  variable msum, nextsum : integer;
+begin
+  msum    := clk_main_speed_i;
+  nextsum := iec_dce_sum + 16000000;
+
+  if rising_edge(clk_main_i) then
+    iec_drive_ce <= '0';
+    if reset_core_n = '0' then
+      iec_dce_sum <= 0;
+    else
+      iec_dce_sum <= nextsum;
+      if nextsum >= msum then
+        iec_dce_sum  <= nextsum - msum;
+        iec_drive_ce <= '1';
+      end if;
+    end if;
+  end if;
+end process iec_drive_ce_proc;
+
+-- Drive enable is "If Mounted": a drive without a disk image stays in reset and is therefore
+-- electrically silent on the IEC bus. MiSTer additionally offers "Always" and "Never".
+iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
+  iec_drives_reset(i) <= (not reset_core_n) or (not vdrives_mounted(i));
+
+  -- One shared menu group picks the 5.25" model for both drives. A mounted .D81 overrides this
+  -- inside iec_drive, which decodes img_hd from img_type and turns that drive into a 1581.
+  iec_drv_mode(i)     <= "00" when osm_control_i(C_MENU_DRV_1541) = '1' else "10";
+end generate iec_drives_reset_gen;
+
+-- vdrives carries a 2-bit image type, iec_drive wants {img_hd, img_mfm, img_gcr, img_ds}.
+-- Raw GCR images (G64/G71) are not supported, which is what keeps the framework unmodified.
+iec_sd_buf_addr16 <= std_logic_vector(resize(unsigned(iec_sd_buf_addr), 16));
+
+with iec_img_type select iec_img_type4 <=
+  "0010" when "00",     -- D64: GCR, single sided
+  "0011" when "01",     -- D71: GCR, double sided
+  "1000" when "10",     -- D81: HD 3.5"
+  "0010" when others;
+
+iec_drive_inst : entity work.iec_drive
+  generic map (
+    PARPORT => 0,       -- no parallel port (DolphinDOS speeder)
+    DRIVES  => G_VDNUM
+  )
+  port map (
+    clk          => clk_main_i,
+    ce           => iec_drive_ce,
+    reset        => iec_drives_reset,
+    pause        => pause_i,
+
+    drv_mode     => iec_drv_mode,
+
+    -- IEC bus, wired-AND merged with the physical port (see the assignments further up)
+    iec_atn_i    => core_iec_atn_o,
+    iec_clk_i    => core_iec_clk_o   and iec_clk_n_i,
+    iec_data_i   => core_iec_data_o  and iec_data_n_i,
+    iec_fclk_i   => core_iec_srq_n_o and iec_srq_n_i,
+    iec_clk_o    => drv_iec_clk_o,
+    iec_data_o   => drv_iec_data_o,
+    iec_fclk_o   => drv_iec_srq_o,
+
+    -- disk image status
+    img_mounted  => iec_img_mounted,
+    img_readonly => iec_img_readonly,
+    img_size     => iec_img_size,
+    img_type     => iec_img_type4,
+
+    led          => iec_drive_led,
+    disk_ready   => open,
+    dbg          => iec_dbg,
+    -- The track-number display (MiSTer's drv_overlay.sv) is out of scope, but these two
+    -- cannot be left open: xsim refuses a VHDL-to-Verilog binding with an unconnected
+    -- vector or array output, even though synthesis accepts it.
+    out_track    => iec_out_track,
+    out_we       => iec_out_we,
+
+    -- parallel port, unused
+    par_data_i   => x"FF",
+    par_stb_i    => '1',
+    par_data_o   => open,
+    par_stb_o    => open,
+
+    -- QNICE SD-card / FAT32 interface. vdrives deliberately does not cross the SD block and
+    -- byte signals into the core clock domain, so this whole side runs on the QNICE clock.
+    clk_sys      => clk_sd_i,
+
+    sd_lba       => iec_sd_lba,
+    sd_blk_cnt   => iec_sd_blk_cnt,
+    sd_rd        => iec_sd_rd,
+    sd_wr        => iec_sd_wr,
+    sd_ack       => iec_sd_ack,
+    sd_buff_addr => iec_sd_buf_addr16,
+    sd_buff_dout => iec_sd_buf_data_in,      -- data going into the drive's buffer RAM
+    sd_buff_din  => iec_sd_buf_data_out,     -- data read back from the drive's buffer RAM
+    sd_buff_wr   => iec_sd_buf_wr,
+
+    -- DOS ROM, pulled out of boot1.rom by the server FSM in mega65.vhd
+    rom_loading  => drv_rom_loading_i,
+    rom_req      => drv_rom_req_o,
+    rom_addr     => drv_rom_addr_o,
+    rom_data     => drv_rom_data_i,
+    rom_wr       => drv_rom_wr_i
+  ); -- iec_drive_inst
+
+vdrives_inst : entity work.vdrives
+  generic map (
+    VDNUM => G_VDNUM,
+    -- 256 byte blocks. This is not the framework default of 512 and it matters: it matches
+    -- hps_io #(.VDNUM(2), .BLKSZ(1)) in MiSTer's c128.sv. The largest request is
+    -- SD_BLK_CNT_157X = 52, i.e. 53 * 256 = 13,568 bytes, safely below the 16,384 byte ceiling.
+    BLKSZ => 1
+  )
+  port map (
+    clk_qnice_i      => clk_sd_i,
+    clk_core_i       => clk_main_i,
+    reset_core_i     => not reset_core_n,
+
+    img_mounted_o    => iec_img_mounted,
+    img_readonly_o   => iec_img_readonly,
+    img_size_o       => iec_img_size,
+    img_type_o       => iec_img_type,        -- 00=D64, 01=D71, 10=D81
+
+    -- latched version of the strobed img_mounted_o, used to un-reset a drive
+    drive_mounted_o  => vdrives_mounted,
+
+    cache_dirty_o    => cache_dirty,
+    cache_flushing_o => open,
+
+    sd_lba_i         => iec_sd_lba,
+    sd_blk_cnt_i     => iec_sd_blk_cnt,
+    sd_rd_i          => iec_sd_rd,
+    sd_wr_i          => iec_sd_wr,
+    sd_ack_o         => iec_sd_ack,
+
+    sd_buff_addr_o   => iec_sd_buf_addr,
+    sd_buff_dout_o   => iec_sd_buf_data_in,
+    sd_buff_din_i    => iec_sd_buf_data_out,
+    sd_buff_wr_o     => iec_sd_buf_wr,
+
+    qnice_addr_i     => qnice_vd_addr_i,
+    qnice_data_i     => qnice_vd_data_i,
+    qnice_data_o     => qnice_vd_data_o,
+    qnice_ce_i       => qnice_vd_ce_i,
+    qnice_we_i       => qnice_vd_we_i
+  ); -- vdrives_inst
+
+drives_dirty <= '1' when unsigned(cache_dirty)    /= 0 else '0';
+drives_busy  <= '1' when unsigned(iec_drive_led)  /= 0 else '0';
+
+else generate
+
+  -- No emulated drives: release every IEC line so the wired-AND merge sees only the
+  -- computer and whatever real hardware is on the physical port.
+  drv_iec_clk_o  <= '1';
+  drv_iec_data_o <= '1';
+  drv_iec_srq_o  <= '1';
+
+  drives_dirty   <= '0';
+  drives_busy    <= '0';
+
+  qnice_vd_data_o <= (others => '0');
+  drv_rom_req_o   <= '0';
+  drv_rom_addr_o  <= (others => '0');
+
+end generate drives_gen;
 
 end architecture synthesis;

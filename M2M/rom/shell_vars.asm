@@ -109,6 +109,10 @@ FB_LASTCALLER   .BLOCK 1                        ; vdrive id/CRTROM id + mode
 SF_CONTEXT      .BLOCK 1                        ; context for SELECT_FILE
 SF_CONTEXT_DATA .BLOCK 1                        ; optional add. data for ctx
 
+; LOAD_IMAGE needs R7 for the progress bar counter, so the image type that
+; PREP_LOAD_IMAGE determined cannot stay in a register until LOAD_IMAGE returns
+LI_IMGTYPE      .BLOCK 1                        ; image type of the loaded image
+
 ; ----------------------------------------------------------------------------
 ; Virtual drive and manual/automatic CRT/ROM loading system
 ; ----------------------------------------------------------------------------
