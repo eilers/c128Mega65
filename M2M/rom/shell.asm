@@ -1047,21 +1047,6 @@ HANDLE_DRV_RD   SYSCALL(enter, 1)
                 RSUB    VD_DRV_READ, 1
                 MOVE    R8, R2                  ; R2=start offs in 4k win
 
-                ; #region agent log
-                ; UART (JTAG 115200): 256-byte LBA the FDC asked for. D81 BAM
-                ; is 512-byte LBA 780 = 256-byte LBA 1560. Do not enter the
-                ; QNICE monitor; this prints from the running Shell.
-                MOVE    R11, R8
-                MOVE    VD_LBA_L, R9
-                RSUB    VD_DRV_READ, 1
-                MOVE    R8, R12
-                MOVE    LOG_STR_DRVRD, R8
-                SYSCALL(puts, 1)
-                MOVE    R12, R8
-                SYSCALL(puthex, 1)
-                SYSCALL(crlf, 1)
-                ; #endregion
-
                 ; transmit data to internal buffer of drive
                 MOVE    R11, R8
                 MOVE    VD_ACK, R9              ; ackknowledge sd_rd_i
@@ -1401,7 +1386,6 @@ _FC_3           MOVE    VDRIVES_ITERSIZ, R8
 _FC_RET         SYSCALL(leave, 1)
                 RET
 
-; ----------------------------------------------------------------------------
 ; Debug mode:
 ; Hold "Run/Stop" + "Cursor Up" and then while holding these, press "Help"
 ; ----------------------------------------------------------------------------

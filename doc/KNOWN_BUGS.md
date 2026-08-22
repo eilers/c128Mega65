@@ -6,7 +6,8 @@
 * Virtual drives: device 8 and 9, mountable from `/c128` on the SD card. Only `.D81`
   (1581) is expected to work at the moment — see the `.D64` / `.D71` entry under Known
   Bugs. The menu picks 1541 or 1571 for the 5.25" formats; mounting a `.D81` turns that
-  drive into a 1581 regardless of the menu.
+  drive into a 1581 regardless of the menu. How to instrument a live drive (LED, JTAG
+  Shell, `C_DEV_V1581_DIAG`) is in [debug-virtual-drives.md](debug-virtual-drives.md).
 * Real cartridges in the expansion port (C64 and C128 cartridges)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Go64 and native C128 Mode

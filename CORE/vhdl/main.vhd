@@ -356,13 +356,16 @@ signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
 signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drive_led    : std_logic_vector(G_VDNUM - 1 downto 0);
 
--- Temporary: turns the drive LED into a colour-coded readout of the 1581's ready
--- chain. Set to false to restore the normal green/yellow LED.
-constant C_DRIVE_LED_DEBUG : boolean := true;
+-- Keep the proven drive-debug overlay available for future investigations, but
+-- compile the release behavior: green for activity and yellow while dirty.
+constant C_DRIVE_LED_DEBUG : boolean := false;
 signal iec_dbg          : std_logic_vector(9 downto 0);
-signal iec_out_track    : vd_vec_array(G_VDNUM - 1 downto 0)(7 downto 0);
+-- SystemVerilog unpacked ports are declared [NDR], i.e. indices 0..NDR-1.
+-- Keep the outer VHDL range ascending so Vivado binds drive index 0 to index 0.
+-- Packed vectors (reset, sd_rd, etc.) intentionally retain their downto ranges.
+signal iec_out_track    : vd_vec_array(0 to G_VDNUM - 1)(7 downto 0);
 signal iec_out_we       : std_logic_vector(G_VDNUM - 1 downto 0);
-signal iec_drv_mode     : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0);
+signal iec_drv_mode     : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);
 
 -- Debug H35/H57: last 512-byte image LBA (iec_sd_lba is already <<1 for BLKSZ=1).
 -- Empty.d81 is nonzero only at T40 side0 (LBA 780-781; fill may end on 782-789).
@@ -378,8 +381,8 @@ signal dbg_flash_cnt    : unsigned(23 downto 0) := (others => '0');
 signal dbg_rd_edges     : unsigned(7 downto 0) := (others => '0');
 signal dbg_fdc_trk      : unsigned(7 downto 0) := (others => '0');
 
-signal iec_sd_lba          : vd_vec_array(G_VDNUM - 1 downto 0)(31 downto 0);
-signal iec_sd_blk_cnt      : vd_vec_array(G_VDNUM - 1 downto 0)( 5 downto 0);
+signal iec_sd_lba          : vd_vec_array(0 to G_VDNUM - 1)(31 downto 0);
+signal iec_sd_blk_cnt      : vd_vec_array(0 to G_VDNUM - 1)( 5 downto 0);
 signal iec_sd_rd           : vd_std_array(G_VDNUM - 1 downto 0);
 signal iec_sd_wr           : vd_std_array(G_VDNUM - 1 downto 0);
 signal iec_sd_ack          : vd_std_array(G_VDNUM - 1 downto 0);
@@ -387,8 +390,15 @@ signal iec_sd_buf_addr     : std_logic_vector(13 downto 0);
 -- vdrives addresses 16 kB, iec_drive expects 16 bits; see the BLKSZ note at vdrives_inst
 signal iec_sd_buf_addr16   : std_logic_vector(15 downto 0);
 signal iec_sd_buf_data_in  : std_logic_vector( 7 downto 0);
-signal iec_sd_buf_data_out : vd_vec_array(G_VDNUM - 1 downto 0)(7 downto 0);
+signal iec_sd_buf_data_out : vd_vec_array(0 to G_VDNUM - 1)(7 downto 0);
 signal iec_sd_buf_wr       : std_logic;
+
+-- vdrives declares its array ports as (VDNUM-1 downto 0). Associating the ascending
+-- iec_drive signals with them directly would pair the elements up positionally and
+-- swap the drives again, so mirror them by index instead.
+signal vd_sd_lba           : vd_vec_array(G_VDNUM - 1 downto 0)(31 downto 0);
+signal vd_sd_blk_cnt       : vd_vec_array(G_VDNUM - 1 downto 0)( 5 downto 0);
+signal vd_sd_buf_data_out  : vd_vec_array(G_VDNUM - 1 downto 0)( 7 downto 0);
 
 -- Core's IEC serial bus line levels (fpga64_sid_iec convention: '1' = line released/high,
 -- '0' = line asserted/low; srq is active low: '0' = asserted).
@@ -1304,6 +1314,10 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
   -- One shared menu group picks the 5.25" model for both drives. A mounted .D81 overrides this
   -- inside iec_drive, which decodes img_hd from img_type and turns that drive into a 1581.
   iec_drv_mode(i)     <= "00" when osm_control_i(C_MENU_DRV_1541) = '1' else "10";
+
+  vd_sd_lba(i)          <= iec_sd_lba(i);
+  vd_sd_blk_cnt(i)      <= iec_sd_blk_cnt(i);
+  vd_sd_buf_data_out(i) <= iec_sd_buf_data_out(i);
 end generate iec_drives_reset_gen;
 
 -- vdrives carries a 2-bit image type, iec_drive wants {img_hd, img_mfm, img_gcr, img_ds}.
@@ -1405,15 +1419,15 @@ vdrives_inst : entity work.vdrives
     cache_dirty_o    => cache_dirty,
     cache_flushing_o => open,
 
-    sd_lba_i         => iec_sd_lba,
-    sd_blk_cnt_i     => iec_sd_blk_cnt,
+    sd_lba_i         => vd_sd_lba,
+    sd_blk_cnt_i     => vd_sd_blk_cnt,
     sd_rd_i          => iec_sd_rd,
     sd_wr_i          => iec_sd_wr,
     sd_ack_o         => iec_sd_ack,
 
     sd_buff_addr_o   => iec_sd_buf_addr,
     sd_buff_dout_o   => iec_sd_buf_data_in,
-    sd_buff_din_i    => iec_sd_buf_data_out,
+    sd_buff_din_i    => vd_sd_buf_data_out,
     sd_buff_wr_o     => iec_sd_buf_wr,
 
     qnice_addr_i     => qnice_vd_addr_i,
