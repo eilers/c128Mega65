@@ -357,8 +357,15 @@ signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drive_led    : std_logic_vector(G_VDNUM - 1 downto 0);
 
 -- Keep the proven drive-debug overlay available for future investigations, but
--- compile the release behavior: green for activity and yellow while dirty.
+-- compile the release behavior further down.
 constant C_DRIVE_LED_DEBUG : boolean := false;
+
+-- How long the drive's own LED has to stay dark before the write-back cache may
+-- claim the LED. Comfortably longer than the gap between two error blinks, so the
+-- cache warning can never fill one in and turn the blink into a steady light.
+constant C_DRIVE_LED_IDLE : natural := CORE_CLK_SPEED / 2;   -- 0.5 s
+signal drive_idle_cnt   : unsigned(24 downto 0) := (others => '0');
+signal drive_idle       : std_logic;
 signal iec_dbg          : std_logic_vector(9 downto 0);
 -- SystemVerilog unpacked ports are declared [NDR], i.e. indices 0..NDR-1.
 -- Keep the outer VHDL range ascending so Vivado binds drive index 0 to index 0.
@@ -423,11 +430,27 @@ prevent_reset <= drives_dirty;
 -- Active-CPU indicator for the boot simulation ('0' = Z80, '1' = 8502).
 boot_z80_n_o <= core_z80_n;
 
--- Drive LED: on while a drive is accessing its image or while the write-back cache
--- still has to reach the SD card. Yellow signals "do not switch off yet".
+-- Drive LED: follow the emulated drive's own activity LED (1581 CIA PA6, 157x "act").
+-- The DOS drives that bit itself, so both the steady light during an access and the
+-- error blink that PRINT DS$ clears reach the MEGA65 LED exactly as on real hardware.
+-- The write-back cache warning is strictly secondary and only takes the LED once the
+-- drive has been dark long enough that this cannot be the gap between two blinks.
 drive_led_normal_gen : if not C_DRIVE_LED_DEBUG generate
-   drive_led_o     <= drives_busy or drives_dirty;
-   drive_led_col_o <= x"FFFF00" when drives_dirty = '1' else x"00FF00";
+   drive_idle_proc : process (clk_main_i)
+   begin
+      if rising_edge(clk_main_i) then
+         if drives_busy = '1' then
+            drive_idle_cnt <= (others => '0');
+         elsif drive_idle_cnt < C_DRIVE_LED_IDLE then
+            drive_idle_cnt <= drive_idle_cnt + 1;
+         end if;
+      end if;
+   end process drive_idle_proc;
+
+   drive_idle <= '1' when drive_idle_cnt >= C_DRIVE_LED_IDLE else '0';
+
+   drive_led_o     <= drives_busy or (drives_dirty and drive_idle);
+   drive_led_col_o <= x"00FF00" when drives_busy = '1' else x"FFFF00";
 end generate drive_led_normal_gen;
 
 -- Debug build, round 28: LBA 800-809 rejected (still cyan). Show FDC track.
