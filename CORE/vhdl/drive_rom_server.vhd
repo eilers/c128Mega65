@@ -3,8 +3,16 @@
 --
 -- Serves the drive DOS ROM (boot1.rom) to iec_drive, one byte at a time.
 --
+-- This is the MEGA65 replacement for the SDRAM I/O-cycle machine in
+-- CORE/C128_MiSTer/c128.sv (drive_rom_req / drive_rom_addr / drive_rom_wr around
+-- the iec_drive instance, with io_cycle_addr <= drive_rom_addr + DRV_ADDR).
+-- On MiSTer the concatenated drive ROM lives in SDRAM; each io_cycle falling
+-- edge presents drive_rom_addr, two cycles later sdram_data is valid, and
+-- drive_rom_wr is pulsed. Here boot1.rom is a QNICE-loaded block RAM, so the
+-- same handshake is issued against that BRAM instead of the SDRAM port.
+--
 -- iec_drive does not read boot1.rom directly. Each emulated drive keeps the 32 kB
--- bank it currently needs in its own block RAM and pulls it in over a tiny handshake:
+-- bank it currently needs in its own block RAM and pulls it in over that handshake:
 -- rom_req_i stays high for as long as some drive still wants data, rom_addr_i carries
 -- {bank, offset} of the byte it wants next, and every rom_wr_o pulse hands over one
 -- byte and makes iecdrv_rom store it and advance its address.
@@ -14,9 +22,11 @@
 -- yields the pre-increment value, which fetches the byte just written a second time
 -- and shifts the whole bank by one. iecdrv_rom still reports rom_valid afterwards,
 -- so the drive leaves reset and executes garbage - it answers nothing on the IEC bus
--- and the C128 reports "device not present". Hence the separate WRITE_ST.
+-- and the C128 reports "device not present". Hence the separate WRITE_ST. MiSTer's
+-- SDRAM path does not hit this: it latches the address on the previous io_cycle
+-- falling edge, before the write strobe.
 --
--- done by Michael Jørgensen and sy2002 in 2026 and licensed under GPL v3
+-- MEGA65 port done by Stefan Eilers in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
 
 library ieee;

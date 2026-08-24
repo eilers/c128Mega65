@@ -13,7 +13,7 @@
 -- happens when the drive model changes in the menu, and it also covers the reload
 -- path that a plain single-bank test would miss.
 --
--- done by Michael Jørgensen and sy2002 in 2026 and licensed under GPL v3
+-- MEGA65 port done by Stefan Eilers in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
 
 library ieee;

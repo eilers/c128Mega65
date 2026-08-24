@@ -26,7 +26,8 @@
 -- single instance serves both drives: QNICE is single-threaded, hence the two mount
 -- devices are never accessed concurrently.
 --
--- done by MJoergen and sy2002 in 2026 and licensed under GPL v3
+-- Ported from the C64 for MEGA65 core, originally done by MJoergen and sy2002 in 2023
+-- MEGA65 C128 port done by Stefan Eilers in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
 
 library ieee;

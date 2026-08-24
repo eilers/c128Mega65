@@ -20,7 +20,7 @@
 // measures how long floppy_ready takes to assert. It then issues a READ SECTOR and
 // checks that sd_rd is raised with a sensible LBA.
 //
-// done by MJoergen and sy2002 in 2026 and licensed under GPL v3
+// MEGA65 port done by Stefan Eilers in 2026 and licensed under GPL v3
 //
 
 `timescale 1ns / 1ps

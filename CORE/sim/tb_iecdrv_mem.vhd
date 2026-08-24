@@ -16,7 +16,7 @@
 -- The bus model below is what the drives actually do: hold address and data for the
 -- whole ph2 cycle, pulse wren for exactly one clock, then move both on.
 --
--- done by Michael Jørgensen and sy2002 in 2026 and licensed under GPL v3
+-- MEGA65 port done by Stefan Eilers in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
 
 library ieee;
