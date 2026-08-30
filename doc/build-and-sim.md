@@ -107,6 +107,17 @@ Disk images are mounted from `/c128` on the SD card. The core accepts `.D64`
 mounted image decides whether that drive behaves as a 1581, while the menu
 chooses between 1541 and 1571 for the 5.25" formats.
 
+For D64/D71, `c157x_track.sv` requests the standard linear sectors for the
+current logical track, and `c1541_gcr.sv` converts those sectors to/from the
+bit stream seen by VIA2. D71 tracks 36–70 use the second 683-sector image
+half. The original raw-head/MFM RTL remains for future formats but does not
+define the D64/D71 host request. `.G64`, `.G71`, error-byte-appended images,
+and 1571 MFM/CP-M media are not supported.
+
+Hardware qualification images are in `test/157x-rw/`. `LOAD"$"` on devices 8
+and 9 is confirmed on R6 hardware for both 1541 (`.D64`) and 1571 (`.D64` and
+`.D71`), with LED activity during the read.
+
 ### Vivado
 
 Scripts invoke Vivado through the Flatpak package `com.github.corna.Vivado`,
@@ -226,7 +237,14 @@ in a build log. Grep the log for `12-4739` after changing the hierarchy.
 
 ## Running simulations
 
-The repository ships four focused simulations:
+The repository ships focused boot, memory, 1581, GCR, geometry, mixed-language,
+and LED-policy simulations. Run the complete virtual-drive gate with:
+
+```bash
+CORE/scripts/run_drive_sims.sh
+```
+
+`build_release.sh` runs this gate before starting any FPGA synthesis.
 
 | Simulation | Testbench | Covers |
 |------------|-----------|--------|
@@ -234,6 +252,35 @@ The repository ships four focused simulations:
 | Drive DOS ROM handover | `CORE/sim/tb_drive_rom.vhd` | `drive_rom_server.vhd` feeding the real `iecdrv_rom.sv`, byte for byte, across a bank switch |
 | Drive RAM | `CORE/sim/tb_iecdrv_mem.vhd` | `iecdrv_mem` and `iecdrv_trackmem` storing what the drive CPU and the head actually wrote |
 | 1581 drive ready | `CORE/sim/tb_c1581_ready.sv` | `c1581_fdc1772.v` plus `floppy.v` from mounting a D81 through spin-up to the first `sd_rd` |
+| GCR codec | `CORE/sim/tb_c1541_gcr_codec.sv` | all valid/invalid 5-bit codes, exhaustive byte round-trip, checksums and D64/D71 geometry |
+| D64/D71 request contract | `CORE/sim/tb_c157x_track.sv` | all density zones, D71 side offset, read and write LBA/block-count handshakes |
+| 1541/1571 GCR path | `CORE/sim/tb_c157x_gcr_path.sv` | sector-buffer load, sync/data generation and valid write decode on tracks 18 and 53 |
+| Drive index bridge | `CORE/sim/tb_vdrive_index.vhd` | drive 0/1 across ascending SystemVerilog and descending VHDL arrays |
+| Authentic drive LED | `CORE/sim/tb_drive_led_policy.vhd` | green access/error pulses and delayed yellow dirty-cache indication |
+| 1541/1571 bring-up | `CORE/sim/tb_c157x_boot.sv` | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
+
+### 1541/1571 bring-up simulation
+
+```bash
+CORE/scripts/vivado.sh -mode batch \
+  -source CORE/scripts/run_c157x_boot_sim.tcl \
+  -tclargs CORE/CORE-R6-vivado2022.xpr
+```
+
+Every other drive gate starts from a drive whose CPU is already running. This one
+starts before that: it mounts a `.D64`, streams the real `sdcard/c128/boot1.rom`
+into `iec_drive` over the same pull handshake the FPGA uses, and then checks that
+the drive leaves reset, fetches its reset vector, reaches the DOS entry point at
+`$EAA0`, writes its VIA registers and finally drives the IEC DATA line.
+
+The last check is what "the C128 sees a device" means. Reaching it takes about
+0.6 ms of drive time, because the DOS runs a 256x256 zero-page test at `$EAB2`
+before it ever looks at the serial bus — the same reason a real 1541 needs a
+second or two after power-on. The gate therefore runs for seconds of simulated
+time and takes roughly 20 minutes; `run_drive_sims.sh` keeps it last.
+
+`run_c157x_boot_sim.tcl` regenerates `CORE/sim/sim_boot1_path_pkg.sv` with the
+absolute path to `boot1.rom` for the current checkout — do not edit it by hand.
 
 ### Boot simulation
 

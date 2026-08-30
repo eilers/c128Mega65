@@ -97,6 +97,12 @@ LOG_CYC_HI      .BLOCK 1
 
 LOG_HEAP_SHOWN  .BLOCK 1
 
+; Periodic logging of the virtual drive diagnostics. One unit of IO$CYC_MID is about
+; 1.31 ms at 50 MHz, so 0x0100 units is roughly a third of a second: often enough to
+; watch a drive wedge in real time, rare enough not to drown the console.
+DIAG_TICK_WAIT  .EQU   0x0100
+DIAG_CYC_LAST   .BLOCK 1
+
 ; file browser persistent status
 FB_HEAP         .BLOCK 1                        ; heap used by file browser
 FB_STACK        .BLOCK 1                        ; local stack used by browser

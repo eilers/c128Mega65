@@ -140,6 +140,7 @@ constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boo
 constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
 constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- disk image of drive 8, staged in HyperRAM
 constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- disk image of drive 9, staged in HyperRAM
+constant C_DEV_VDRIVE_DIAG    : std_logic_vector(15 downto 0) := x"0106"; -- read-only 157x diagnostic snapshots
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)

@@ -258,6 +258,8 @@ begin
 
          led          => drive_led,
          disk_ready   => open,
+         dbg          => open,
+         diag         => open,
          out_track    => out_track,
          out_we       => out_we,
 

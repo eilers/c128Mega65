@@ -31,6 +31,9 @@ LOG_PREP        INCRB
                 MOVE    LOG_HFREQ_FLAG, R0
                 MOVE    0, @R0
 
+                MOVE    DIAG_CYC_LAST, R0
+                MOVE    0, @R0
+
                 ; determine current system time
                 MOVE    LOG_CYC_MID, R0
                 MOVE    IO$CYC_MID, R7

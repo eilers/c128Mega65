@@ -29,15 +29,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$port" ]]; then
-  if [[ -e /dev/ttyUSB1 ]]; then
-    port=/dev/ttyUSB1
-  elif [[ -e /dev/ttyUSB0 ]]; then
-    port=/dev/ttyUSB0
-  else
+  # The TE-0790 exposes two serial interfaces and the QNICE console is the second one.
+  # Reprogramming the FPGA makes the adapter re-enumerate, so the numbering is not
+  # stable across sessions: after a few programming cycles ttyUSB1 can become ttyUSB2.
+  # Take the highest-numbered port that exists rather than a hardcoded pair.
+  mapfile -t ports < <(ls -1 /dev/ttyUSB* 2>/dev/null | sort -V)
+  if [[ ${#ports[@]} -eq 0 ]]; then
     echo "No /dev/ttyUSB* found. Is the TE-0790 JTAG adapter plugged in?" >&2
-    ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || true
+    ls -l /dev/ttyACM* 2>/dev/null || true
     exit 1
   fi
+  port="${ports[-1]}"
 fi
 
 if [[ ! -e "$port" ]]; then

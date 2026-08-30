@@ -155,6 +155,7 @@ entity main is
       qnice_vd_addr_i         : in  std_logic_vector(27 downto 0);
       qnice_vd_data_i         : in  std_logic_vector(15 downto 0);
       qnice_vd_data_o         : out std_logic_vector(15 downto 0);
+      qnice_vd_diag_data_o    : out std_logic_vector(15 downto 0);
       qnice_vd_ce_i           : in  std_logic;
       qnice_vd_we_i           : in  std_logic;
 
@@ -364,9 +365,8 @@ constant C_DRIVE_LED_DEBUG : boolean := false;
 -- claim the LED. Comfortably longer than the gap between two error blinks, so the
 -- cache warning can never fill one in and turn the blink into a steady light.
 constant C_DRIVE_LED_IDLE : natural := CORE_CLK_SPEED / 2;   -- 0.5 s
-signal drive_idle_cnt   : unsigned(24 downto 0) := (others => '0');
-signal drive_idle       : std_logic;
 signal iec_dbg          : std_logic_vector(9 downto 0);
+signal iec_diag         : vd_vec_array(0 to G_VDNUM - 1)(2047 downto 0);
 -- SystemVerilog unpacked ports are declared [NDR], i.e. indices 0..NDR-1.
 -- Keep the outer VHDL range ascending so Vivado binds drive index 0 to index 0.
 -- Packed vectors (reset, sd_rd, etc.) intentionally retain their downto ranges.
@@ -436,21 +436,17 @@ boot_z80_n_o <= core_z80_n;
 -- The write-back cache warning is strictly secondary and only takes the LED once the
 -- drive has been dark long enough that this cannot be the gap between two blinks.
 drive_led_normal_gen : if not C_DRIVE_LED_DEBUG generate
-   drive_idle_proc : process (clk_main_i)
-   begin
-      if rising_edge(clk_main_i) then
-         if drives_busy = '1' then
-            drive_idle_cnt <= (others => '0');
-         elsif drive_idle_cnt < C_DRIVE_LED_IDLE then
-            drive_idle_cnt <= drive_idle_cnt + 1;
-         end if;
-      end if;
-   end process drive_idle_proc;
-
-   drive_idle <= '1' when drive_idle_cnt >= C_DRIVE_LED_IDLE else '0';
-
-   drive_led_o     <= drives_busy or (drives_dirty and drive_idle);
-   drive_led_col_o <= x"00FF00" when drives_busy = '1' else x"FFFF00";
+   drive_led_policy_inst : entity work.drive_led_policy
+      generic map (
+         G_IDLE_CYCLES => C_DRIVE_LED_IDLE
+      )
+      port map (
+         clk_i      => clk_main_i,
+         activity_i => drives_busy,
+         dirty_i    => drives_dirty,
+         led_o      => drive_led_o,
+         colour_o   => drive_led_col_o
+      );
 end generate drive_led_normal_gen;
 
 -- Debug build, round 28: LBA 800-809 rejected (still cyan). Show FDC track.
@@ -1384,6 +1380,7 @@ iec_drive_inst : entity work.iec_drive
     led          => iec_drive_led,
     disk_ready   => open,
     dbg          => iec_dbg,
+    diag         => iec_diag,
     -- The track-number display (MiSTer's drv_overlay.sv) is out of scope, but these two
     -- cannot be left open: xsim refuses a VHDL-to-Verilog binding with an unconnected
     -- vector or array output, even though synthesis accepts it.
@@ -1417,6 +1414,24 @@ iec_drive_inst : entity work.iec_drive
     rom_data     => drv_rom_data_i,
     rom_wr       => drv_rom_wr_i
   ); -- iec_drive_inst
+
+-- Read-only diagnostic bank (C_DEV_VDRIVE_DIAG). Address bits 6:0 select one of
+-- 128 16-bit words per drive; bit 7 selects drive 8/9. Words 0-7 are the
+-- host-side handshake, words 8-15 the DOS state inside the drive and words 16-63
+-- the timestamped serial-bus trace of the last ATN window. Words 64-111 hold the
+-- circular DOS ROM-read trace.
+vdrive_diag_read : process (all)
+  variable drive_index : natural range 0 to 1;
+  variable word_index  : natural range 0 to 127;
+begin
+  qnice_vd_diag_data_o <= (others => '0');
+  drive_index := to_integer(unsigned(qnice_vd_addr_i(7 downto 7)));
+  word_index  := to_integer(unsigned(qnice_vd_addr_i(6 downto 0)));
+  if drive_index < G_VDNUM then
+    qnice_vd_diag_data_o <=
+      iec_diag(drive_index)(word_index * 16 + 15 downto word_index * 16);
+  end if;
+end process vdrive_diag_read;
 
 vdrives_inst : entity work.vdrives
   generic map (
@@ -1473,6 +1488,7 @@ else generate
 
   drives_dirty   <= '0';
   drives_busy    <= '0';
+  qnice_vd_diag_data_o <= (others => '0');
 
   qnice_vd_data_o <= (others => '0');
   drv_rom_req_o   <= '0';

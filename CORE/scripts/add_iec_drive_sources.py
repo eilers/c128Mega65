@@ -15,8 +15,11 @@ import sys
 SOURCES = [
     ("vhdl/mount_buf_wrapper.vhd", "VHDL2008"),
     ("vhdl/drive_rom_server.vhd", "VHDL2008"),
+    ("vhdl/drive_led_policy.vhd", "VHDL2008"),
     ("C128_MiSTer/rtl/iec_drive/iecdrv_via6522.vhd", "VHDL2008"),
     ("C128_MiSTer/rtl/iec_drive/iec_drive.sv", "SVerilog"),
+    ("C128_MiSTer/rtl/iec_drive/c1541_gcr_codec.sv", "SVerilog"),
+    ("C128_MiSTer/rtl/iec_drive/c1541_gcr.sv", "SVerilog"),
     ("C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv", "SVerilog"),
     ("C128_MiSTer/rtl/iec_drive/iecdrv_rom.sv", "SVerilog"),
     ("C128_MiSTer/rtl/iec_drive/c157x_multi.sv", "SVerilog"),

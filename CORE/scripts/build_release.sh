@@ -105,6 +105,9 @@ fi
 
 check_core_version
 
+echo "Running virtual-drive release gates..."
+"$SCRIPT_DIR/run_drive_sims.sh" "CORE/CORE-R6-vivado2022.xpr"
+
 # The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
 # on the SD card, so the release has to carry it next to the .cor files.
 SETTINGS_FILE="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}.cfg"

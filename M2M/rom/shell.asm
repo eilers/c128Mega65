@@ -184,6 +184,7 @@ MAIN_LOOP       RSUB    HANDLE_IO, 1            ; IO handling (e.g. vdrives)
                 RSUB    CHECK_DEBUG, 1          ; (Run/Stop+Cursor Up) + Help
                 RSUB    HELP_MENU, 1            ; check/manage help menu
                 RSUB    LOG_COREINFO, 1         ; once: log core info
+                RSUB    LOG_DIAG_TICK, 1        ; periodic: log drive diagnostics
 
                 RBRA    MAIN_LOOP, 1
 
@@ -594,6 +595,12 @@ _HM_SDMOUNTED6A_OSM
                 MOVE    R7, R8
                 SYSCALL(puthex, 1)
                 SYSCALL(crlf, 1)
+
+                ; No snapshot here on purpose. The waits this used to need blocked
+                ; HANDLE_IO, so the first track request sat unserviced for the
+                ; whole two seconds and every snapshot showed a read in flight that was
+                ; only an artefact of the sampling. LOG_DIAG_TICK reports from the main
+                ; loop instead, where the drive is actually being served.
                 RBRA    _HM_SDMOUNTED7, 1
 
                 ; We successfully loaded a manually loadable CRT/ROM and need
@@ -1025,6 +1032,61 @@ _HANDLE_IO_NXT3 ADD     1, R0                   ; next drive
 _HANDLE_IO_RET  SYSCALL(leave, 1)
                 RET
 
+; Log the diagnostic snapshot of drive 8 a few times a second.
+;
+; Printing only after a mount describes the drive at the one moment it is guaranteed to
+; look healthy. A drive that stops answering the serial bus does so later, while the
+; computer sits in a KERNAL wait loop that never times out, so the interesting state is
+; only visible if the console keeps talking on its own.
+LOG_DIAG_TICK   SYSCALL(enter, 1)
+
+                MOVE    IO$CYC_MID, R0
+                MOVE    @R0, R1                 ; R1: now
+                MOVE    DIAG_CYC_LAST, R2
+                MOVE    R1, R3
+                SUB     @R2, R3                 ; R3: elapsed, wraps with the counter
+                CMP     DIAG_TICK_WAIT, R3      ; N set while the interval is not over
+                RBRA    _LDT_RET, N
+
+                MOVE    R1, @R2
+                XOR     R8, R8                  ; drive 8
+                RSUB    LOG_VDRIVE_DIAG, 1
+
+_LDT_RET        SYSCALL(leave, 1)
+                RET
+
+; Print the 128 diagnostic words of virtual drive R8 to the JTAG UART.
+; C_DEV_VDRIVE_DIAG is core device 0x0106; drive 9 starts at word 128.
+; Words 0-7 are the host-side handshake, words 8-15 the DOS state inside the drive
+; and words 16-63 / 64-111 the serial-bus / DOS ROM-read traces.
+LOG_VDRIVE_DIAG SYSCALL(enter, 1)
+                MOVE    R8, R0                  ; drive index
+                MOVE    LOG_STR_VDDIAG, R8
+                SYSCALL(puts, 1)
+                MOVE    R0, R8
+                SYSCALL(puthex, 1)
+                MOVE    ' ', R8
+                SYSCALL(putc, 1)
+
+                MOVE    M2M$RAMROM_DEV, R1
+                MOVE    0x0106, @R1
+                MOVE    M2M$RAMROM_4KWIN, R1
+                MOVE    0, @R1
+                MOVE    M2M$RAMROM_DATA, R1
+                CMP     0, R0
+                RBRA    _LVD_ADDR_OK, Z
+                ADD     128, R1
+_LVD_ADDR_OK    MOVE    128, R2
+_LVD_NEXT       MOVE    @R1++, R8
+                SYSCALL(puthex, 1)
+                MOVE    ' ', R8
+                SYSCALL(putc, 1)
+                SUB     1, R2
+                RBRA    _LVD_NEXT, !Z
+                SYSCALL(crlf, 1)
+                SYSCALL(leave, 1)
+                RET
+
 ; Handle read request from drive number in R8:
 ;
 ; Transfer the data requested by the core from the linear disk image buffer
@@ -1081,10 +1143,8 @@ _HDR_SEND_LOOP  CMP     R6, R0                  ; transmission done?
                 MOVE    VD_B_WREN, R8           ; strobe write enable
                 MOVE    1, R9
                 RSUB    VD_CAD_WRITE, 1
-                XOR     R9, R9                  ; ...and release it again: "XOR 0, R9"
-                RSUB    VD_CAD_WRITE, 1         ; left R9 at 1, so sd_buff_wr stuck
-                                                ; high, which holds c157x_heads in
-                                                ; reset for the whole transfer
+                XOR     R9, R9                  ; ...and release it again
+                RSUB    VD_CAD_WRITE, 1
 
                 ADD     1, R6                   ; next byte
 

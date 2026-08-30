@@ -3,11 +3,10 @@
 * Mega65 Keyboard
 * Joystick Port
 * IEC (Serial) bus (inclusive Burst Mode)
-* Virtual drives: device 8 and 9, mountable from `/c128` on the SD card. Only `.D81`
-  (1581) is expected to work at the moment — see the `.D64` / `.D71` entry under Known
-  Bugs. The menu picks 1541 or 1571 for the 5.25" formats; mounting a `.D81` turns that
-  drive into a 1581 regardless of the menu. How to instrument a live drive (LED, JTAG
-  Shell, `C_DEV_V1581_DIAG`) is in [debug-virtual-drives.md](debug-virtual-drives.md).
+* Virtual drives: device 8 and 9, mountable from `/c128` on the SD card. Standard linear
+  `.D64`, `.D71`, and `.D81` images have FPGA-side sector paths. The menu picks 1541 or
+  1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless
+  of the menu. Raw `.G64`/`.G71` and MFM/CP-M images are not supported.
 * Real cartridges in the expansion port (C64 and C128 cartridges)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Go64 and native C128 Mode
@@ -162,22 +161,15 @@
   Still unverified on hardware: write back to the SD card, whether an unmounted (and
   therefore reset-held) emulated drive really stays electrically silent on the IEC bus, and
   coexistence with a real drive on the physical port.
-* `.D64` and `.D71` cannot work yet, independently of the bugs above, and mounting one
-  will stall the bus. Two truncated vectors in the 157x were found while chasing the 1581
-  and are fixed (`gcr_do`, the byte the read head hands to VIA2 port A, and the 8-bit
-  `track`; both were 1-bit implicit nets — see round 5 above), as is the stuck buffer write
-  strobe that held `c157x_heads` in reset. None of that changes the verdict below: the
-  format needs an FPGA-side GCR encoder that does not exist yet. This gap was masked for a long time by bug 3: with the image type stuck
-  at 0 every image, including a `.D81`, was routed through the 157x, so all three formats
-  failed the same way. The C128's `iec_drive` is Erik Scheffers' 157x rewrite, which dropped
-  the sector-addressing mode the older MiSTer 1541 still has. `c157x_track.sv` emits
-  `sd_lba = {20'h00000, 1'b01, freq, lba}` — a track *request*, not a file offset — and
-  `c157x_heads` expects a fully GCR/MFM-encoded raw track back. On MiSTer the ARM does that
-  conversion in software; the QNICE Shell does not. C64MEGA65 avoids the problem entirely:
-  its `c1541_track.sv` uses a `start_sectors[]` table to ask for plain linear sectors and
-  GCR-encodes in the FPGA (`c1541_gcr.sv`), and it deliberately refuses `.G64`, the one
-  format that would need host-side encoding. `.D81` is unaffected, because the 1581 goes
-  through `c1581_fdc1772.v` with a linear 512-byte LBA.
+* `.D64`/`.D71` directory listing is hardware-qualified on MEGA65 R6: 1541 and 1571
+  modes, devices 8 and 9, with the drive LED on during the read. Two hardware-only
+  defects had to be bypassed in `c157x_logic.sv` without touching vendored VIA VHDL:
+  a stale VIA1 T1 flag on `$180D` (1541 serial receive took the EOI path too early)
+  and an unlatched sector-GCR byte-ready pulse that the 1571 DOS never sampled at
+  2 MHz. Writes back to the SD card, an unmounted drive staying silent on the bus,
+  and coexistence with a real IEC drive are still unverified. Deterministic images
+  and the remaining checklist are under `test/157x-rw/`. Do not interpret this as
+  support for `.G64`, `.G71`, or 1571 MFM/CP-M images.
 
 # Missing Features
 * Video:
@@ -189,10 +181,6 @@
     * "Audio improvements": removed from the menu, `qnice_audio_filter_o` is
       hardwired to '0' in `mega65.vhd`
     * ...
-* Virtual drives: a GCR encoder in the FPGA, so that `.D64` / `.D71` can be served as
-  linear sectors the way C64MEGA65 does. This is the agreed direction (rather than
-  encoding in QNICE firmware or backporting the old 1541, which would cost the 1571 and
-  with it C128 burst mode) and is what makes the 5.25" formats usable at all.
 * Virtual drives: raw GCR images (`.G64` / `.G71`) and `.T64` tape images. The 2-bit
   image type the M2M framework carries is fully used by D64, D71 and D81, so raw GCR
   would need a framework change. Also missing: the MiSTer "Always" and "Never" drive

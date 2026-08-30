@@ -6,10 +6,10 @@ example; the same layers apply to 1541 / `.D64` and 1571 / `.D71` later.
 The short version: **do not guess from HDL**. Put a probe on both sides of
 every hop, capture a real run, then change one thing.
 
-> **Instrumentation status:** The temporary UART/MMIO probes described below
-> were removed after the fix was verified on hardware. The LED overlay remains
-> in `main.vhd` behind `C_DRIVE_LED_DEBUG := false`. This document records the
-> probe design and word map so they can be restored for a future investigation.
+> **Instrumentation status:** The temporary 1581 probe bank was removed. A compact,
+> permanent 1541/1571 bank is available as `C_DEV_VDRIVE_DIAG` (`0x0106`); it records
+> host-request edges and a stable per-drive snapshot without using the physical LED.
+> The old LED overlay remains compiled out behind `C_DRIVE_LED_DEBUG := false`.
 
 ## 1. What you are debugging
 
@@ -65,7 +65,8 @@ Each layer is a bitstream (or ROM) change.
 |---|---|---|
 | Drive LED colour | motor on/off, "did we ever seek T40", "did `sd_rd` fire" | LBA, sector, which drive |
 | `DRV_RD LBA256=` on JTAG | the block QNICE actually fetched | why that LBA was chosen |
-| `C_DEV_V1581_DIAG` snapshot | FDC command, track, sector, geometry, LBA at several hops | byte contents of the sector |
+| `C_DEV_VDRIVE_DIAG` snapshot | 157x image/model flags, track, LBA, block count, host-request counters | byte contents of the sector |
+| `C_DEV_VDRIVE_DIAG` bus trace | the microsecond-timed IEC handshake of the last ATN window | anything outside an ATN window |
 | ILA / simulation | cycle-accurate one hop | a 20-second user session |
 
 The 1581 case spent many rounds on the LED and concluded "wrong track".
@@ -128,53 +129,125 @@ does nothing on the MEGA65.
 
 ### 3.3 Diagnostic MMIO bank
 
-The temporary build reserved device id `C_DEV_V1581_DIAG` = `0x0106` in
-`CORE/vhdl/globals.vhd`. Re-add that constant when restoring the bank.
-QNICE maps it the same way as `vdrives`: pick the device, 4K window 0,
-then sequential 16-bit words at `M2M$RAMROM_DATA`.
-
-The FDC snapshot (`dbg_ext`) was built on `clk_main_i` and crossed with
-`xpm_cdc_array_single` into `clk_sd_i` before QNICE reads it. Fields
-are **latched / cumulative** (command counters, last command, LBA at
-the last `sd_rd` latch) so a torn sample during a write is rare. Live
-combinational fields (`sd_lba_comb`, current track/sector) can still
-tear; prefer the latched copies when they disagree.
-
-Map version is word 1 (`0200` at the time of writing). Bump it when
-you change the layout so an old Shell dump is obvious.
-
-#### Word map (version `0200`, 32 words)
+`C_DEV_VDRIVE_DIAG` = `0x0106` is read-only. Addresses `0..127` select
+drive 8; addresses `128..255` select drive 9. Words `0..7` describe the host
+side of the drive and are assembled in the QNICE/host clock domain; track-side
+state is synchronized before it is used by the request controller, and event
+counters preserve short `sd_rd`, `sd_wr`, and `sd_ack` pulses.
 
 | Word | Contents |
 |---|---|
-| `00` | signature `1581` (bank present) |
-| `01` | map version |
-| `02` | WD command count |
-| `03` | Type I count (restore / seek / step) |
-| `04` | Type II count (read / write sector) |
-| `05` | Type III count (read address / read track / write track) |
-| `06` | last command byte / track register at that write |
-| `07` | last sector / last data register at that write |
-| `08` | geometry + FDC FSM flags (see below) |
-| `09` | number of times `sd_lba` was latched |
-| `0A`/`0B` | live `sd_lba_comb` (FDC, 512-byte) |
-| `0C`/`0D` | latched `sd_lba` (FDC, 512-byte) |
-| `0E` | track / sector captured at that latch |
-| `0F` | geometry at that latch `{0, doubleside, side, spt}` |
-| `10` | live track / sector |
-| `11` | disk-change / CIA port A |
-| `12`/`13` | `iec_sd_lba(0)` in `main.vhd` (256-byte, after `<< 1`) |
-| `14`/`15` | `img_size` |
-| `16` | legacy sticky `iec_dbg` |
-| `17`/`18` | `sd_lba[0]` inside `iec_drive.sv` (256-byte) |
-| `19`/`1A` | `c1581_sd_lba[0]` (512-byte, before the mux and shift) |
-| `1B` | `img_hd` (bit 0 set → 1581 path selected) |
-| `1C`/`1D` | `iec_sd_lba(1)` — **the other drive** |
-| `1E`/`1F` | `vd_sd_lba(0)` — what `vdrives` is actually handed |
+| `0` | signature/version `157D` |
+| `1` | image/model, motor, VIA activity, host handshake, side and reset flags |
+| `2` | raw track / low byte of host buffer address |
+| `3` | read-request count / write-request count |
+| `4`/`5` | 32-bit linear 256-byte LBA |
+| `6` | block count / acknowledge count |
+| `7` | high buffer address / FDC busy / write / buffer-update flags |
 
-Word `06` command nibble: `8x` = read sector, `Ax` = write sector,
-`Cx` = read address, `Dx` = force interrupt, `1x`/`2x`/`3x` = seek /
-step. Track `27` hex = 39 decimal = Commodore track 40.
+Words `8..15` describe the DOS running inside the drive. They are sampled in
+the drive clock domain and crossed without a synchronizer, so treat each field
+on its own: they are mirrors and trend counters, never an atomic snapshot.
+
+| Word | Contents |
+|---|---|
+| `8` | signature `D05A` |
+| `9` | sticky state of the last ATN-low window (see below) |
+| `10` | VIA1 port B output / direction at the end of that window |
+| `11` | drive state `$20` / job slot `$00` |
+| `12` | IRQ vector fetches / number of jobs posted |
+| `13` | VIA1 ORB writes / ATN falling edges seen |
+| `14` | VIA1 port B output / direction, live |
+| `15` | IEC inputs (ATN, CLK, DATA, SRQ) / outputs, motor, host busy |
+
+Word `9` exists because the whole ATN handshake lasts about a millisecond,
+far below the rate at which the shell samples this bank, so a plain mirror of
+the bus always reads back idle. The bits are set while ATN is low and cleared
+only by the next ATN falling edge, so a slow reader still sees the last window.
+
+| Bit | Meaning while ATN was low |
+|---|---|
+| `0` | drive pulled DATA, i.e. it acknowledged ATN |
+| `1` | drive pulled CLK |
+| `2`/`3` | DATA / CLK low on the merged bus |
+| `4`/`5` | VIA1 / VIA2 raised an interrupt |
+| `6`/`7` | CIA raised an interrupt / the CPU saw IRQ asserted |
+| `8`/`9` | DOS wrote / read VIA1 ORB (`$1800`) |
+| `10` | CPU fetched the IRQ vector |
+| `11` | fast serial direction was set |
+| `12`/`13` | CPU ran at 2 MHz / was halted by the clock switch |
+| `14` | window outlasted the 16-bit tick counter |
+| `15` | a window was observed at all |
+
+Bit `0` separates the two failure modes that look alike from the computer:
+cleared means the drive never acknowledged ATN and the computer reports
+DEVICE NOT PRESENT, while set with bits `7`/`8` cleared means the hardware
+acknowledged but the DOS never ran its ATN service routine.
+
+Read all sixteen words after a failure. Counter deltas identify which drive
+made the request even if the request pulse has already ended. A D64 or
+D71 request is linear-sector addressed: word 6 reports `sectors-1`, matching
+the `vdrives` block-count contract.
+
+#### Serial-bus trace, words `16..63`
+
+The sticky bits in word `9` prove whether the drive answered ATN at all, but
+they collapse the entire window into one value and so cannot show *where*
+inside a command byte a handshake stalls. Words `16..63` are 48 trace entries
+that record one line per change of the serial bus. Capture restarts on every
+ATN falling edge, so the buffer always holds the beginning of the most recent
+attempt and never needs to be armed. Entries past the end of a short window
+keep the value they had during the previous, longer one.
+
+| Bits | Contents |
+|---|---|
+| `15` | ATN in |
+| `14`/`13` | CLK / DATA in, after the wired-AND merge |
+| `12`/`11` | DATA / CLK the drive itself drives, `1` = released |
+| `10` | VIA1 PB4, the ATNA latch |
+| `9`/`8` | VIA1 PB1 / PB3, the DATA / CLK output registers |
+| `7:0` | microseconds since the previous entry, saturating at 255 |
+
+The timestamp counts `ph2_r[0]`, the drive's own 1 MHz phase, so it is a true
+microsecond in drive time regardless of the model or clock speed selected. A
+saturated age still writes an entry, which keeps a long wait visible as a run
+of 255 us gaps instead of silently folding into the next transition.
+
+Entry `0` is the state at the ATN falling edge itself and always carries a zero
+age. Reading the high byte of successive entries as a column shows the byte
+being clocked in: for a healthy receive, CLK in (bit `14`) toggles eight times
+while DATA in (bit `13`) carries the data, and the drive answers each byte by
+pulling DATA (bit `12` going to `0`).
+
+Words `64..111` contain, for each bus-trace entry, the DOS bit counter `$98`
+(high byte) and the last value the DOS actually read out of the VIA1 interrupt
+flag register `$180D` (low byte). Those are the two inputs the receive loop
+branches on: `$98` counts the eight bits of the frame, and bit `6` of `$180D`
+is the T1 flag that sends the DOS to the EOI acknowledge at `$E9F2`. A DATA
+pulse in the bus trace is therefore attributable to a bit count that ran out
+early or to a timer flag that was set when it should not have been.
+
+Both fields are sampled off the drive CPU bus rather than out of the VIA, so
+the vendored `iecdrv_via6522.vhd` stays untouched.
+
+Words `112..114` retain the live CPU bus address, data and interrupt control
+flags, word `115` the live `$98`/`$180D` pair, and word `116` the last value
+`LDA $1800` returned alongside the raw port B pin vector, which separates "the
+VIA cannot see the bus" from "the DOS read the bus correctly and still decided
+wrongly".
+
+Word `117` is a sanity check on the drive's sense of time. Every timestamp in
+the bus trace is counted in the drive's own 1 MHz phase, so a drive whose time
+base is wrong produces a trace that is internally consistent and still
+disagrees with the C128, which is the real-time master. The word counts those
+ticks against the main core clock instead: at 31.5 MHz a correct 1 MHz phase
+gives about `1040` ticks per 32768 clocks, and any other value scales every
+other timestamp in the snapshot.
+
+The shell prints this snapshot roughly three times a second from its main loop
+(`LOG_DIAG_TICK`). Logging only after a mount is not enough: a drive that stops
+answering does so later, while the computer sits in a KERNAL wait loop that
+never times out.
 
 Expected D81 BAM numbers, track 39, 10 sectors/track, double sided,
 sector *n* (1-based):
@@ -327,6 +400,61 @@ Chronology of *evidence*, not of guesses.
 That is the whole method: each run moved the "last correct value"
 one hop further along the chain until the remaining hop was the
 module boundary.
+
+## 7a. Worked example: 1541 `?FILE NOT FOUND` on `LOAD"$",8`
+
+The drive answered on the IEC bus (otherwise the C128 would say
+`DEVICE NOT PRESENT`), the image mounted, and the host request
+contract simulated clean. The disk *surface* was the broken hop.
+
+Two defects, both in the ported sector-GCR path, both invisible to
+the tests that existed at the time:
+
+1. **Mirrored GCR codes.** `c1541_gcr` serialises a five-bit code
+   with `gcr_nibble[gcr_bit_cnt]`, and `gcr_bit_cnt` counts up.
+   The reference compensates by storing every code in its
+   `gcr_lut` bit-reversed. Our port moved the table into
+   `c1541_gcr_codec` and made it canonical without changing the
+   serialiser, so every code reached the head mirrored. The
+   round-trip codec test passed because encoder and decoder shared
+   the same wrong convention.
+2. **Missing SOE gate.** `c157x_h156` masks byte-ready with SOE
+   internally; the sector-GCR module does not. `c157x_logic` fed
+   its `byte_n` straight to the CPU, so DOS saw byte-ready pulses
+   while it had byte-ready switched off. The reference computes
+   `cpu_so_n = byte_n | ~soe`.
+
+The lesson for the next port: a self-consistent round trip proves
+nothing about what lands on the disk surface. `tb_c157x_gcr_path`
+now decodes the emitted surface with a canonical table written out
+literally in the bench, checks header and data blocks against the
+sector buffer, and sweeps all four density values, because DOS
+picks a different density per zone.
+
+## 7b. Worked example: 1571 `LOAD"$",8` hangs, LED never lights
+
+`PRINT DS$` answered `73,CBM DOS V3.0 1571`, so native 1571 DOS had
+booted and the serial bus worked. 1541 mode listed directories.
+`LOAD"$"` in 1571 mode blocked with the CPU at `$9459` polling VIA1
+PA7 (BYTE READY).
+
+Simulation retired the same job. Hardware windowed counters showed
+the GCR engine still emitting bytes at full rate, SOE open, the
+seek already on track 18 — and **zero** port A reads catching the pin
+low. The 1541 DOS catches byte-ready on the CPU SO pin (edge). The
+1571 DOS polls PA7. At 2 MHz the poll loop is an integer multiple of
+the bit cell, so the sample lands on the same point of every cell
+forever, outside `c1541_gcr`'s short pulse. `c157x_h156` already
+holds byte-ready until `ted` (CPU touch of VIA2) and forces `ted`
+true at 1 MHz; the sector path did not. The latch in `c157x_logic`
+mirrors that: transparent at 1 MHz (1541 unchanged), sticky at
+2 MHz until VIA2 is touched.
+
+A second hardware-only defect sits next to it: Vivado's synthesised
+`iecdrv_via6522` can leave IFR bit 6 set after a T1-high write that
+XSim clears. The 1541 receive path then takes EOI immediately. The
+T1 guard in `c157x_logic` masks only the polled bit for the programmed
+one-shot; the vendored VIA is left alone.
 
 ## 8. Build / flash loop
 
