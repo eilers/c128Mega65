@@ -20,6 +20,14 @@
 
 #define RELEASE
 
+; If VDRIVE_DIAG_LOG is defined, the Shell dumps the 128-word diagnostic snapshot of
+; virtual drive 8 to the JTAG UART about three times a second. Each dump is roughly 650
+; characters, and the UART is written synchronously from the main loop, so the Shell
+; stops servicing the virtual drives for tens of milliseconds per dump. That is visible
+; from the core as stuttering. Enable it only while debugging a drive.
+
+;#define VDRIVE_DIAG_LOG
+
 ; ----------------------------------------------------------------------------
 ; Firmware: M2M system
 ; ----------------------------------------------------------------------------

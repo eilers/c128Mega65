@@ -184,7 +184,9 @@ MAIN_LOOP       RSUB    HANDLE_IO, 1            ; IO handling (e.g. vdrives)
                 RSUB    CHECK_DEBUG, 1          ; (Run/Stop+Cursor Up) + Help
                 RSUB    HELP_MENU, 1            ; check/manage help menu
                 RSUB    LOG_COREINFO, 1         ; once: log core info
+#ifdef VDRIVE_DIAG_LOG
                 RSUB    LOG_DIAG_TICK, 1        ; periodic: log drive diagnostics
+#endif
 
                 RBRA    MAIN_LOOP, 1
 
@@ -1032,12 +1034,17 @@ _HANDLE_IO_NXT3 ADD     1, R0                   ; next drive
 _HANDLE_IO_RET  SYSCALL(leave, 1)
                 RET
 
+#ifdef VDRIVE_DIAG_LOG
+
 ; Log the diagnostic snapshot of drive 8 a few times a second.
 ;
 ; Printing only after a mount describes the drive at the one moment it is guaranteed to
 ; look healthy. A drive that stops answering the serial bus does so later, while the
 ; computer sits in a KERNAL wait loop that never times out, so the interesting state is
 ; only visible if the console keeps talking on its own.
+;
+; The dump is long enough to stall the main loop, so this is a debug-only build option.
+; See VDRIVE_DIAG_LOG in CORE/m2m-rom/m2m-rom.asm.
 LOG_DIAG_TICK   SYSCALL(enter, 1)
 
                 MOVE    IO$CYC_MID, R0
@@ -1086,6 +1093,8 @@ _LVD_NEXT       MOVE    @R1++, R8
                 SYSCALL(crlf, 1)
                 SYSCALL(leave, 1)
                 RET
+
+#endif
 
 ; Handle read request from drive number in R8:
 ;
