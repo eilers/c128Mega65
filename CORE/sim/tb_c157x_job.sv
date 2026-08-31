@@ -240,6 +240,7 @@ module tb_c157x_job;
 	wire        cpu_irq_n  = dut.c157x.drives[0].c157x_drv.c157x_logic.cpu_irq_n;
 	wire [23:0] cpu_a      = dut.c157x.drives[0].c157x_drv.c157x_logic.cpu_a;
 	wire        cpu_rw     = dut.c157x.drives[0].c157x_drv.c157x_logic.cpu_rw;
+	wire  [7:0] cpu_do     = dut.c157x.drives[0].c157x_drv.c157x_logic.cpu_do;
 	wire        cpu_step   = dut.c157x.drives[0].c157x_drv.c157x_logic.ena_f;
 	wire  [2:0] accl       = dut.c157x.drives[0].c157x_drv.c157x_logic.accl;
 
@@ -259,6 +260,16 @@ module tb_c157x_job;
 	logic [1:0] soe_dir[0:31];
 	logic [15:0] soe_where[0:31];
 
+	// A write job can complete its mechanics yet fail verification. Count the bytes the
+	// DOS sends to VIA2 and the bytes c1541_gcr accepts into its sector buffer so 1 MHz
+	// and 2 MHz failures can be separated without a waveform dump.
+	int         via2_ora_writes = 0;
+	int         gcr_buffer_writes = 0;
+	int         gcr_decode_errors = 0;
+	logic       gcr_decode_error_d = 0;
+	logic [15:0] via2_ora_sum = 0;
+	logic [15:0] gcr_buffer_sum = 0;
+
 	always @(posedge clk) begin
 		cpu_d  <= cpu_byte_n;
 		sync_d <= gcr_sync_n;
@@ -275,6 +286,21 @@ module tb_c157x_job;
 			soe_where[soe_events] <= cpu_a[15:0];
 			soe_events            <= soe_events + 1;
 		end
+
+		gcr_decode_error_d <=
+			dut.c157x.drives[0].c157x_drv.sector_gcr.decode_error;
+		if (sampling && cpu_step && !cpu_rw && cpu_a[15:0] == 16'h1C01) begin
+			via2_ora_writes <= via2_ora_writes + 1;
+			via2_ora_sum <= via2_ora_sum + cpu_do;
+		end
+		if (sampling && dut.c157x.drives[0].c157x_drv.sector_gcr.we) begin
+			gcr_buffer_writes <= gcr_buffer_writes + 1;
+			gcr_buffer_sum <= gcr_buffer_sum
+			                + dut.c157x.drives[0].c157x_drv.sector_gcr.buff_di;
+		end
+		if (sampling && !gcr_decode_error_d
+		    && dut.c157x.drives[0].c157x_drv.sector_gcr.decode_error)
+			gcr_decode_errors <= gcr_decode_errors + 1;
 	end
 
 	function automatic logic [7:0] dram(input int unsigned a);
@@ -532,6 +558,9 @@ module tb_c157x_job;
 		$display("INFO: %0d SOE transitions logged", soe_events);
 		for (int i = 0; i < soe_events; i++)
 			$display("INFO: SOE -> %0d at $%04h", soe_dir[i][0], soe_where[i]);
+		$display("INFO: write path VIA2_ORA=%0d sum=%04h GCR_buffer=%0d sum=%04h decode_errors=%0d",
+		         via2_ora_writes, via2_ora_sum, gcr_buffer_writes, gcr_buffer_sum,
+		         gcr_decode_errors);
 		$display("INFO: read flow header_wait=%0d header_bytes=%0d header_ok=%0d data_start=%0d data_wait=%0d data_done=%0d timeout=%0d status=%0d",
 		         read_flow[0], read_flow[1], read_flow[2], read_flow[3],
 		         read_flow[4], read_flow[5], read_flow[6], read_flow[7]);
