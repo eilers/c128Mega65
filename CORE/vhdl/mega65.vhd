@@ -273,6 +273,8 @@ signal qnice_vd_ce           : std_logic;
 signal qnice_vd_we           : std_logic;
 signal qnice_vd_data         : std_logic_vector(15 downto 0);
 signal qnice_vd_diag_data    : std_logic_vector(15 downto 0);
+signal qnice_vd_diag_ce      : std_logic;
+signal qnice_vd_diag_wait    : std_logic;
 
 -- Disk image staging buffers in HyperRAM (mount_buf_wrapper)
 signal qnice_mount_ce        : std_logic;
@@ -534,6 +536,8 @@ begin
          qnice_vd_data_i      => qnice_dev_data_i,
          qnice_vd_data_o      => qnice_vd_data,
          qnice_vd_diag_data_o => qnice_vd_diag_data,
+         qnice_vd_diag_ce_i   => qnice_vd_diag_ce,
+         qnice_vd_diag_wait_o => qnice_vd_diag_wait,
          qnice_vd_ce_i        => qnice_vd_ce,
          qnice_vd_we_i        => qnice_vd_we,
 
@@ -625,6 +629,7 @@ begin
       qnice_drvrom_we      <= '0';
       qnice_vd_ce          <= '0';
       qnice_vd_we          <= '0';
+      qnice_vd_diag_ce     <= '0';
       qnice_mount_ce       <= '0';
       qnice_mount_we       <= '0';
 
@@ -652,7 +657,9 @@ begin
             qnice_vd_we       <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_vd_data;
         when C_DEV_VDRIVE_DIAG =>
+            qnice_vd_diag_ce  <= qnice_dev_ce_i;
             qnice_dev_data_o  <= qnice_vd_diag_data;
+            qnice_dev_wait_o  <= qnice_vd_diag_wait;
 
         -- Mounted disk images, staged in HyperRAM. One wrapper serves both drives: QNICE is
         -- single-threaded, so the two devices are never accessed at the same time.

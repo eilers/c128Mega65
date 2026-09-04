@@ -129,11 +129,112 @@ does nothing on the MEGA65.
 
 ### 3.3 Diagnostic MMIO bank
 
-`C_DEV_VDRIVE_DIAG` = `0x0106` is read-only. Addresses `0..127` select
-drive 8; addresses `128..255` select drive 9. Words `0..7` describe the host
-side of the drive and are assembled in the QNICE/host clock domain; track-side
-state is synchronized before it is used by the request controller, and event
-counters preserve short `sd_rd`, `sd_wr`, and `sd_ack` pulses.
+`C_DEV_VDRIVE_DIAG` = `0x0106` is read-only. In 4 KiB window 0, addresses
+`0..127` select drive 8 and addresses `128..255` select drive 9. Words `0..7`
+describe the host side of the drive and are assembled in the QNICE/host clock
+domain; track-side state is synchronized before it is used by the request
+controller, and event counters preserve short `sd_rd`, `sd_wr`, and `sd_ack`
+pulses.
+
+Window 1 exposes each 157x drive's complete 2 KiB DOS work RAM through the
+RAM's independent read-only port. QNICE address offsets `0x000..0x7FF` are
+drive 8 and `0x800..0xFFF` are drive 9; each byte is returned zero-extended in
+a 16-bit QNICE word. This does not halt or otherwise alter the drive CPU.
+
+Unlike window 0, window 1 reads a block RAM with a registered output, so the
+device asserts `qnice_dev_wait_o` for one clock. Without that stall QNICE
+samples one cycle too early and every location returns the byte belonging to
+whatever address the CPU drove just before — a constant that looks like real
+data but tracks the monitor's instruction stream instead of the address.
+
+The host-side helper enters QMON, reads selected locations, and returns to the
+Shell automatically. It temporarily asserts the core pause bit while reading,
+so the dump is a coherent snapshot rather than RAM changing underneath it:
+
+```
+sudo python3 CORE/scripts/qnice_drive_monitor.py peek 8 01af 02ac 01b1
+sudo python3 CORE/scripts/qnice_drive_monitor.py dump 8 0200 02ff
+```
+
+No keyboard interaction is needed: the Shell's `CHECK_DEBUG` also enters the
+monitor when it sees CTRL+E on this port, and the helper sends it. Stop any
+`jtag_console.sh` process beforehand because only one process may own the UART.
+
+The `Run/Stop + Cursor Up + Help` combination still works, but it is awkward
+enough to be worth avoiding. All three keys have to land in one keyboard scan,
+and on the MEGA65 `Cursor Up` also asserts shift towards the core, so the C128
+sees `Shift + Run/Stop` and starts a LOAD while QNICE sees nothing.
+
+Two further things make the combination look dead when it is not. The prompt
+appears only on the JTAG UART, never on HDMI, so the screen reacting to the
+keys is expected. And a short press of the reset button restarts only the core:
+QNICE keeps running, so the Shell banner that proves the serial path works only
+appears after holding reset for more than 1.5 seconds.
+
+If a previous session died mid-command, `--attached <retaddr>` re-uses a prompt
+that is already open instead of waiting for the key combination, and `cmd`
+sends raw QMON commands:
+
+```
+sudo python3 CORE/scripts/qnice_drive_monitor.py --attached 2092 peek 8 02ac
+sudo python3 CORE/scripts/qnice_drive_monitor.py --attached 2092 cmd MD70007017
+```
+
+The helper types one character at a time. QMON echoes in a polling loop with no
+receive FIFO, so a back-to-back burst at 115200 silently loses characters and
+the monitor is left waiting for the rest of an operand.
+
+### 3.4 D71 side-detection failure
+
+The 1571 DOS does not trust the image type supplied by the host. In native
+mode it reads track 53 and compares the GCR header's disk ID with the ID it
+already learned from track 18. Only a successful job and matching ID leave
+`$01AF=$80` and `$02AC=$47`; failure leaves `$01AF=$00` and `$02AC=$24`, which
+makes a valid D71 appear as a full 35-track disk.
+
+The original mount delay announced insertion through write-protect sense
+before sector data became available:
+
+```
+wps_n        = ~readonly ^ ch_timeout[23]
+disk_present = present only when ch_timeout == 0
+GCR busy     = sd_busy | ~disk_present
+```
+
+`ch_timeout[23]` makes its final transition when the top two timeout bits
+become `00`, one quarter of the delay before zero. DOS reacted immediately,
+but `~disk_present` forced the track-53 GCR job busy, so the no-retry probe
+failed. No change indication occurred after `disk_present` eventually rose.
+
+`c157x_drv.sv` now raises `disk_present` at that final write-protect transition
+and retains the remaining quarter as settling time in `disk_ready`. The D71
+boot regression sends `U0>M1`, observes the track-53 request at linear LBA
+1040, and requires `$01AF=$80`, `$02AC=$47`, PA5 high and the expected disk ID.
+
+That mount-timing fix was necessary but not sufficient: the probe still failed
+on hardware, where `$02AC` briefly reached `$47` and fell back to `$24`. The
+`watch` mode of `qnice_drive_monitor.py` caught the drive requesting LBA 1040,
+which proved the probe runs and fails rather than being skipped.
+
+The remaining cause is host transfer latency. `HANDLE_DRV_RD` in `shell.asm`
+copies a track byte by byte through a 4k window, roughly 55 QNICE instructions
+plus a HyperRAM read per byte, so one 19-sector track costs 15-25 ms. The
+sector GCR engine holds its bit clock in reset for the whole transfer, leaving
+the DOS blind to sync marks for that long. After a head step this is harmless,
+because the DOS expects garbage while the head settles and retries. A side
+change has no such grace period: on a real 1571 the second head is already over
+the disk, so the single-shot probe at `$A708` fails and `$A726` records 36.
+
+`c157x_logic.sv` therefore stops the drive clock while `host_busy` is asserted,
+so a fetch costs no emulated time. A 22-bit bound (~133 ms) releases the CPU if
+the host never answers, which keeps a paused shell from freezing the drive
+forever -- note that any monitor session parks the shell and so starves the
+drive, making `?FILE NOT FOUND` during monitoring expected rather than a fault.
+
+The boot simulation models this: the fourth argument of
+`run_c157x_boot_sim.tcl` is the host cost per transferred byte in nanoseconds.
+At `4000` the D71 initialization reproduces the hardware failure without the
+stall and passes with it, while the default `0` keeps the instant host model.
 
 | Word | Contents |
 |---|---|

@@ -182,27 +182,26 @@ module tb_c157x_boot;
 	// to keep the handshake from stalling.
 	// ---------------------------------------------------------------------------
 
-	// A real .D64 so the DOS finds a genuine BAM and directory rather than an
+	// A real .D64/.D71 so the DOS finds a genuine BAM and directory rather than an
 	// empty surface it would reject before ever exercising the read path.
-	localparam D64_BYTES = 174848;
-	logic [7:0] d64[0:D64_BYTES-1];
-	logic       d64_loaded = 0;
+	logic [7:0] drive_image[0:DRIVE_IMAGE_BYTES-1];
+	logic       drive_image_loaded = 0;
 
 	initial begin
 		int fd, c, n;
-		fd = $fopen(D64_IMAGE_PATH, "rb");
+		fd = $fopen(DRIVE_IMAGE_PATH, "rb");
 		if (!fd) begin
-			$display("NOTE: no .D64 at %s, serving blank sectors", D64_IMAGE_PATH);
+			$display("NOTE: no drive image at %s, serving blank sectors", DRIVE_IMAGE_PATH);
 		end
 		else begin
-			for (n = 0; n < D64_BYTES; n = n + 1) begin
+			for (n = 0; n < DRIVE_IMAGE_BYTES; n = n + 1) begin
 				c = $fgetc(fd);
 				if (c < 0) break;
-				d64[n] = c[7:0];
+				drive_image[n] = c[7:0];
 			end
 			$fclose(fd);
-			d64_loaded = 1;
-			$display("INFO: serving %0d bytes of %s", n, D64_IMAGE_PATH);
+			drive_image_loaded = 1;
+			$display("INFO: serving %0d bytes of %s", n, DRIVE_IMAGE_PATH);
 		end
 	end
 
@@ -224,12 +223,18 @@ module tb_c157x_boot;
 			end
 			blocks = sd_blk_cnt[0] + 1;
 			repeat (20) @(posedge clk_sys);
+			// The shell copies the image byte by byte through a 4k window, which
+			// costs microseconds per byte rather than the single clock this model
+			// needs. The GCR engine is held in reset for the whole transfer, so
+			// the drive is blind to sync marks for as long as it lasts.
+			if (HOST_BYTE_NS > 0) #(blocks * 256 * HOST_BYTE_NS);
 			sd_ack[0] <= 1;
 			for (i = 0; i < blocks*256; i++) begin
 				@(posedge clk_sys);
 				off = sd_lba[0]*256 + i;
 				sd_buff_addr <= i[15:0];
-				sd_buff_dout <= (d64_loaded && off < D64_BYTES) ? d64[off] : 8'h00;
+				sd_buff_dout <= (drive_image_loaded && off < DRIVE_IMAGE_BYTES)
+				                ? drive_image[off] : 8'h00;
 				sd_buff_wr   <= is_read;
 			end
 			@(posedge clk_sys);
@@ -250,6 +255,70 @@ module tb_c157x_boot;
 	wire        via2_cs0    = dut.c157x.drives[0].c157x_drv.c157x_logic.via2_cs;
 	wire  [7:0] via1_pb_oe0 = dut.c157x.drives[0].c157x_drv.c157x_logic.via1_pb_oe;
 	wire        iec_data_d0 = dut.c157x.iec_data_d[0];
+	wire        ram_wr0     = dut.c157x.drives[0].c157x_drv.c157x_logic.ena_r &&
+	                         !cpu_rw0 &&
+	                         dut.c157x.drives[0].c157x_drv.c157x_logic.ram_cs;
+	wire  [7:0] cpu_do0     = dut.c157x.drives[0].c157x_drv.c157x_logic.cpu_do;
+	integer native_limit_writes = 0;
+
+	always @(negedge clk) begin
+		if (ram_wr0 && cpu_a0[15:0] == 16'h02AC && cpu_do0 == 8'h47)
+			native_limit_writes <= native_limit_writes + 1;
+		if (ram_wr0 && (cpu_a0[15:0] == 16'h01AF || cpu_a0[15:0] == 16'h02AC))
+			$display("INITWRITE addr=%04h data=%02h pa5=%0b job0=%02h id=%02h/%02h at %0t",
+			         cpu_a0[15:0], cpu_do0,
+			         dut.c157x.drives[0].c157x_drv.c157x_logic.via1_pa_o[5],
+			         dram(0), dram('h16), dram('h17), $time);
+	end
+
+	// The D71 variant is a focused initialization test. Stopping here keeps it
+	// under a few minutes of wall time instead of running the full directory
+	// transfer, while still covering mount ID prefetch and the track-53 probe.
+	initial begin
+		if (DRIVE_IMAGE_TYPE == 3) begin
+			// Safety timeout. The main sequence finishes the focused D71 run as
+			// soon as U0>M1 followed by I0 has settled.
+			#900_000_000;
+			$display("FAIL: D71 initialization test timed out");
+			$finish;
+		end
+	end
+
+	// Native 1571 initialization at $A6E5 first runs a controller job. It only
+	// raises the legal-track limit to 71 if that job returns < 2 and VIA1 PA5
+	// says the CPU is in 2 MHz mode. Trace those branch points directly.
+	logic init_a6e5_seen = 0;
+	always @(posedge clk) begin
+		if (ce && cpu_rw0) begin
+			case (cpu_a0[15:0])
+				16'hA6E5: begin
+					init_a6e5_seen <= 1;
+					$display("INITTRACE A6E5 enter job0=%02h pa5=%0b limit=%02h at %0t",
+					         dram(0),
+					         dut.c157x.drives[0].c157x_drv.c157x_logic.via1_pa_o[5],
+					         dram('h2AC), $time);
+				end
+				16'hA6E8:
+					$display("INITTRACE A6E8 job returned job0=%02h limit=%02h at %0t",
+					         dram(0), dram('h2AC), $time);
+				16'hA6F4:
+					$display("INITTRACE A6F4 job OK and PA5 high, limit=%02h at %0t",
+					         dram('h2AC), $time);
+				16'hA708:
+					$display("INITTRACE A708 posting track-53 probe, sidecap=%02h limit=%02h at %0t",
+					         dram('h1AF), dram('h2AC), $time);
+				16'hA711:
+					$display("INITTRACE A711 track-53 probe returned job0=%02h at %0t",
+					         dram(0), $time);
+				16'hA724:
+					// $A724 is both the failure-path LDA opcode and the high
+					// operand byte of the success-path BIT instruction. The
+					// following write to $02AC distinguishes them.
+					$display("INITTRACE A724 probe decision, job0=%02h sidecap=%02h limit=%02h at %0t",
+					         dram(0), dram('h1AF), dram('h2AC), $time);
+			endcase
+		end
+	end
 
 	// Receive-path monitor for the first command byte.
 	//
@@ -681,6 +750,40 @@ module tb_c157x_boot;
 		end
 	endtask
 
+	task automatic send_dos_command(input string command, output logic ok);
+		logic present_ok, a1, a2, data_ack, a4;
+		begin
+			host_atn  = 0;
+			host_clk  = 0;
+			host_data = 1;
+			wait_data(1'b0, 1ms, present_ok);
+
+			a1 = 0; a2 = 0; data_ack = 0; a4 = 0;
+			eoi_acked = 0;
+			if (present_ok) begin
+				send_frame(8'h28, 1'b0, a1);          // LISTEN device 8
+				if (a1) send_frame(8'hFF, 1'b0, a2); // OPEN channel 15
+				if (a2) begin
+					host_atn = 1;
+					#200_000;
+					for (int i = 0; i < command.len(); i++)
+						send_frame(command[i], i == command.len()-1, data_ack);
+				end
+				if (data_ack) begin
+					host_atn = 0;
+					#200_000;
+					send_frame(8'h3F, 1'b0, a4);     // UNLISTEN
+				end
+			end
+			host_atn  = 1;
+			host_clk  = 1;
+			host_data = 1;
+			ok = present_ok & a1 & a2 & data_ack & a4 & eoi_acked;
+			$display("INFO: DOS command \"%s\": present=%0b listen=%0b open15=%0b data=%0b eoi=%0b unlisten=%0b",
+			         command, present_ok, a1, a2, data_ack, eoi_acked, a4);
+		end
+	endtask
+
 	task automatic check(input logic cond, input string what);
 		if (cond) $display("PASS: %s", what);
 		else begin
@@ -695,6 +798,7 @@ module tb_c157x_boot;
 		time   t0;
 		string status;
 		logic  status_ok;
+		logic  mode_ok;
 		logic  saw_sector_job;
 		logic  sector_job_done;
 		integer quiet_ms;
@@ -702,10 +806,10 @@ module tb_c157x_boot;
 		rom_loading <= 0;
 		repeat (100) @(posedge clk_sys);
 
-		// Mount a .D64 on drive 8: single sided, GCR, no MFM, not a 3.5" image.
+		// Mount the selected GCR image on drive 8.
 		// main.vhd releases the drive from reset exactly while an image is mounted.
-		img_size    <= 32'd174848;
-		img_type    <= 4'b0010;
+		img_size    <= DRIVE_IMAGE_BYTES;
+		img_type    <= DRIVE_IMAGE_TYPE;
 		img_mounted <= 2'b01;
 		reset[0]    <= 0;
 		repeat (50) @(posedge clk_sys);
@@ -749,7 +853,41 @@ module tb_c157x_boot;
 			// timeout in c157x_drv, which is 25 bits at the 16 MHz enable and so
 			// holds disk_present low for 2.1 s after the image is mounted. The
 			// hardware is always probed well past both, so the model must be too.
-			if (ms % 50 == 49)
+			if (DRIVE_IMAGE_TYPE == 3 && ms == 0) begin
+				send_dos_command("U0>M1", mode_ok);
+				check(mode_ok, "DOS accepted U0>M1 native-mode command");
+				for (int wait_ms = 0; wait_ms < 300; wait_ms++) begin
+					#1_000_000;
+					if (dram(8'h48) > 8'd2)
+						dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[8'h48] = 8'd2;
+					if (native_limit_writes >= 2)
+						break;
+				end
+				check(native_limit_writes >= 2,
+				      "U0>M1 completed the track-53 probe and retained 71 tracks");
+				// The disk-change path follows asynchronously after the native
+				// probe. Wait for it to publish side capability rather than
+				// injecting another IEC command while U0 still owns the drive.
+				for (int wait_ms = 0; wait_ms < 250; wait_ms++) begin
+					#1_000_000;
+					if (dram(8'h48) > 8'd2)
+						dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[8'h48] = 8'd2;
+					if (!((dram(0) | dram(1) | dram(2) |
+					       dram(3) | dram(4) | dram(5)) & 8'h80) &&
+					    dram('h01AF) == 8'h80)
+						break;
+				end
+				$display("D71INIT final sidecap=%02h limit=%02h pa5=%0b id=%02h/%02h",
+				         dram('h01AF), dram('h02AC),
+				         dut.c157x.drives[0].c157x_drv.c157x_logic.via1_pa_o[5],
+				         dram('h16), dram('h17));
+				check(dram('h01AF) == 8'h80, "D71 initialization detected side 1");
+				check(dram('h02AC) == 8'h47, "D71 initialization retained 71-track limit");
+				if (errors == 0) $display("D71 INIT CHECKS PASSED");
+				else             $display("%0d D71 INIT CHECK(S) FAILED", errors);
+				$finish;
+			end
+			else if (ms % 50 == 49)
 				open_directory($sformatf("t=%0d ms", ms + 1), bus_ready);
 			else
 				#1_000_000;

@@ -162,28 +162,39 @@ module tb_c157x_job;
 		end
 	end
 
-	localparam D64_BYTES = 174848;
-	logic [7:0] d64[0:D64_BYTES-1];
-	logic       d64_loaded = 0;
+	logic [7:0] disk_image[0:DISK_IMAGE_BYTES-1];
+	logic       disk_loaded = 0;
 
 	initial begin
 		int fd, c, n;
-		fd = $fopen(D64_IMAGE_PATH, "rb");
-		if (!fd) $display("NOTE: no .D64 at %s, serving blank sectors", D64_IMAGE_PATH);
+		fd = $fopen(DISK_IMAGE_PATH, "rb");
+		if (!fd) $display("NOTE: no disk image at %s, serving blank sectors",
+		                  DISK_IMAGE_PATH);
 		else begin
-			for (n = 0; n < D64_BYTES; n = n + 1) begin
+			for (n = 0; n < DISK_IMAGE_BYTES; n = n + 1) begin
 				c = $fgetc(fd);
 				if (c < 0) break;
-				d64[n] = c[7:0];
+				disk_image[n] = c[7:0];
 			end
 			$fclose(fd);
-			d64_loaded = 1;
-			$display("INFO: serving %0d bytes of %s", n, D64_IMAGE_PATH);
+			disk_loaded = 1;
+			$display("INFO: serving %0d bytes of %s", n, DISK_IMAGE_PATH);
 		end
 	end
 
 	int   host_reads   = 0;
 	logic saw_dir_read = 0;
+
+	// Side selection is the whole point of a D71 job, so watch the head-select line
+	// and the highest block the controller ever asks for. Side 1 starts at LBA 683.
+	logic       side_seen     = 0;
+	int         max_lba_read  = -1;
+
+	always @(posedge clk_sys) begin
+		if (dut.c157x.drives[0].c157x_drv.side) side_seen <= 1;
+		if (sd_rd[0] && $signed({1'b0, sd_lba[0]}) > max_lba_read)
+			max_lba_read <= sd_lba[0];
+	end
 
 	always @(posedge clk_sys) begin
 		int unsigned blocks, i, off;
@@ -194,7 +205,7 @@ module tb_c157x_job;
 				host_reads++;
 				$display("INFO: host serves LBA %0d, %0d blocks at %0t",
 				         sd_lba[0], sd_blk_cnt[0] + 1, $time);
-				if (sd_lba[0] == 357) saw_dir_read <= 1;
+				if (sd_lba[0] == EXPECTED_LBA) saw_dir_read <= 1;
 			end
 			blocks = sd_blk_cnt[0] + 1;
 			repeat (20) @(posedge clk_sys);
@@ -203,7 +214,8 @@ module tb_c157x_job;
 				@(posedge clk_sys);
 				off = sd_lba[0]*256 + i;
 				sd_buff_addr <= i[15:0];
-				sd_buff_dout <= (d64_loaded && off < D64_BYTES) ? d64[off] : 8'h00;
+				sd_buff_dout <= (disk_loaded && off < DISK_IMAGE_BYTES)
+				              ? disk_image[off] : 8'h00;
 				sd_buff_wr   <= is_read;
 			end
 			@(posedge clk_sys);
@@ -461,8 +473,8 @@ module tb_c157x_job;
 		rom_loading <= 0;
 		repeat (100) @(posedge clk_sys);
 
-		img_size    <= 32'd174848;
-		img_type    <= 4'b0010;
+		img_size    <= DISK_IMAGE_BYTES;
+		img_type    <= IMAGE_TYPE;
 		img_mounted <= 2'b01;
 		reset[0]    <= 0;
 		repeat (50) @(posedge clk_sys);
@@ -501,17 +513,33 @@ module tb_c157x_job;
 		// normally teaches the DOS which disk is in the drive, so the header ID
 		// check at the end of the read would fail against a master ID of zero.
 		// Seed it from the BAM, where the DOS would have read it.
-		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[8'h12] = d64[357*256 + 'hA2];
-		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[8'h13] = d64[357*256 + 'hA3];
+		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[8'h12] =
+			disk_image[357*256 + 'hA2];
+		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[8'h13] =
+			disk_image[357*256 + 'hA3];
 
-		// Post a job for track 18, sector 1 into buffer 0 of the job queue. The
+		// The drive powers up running the 1541-compatible disk controller at $F2B0,
+		// which has no notion of a second side: it clamps the job track at 35 and
+		// never touches VIA1 PA2. Only the native controller at $92BA converts a
+		// logical track of 36 or more into a physical track plus side 1. The DOS
+		// switches to it either on the U0>M1 command or when the CIA reports fast
+		// serial activity, both of which are out of reach of a raw job. Point the
+		// IRQ vector at the native handler directly, exactly as U0>M1 does.
+		if (sim_boot1_path_pkg::FORCE_NATIVE) begin
+			dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[11'h2A9] = 8'hDE;
+			dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[11'h2AA] = 8'h9D;
+			$display("INFO: IRQ vector pointed at the native 1571 controller ($9DDE)");
+		end
+
+		// Post a job for the selected track, sector 1 into buffer 0 of the job queue. The
 		// default is $80 (read), but the first thing the DOS actually issues after
 		// a mount is $b0 (seek), so +JOB=b0 exercises the path the real LOAD takes.
 		post_job = sim_boot1_path_pkg::JOB_CODE;
-		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[6] = 8'd18;
+		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[6] = JOB_TRACK;
 		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[7] = 8'd1;
 		dut.c157x.drives[0].c157x_drv.c157x_logic.ram.ram[0] = post_job;
-		$display("INFO: posted job $%02h for track 18 sector 1 at %0t", post_job, $time);
+		$display("INFO: posted job $%02h for track %0d sector 1 at %0t",
+		         post_job, JOB_TRACK, $time);
 
 		// The controller picks the job up on its next interrupt, puts the drive in
 		// state $A0 and waits 50 more interrupts for the motor to reach speed. At
@@ -576,7 +604,13 @@ module tb_c157x_job;
 		check(done, "disk controller ran the job at all");
 		if (done) check(dram(0) == 8'h01,
 		                $sformatf("job completed without error (status $%02h)", dram(0)));
-		check(saw_dir_read, "controller asked the host for track 18 (LBA 357)");
+		$display("INFO: side select asserted=%0d, highest LBA requested=%0d",
+		         side_seen, max_lba_read);
+		check(saw_dir_read,
+		      $sformatf("controller asked the host for track %0d (LBA %0d)",
+		                JOB_TRACK, EXPECTED_LBA));
+		if (JOB_TRACK > 35)
+			check(side_seen, "controller selected side 1 for a track above 35");
 
 		if (errors == 0) $display("ALL CHECKS PASSED");
 		else             $display("%0d CHECK(S) FAILED", errors);

@@ -122,6 +122,8 @@ begin
          qnice_vd_data_i      => (others => '0'),
          qnice_vd_data_o      => open,
          qnice_vd_diag_data_o => open,
+         qnice_vd_diag_ce_i   => '0',
+         qnice_vd_diag_wait_o => open,
          qnice_vd_ce_i        => '0',
          qnice_vd_we_i        => '0',
          drv_rom_loading_i    => '0',

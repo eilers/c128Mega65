@@ -260,6 +260,9 @@ begin
          disk_ready   => open,
          dbg          => open,
          diag         => open,
+         dbg_clk      => clk_qnice,
+         dbg_ram_addr => (others => '0'),
+         dbg_ram_data => open,
          out_track    => out_track,
          out_we       => out_we,
 

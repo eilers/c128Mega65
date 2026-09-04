@@ -1456,7 +1456,8 @@ _FC_RET         SYSCALL(leave, 1)
                 RET
 
 ; Debug mode:
-; Hold "Run/Stop" + "Cursor Up" and then while holding these, press "Help"
+; Hold "Run/Stop" + "Cursor Up" and then while holding these, press "Help",
+; or send CTRL+E over the serial console
 ; ----------------------------------------------------------------------------
 
                 ; Debug mode: Exits the main loop and starts the QNICE
@@ -1464,8 +1465,26 @@ _FC_RET         SYSCALL(leave, 1)
                 ; terminal program. You can return to the Shell by using
                 ; the Monitor C/R command while entering an address shown
                 ; in the terminal.
+                ;
+                ; CTRL+E on the serial console does the same thing. The key
+                ; combination needs all three keys within one keyboard scan,
+                ; and on the MEGA65 "Cursor Up" also asserts shift towards the
+                ; core, so the core reacts to Run/Stop + Shift on its own. The
+                ; serial trigger is therefore the dependable one for scripted
+                ; sessions. Everything else in the Shell reads the UART only
+                ; through IO$GETCHAR while it waits for input, so consuming a
+                ; character here cannot steal one from another reader.
 CHECK_DEBUG     INCRB
-                MOVE    M2M$KEY_UP, R0
+                MOVE    IO$UART_SRA, R1         ; character waiting on the UART?
+                MOVE    @R1, R2
+                AND     0x0001, R2
+                RBRA    _CHK_DBG_KEYS, Z        ; no: only look at the keyboard
+                MOVE    IO$UART_RHRA, R1
+                MOVE    @R1, R2                 ; consume it either way
+                CMP     KBD$CTRL_E, R2
+                RBRA    _CHK_DBG_ENTER, Z
+
+_CHK_DBG_KEYS   MOVE    M2M$KEY_UP, R0
                 OR      M2M$KEY_RUNSTOP, R0
                 OR      M2M$KEY_HELP, R0
                 MOVE    M2M$KEYBOARD, R1        ; read keyboard status
@@ -1476,6 +1495,9 @@ CHECK_DEBUG     INCRB
                 DECRB
                 RBRA    START_MONITOR, Z        ; yes: enter debug mode
                 RET                             ; no: return to main loop
+
+_CHK_DBG_ENTER  DECRB
+                RBRA    START_MONITOR, 1
                 
                 ; print info message via UART that shows how to return back
                 ; to the shell (either main loop or restart)

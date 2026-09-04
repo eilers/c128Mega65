@@ -156,6 +156,8 @@ entity main is
       qnice_vd_data_i         : in  std_logic_vector(15 downto 0);
       qnice_vd_data_o         : out std_logic_vector(15 downto 0);
       qnice_vd_diag_data_o    : out std_logic_vector(15 downto 0);
+      qnice_vd_diag_ce_i      : in  std_logic;
+      qnice_vd_diag_wait_o    : out std_logic;
       qnice_vd_ce_i           : in  std_logic;
       qnice_vd_we_i           : in  std_logic;
 
@@ -367,6 +369,8 @@ constant C_DRIVE_LED_DEBUG : boolean := false;
 constant C_DRIVE_LED_IDLE : natural := CORE_CLK_SPEED / 2;   -- 0.5 s
 signal iec_dbg          : std_logic_vector(9 downto 0);
 signal iec_diag         : vd_vec_array(0 to G_VDNUM - 1)(2047 downto 0);
+signal iec_dbg_ram_data : vd_vec_array(0 to G_VDNUM - 1)(7 downto 0);
+signal iec_dbg_ram_ce_d : std_logic := '0';
 -- SystemVerilog unpacked ports are declared [NDR], i.e. indices 0..NDR-1.
 -- Keep the outer VHDL range ascending so Vivado binds drive index 0 to index 0.
 -- Packed vectors (reset, sd_rd, etc.) intentionally retain their downto ranges.
@@ -1381,6 +1385,9 @@ iec_drive_inst : entity work.iec_drive
     disk_ready   => open,
     dbg          => iec_dbg,
     diag         => iec_diag,
+    dbg_clk      => clk_sd_i,
+    dbg_ram_addr => qnice_vd_addr_i(10 downto 0),
+    dbg_ram_data => iec_dbg_ram_data,
     -- The track-number display (MiSTer's drv_overlay.sv) is out of scope, but these two
     -- cannot be left open: xsim refuses a VHDL-to-Verilog binding with an unconnected
     -- vector or array output, even though synthesis accepts it.
@@ -1415,23 +1422,43 @@ iec_drive_inst : entity work.iec_drive
     rom_wr       => drv_rom_wr_i
   ); -- iec_drive_inst
 
--- Read-only diagnostic bank (C_DEV_VDRIVE_DIAG). Address bits 6:0 select one of
--- 128 16-bit words per drive; bit 7 selects drive 8/9. Words 0-7 are the
--- host-side handshake, words 8-15 the DOS state inside the drive and words 16-63
--- the timestamped serial-bus trace of the last ATN window. Words 64-111 hold the
--- circular DOS ROM-read trace.
+-- Read-only diagnostic bank (C_DEV_VDRIVE_DIAG). Window 0 retains the existing
+-- 128-word snapshots per drive (bit 7 selects drive 8/9). Window 1 exposes the
+-- complete 2 KiB DOS work RAM of each 157x without stopping its CPU: bit 11 selects
+-- drive 8/9 and bits 10:0 select the byte. QNICE sees each byte zero-extended to a
+-- 16-bit word, so MD 7000 77FF/7800 7FFF dumps drive 8/9 after selecting window 1.
 vdrive_diag_read : process (all)
   variable drive_index : natural range 0 to 1;
   variable word_index  : natural range 0 to 127;
 begin
   qnice_vd_diag_data_o <= (others => '0');
-  drive_index := to_integer(unsigned(qnice_vd_addr_i(7 downto 7)));
-  word_index  := to_integer(unsigned(qnice_vd_addr_i(6 downto 0)));
-  if drive_index < G_VDNUM then
-    qnice_vd_diag_data_o <=
-      iec_diag(drive_index)(word_index * 16 + 15 downto word_index * 16);
+  if qnice_vd_addr_i(12) = '1' then
+    drive_index := to_integer(unsigned(qnice_vd_addr_i(11 downto 11)));
+    if drive_index < G_VDNUM then
+      qnice_vd_diag_data_o <= x"00" & iec_dbg_ram_data(drive_index);
+    end if;
+  else
+    drive_index := to_integer(unsigned(qnice_vd_addr_i(7 downto 7)));
+    word_index  := to_integer(unsigned(qnice_vd_addr_i(6 downto 0)));
+    if drive_index < G_VDNUM then
+      qnice_vd_diag_data_o <=
+        iec_diag(drive_index)(word_index * 16 + 15 downto word_index * 16);
+    end if;
   end if;
 end process vdrive_diag_read;
+
+-- Window 0 answers combinationally, but window 1 comes out of a block RAM whose read
+-- port is registered, so the requested byte only appears one clock after the address.
+-- Stall QNICE for that single cycle; without it every read returns the byte belonging
+-- to whatever address the CPU happened to drive one cycle earlier.
+vdrive_diag_wait : process (clk_sd_i)
+begin
+  if rising_edge(clk_sd_i) then
+    iec_dbg_ram_ce_d <= qnice_vd_diag_ce_i and qnice_vd_addr_i(12);
+  end if;
+end process vdrive_diag_wait;
+
+qnice_vd_diag_wait_o <= qnice_vd_diag_ce_i and qnice_vd_addr_i(12) and not iec_dbg_ram_ce_d;
 
 vdrives_inst : entity work.vdrives
   generic map (
