@@ -110,9 +110,12 @@ chooses between 1541 and 1571 for the 5.25" formats.
 For D64/D71, `c157x_track.sv` requests the standard linear sectors for the
 current logical track, and `c1541_gcr.sv` converts those sectors to/from the
 bit stream seen by VIA2. D71 tracks 36–70 use the second 683-sector image
-half. The original raw-head/MFM RTL remains for future formats but does not
-define the D64/D71 host request. `.G64`, `.G71`, error-byte-appended images,
-and 1571 MFM/CP-M media are not supported.
+half. A D71 physical-track load fetches both heads into separate FPGA buffer
+banks, selected immediately by VIA1 PA2; this hides QNICE track-transfer
+latency from native DOS side changes. D64 retains the single-bank request
+sequence. The original raw-head/MFM RTL remains for future formats but does
+not define the D64/D71 host request. `.G64`, `.G71`, error-byte-appended
+images, and 1571 MFM/CP-M media are not supported.
 
 Hardware qualification images are in `test/157x-rw/`. `LOAD"$"` on devices 8
 and 9 is confirmed on R6 hardware for both 1541 (`.D64`) and 1571 (`.D64` and

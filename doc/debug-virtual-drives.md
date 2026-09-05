@@ -225,16 +225,37 @@ because the DOS expects garbage while the head settles and retries. A side
 change has no such grace period: on a real 1571 the second head is already over
 the disk, so the single-shot probe at `$A708` fails and `$A726` records 36.
 
-`c157x_logic.sv` therefore stops the drive clock while `host_busy` is asserted,
-so a fetch costs no emulated time. A 22-bit bound (~133 ms) releases the CPU if
-the host never answers, which keeps a paused shell from freezing the drive
-forever -- note that any monitor session parks the shell and so starves the
-drive, making `?FILE NOT FOUND` during monitoring expected rather than a fault.
+Stopping the drive CPU during `host_busy` made the probe pass, but was not a
+safe solution. DOS prefetches sectors while it is still sending the previous
+sector over IEC; freezing it in the middle of that handshake can exceed the
+computer's 200 us end-of-input deadline. Hardware RWTEST consequently failed
+on record 1 intermittently.
+
+The final design instead keeps one FPGA sector-buffer bank per 1571 head.
+Whenever a physical track is loaded, `c157x_track.sv` requests the selected
+side first and then prefetches the corresponding track under the other head.
+Changing VIA1 PA2 then selects an already resident bank immediately, matching
+the real two-head mechanism without stopping the drive CPU. Each bank has its
+own cached logical-track tag, and writeback carries the bank belonging to the
+request so dirty side-0 and side-1 tracks remain independent.
+
+The first dual-bank hardware build still reported 0 blocks free even though
+diagnostics showed a completed 19-sector LBA 1040 fetch. The cache was present;
+the failure was the bank transition itself. `c1541_gcr` uses registered block
+RAM output and previously reset only its bit-clock divider when the logical
+track changed. One old-bank byte could therefore be spliced into the block in
+progress. It now starts a fresh sync/header on every head or track change. The
+GCR regression poisons side 0, switches to side 1 at an arbitrary bit phase,
+and requires the first complete header/data pair to come solely from side 1.
+
+Any monitor session still parks the shell and therefore starves the drive;
+`?FILE NOT FOUND` during monitoring is expected rather than a drive fault.
 
 The boot simulation models this: the fourth argument of
 `run_c157x_boot_sim.tcl` is the host cost per transferred byte in nanoseconds.
-At `4000` the D71 initialization reproduces the hardware failure without the
-stall and passes with it, while the default `0` keeps the instant host model.
+At `4000` the D71 initialization reproduces the hardware failure with a
+single track buffer and passes with the dual-head cache, while the default `0`
+keeps the instant host model.
 
 | Word | Contents |
 |---|---|

@@ -26,8 +26,10 @@ module c157x_gcr_path_test #(parameter integer TRACK=18);
 	reg         mode = 1;
 	reg         mtr = 1;
 	reg  [1:0]  freq = 0;
+	reg  [6:0]  active_track = TRACK;
 	reg         busy = 1;
 	reg  [31:0] sd_lba = FILL_LBA;
+	reg         sd_bank = TRACK > 35;
 	reg  [12:0] sd_buff_addr = 0;
 	reg  [7:0]  sd_buff_dout = 0;
 	reg         sd_buff_wr = 0;
@@ -39,8 +41,9 @@ module c157x_gcr_path_test #(parameter integer TRACK=18);
 
 	c1541_gcr dut (
 		.clk(clk), .ce(ce), .dout(dout), .din(din), .mode(mode), .mtr(mtr),
-		.freq(freq), .sync_n(sync_n), .byte_n(byte_n), .track(TRACK[6:0]),
+		.freq(freq), .sync_n(sync_n), .byte_n(byte_n), .track(active_track),
 		.busy(busy), .we(we), .sd_clk(sd_clk), .sd_lba(sd_lba),
+		.sd_bank(sd_bank),
 		.sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout),
 		.sd_buff_din(sd_buff_din), .sd_buff_wr(sd_buff_wr)
 	);
@@ -278,6 +281,37 @@ module c157x_gcr_path_test #(parameter integer TRACK=18);
 		end
 	endtask
 
+	task automatic verify_head_switch;
+		begin
+			if (TRACK > 35) begin
+				// Run side 0, then select side 1 at a deliberately arbitrary bit
+				// phase. The very first complete blocks after the transition must
+				// be a clean side-1 header/data pair, not a splice of both banks.
+				freq = 0;
+				active_track = TRACK - 35;
+				busy = 0;
+				#12345;
+				reset_capture();
+				active_track = TRACK;
+				fork
+					begin wait (nblocks >= 2); end
+					begin #3ms; end
+				join_any
+				disable fork;
+				busy = 1;
+				capture = 0;
+				if (nblocks < 2) begin
+					$display("FAIL track %0d: no complete blocks after head switch", TRACK);
+					errors = errors + 1;
+				end
+				else begin
+					check_header(0, 0);
+					check_data(1, 0);
+				end
+			end
+		end
+	endtask
+
 	// ------------------------------------------------------------- write path
 
 	integer replay_len = 0;
@@ -396,6 +430,15 @@ module c157x_gcr_path_test #(parameter integer TRACK=18);
 
 	initial begin
 		// Load every linear sector of the track, exactly as the host would.
+		if (TRACK > 35) begin
+			// Poison the corresponding side-0 bank so a mixed-head block is
+			// observable instead of accidentally containing matching bytes.
+			sd_bank = 0;
+			for (i = 0; i < NSECT; i = i + 1)
+				for (j = 0; j < 256; j = j + 1)
+					host_write(i * 256 + j, pattern(i, j) ^ 8'hFF);
+		end
+		sd_bank = TRACK > 35;
 		for (i = 0; i < NSECT; i = i + 1)
 			for (j = 0; j < 256; j = j + 1)
 				host_write(i * 256 + j, pattern(i, j));
@@ -407,6 +450,8 @@ module c157x_gcr_path_test #(parameter integer TRACK=18);
 			id1_exp = pattern(0, 'hA2);
 			id2_exp = pattern(0, 'hA3);
 		end
+
+		verify_head_switch();
 
 		// DOS picks a different density per zone, so every value has to work.
 		verify_freq(2'd0, 2);
