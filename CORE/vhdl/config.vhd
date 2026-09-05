@@ -84,21 +84,21 @@ constant CORE_VERSION : string := "Alpha_4";
 constant SCR_CREDITS : string :=
 
    "\n Commodore 128 for MEGA65 " & CORE_VERSION & "\n\n" &
-   "Core port to the MEGA65\n" &
-   "  Stefan Eilers\n\n" &
-   "MiSTer C128 core\n" &
-   "  Erik Scheffers, based on C64_MiSTer\n" &
-   "  by sorgelig and on FPGA64 by\n" &
-   "  Peter Wendrich\n\n" &
+   " Core port to the MEGA65\n" &
+   "   Stefan Eilers\n\n" &
+   " MiSTer C128 core\n" &
+   "   Erik Scheffers, based on C64_MiSTer\n" &
+   "   by sorgelig and on FPGA64 by\n" &
+   "   Peter Wendrich\n\n" &
 
    -- We are not insisting. But it would be nice if you gave us credit for MiSTer2MEGA65 by leaving these lines in
-   "MiSTer2MEGA65 framework\n" &
-   "  sy2002 and MJoergen\n\n" &
+   " MiSTer2MEGA65 framework\n" &
+   "   sy2002 and MJoergen\n\n" &
 
-   "Licensed under GPL v3\n\n" &
-   "ROM files required on SD card:\n" &
-   "  /c128/boot0.rom\n" &
-   "  /c128/boot1.rom\n\n" &
+   " Licensed under GPL v3\n\n" &
+   " ROM files required on SD card:\n" &
+   "   /c128/boot0.rom\n" &
+   "   /c128/boot1.rom\n\n" &
    " Press Space to close this screen.";
 
 
@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 49;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 50;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -290,8 +290,8 @@ constant OPTM_SIZE         : natural := 49;  -- amount of items including empty 
 constant OPTM_DX           : natural := 23;
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so this must stay below 32.
 -- Counted in main-menu lines: 6 for the Drives block (the drive model group is a submenu and
--- only contributes its header line) + 7 before the HDMI submenu + 17 after it.
-constant OPTM_DY           : natural := 30;
+-- only contributes its header line) + 7 before the HDMI submenu + 18 after it.
+constant OPTM_DY           : natural := 31;
 
 constant OPTM_ITEMS        : string :=
 
@@ -341,10 +341,11 @@ constant OPTM_ITEMS        : string :=
    " High\n"                &
    "\n"                     &
 
-   " Expansion Port\n"      &
+   " External Hardware\n"   &
    "\n"                     &
-   " Use hardware slot\n"   &
-   " IEC: Use hardware port\n" &
+   " Use cartridge slot\n"  &
+   " Use IEC port\n"        &
+   "\n"                     &
 
    " Credits\n"             &
    "\n"                     &
@@ -424,7 +425,8 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Expansion Port
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
-                                             OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- IEC: Use hardware port
+                                             OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- Use IEC port
+                                             OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
                                              OPTM_G_LINE,                                         -- Line
