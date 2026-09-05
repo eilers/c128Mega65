@@ -105,8 +105,24 @@ fi
 
 check_core_version
 
-echo "Running virtual-drive release gates..."
-"$SCRIPT_DIR/run_drive_sims.sh" "CORE/CORE-R6-vivado2022.xpr"
+ask_run_testbenches() {
+  local answer="${RUN_TESTBENCHES:-}"
+  if [[ -z "$answer" ]]; then
+    read -r -p "Run all simulation testbenches before building cores? [Y/n] " answer
+  fi
+  case "${answer:-Y}" in
+    [Yy]|[Yy][Ee][Ss]|"") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if ask_run_testbenches; then
+  echo "Running all simulation testbenches..."
+  "$SCRIPT_DIR/run_all_sims.sh" "CORE/CORE-R6-vivado2022.xpr" \
+    || die "A simulation testbench failed; core build aborted."
+else
+  echo "Skipping simulation testbenches."
+fi
 
 # The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
 # on the SD card, so the release has to carry it next to the .cor files.

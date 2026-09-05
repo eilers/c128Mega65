@@ -241,13 +241,21 @@ in a build log. Grep the log for `12-4739` after changing the hierarchy.
 ## Running simulations
 
 The repository ships focused boot, memory, 1581, GCR, geometry, mixed-language,
-and LED-policy simulations. Run the complete virtual-drive gate with:
+and LED-policy simulations. Run every existing testbench with:
+
+```bash
+CORE/scripts/run_all_sims.sh
+```
+
+The first failing gate stops the suite. `build_release.sh` asks whether to run
+this suite before synthesizing any board; a failure aborts the core build.
+`RUN_TESTBENCHES=y` or `RUN_TESTBENCHES=n` answers that prompt non-interactively.
+
+The narrower virtual-drive subset remains:
 
 ```bash
 CORE/scripts/run_drive_sims.sh
 ```
-
-`build_release.sh` runs this gate before starting any FPGA synthesis.
 
 | Simulation | Testbench | Covers |
 |------------|-----------|--------|
