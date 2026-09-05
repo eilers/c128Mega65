@@ -6,10 +6,12 @@ example; the same layers apply to 1541 / `.D64` and 1571 / `.D71` later.
 The short version: **do not guess from HDL**. Put a probe on both sides of
 every hop, capture a real run, then change one thing.
 
-> **Instrumentation status:** The temporary 1581 probe bank was removed. A compact,
-> permanent 1541/1571 bank is available as `C_DEV_VDRIVE_DIAG` (`0x0106`); it records
-> host-request edges and a stable per-drive snapshot without using the physical LED.
-> The old LED overlay remains compiled out behind `C_DRIVE_LED_DEBUG := false`.
+> **Instrumentation status:** All temporary drive probes have been removed from the
+> release implementation, including `C_DEV_VDRIVE_DIAG`, the drive-LED overlay and
+> the automated QMON helper. Sections 3.1–3.3 describe the historical instruments
+> used during this investigation; they are not commands for the current tree. See
+> [jtag-debug-interface.md](jtag-debug-interface.md) for a precise reconstruction
+> blueprint.
 
 ## 1. What you are debugging
 
@@ -75,9 +77,9 @@ track 40 correctly. **The LED was looking at the wrong drive's track
 register.** Coarse probes lie when the wiring between modules is the
 bug.
 
-### 3.1 Drive LED (`C_DRIVE_LED_DEBUG` in `CORE/vhdl/main.vhd`)
+### 3.1 Historical drive LED (`C_DRIVE_LED_DEBUG`, removed)
 
-Enabled while the constant is `true`. Current colour map:
+The temporary overlay used this colour map:
 
 | Colour | Meaning |
 |---|---|
@@ -109,7 +111,7 @@ even if the drive is requesting sectors.
 
 `/dev/ttyUSB1` needs `dialout` or `sudo`.
 
-The instrumented Shell printed:
+The historical instrumented Shell printed:
 
 - `DRV_RD LBA256=....` from `HANDLE_DRV_RD` in `M2M/rom/shell.asm`.
   This is the 256-byte LBA QNICE is about to copy. `vdrives` is
@@ -127,9 +129,9 @@ CORE/m2m-rom/make_rom.sh
 The ROM is baked into the bitstream. A Shell change without a rebuild
 does nothing on the MEGA65.
 
-### 3.3 Diagnostic MMIO bank
+### 3.3 Historical diagnostic MMIO bank (removed)
 
-`C_DEV_VDRIVE_DIAG` = `0x0106` is read-only. In 4 KiB window 0, addresses
+`C_DEV_VDRIVE_DIAG` = `0x0106` was read-only. In 4 KiB window 0, addresses
 `0..127` select drive 8 and addresses `128..255` select drive 9. Words `0..7`
 describe the host side of the drive and are assembled in the QNICE/host clock
 domain; track-side state is synchronized before it is used by the request
@@ -147,7 +149,7 @@ samples one cycle too early and every location returns the byte belonging to
 whatever address the CPU drove just before — a constant that looks like real
 data but tracks the monitor's instruction stream instead of the address.
 
-The host-side helper enters QMON, reads selected locations, and returns to the
+The removed host-side helper entered QMON, read selected locations, and returned to the
 Shell automatically. It temporarily asserts the core pause bit while reading,
 so the dump is a coherent snapshot rather than RAM changing underneath it:
 
