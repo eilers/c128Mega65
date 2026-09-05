@@ -155,9 +155,6 @@ entity main is
       qnice_vd_addr_i         : in  std_logic_vector(27 downto 0);
       qnice_vd_data_i         : in  std_logic_vector(15 downto 0);
       qnice_vd_data_o         : out std_logic_vector(15 downto 0);
-      qnice_vd_diag_data_o    : out std_logic_vector(15 downto 0);
-      qnice_vd_diag_ce_i      : in  std_logic;
-      qnice_vd_diag_wait_o    : out std_logic;
       qnice_vd_ce_i           : in  std_logic;
       qnice_vd_we_i           : in  std_logic;
 
@@ -359,38 +356,16 @@ signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
 signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drive_led    : std_logic_vector(G_VDNUM - 1 downto 0);
 
--- Keep the proven drive-debug overlay available for future investigations, but
--- compile the release behavior further down.
-constant C_DRIVE_LED_DEBUG : boolean := false;
-
 -- How long the drive's own LED has to stay dark before the write-back cache may
 -- claim the LED. Comfortably longer than the gap between two error blinks, so the
 -- cache warning can never fill one in and turn the blink into a steady light.
 constant C_DRIVE_LED_IDLE : natural := CORE_CLK_SPEED / 2;   -- 0.5 s
-signal iec_dbg          : std_logic_vector(9 downto 0);
-signal iec_diag         : vd_vec_array(0 to G_VDNUM - 1)(2047 downto 0);
-signal iec_dbg_ram_data : vd_vec_array(0 to G_VDNUM - 1)(7 downto 0);
-signal iec_dbg_ram_ce_d : std_logic := '0';
 -- SystemVerilog unpacked ports are declared [NDR], i.e. indices 0..NDR-1.
 -- Keep the outer VHDL range ascending so Vivado binds drive index 0 to index 0.
 -- Packed vectors (reset, sd_rd, etc.) intentionally retain their downto ranges.
 signal iec_out_track    : vd_vec_array(0 to G_VDNUM - 1)(7 downto 0);
 signal iec_out_we       : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drv_mode     : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);
-
--- Debug H35/H57: last 512-byte image LBA (iec_sd_lba is already <<1 for BLKSZ=1).
--- Empty.d81 is nonzero only at T40 side0 (LBA 780-781; fill may end on 782-789).
--- dbg_saw_nz: QNICE wrote a nonzero byte while ack+wr (same clock as HANDLE_DRV_RD).
--- c1581_drv doubles out_track ({track,1'b0}); dbg_fdc_trk is the WD1772 register.
-signal dbg_lba512       : unsigned(31 downto 0) := (others => '0');
-signal dbg_lba_valid    : std_logic := '0';
-signal dbg_saw_nz       : std_logic := '0';
-signal dbg_saw_t40      : std_logic := '0';
-signal dbg_saw_800      : std_logic := '0';
-signal dbg_rd_d         : std_logic := '0';
-signal dbg_flash_cnt    : unsigned(23 downto 0) := (others => '0');
-signal dbg_rd_edges     : unsigned(7 downto 0) := (others => '0');
-signal dbg_fdc_trk      : unsigned(7 downto 0) := (others => '0');
 
 signal iec_sd_lba          : vd_vec_array(0 to G_VDNUM - 1)(31 downto 0);
 signal iec_sd_blk_cnt      : vd_vec_array(0 to G_VDNUM - 1)( 5 downto 0);
@@ -439,85 +414,17 @@ boot_z80_n_o <= core_z80_n;
 -- error blink that PRINT DS$ clears reach the MEGA65 LED exactly as on real hardware.
 -- The write-back cache warning is strictly secondary and only takes the LED once the
 -- drive has been dark long enough that this cannot be the gap between two blinks.
-drive_led_normal_gen : if not C_DRIVE_LED_DEBUG generate
-   drive_led_policy_inst : entity work.drive_led_policy
-      generic map (
-         G_IDLE_CYCLES => C_DRIVE_LED_IDLE
-      )
-      port map (
-         clk_i      => clk_main_i,
-         activity_i => drives_busy,
-         dirty_i    => drives_dirty,
-         led_o      => drive_led_o,
-         colour_o   => drive_led_col_o
-      );
-end generate drive_led_normal_gen;
-
--- Debug build, round 28: LBA 800-809 rejected (still cyan). Show FDC track.
---    magenta flash   new sd_rd (400 ms)
---    white           FDC track 39 (Commodore T40 / BAM)
---    red             FDC track 1 (1-bit seek leftover)
---    green           FDC track 0
---    yellow          other FDC track, motor on
---    cyan            motor off, never saw track 39 or 1
---    blue            spin-up
--- Serial: DRV_RD LBA256=.... on JTAG 115200 (do not enter the monitor).
-drive_led_debug_gen : if C_DRIVE_LED_DEBUG generate
-   -- #region agent log
-   dbg_lba_proc : process (clk_sd_i)
-   begin
-      if rising_edge(clk_sd_i) then
-         dbg_rd_d <= iec_sd_rd(0);
-         if vdrives_mounted(0) = '0' then
-            dbg_lba_valid <= '0';
-            dbg_lba512    <= (others => '0');
-            dbg_fdc_trk   <= (others => '0');
-            dbg_saw_nz    <= '0';
-            dbg_saw_t40   <= '0';
-            dbg_saw_800   <= '0';
-            dbg_flash_cnt <= (others => '0');
-            dbg_rd_edges  <= (others => '0');
-         else
-            if iec_sd_rd(0) = '1' and dbg_rd_d = '0' then
-               dbg_flash_cnt <= to_unsigned(20_000_000, 24); -- 400 ms at 50 MHz
-               dbg_lba_valid <= '1';
-               dbg_lba512    <= shift_right(unsigned(iec_sd_lba(0)), 1);
-               dbg_fdc_trk   <= shift_right(unsigned(iec_out_track(0)), 1);
-               if dbg_rd_edges /= x"FF" then
-                  dbg_rd_edges <= dbg_rd_edges + 1;
-               end if;
-               if shift_right(unsigned(iec_out_track(0)), 1) = to_unsigned(39, 8) then
-                  dbg_saw_t40 <= '1';
-               end if;
-               if shift_right(unsigned(iec_out_track(0)), 1) = to_unsigned(1, 8) then
-                  dbg_saw_800 <= '1';
-               end if;
-               if shift_right(unsigned(iec_sd_lba(0)), 1) < to_unsigned(780, 32) or
-                  shift_right(unsigned(iec_sd_lba(0)), 1) > to_unsigned(789, 32) then
-                  dbg_saw_nz <= '0';
-               end if;
-            elsif dbg_flash_cnt /= 0 then
-               dbg_flash_cnt <= dbg_flash_cnt - 1;
-            end if;
-            if iec_sd_ack(0) = '1' and iec_sd_buf_wr = '1' and iec_sd_buf_data_in /= x"00" then
-               dbg_saw_nz    <= '1';
-            end if;
-         end if;
-      end if;
-   end process dbg_lba_proc;
-   -- #endregion
-
-   drive_led_o     <= '1';
-   drive_led_col_o <= x"FF00FF" when vdrives_mounted(0) = '0' or dbg_flash_cnt /= 0 else
-                      x"FFFFFF" when iec_dbg(1) = '0' and dbg_saw_t40 = '1' else
-                      x"FF0000" when iec_dbg(1) = '0' and dbg_saw_800 = '1' else
-                      x"00FFFF" when iec_dbg(1) = '0' else
-                      x"0000FF" when iec_dbg(3) = '0' else
-                      x"FFFFFF" when dbg_lba_valid = '1' and dbg_fdc_trk = to_unsigned(39, 8) else
-                      x"FF0000" when dbg_lba_valid = '1' and dbg_fdc_trk = to_unsigned(1, 8) else
-                      x"00FF00" when dbg_lba_valid = '1' and dbg_fdc_trk = to_unsigned(0, 8) else
-                      x"FFFF00";
-end generate drive_led_debug_gen;
+drive_led_policy_inst : entity work.drive_led_policy
+   generic map (
+      G_IDLE_CYCLES => C_DRIVE_LED_IDLE
+   )
+   port map (
+      clk_i      => clk_main_i,
+      activity_i => drives_busy,
+      dirty_i    => drives_dirty,
+      led_o      => drive_led_o,
+      colour_o   => drive_led_col_o
+   );
 
 --------------------------------------------------------------------------------------------------
 -- Video Out select (MiSTer status[106:105] / auto_config): Follow 40/80, force VIC, force VDC.
@@ -1383,11 +1290,6 @@ iec_drive_inst : entity work.iec_drive
 
     led          => iec_drive_led,
     disk_ready   => open,
-    dbg          => iec_dbg,
-    diag         => iec_diag,
-    dbg_clk      => clk_sd_i,
-    dbg_ram_addr => qnice_vd_addr_i(10 downto 0),
-    dbg_ram_data => iec_dbg_ram_data,
     -- The track-number display (MiSTer's drv_overlay.sv) is out of scope, but these two
     -- cannot be left open: xsim refuses a VHDL-to-Verilog binding with an unconnected
     -- vector or array output, even though synthesis accepts it.
@@ -1421,44 +1323,6 @@ iec_drive_inst : entity work.iec_drive
     rom_data     => drv_rom_data_i,
     rom_wr       => drv_rom_wr_i
   ); -- iec_drive_inst
-
--- Read-only diagnostic bank (C_DEV_VDRIVE_DIAG). Window 0 retains the existing
--- 128-word snapshots per drive (bit 7 selects drive 8/9). Window 1 exposes the
--- complete 2 KiB DOS work RAM of each 157x without stopping its CPU: bit 11 selects
--- drive 8/9 and bits 10:0 select the byte. QNICE sees each byte zero-extended to a
--- 16-bit word, so MD 7000 77FF/7800 7FFF dumps drive 8/9 after selecting window 1.
-vdrive_diag_read : process (all)
-  variable drive_index : natural range 0 to 1;
-  variable word_index  : natural range 0 to 127;
-begin
-  qnice_vd_diag_data_o <= (others => '0');
-  if qnice_vd_addr_i(12) = '1' then
-    drive_index := to_integer(unsigned(qnice_vd_addr_i(11 downto 11)));
-    if drive_index < G_VDNUM then
-      qnice_vd_diag_data_o <= x"00" & iec_dbg_ram_data(drive_index);
-    end if;
-  else
-    drive_index := to_integer(unsigned(qnice_vd_addr_i(7 downto 7)));
-    word_index  := to_integer(unsigned(qnice_vd_addr_i(6 downto 0)));
-    if drive_index < G_VDNUM then
-      qnice_vd_diag_data_o <=
-        iec_diag(drive_index)(word_index * 16 + 15 downto word_index * 16);
-    end if;
-  end if;
-end process vdrive_diag_read;
-
--- Window 0 answers combinationally, but window 1 comes out of a block RAM whose read
--- port is registered, so the requested byte only appears one clock after the address.
--- Stall QNICE for that single cycle; without it every read returns the byte belonging
--- to whatever address the CPU happened to drive one cycle earlier.
-vdrive_diag_wait : process (clk_sd_i)
-begin
-  if rising_edge(clk_sd_i) then
-    iec_dbg_ram_ce_d <= qnice_vd_diag_ce_i and qnice_vd_addr_i(12);
-  end if;
-end process vdrive_diag_wait;
-
-qnice_vd_diag_wait_o <= qnice_vd_diag_ce_i and qnice_vd_addr_i(12) and not iec_dbg_ram_ce_d;
 
 vdrives_inst : entity work.vdrives
   generic map (
@@ -1515,7 +1379,6 @@ else generate
 
   drives_dirty   <= '0';
   drives_busy    <= '0';
-  qnice_vd_diag_data_o <= (others => '0');
 
   qnice_vd_data_o <= (others => '0');
   drv_rom_req_o   <= '0';

@@ -184,9 +184,6 @@ MAIN_LOOP       RSUB    HANDLE_IO, 1            ; IO handling (e.g. vdrives)
                 RSUB    CHECK_DEBUG, 1          ; (Run/Stop+Cursor Up) + Help
                 RSUB    HELP_MENU, 1            ; check/manage help menu
                 RSUB    LOG_COREINFO, 1         ; once: log core info
-#ifdef VDRIVE_DIAG_LOG
-                RSUB    LOG_DIAG_TICK, 1        ; periodic: log drive diagnostics
-#endif
 
                 RBRA    MAIN_LOOP, 1
 
@@ -598,11 +595,6 @@ _HM_SDMOUNTED6A_OSM
                 SYSCALL(puthex, 1)
                 SYSCALL(crlf, 1)
 
-                ; No snapshot here on purpose. The waits this used to need blocked
-                ; HANDLE_IO, so the first track request sat unserviced for the
-                ; whole two seconds and every snapshot showed a read in flight that was
-                ; only an artefact of the sampling. LOG_DIAG_TICK reports from the main
-                ; loop instead, where the drive is actually being served.
                 RBRA    _HM_SDMOUNTED7, 1
 
                 ; We successfully loaded a manually loadable CRT/ROM and need
@@ -1034,68 +1026,6 @@ _HANDLE_IO_NXT3 ADD     1, R0                   ; next drive
 _HANDLE_IO_RET  SYSCALL(leave, 1)
                 RET
 
-#ifdef VDRIVE_DIAG_LOG
-
-; Log the diagnostic snapshot of drive 8 a few times a second.
-;
-; Printing only after a mount describes the drive at the one moment it is guaranteed to
-; look healthy. A drive that stops answering the serial bus does so later, while the
-; computer sits in a KERNAL wait loop that never times out, so the interesting state is
-; only visible if the console keeps talking on its own.
-;
-; The dump is long enough to stall the main loop, so this is a debug-only build option.
-; See VDRIVE_DIAG_LOG in CORE/m2m-rom/m2m-rom.asm.
-LOG_DIAG_TICK   SYSCALL(enter, 1)
-
-                MOVE    IO$CYC_MID, R0
-                MOVE    @R0, R1                 ; R1: now
-                MOVE    DIAG_CYC_LAST, R2
-                MOVE    R1, R3
-                SUB     @R2, R3                 ; R3: elapsed, wraps with the counter
-                CMP     DIAG_TICK_WAIT, R3      ; N set while the interval is not over
-                RBRA    _LDT_RET, N
-
-                MOVE    R1, @R2
-                XOR     R8, R8                  ; drive 8
-                RSUB    LOG_VDRIVE_DIAG, 1
-
-_LDT_RET        SYSCALL(leave, 1)
-                RET
-
-; Print the 128 diagnostic words of virtual drive R8 to the JTAG UART.
-; C_DEV_VDRIVE_DIAG is core device 0x0106; drive 9 starts at word 128.
-; Words 0-7 are the host-side handshake, words 8-15 the DOS state inside the drive
-; and words 16-63 / 64-111 the serial-bus / DOS ROM-read traces.
-LOG_VDRIVE_DIAG SYSCALL(enter, 1)
-                MOVE    R8, R0                  ; drive index
-                MOVE    LOG_STR_VDDIAG, R8
-                SYSCALL(puts, 1)
-                MOVE    R0, R8
-                SYSCALL(puthex, 1)
-                MOVE    ' ', R8
-                SYSCALL(putc, 1)
-
-                MOVE    M2M$RAMROM_DEV, R1
-                MOVE    0x0106, @R1
-                MOVE    M2M$RAMROM_4KWIN, R1
-                MOVE    0, @R1
-                MOVE    M2M$RAMROM_DATA, R1
-                CMP     0, R0
-                RBRA    _LVD_ADDR_OK, Z
-                ADD     128, R1
-_LVD_ADDR_OK    MOVE    128, R2
-_LVD_NEXT       MOVE    @R1++, R8
-                SYSCALL(puthex, 1)
-                MOVE    ' ', R8
-                SYSCALL(putc, 1)
-                SUB     1, R2
-                RBRA    _LVD_NEXT, !Z
-                SYSCALL(crlf, 1)
-                SYSCALL(leave, 1)
-                RET
-
-#endif
-
 ; Handle read request from drive number in R8:
 ;
 ; Transfer the data requested by the core from the linear disk image buffer
@@ -1456,8 +1386,7 @@ _FC_RET         SYSCALL(leave, 1)
                 RET
 
 ; Debug mode:
-; Hold "Run/Stop" + "Cursor Up" and then while holding these, press "Help",
-; or send CTRL+E over the serial console
+; Hold "Run/Stop" + "Cursor Up" and then while holding these, press "Help"
 ; ----------------------------------------------------------------------------
 
                 ; Debug mode: Exits the main loop and starts the QNICE
@@ -1466,25 +1395,8 @@ _FC_RET         SYSCALL(leave, 1)
                 ; the Monitor C/R command while entering an address shown
                 ; in the terminal.
                 ;
-                ; CTRL+E on the serial console does the same thing. The key
-                ; combination needs all three keys within one keyboard scan,
-                ; and on the MEGA65 "Cursor Up" also asserts shift towards the
-                ; core, so the core reacts to Run/Stop + Shift on its own. The
-                ; serial trigger is therefore the dependable one for scripted
-                ; sessions. Everything else in the Shell reads the UART only
-                ; through IO$GETCHAR while it waits for input, so consuming a
-                ; character here cannot steal one from another reader.
 CHECK_DEBUG     INCRB
-                MOVE    IO$UART_SRA, R1         ; character waiting on the UART?
-                MOVE    @R1, R2
-                AND     0x0001, R2
-                RBRA    _CHK_DBG_KEYS, Z        ; no: only look at the keyboard
-                MOVE    IO$UART_RHRA, R1
-                MOVE    @R1, R2                 ; consume it either way
-                CMP     KBD$CTRL_E, R2
-                RBRA    _CHK_DBG_ENTER, Z
-
-_CHK_DBG_KEYS   MOVE    M2M$KEY_UP, R0
+                MOVE    M2M$KEY_UP, R0
                 OR      M2M$KEY_RUNSTOP, R0
                 OR      M2M$KEY_HELP, R0
                 MOVE    M2M$KEYBOARD, R1        ; read keyboard status
@@ -1495,9 +1407,6 @@ _CHK_DBG_KEYS   MOVE    M2M$KEY_UP, R0
                 DECRB
                 RBRA    START_MONITOR, Z        ; yes: enter debug mode
                 RET                             ; no: return to main loop
-
-_CHK_DBG_ENTER  DECRB
-                RBRA    START_MONITOR, 1
                 
                 ; print info message via UART that shows how to return back
                 ; to the shell (either main loop or restart)

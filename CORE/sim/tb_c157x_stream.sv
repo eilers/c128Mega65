@@ -42,8 +42,6 @@ module tb_c157x_stream;
 
 	wire   [NDR-1:0] led;
 	wire             disk_ready;
-	wire       [9:0] dbg;
-	wire     [2047:0] diag[NDR];
 	wire       [7:0] out_track[NDR];
 	wire   [NDR-1:0] out_we;
 
@@ -86,8 +84,6 @@ module tb_c157x_stream;
 
 		.led(led),
 		.disk_ready(disk_ready),
-		.dbg(dbg),
-		.diag(diag),
 		.out_track(out_track),
 		.out_we(out_we),
 
