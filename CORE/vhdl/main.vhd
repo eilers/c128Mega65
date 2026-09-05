@@ -117,6 +117,7 @@ entity main is
       -- IEC serial bus interface to MEGA65 pins (active low at top level).
       -- CLK/DATA/SRQ are open-collector: *_en_o = '1' pulls the line low, '0' releases it.
       -- ATN is push-pull (driven by the computer only). RESET resets attached real drives.
+      iec_hardware_port_en_i : in  std_logic;
       iec_reset_n_o          : out std_logic;
       iec_atn_n_o            : out std_logic;
       iec_clk_en_o           : out std_logic;
@@ -397,6 +398,9 @@ signal core_iec_srq_n_o : std_logic;
 signal drv_iec_clk_o    : std_logic;
 signal drv_iec_data_o   : std_logic;
 signal drv_iec_srq_o    : std_logic;
+signal hw_iec_clk_n_i   : std_logic;
+signal hw_iec_data_n_i  : std_logic;
+signal hw_iec_srq_n_i   : std_logic;
 
 -- TODO: Add reu and rtc support
 
@@ -766,14 +770,36 @@ end process handle_cartridge_triggered_resets_proc;
 -- the pin AND the emulated drives, the emulated drives see the computer AND the pin, and the pin
 -- is pulled low as soon as either of them asserts. ATN stays push-pull and computer-driven, since
 -- only the bus controller ever drives it.
-iec_reset_n_o <= reset_core_n;            -- reset attached real drives together with the core
-iec_atn_n_o   <= core_iec_atn_o;          -- push-pull: '0' = ATN asserted (low) on the bus
-iec_clk_n_o   <= '0';
-iec_clk_en_o  <= not (core_iec_clk_o   and drv_iec_clk_o);
-iec_data_n_o  <= '0';
-iec_data_en_o <= not (core_iec_data_o  and drv_iec_data_o);
-iec_srq_n_o   <= '0';
-iec_srq_en_o  <= not (core_iec_srq_n_o and drv_iec_srq_o);
+handle_hardware_iec_proc : process (all)
+begin
+   -- Disabled means electrically silent and logically disconnected. In particular,
+   -- a powered external device holding a line low cannot disturb the virtual drives.
+   iec_reset_n_o   <= '1';
+   iec_atn_n_o     <= '1';
+   iec_clk_n_o     <= '1';
+   iec_clk_en_o    <= '0';
+   iec_data_n_o    <= '1';
+   iec_data_en_o   <= '0';
+   iec_srq_n_o     <= '1';
+   iec_srq_en_o    <= '0';
+   hw_iec_clk_n_i  <= '1';
+   hw_iec_data_n_i <= '1';
+   hw_iec_srq_n_i  <= '1';
+
+   if iec_hardware_port_en_i = '1' then
+      iec_reset_n_o   <= reset_core_n;
+      iec_atn_n_o     <= core_iec_atn_o;
+      iec_clk_n_o     <= '0';
+      iec_clk_en_o    <= not (core_iec_clk_o and drv_iec_clk_o);
+      iec_data_n_o    <= '0';
+      iec_data_en_o   <= not (core_iec_data_o and drv_iec_data_o);
+      iec_srq_n_o     <= '0';
+      iec_srq_en_o    <= not (core_iec_srq_n_o and drv_iec_srq_o);
+      hw_iec_clk_n_i  <= iec_clk_n_i;
+      hw_iec_data_n_i <= iec_data_n_i;
+      hw_iec_srq_n_i  <= iec_srq_n_i;
+   end if;
+end process handle_hardware_iec_proc;
 
 
 --------------------------------------------------------------------------------------------------
@@ -1169,11 +1195,11 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- assignments above; here we only tap the core's raw line-level signals. Inputs are
       -- sensed active-high (1 = released), matching the MEGA65 IEC buffer, so pass through.
       iec_srq_n_o   => core_iec_srq_n_o,
-      iec_srq_n_i   => iec_srq_n_i  and drv_iec_srq_o,
-      iec_clk_i     => iec_clk_n_i  and drv_iec_clk_o,
+      iec_srq_n_i   => hw_iec_srq_n_i and drv_iec_srq_o,
+      iec_clk_i     => hw_iec_clk_n_i and drv_iec_clk_o,
       iec_clk_o     => core_iec_clk_o,
       iec_atn_o     => core_iec_atn_o,
-      iec_data_i    => iec_data_n_i and drv_iec_data_o,
+      iec_data_i    => hw_iec_data_n_i and drv_iec_data_o,
       iec_data_o    => core_iec_data_o,
 
       -- Cassette drive
@@ -1275,9 +1301,9 @@ iec_drive_inst : entity work.iec_drive
 
     -- IEC bus, wired-AND merged with the physical port (see the assignments further up)
     iec_atn_i    => core_iec_atn_o,
-    iec_clk_i    => core_iec_clk_o   and iec_clk_n_i,
-    iec_data_i   => core_iec_data_o  and iec_data_n_i,
-    iec_fclk_i   => core_iec_srq_n_o and iec_srq_n_i,
+    iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
+    iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
+    iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
     iec_clk_o    => drv_iec_clk_o,
     iec_data_o   => drv_iec_data_o,
     iec_fclk_o   => drv_iec_srq_o,

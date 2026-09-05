@@ -344,7 +344,7 @@ constant OPTM_ITEMS        : string :=
    " Expansion Port\n"      &
    "\n"                     &
    " Use hardware slot\n"   &
-   "\n"                     &
+   " IEC: Use hardware port\n" &
 
    " Credits\n"             &
    "\n"                     &
@@ -365,6 +365,7 @@ constant OPTM_G_EXP_PORT   : integer := 7;
 constant OPTM_G_MOUNT_D8   : integer := 8;
 constant OPTM_G_MOUNT_D9   : integer := 9;
 constant OPTM_G_DRV_MODEL  : integer := 10;
+constant OPTM_G_IEC        : integer := 11;
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -423,7 +424,7 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Expansion Port
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
-                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- IEC: Use hardware port
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
                                              OPTM_G_LINE,                                         -- Line

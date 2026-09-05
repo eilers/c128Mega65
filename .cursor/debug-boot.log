@@ -1,0 +1,2 @@
+{"sessionId":"boot","runId":"sim-boot","hypothesisId":"SIM","location":"tb_c128_boot:stim","message":"simulation start","data":{},"timestamp":1474570}
+{"sessionId":"boot","runId":"sim-boot","hypothesisId":"H1","location":"tb_c128_boot:summary","message":"simulation finished","data":{"ram_we_count":1600,"z80_handoff_seen":true,"final_z80_n":"'1'","pass":true},"timestamp":21974570}

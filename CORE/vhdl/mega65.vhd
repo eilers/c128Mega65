@@ -516,6 +516,7 @@ begin
          cart_d_i             => cart_d_i,
          cart_d_o             => cart_d_o,
 
+         iec_hardware_port_en_i => main_osm_control_i(C_MENU_IEC),
          iec_reset_n_o        => iec_reset_n_o,
          iec_atn_n_o          => iec_atn_n_o,
          iec_clk_en_o         => iec_clk_en_o,
