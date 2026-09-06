@@ -245,6 +245,17 @@ The first failing gate stops the suite. `build_release.sh` asks whether to run
 this suite before synthesizing any board; a failure aborts the core build.
 `RUN_TESTBENCHES=y` or `RUN_TESTBENCHES=n` answers that prompt non-interactively.
 
+One testbench is deliberately left out: `CORE/sim/tb_c1581_iec.sv` was a control
+experiment for `tb_c157x_boot` and still drives the early serial bus model, so its
+verdict describes that model rather than the drive. Run it by hand if you pick that
+experiment up again.
+
+Every runner script goes through `CORE/scripts/sim_launch.tcl` instead of calling
+`launch_simulation` itself. It verifies that the requested top actually took effect,
+because Vivado silently falls back to the synthesis top when it cannot parse a
+testbench, and it retries once against a wiped `*.sim` directory, because xvhdl
+compiles incrementally and leaves units stale when a VHDL package changes.
+
 The narrower virtual-drive subset remains:
 
 ```bash

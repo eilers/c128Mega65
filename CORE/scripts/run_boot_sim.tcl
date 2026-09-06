@@ -23,6 +23,8 @@ if {[file exists $log_file]} {
     file delete -force $log_file
 }
 
+source [file join [file dirname [info script]] sim_launch.tcl]
+
 open_project $project_file
 update_compile_order -fileset sources_1
 
@@ -93,18 +95,13 @@ source [file join $core_dir scripts gen_boot_paths_pkg.tcl]
 if {[llength [get_files -quiet $paths_pkg]] == 0} {
     add_files -fileset sources_1 -norecurse $paths_pkg
 }
-set_property top tb_c128_boot [get_filesets sim_1]
-set_property top_lib xil_defaultlib [get_filesets sim_1]
 puts "ROM path: $boot_rom"
 puts "Log path: $log_file"
 update_compile_order -fileset sim_1
 set_property -name {xsim.simulate.runtime} -value {25ms} -objects [get_filesets sim_1]
 
 puts "Launching boot simulation (top=tb_c128_boot)..."
-if {[llength [get_runs -quiet sim_1]] > 0} {
-    catch {reset_simulation -simset sim_1 -force}
-}
-launch_simulation -simset sim_1
+sim_launch tb_c128_boot
 
 set sim_log [file join $core_dir sim boot_sim_console.log]
 set sim_out [open $sim_log w]

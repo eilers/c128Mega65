@@ -38,6 +38,8 @@ puts $fh "   parameter string D64_IMAGE_PATH = \"$d64_image\";"
 puts $fh "endpackage"
 close $fh
 
+source [file join [file dirname [info script]] sim_launch.tcl]
+
 open_project $project_file
 if {[llength [get_filesets -quiet sim_1]] == 0} { create_fileset -simset sim_1 }
 foreach f [list $pkg_file $tb_file] {
@@ -46,11 +48,9 @@ foreach f [list $pkg_file $tb_file] {
     }
     set_property file_type {SystemVerilog} [get_files $f]
 }
-set_property top tb_c157x_stream [get_filesets sim_1]
-set_property top_lib xil_defaultlib [get_filesets sim_1]
 set_property -name {xsim.elaborate.debug_level} -value {typical} -objects [get_filesets sim_1]
 update_compile_order -fileset sim_1
-launch_simulation -simset sim_1
+sim_launch tb_c157x_stream
 run 100 ms
 
 set sim_dir [file join [file dirname [file normalize $project_file]] \

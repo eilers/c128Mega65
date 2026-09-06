@@ -18,7 +18,6 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
-use std.textio.all;
 
 library work;
 use work.vdrives_pkg.all;
@@ -411,6 +410,10 @@ begin
          end if;
       end procedure;
 
+      -- vdrives window / offset for the T40 header, read back over the QNICE bus
+      variable win  : integer;
+      variable offs : integer;
+
       procedure qnice_read(addr : integer; variable val : out integer) is
       begin
          wait until rising_edge(clk_qnice);
@@ -444,35 +447,18 @@ begin
       for i in 0 to 9 loop
          wait until rising_edge(clk_qnice);
       end loop;
-      declare
-         variable win : integer;
-         variable offs : integer;
-         -- #region agent log
-         file dbg : text open append_mode is "/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log";
-         variable l : line;
-         -- #endregion
-      begin
-         qnice_read(16#001006#, win);
-         qnice_read(16#001007#, offs);
-         report "  vdrives: LBA 1560 -> 4k win=" & integer'image(win) &
-                " offs=" & integer'image(offs) severity note;
-         -- #region agent log
-         write(l, string'("{""sessionId"":""36b09c"",""runId"":""glue"",""hypothesisId"":""G1"",""location"":""tb_vdrive_mount.vhd:lba_window"",""message"":""vdrives window for iec LBA 1560"",""data"":{""win"":"));
-         write(l, win);
-         write(l, string'(",""offs"":"));
-         write(l, offs);
-         write(l, string'(",""expect_win"":97,""expect_offs"":2048},""timestamp"":0}"));
-         writeline(dbg, l);
-         -- #endregion
-         if win /= 97 or offs /= 2048 then
-            errors <= errors + 1;
-            report "FAIL: HANDLE_DRV_RD window/offset wrong for T40 header"
-               severity error;
-         else
-            report "PASS: vdrives maps LBA 1560 to window 97 offset 2048"
-               severity note;
-         end if;
-      end;
+      qnice_read(16#001006#, win);
+      qnice_read(16#001007#, offs);
+      report "  vdrives: LBA 1560 -> 4k win=" & integer'image(win) &
+             " offs=" & integer'image(offs) severity note;
+      if win /= 97 or offs /= 2048 then
+         errors <= errors + 1;
+         report "FAIL: HANDLE_DRV_RD window/offset wrong for T40 header"
+            severity error;
+      else
+         report "PASS: vdrives maps LBA 1560 to window 97 offset 2048"
+            severity note;
+      end if;
 
       -- 174848 bytes = a 35 track .D64, which must stay on the menu's 5.25" model
       report "--- mounting a .D64 (174848 bytes, image type 0) ---" severity note;
@@ -487,17 +473,6 @@ begin
       -- Soft reset must keep the drive mounted. Clearing drive_mounted_reg on
       -- reset_core left the emulated drive permanently in reset (DEVICE NOT PRESENT).
       report "--- soft reset must keep drive mounted ---" severity note;
-      -- #region agent log
-      declare
-         file dbg : text open append_mode is "/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log";
-         variable l : line;
-      begin
-         write(l, string'("{""sessionId"":""36b09c"",""runId"":""post-fix"",""hypothesisId"":""H7"",""location"":""tb_vdrive_mount.vhd:before_soft_reset"",""message"":""mounted before soft reset"",""data"":{""drive_mounted"":"));
-         write(l, drive_mounted(0) = '1');
-         write(l, string'("},""timestamp"":0}"));
-         writeline(dbg, l);
-      end;
-      -- #endregion
       reset_core_n <= '0';
       for i in 0 to 99 loop
          wait until rising_edge(clk_core);
@@ -509,21 +484,10 @@ begin
       if drive_mounted(0) /= '1' then
          report "FAIL: soft reset cleared drive_mounted (would cause DEVICE NOT PRESENT)"
             severity error;
-         errors := errors + 1;
+         errors <= errors + 1;
       else
          report "PASS: drive_mounted survived soft reset" severity note;
       end if;
-      -- #region agent log
-      declare
-         file dbg : text open append_mode is "/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log";
-         variable l : line;
-      begin
-         write(l, string'("{""sessionId"":""36b09c"",""runId"":""post-fix"",""hypothesisId"":""H7"",""location"":""tb_vdrive_mount.vhd:after_soft_reset"",""message"":""mounted after soft reset"",""data"":{""drive_mounted"":"));
-         write(l, drive_mounted(0) = '1');
-         write(l, string'("},""timestamp"":0}"));
-         writeline(dbg, l);
-      end;
-      -- #endregion
 
       if errors = 0 then
          report "=== tb_vdrive_mount: ALL CHECKS PASSED ===" severity note;

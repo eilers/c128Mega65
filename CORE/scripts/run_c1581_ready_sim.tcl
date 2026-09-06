@@ -19,6 +19,8 @@ set core_dir [file normalize [file join [file dirname [info script]] ..]]
 set repo_dir [file normalize [file join $core_dir ..]]
 set tb_file  [file join $core_dir sim tb_c1581_ready.sv]
 
+source [file join [file dirname [info script]] sim_launch.tcl]
+
 open_project $project_file
 update_compile_order -fileset sources_1
 
@@ -47,8 +49,6 @@ if {[llength [get_files -quiet $tb_file]] == 0} {
 }
 set_property file_type {SystemVerilog} [get_files $tb_file]
 
-set_property top tb_c1581_ready [get_filesets sim_1]
-set_property top_lib xil_defaultlib [get_filesets sim_1]
 
 # This gate only reads $display output and the bit-level floppy model has to run for
 # tens of milliseconds of simulated time, so there is no reason to record waveforms.
@@ -57,10 +57,7 @@ set_property -name {xsim.elaborate.debug_level} -value {off} -objects [get_files
 update_compile_order -fileset sim_1
 
 puts "Launching 1581 ready simulation (top=tb_c1581_ready)..."
-if {[llength [get_runs -quiet sim_1]] > 0} {
-    catch {reset_simulation -simset sim_1 -force}
-}
-launch_simulation -simset sim_1
+sim_launch tb_c1581_ready
 
 set sim_dir [file join \
     [file dirname [file normalize $project_file]] \

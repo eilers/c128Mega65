@@ -509,20 +509,10 @@ module tb_c1581_ready;
          // ----------------------------------------------------------------
          begin : seek_dir
             integer seek_lba_before;
-            integer dbg_fd;
             reg [7:0] st;
 
             seek_lba_before = sd_reads;
             draining = 1'b0;
-
-            // #region agent log
-            dbg_fd = $fopen("/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log", "a");
-            if (dbg_fd) begin
-               $fdisplay(dbg_fd, "{\"sessionId\":\"36b09c\",\"runId\":\"track40-sim\",\"hypothesisId\":\"H1\",\"location\":\"tb_c1581_ready.sv:seek\",\"message\":\"before SEEK to track 39\",\"data\":{\"out_track\":%0d,\"track_reg\":%0d,\"step_to\":%0d,\"RNF\":%0d},\"timestamp\":%0t}",
-                         out_track, dut.track, dut.step_to, dut.RNF, $time);
-               $fclose(dbg_fd);
-            end
-            // #endregion
 
             wd_write(2'd3, 8'd39);     // data register = seek target
             wd_write(2'd0, 8'h14);     // SEEK (type-1, verify off, 30ms step)
@@ -544,15 +534,6 @@ module tb_c1581_ready;
 
             $display("tb_c1581_ready: after SEEK out_track=%0d track_reg=%0d step_to=%0d fd_track=%0d",
                      out_track, dut.track, dut.step_to, dut.fd_track);
-
-            // #region agent log
-            dbg_fd = $fopen("/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log", "a");
-            if (dbg_fd) begin
-               $fdisplay(dbg_fd, "{\"sessionId\":\"36b09c\",\"runId\":\"track40-sim\",\"hypothesisId\":\"H1\",\"location\":\"tb_c1581_ready.sv:after_seek\",\"message\":\"after SEEK to track 39\",\"data\":{\"out_track\":%0d,\"track_reg\":%0d,\"step_to\":%0d,\"fd_track\":%0d,\"busy\":%0d},\"timestamp\":%0t}",
-                         out_track, dut.track, dut.step_to, dut.fd_track, dut.busy, $time);
-               $fclose(dbg_fd);
-            end
-            // #endregion
 
             if (dut.track !== 8'd39 || dut.step_to !== 8'd39) begin
                $display("tb_c1581_ready: MISMATCH SEEK target not latched (track=%0d step_to=%0d) — data_in/seek path broken",
@@ -587,15 +568,6 @@ module tb_c1581_ready;
                end
             join
 
-            // #region agent log
-            dbg_fd = $fopen("/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log", "a");
-            if (dbg_fd) begin
-               $fdisplay(dbg_fd, "{\"sessionId\":\"36b09c\",\"runId\":\"stock-st\",\"hypothesisId\":\"G0\",\"location\":\"tb_c1581_ready.sv:dir_lba\",\"message\":\"directory cylinder sector request\",\"data\":{\"sd_lba\":%0d,\"expect\":780,\"out_track\":%0d,\"RNF\":%0d,\"sd_reads\":%0d},\"timestamp\":%0t}",
-                         sd_lba, out_track, dut.RNF, sd_reads, $time);
-               $fclose(dbg_fd);
-            end
-            // #endregion
-
             if (sd_reads > seek_lba_before && sd_lba !== 32'd780) begin
                $display("tb_c1581_ready: MISMATCH directory LBA %0d != 780 — stock ST math (sector 1 → first 512B of T40 S0)", sd_lba);
                errors = errors + 1;
@@ -606,14 +578,6 @@ module tb_c1581_ready;
                #200us;
                wd_read(2'd0, st);
                $display("tb_c1581_ready: dir read status=%02h RNF=%b got_n=%0d", st, dut.RNF, got_n);
-               // #region agent log
-               dbg_fd = $fopen("/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log", "a");
-               if (dbg_fd) begin
-                  $fdisplay(dbg_fd, "{\"sessionId\":\"36b09c\",\"runId\":\"track40-sim\",\"hypothesisId\":\"H2\",\"location\":\"tb_c1581_ready.sv:dir_status\",\"message\":\"directory read status\",\"data\":{\"status\":%0d,\"RNF\":%0d,\"got_n\":%0d,\"floppy_ready\":%0d},\"timestamp\":%0t}",
-                            st, dut.RNF, got_n, floppy_ready, $time);
-                  $fclose(dbg_fd);
-               end
-               // #endregion
                if (dut.RNF !== 1'b0) begin
                   $display("tb_c1581_ready: MISMATCH RNF on directory cylinder");
                   errors = errors + 1;
@@ -624,7 +588,6 @@ module tb_c1581_ready;
          // Stock MiSTer: sector 0 is below sector_base=1 → RNF, no host request.
          begin : stock_sector0
             integer sd_reads_before0;
-            integer dbg_fd0;
             draining = 1'b1;
             got_n = 0;
             #1ms;
@@ -644,14 +607,6 @@ module tb_c1581_ready;
             join
             $display("tb_c1581_ready: stock sector0 sd_rd_delta=%0d sd_lba=%0d RNF=%b snf=%b",
                      sd_reads - sd_reads_before0, sd_lba, dut.RNF, dut.sector_not_found);
-            // #region agent log
-            dbg_fd0 = $fopen("/home/bazzite/Dokumente/Developer/c128Mega65/.cursor/debug-36b09c.log", "a");
-            if (dbg_fd0) begin
-               $fdisplay(dbg_fd0, "{\"sessionId\":\"36b09c\",\"runId\":\"stock-st\",\"hypothesisId\":\"G0\",\"location\":\"tb_c1581_ready.sv:sector0\",\"message\":\"stock MiSTer sector 0 is RNF\",\"data\":{\"sd_rd_delta\":%0d,\"sd_lba\":%0d,\"RNF\":%0d,\"sector_not_found\":%0d,\"sd_reads\":%0d},\"timestamp\":%0t}",
-                         sd_reads - sd_reads_before0, sd_lba, dut.RNF, dut.sector_not_found, sd_reads, $time);
-               $fclose(dbg_fd0);
-            end
-            // #endregion
             if (sd_reads > sd_reads_before0) begin
                $display("tb_c1581_ready: MISMATCH stock sector 0 must not raise sd_rd");
                errors = errors + 1;

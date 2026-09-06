@@ -538,37 +538,6 @@ _HM_SDMOUNTED5A RSUB    HANDLE_IO, 1            ; wait for Space to be pressed
 
 _HM_SDMOUNTED6A MOVE    R9, R6                  ; R6: disk image type
 
-                ; #region agent log
-                ; Debug H33: for D81, read back T40 header byte at file offset
-                ; 399360 (4k window 97, offset 2048). Empty.d81 starts with $28.
-                ; Fail => HyperRAM staging did not retain the image (map/wait).
-                ; Pass + still-zero track cache => FDC/LBA path, not mount_buf.
-                MOVE    LI_IMGTYPE, R8
-                MOVE    @R8, R8
-                CMP     2, R8                   ; IMGTYPE_D81
-                RBRA    _HM_SDMOUNTED6A_OSM, !Z
-                MOVE    VDRIVES_BUFS, R8
-                ADD     R7, R8
-                MOVE    M2M$RAMROM_DEV, R9
-                MOVE    @R8, @R9                ; select this drives mount buf
-                MOVE    M2M$RAMROM_4KWIN, R9
-                MOVE    97, @R9                 ; 97*4096 = 397312
-                MOVE    M2M$RAMROM_DATA, R8
-                ADD     2048, R8                ; +2048 => absolute 399360
-                MOVE    @R8, R9                 ; HyperRAM read (honours wait)
-                CMP     0x0028, R9              ; Empty/real D81 header track link
-                RBRA    _HM_SDMOUNTED6A_OSM, Z
-                RSUB    SCR$CLRINNER, 1
-                MOVE    WRN_HR_READBACK, R8
-                RSUB    SCR$PRINTSTR, 1
-                MOVE    R9, R8
-                MOVE    SCRATCH_HEX, R9
-                RSUB    WORD2HEXSTR, 1
-                MOVE    R9, R8
-                RSUB    SCR$PRINTSTR, 1
-                RBRA    _HM_SDMOUNTED5A, 1      ; Space, then remount
-                ; #endregion
-
 _HM_SDMOUNTED6A_OSM
                 RSUB    SCR$OSM_OFF, 1          ; hide the big window
 

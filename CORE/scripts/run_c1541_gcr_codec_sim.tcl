@@ -13,6 +13,8 @@ set core_dir   [file normalize [file join [file dirname [info script]] ..]]
 set codec_file [file join $core_dir C128_MiSTer rtl iec_drive c1541_gcr_codec.sv]
 set tb_file    [file join $core_dir sim tb_c1541_gcr_codec.sv]
 
+source [file join [file dirname [info script]] sim_launch.tcl]
+
 open_project $project_file
 
 if {[llength [get_files -quiet $codec_file]] == 0} {
@@ -29,17 +31,12 @@ if {[llength [get_files -quiet $tb_file]] == 0} {
 }
 set_property file_type {SystemVerilog} [get_files $tb_file]
 
-set_property top tb_c1541_gcr_codec [get_filesets sim_1]
-set_property top_lib xil_defaultlib [get_filesets sim_1]
 set_property -name {xsim.elaborate.debug_level} -value {off} -objects [get_filesets sim_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
 
 puts "Launching 1541 GCR codec simulation (top=tb_c1541_gcr_codec)..."
-if {[llength [get_runs -quiet sim_1]] > 0} {
-    catch {reset_simulation -simset sim_1 -force}
-}
-launch_simulation -simset sim_1
+sim_launch tb_c1541_gcr_codec
 
 set sim_dir [file join \
     [file dirname [file normalize $project_file]] \

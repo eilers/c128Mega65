@@ -18,6 +18,8 @@ set core_dir [file normalize [file join [file dirname [info script]] ..]]
 set repo_dir [file normalize [file join $core_dir ..]]
 set tb_file  [file join $core_dir sim tb_iecdrv_mem.vhd]
 
+source [file join [file dirname [info script]] sim_launch.tcl]
+
 open_project $project_file
 update_compile_order -fileset sources_1
 
@@ -43,15 +45,10 @@ if {[llength [get_files -quiet $tb_file]] == 0} {
 }
 set_property file_type {VHDL 2008} [get_files $tb_file]
 
-set_property top tb_iecdrv_mem [get_filesets sim_1]
-set_property top_lib xil_defaultlib [get_filesets sim_1]
 update_compile_order -fileset sim_1
 
 puts "Launching drive RAM simulation (top=tb_iecdrv_mem)..."
-if {[llength [get_runs -quiet sim_1]] > 0} {
-    catch {reset_simulation -simset sim_1 -force}
-}
-launch_simulation -simset sim_1
+sim_launch tb_iecdrv_mem
 
 # xsim writes everything the testbench prints to simulate.log in the run directory.
 # "run" itself returns nothing, so the gate has to read that file rather than its result.

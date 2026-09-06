@@ -18,6 +18,8 @@ set core_dir [file normalize [file join [file dirname [info script]] ..]]
 set repo_dir [file normalize [file join $core_dir ..]]
 set tb_file  [file join $core_dir sim tb_vdrive_mount.vhd]
 
+source [file join [file dirname [info script]] sim_launch.tcl]
+
 open_project $project_file
 update_compile_order -fileset sources_1
 
@@ -38,15 +40,10 @@ set_property file_type {VHDL 2008} [get_files $tb_file]
 # logging every signal dominates the run time.
 set_property -name {xsim.elaborate.debug_level} -value {off} -objects [get_filesets sim_1]
 
-set_property top tb_vdrive_mount [get_filesets sim_1]
-set_property top_lib xil_defaultlib [get_filesets sim_1]
 update_compile_order -fileset sim_1
 
 puts "Launching disk-image mount simulation (top=tb_vdrive_mount)..."
-if {[llength [get_runs -quiet sim_1]] > 0} {
-    catch {reset_simulation -simset sim_1 -force}
-}
-launch_simulation -simset sim_1
+sim_launch tb_vdrive_mount
 
 set sim_dir [file join \
     [file dirname [file normalize $project_file]] \

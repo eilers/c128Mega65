@@ -156,8 +156,6 @@ WRN_EMPTY_BRW   .ASCII_P "The root directory of the SD card contains\n"
                 .ASCII_W "Press Space to continue."
 
 WRN_ERROR_CODE  .ASCII_W "Error code: "
-WRN_HR_READBACK .ASCII_P "HyperRAM mount readback failed at T40.\n"
-                .ASCII_P "Expected header track byte $28, got: "
 
 ; ----------------------------------------------------------------------------
 ; Error Messages
