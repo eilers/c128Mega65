@@ -82,12 +82,18 @@ iecdrv_sync fclk_sync(clk, iec_fclk_i, iec_fclk);
 wire [N:0] reset_drv;
 iecdrv_sync #(NDR) rst_sync(clk, reset, reset_drv);
 
-reg [1:0] ph2_r;
-reg [1:0] ph2_f;
-reg       wd_ce;
+// MEGA65 port: div, ena and ena1 used to be declared inside the always block below.
+// Vivado synthesis gives such a declaration static lifetime and infers registers, but
+// xsim re-initialises it on every invocation, so div never counts and ph2_r/ph2_f
+// never pulse: the drive CPU gets no clock enable and the drive stays in reset for
+// the whole simulation. Same trap as rom_bank_n in iecdrv_rom.sv. Hoisting them to
+// module scope makes both agree and costs nothing in hardware.
+reg [1:0] ph2_r = 0;
+reg [1:0] ph2_f = 0;
+reg       wd_ce = 0;
+reg [3:0] div   = 0;
+reg       ena   = 0, ena1 = 0;
 always @(posedge clk) begin
-	reg [3:0] div;
-	reg       ena, ena1;
 
 	ena1 <= ~pause;
 	if(div[2:0]) ena <= ena1;

@@ -110,26 +110,36 @@ T65 cpu
 );
 
 wire [7:0] ram_do;
-iecdrv_mem #(8,13) ram
+iecdrv_mem #(.DATAWIDTH(8), .ADDRWIDTH(13), .WRITE_B(0)) ram
 (
    .clock_a(clk),
    .address_a(cpu_a[12:0]),
    .data_a(cpu_do),
    .wren_a(ph2_f & ~cpu_rw & ram_cs),
 
+   // MEGA65 port: port B only ever reads. Leaving wren_b/data_b unconnected makes Vivado
+   // infer a true dual-port RAM whose two write ports share one address, reported as
+   // [Synth 8-5796], with undefined collision behaviour. Tie them off.
    .clock_b(clk),
    .address_b(cpu_a[12:0]),
+   .data_b(8'h00),
+   .wren_b(1'b0),
    .q_b(ram_do)
 );
 
 wire [7:0] cia_do;
-wire       cia_irq_n;
 
 assign     act_led    =  pa_out[6];
 assign     pwr_led    =  pa_out[5];
 wire       motor_n    =  pa_out[2];
 wire       side       =  pa_out[0];
-wire [7:0] pa_in      = {disk_chng_n, 2'b11, drive_num, 1'b1, ~floppy_ready, 1'b1};
+// MEGA65: CIA PA1 is /RDY. Feeding mechanical "at speed" (floppy_ready)
+// made the 1581 DOS see not-ready while the motor was off, so it never
+// started the motor (LED cyan, LOAD 74). MAME leaves this bit disconnected
+// for the same reason ("drive not ready if ready_r() is connected to CIA").
+// Report ready whenever the FDC has latched a disk; spin-up still gates
+// the FDC header path via floppy_ready.
+wire [7:0] pa_in      = {disk_chng_n, 2'b11, drive_num, 1'b1, ~disk_present, 1'b1};
 
 wire       fast_dir   =  pb_out[5];
 assign     iec_clk_o  = ~pb_out[3];
@@ -240,6 +250,7 @@ wire       floppy_step;
 wire [7:0] wd_do;
 
 wire floppy_ready;
+wire disk_present;
 
 c1581_fdc1772 #(.IMG_TYPE(1), .EXT_MOTOR(1), .FD_NUM(1)) fdc
 (
@@ -275,9 +286,9 @@ c1581_fdc1772 #(.IMG_TYPE(1), .EXT_MOTOR(1), .FD_NUM(1)) fdc
    .out_track(track_fdc),
    .out_we(out_we),
 
+   .disk_present(disk_present)
 );
 
-wire [7:0] track_fdc;
 assign out_track = {track_fdc[6:0], 1'b0};
 
 endmodule

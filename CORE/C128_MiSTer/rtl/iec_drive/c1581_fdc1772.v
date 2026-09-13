@@ -60,6 +60,9 @@ module c1581_fdc1772 (
 	output     [7:0] out_track,
 	output           out_we,
 
+	// MEGA65 port: disk_present is also the CIA /RDY sense (a disk is inserted).
+	output           disk_present
+	);
 
 parameter CLK_EN           = 16'd8000; // in kHz
 parameter FD_NUM           = 2;    // number of supported floppies
@@ -335,7 +338,6 @@ wire       fd_sector_hdr  = fd_any ? fdn_sector_hdr[fdn]  : 1'b0;
 //wire     fd_sector_data = fd_any ? fdn_sector_data[fdn] : 1'b0;
 wire       fd_dclk_en     = fd_any ? fdn_dclk[fdn]        : 1'b0;
 wire       fd_present     = fd_any ? fdn_present[fdn]     : 1'b0;
-wire       fd_spinning    = fd_any ? fdn_spinning[fdn]    : 1'b0;
 wire       fd_writeprot   = fd_any ? img_wp[fdn]          : 1'b1;
 
 wire       fd_doubleside  = fdn_doubleside[fdn];
@@ -343,6 +345,7 @@ wire [4:0]  fd_spt         = fdn_spt[fdn];
 
 assign floppy_ready = fd_ready && fd_present;
 
+assign disk_present = fd_present;
 
 // -------------------------------------------------------------------------
 // ----------------------- internal state machines -------------------------

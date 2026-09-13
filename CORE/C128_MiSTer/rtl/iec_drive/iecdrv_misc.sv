@@ -54,7 +54,16 @@ endmodule
 
 // -------------------------------------------------------------------------------
 
-module iecdrv_mem #(parameter DATAWIDTH, ADDRWIDTH, INITFILE=" ")
+// MEGA65 port: WRITE_B=0 drops the write path on port B. Callers whose two ports share one
+// address must set it. With the write path present Vivado infers a true dual-port RAM with
+// two write ports at the same address, reports [Synth 8-5796], and gives that collision
+// undefined behaviour instead of the read-before-write the simulation models. Tying wren_b
+// off at the instance is not enough: the RAM template is chosen before the constant folds.
+//
+// USE_B=0 omits port B entirely. That is required when the second port is unused: tying
+// address_b to the CPU address makes every work-RAM write a same-address read+write, which
+// is how the 1571 D71 side flags ($01AF/$02AC) were lost after the debug port was removed.
+module iecdrv_mem #(parameter DATAWIDTH, ADDRWIDTH, INITFILE=" ", WRITE_B=1, USE_B=1)
 (
 	input	                     clock_a,
 	input	     [ADDRWIDTH-1:0] address_a,
@@ -85,14 +94,24 @@ always @(posedge clock_a) begin
 	end
 end
 
-always @(posedge clock_b) begin
-	if(wren_b) begin
-		ram[address_b] <= data_b;
-		q_b <= data_b;
-	end else begin
-		q_b <= ram[address_b];
+generate
+	if (!USE_B) begin :port_b_unused
+		always @(*) q_b = {DATAWIDTH{1'b0}};
 	end
-end
+	else if (WRITE_B) begin :port_b_rw
+		always @(posedge clock_b) begin
+			if(wren_b) begin
+				ram[address_b] <= data_b;
+				q_b <= data_b;
+			end else begin
+				q_b <= ram[address_b];
+			end
+		end
+	end
+	else begin :port_b_ro
+		always @(posedge clock_b) q_b <= ram[address_b];
+	end
+endgenerate
 
 endmodule
 

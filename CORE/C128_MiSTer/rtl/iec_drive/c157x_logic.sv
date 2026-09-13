@@ -59,11 +59,20 @@ module c157x_logic #(DRIVE)
 	input        drive_enable,  // sd busy
 	input        disk_present,
 
-	input        img_mfm        // mfm supported by disk image
+	input        img_mfm,       // mfm supported by disk image
+
+	// Linear D64/D71 sector-image GCR path. This bypasses the raw-track 64H156
+	// input while preserving the original VIA and DOS behavior.
+	input        sector_gcr_enable,
+	input  [7:0] sector_gcr_dout,
+	input        sector_gcr_sync_n,
+	input        sector_gcr_byte_n,
+	output [7:0] sector_gcr_din
 );
 
 // clock control
-reg [2:0] accl;
+// MEGA65 port: 0 on the FPGA, X in xsim without this, and an X in accl blocks ena_f.
+reg [2:0] accl = 0;
 always @(posedge clk)
 begin
 	if (~|drv_mode)
@@ -92,7 +101,7 @@ wire rom_cs    = cpu_a[15];
 wire  [7:0] cpu_di =
 	!cpu_rw    ? cpu_do :
 	 ram_cs    ? ram_do :
-	 via1_cs   ? via1_do :
+	 via1_cs   ? via1_cpu_do :
 	 via2_cs   ? via2_do :
 	 wd_cs     ? wd_do :
 	 cia_cs    ? cia_do :
@@ -112,8 +121,10 @@ wire        cpu_irq_n = ~(via1_irq | via2_irq) & cia_irq_n;
 // read head delivers to VIA2 port A, so truncating it to one bit meant the 1541/1571
 // could never read anything off a disk.
 wire [7:0] gcr_do;
-wire       sync_n, byte_n, dgcr_we;
+wire       sync_n, byte_n, byte_n_poll, dgcr_we;
 wire       gcr_ht, gcr_hinit;
+wire [7:0] h156_do;
+wire       h156_sync_n, h156_byte_n;
 
 T65 cpu
 (
@@ -137,31 +148,44 @@ T65 cpu
 wire extram_cs = ext_en && (cpu_a[15:13] == 'b100);
 
 wire [7:0] extram_do;
-iecdrv_mem #(8,13) extram
+iecdrv_mem #(.DATAWIDTH(8), .ADDRWIDTH(13), .WRITE_B(0)) extram
 (
 	.clock_a(clk),
 	.address_a(cpu_a[12:0]),
 	.data_a(cpu_do),
 	.wren_a(ena_r & ~cpu_rw & extram_cs),
 
+	// MEGA65 port: port B only ever reads. Leaving wren_b/data_b unconnected makes Vivado
+	// infer a true dual-port RAM whose two write ports share one address, which it reports
+	// as [Synth 8-5796] and whose collision behaviour is undefined. Tying them off keeps
+	// the inferred RAM a simple dual-port and matches the simulation exactly.
 	.clock_b(clk),
 	.address_b(cpu_a[12:0]),
+	.data_b(8'h00),
+	.wren_b(1'b0),
 	.q_b(extram_do)
 );
 
 // system 2k RAM at $0000-$07FF
 
 wire [7:0] ram_do;
-iecdrv_mem #(8,11) ram
+iecdrv_mem #(.DATAWIDTH(8), .ADDRWIDTH(11), .WRITE_B(0), .USE_B(0)) ram
 (
 	.clock_a(clk),
 	.address_a(cpu_a[10:0]),
 	.data_a(cpu_do),
 	.wren_a(ena_r & ~cpu_rw & ram_cs),
+	.q_a(ram_do),
 
-	.clock_b(clk),
-	.address_b(cpu_a[10:0]),
-	.q_b(ram_do)
+	// Port B used to be the QNICE peek path. After that was removed it was
+	// retied to clk/cpu_a, so every DOS write collided with a same-address
+	// port-B read and Vivado left the 1571 side flags undefined. Leave the
+	// port disconnected; USE_B=0 drops the second process entirely.
+	.clock_b(1'b0),
+	.address_b(11'd0),
+	.data_b(8'h00),
+	.wren_b(1'b0),
+	.q_b()
 );
 
 // 8 bytes scratch RAM at $4010-$4017 (1571CR only)
@@ -182,6 +206,7 @@ iecdrv_mem #(8,11) ram
 // VIA1 1571-U9 (6522) signals
 
 wire [7:0] via1_do;
+wire [7:0] via1_cpu_do;
 wire       via1_irq;
 wire [7:0] via1_pa_o;
 wire [7:0] via1_pa_oe;
@@ -189,14 +214,57 @@ wire       via1_ca2_o;
 wire       via1_ca2_oe;
 wire [7:0] via1_pb_o;
 wire [7:0] via1_pb_oe;
+// PA7 is BYTE READY as a level the 1571 DOS polls, not as an edge; byte_n_poll is the
+// stretched version built further down. In 1541 mode drv_mode is zero and this bit is
+// forced high, so the stretch is invisible there.
+wire [7:0] via1_pa_i = (ext_en & ~|drv_mode ? par_data_in :
+                        {byte_n_poll | ~|drv_mode, 6'h3F, ~tr00_sense})
+                       & (via1_pa_o | ~via1_pa_oe);
+wire [7:0] via1_pb_i = {~iec_atn_in, 2'(DRIVE), 2'b11, ~iec_clk_in, 1'b1, ~iec_data_in}
+                       & (via1_pb_o | ~via1_pb_oe);
 wire       via1_cb1_o;
 wire       via1_cb1_oe;
 wire       via1_cb2_o;
 wire       via1_cb2_oe;
 
+// XSim clears IFR bit 6 on a T1-high write as the 6522 specifies, but the Vivado
+// implementation can retain a previously set bit: iecdrv_via6522 assigns both the
+// complete irq_flags vector and its aliased timer_a_flag bit in one clocked process.
+// Keep that proven, vendored VIA untouched and suppress only the stale polled value
+// for the interval just loaded into T1. The real flag becomes visible again when the
+// programmed one-shot expires, so a genuine EOI timeout still reaches $E9F2.
+// Masking is confined to bit 6 of the polled value: the DOS enables only CA1 in the
+// IER, so T1 never feeds irq_out and bit 7 still comes straight from the VIA.
+wire       via1_t1h_wr = ena_f & ~cpu_rw & via1_cs & (cpu_a[3:0] == 4'h5);
+wire       via1_t1l_wr = ena_f & ~cpu_rw & via1_cs &
+                         ((cpu_a[3:0] == 4'h4) | (cpu_a[3:0] == 4'h6));
+reg  [7:0] via1_t1_latch_low = 0;
+reg [16:0] via1_t1_guard = 0;
+
+always @(posedge clk) begin
+	if (reset) begin
+		via1_t1_latch_low <= 0;
+		via1_t1_guard     <= 0;
+	end
+	else begin
+		if (via1_t1l_wr) via1_t1_latch_low <= cpu_do;
+		if (via1_t1h_wr)
+			via1_t1_guard <= {1'b0, cpu_do, via1_t1_latch_low} + 1'd1;
+		else if (ena_f && |via1_t1_guard)
+			via1_t1_guard <= via1_t1_guard - 1'd1;
+	end
+end
+
+assign via1_cpu_do = (cpu_rw && cpu_a[3:0] == 4'hD && |via1_t1_guard)
+                   ? (via1_do & 8'hBF) : via1_do;
+
 wire       fser_dir     = (via1_pa_o[1] | ~via1_pa_oe[1]) & |drv_mode;
 assign     side         = (via1_pa_o[2] | ~via1_pa_oe[2]) &  drv_mode[1];
-wire       accl_ctl     = (via1_pa_o[5] | ~via1_pa_oe[5]) & |drv_mode;
+wire       soe;
+wire       via_accl_ctl = (via1_pa_o[5] | ~via1_pa_oe[5]) & |drv_mode;
+// Match the original 1571: VIA1 PA5 is the sole 1/2 MHz selector. The DOS keeps
+// it low in 1541 compatibility mode and raises it in native 1571 mode.
+wire       accl_ctl     = via_accl_ctl;
 
 assign     iec_data_out = ~(via1_pb_o[1] | ~via1_pb_oe[1]) & ~((via1_pb_o[4] | ~via1_pb_oe[4]) ^ ~iec_atn_in) & (~fser_dir | cia_sp_out);
 assign     iec_clk_out  = ~(via1_pb_o[3] | ~via1_pb_oe[3]);
@@ -219,11 +287,11 @@ iecdrv_via6522 via1
 
 	.port_a_o(via1_pa_o),
 	.port_a_t(via1_pa_oe),                     
-	.port_a_i(ext_en & ~|drv_mode ? par_data_in : {byte_n | ~|drv_mode, 6'h3F, ~tr00_sense} & (via1_pa_o | ~via1_pa_oe)),
+	.port_a_i(via1_pa_i),
 
 	.port_b_o(via1_pb_o),
 	.port_b_t(via1_pb_oe),
-	.port_b_i({~iec_atn_in, 2'(DRIVE), 2'b11, ~iec_clk_in, 1'b1, ~iec_data_in} & (via1_pb_o | ~via1_pb_oe)),
+	.port_b_i(via1_pb_i),
 
 	.ca1_i(~iec_atn_in),
 
@@ -258,8 +326,62 @@ wire       via2_cb2_o;
 wire       via2_cb2_oe;
 
 wire       ted    = via2_cs    | ~accl[2];
-wire       soe    = via2_ca2_o | ~via2_ca2_oe;
+assign     soe    = via2_ca2_o | ~via2_ca2_oe;
 wire [7:0] gcr_di = via2_pa_o  | ~via2_pa_oe;
+assign sector_gcr_din = gcr_di;
+assign gcr_do = sector_gcr_enable ? sector_gcr_dout : h156_do;
+assign sync_n = sector_gcr_enable ? sector_gcr_sync_n : h156_sync_n;
+// c157x_h156 applies SOE internally, the sector-image GCR module does not. Without this
+// gate the CPU sees byte-ready pulses while DOS has byte-ready disabled, exactly as in
+// c1541_logic.sv of the reference 1541, where cpu_so_n = byte_n | ~soe.
+wire sector_byte_n_raw = sector_gcr_byte_n | ~soe;
+
+// BYTE READY has two consumers with opposite requirements, and one signal cannot serve
+// both. The CPU's SO pin is edge-triggered: the disk controller's write loops at $F58E,
+// $F5AB and $F5C1 clear V and wait for one falling edge per byte, and none of them
+// touches VIA2 in between, so anything that stretches the line costs them edges. VIA1
+// PA7 is the opposite: the 1571 DOS polls it with the seven-cycle loop at $9456, which
+// at 2 MHz only samples every 3.5 us and steps straight over the bare pulse c1541_gcr
+// emits.
+//
+// So drive them separately. The SO pin and VIA2 CA1 keep the raw pulse, exactly as the
+// 1541 has always seen it, which leaves every write loop untouched at either clock. Only
+// the polled level is stretched, and only where it is read: in 1541 mode drv_mode is zero
+// and PA7 reads back as a constant 1 regardless.
+//
+// Stretch for the polled level: hold for a quarter of the measured byte cell, which is
+// 6.5 to 8 us depending on density zone. That is comfortably longer than the 3.5 us poll
+// period, so the loop cannot miss it, and it still releases well inside the cell. A byte
+// cell is roughly 850 clk cycles at the C128 main clock, so twelve bits hold one with
+// room to spare; the counter saturates rather than wraps, capping the stretch at about
+// one cell if the stream stops before the span completes.
+reg [11:0] byte_span = 0;               // clk cycles since the previous byte-ready
+reg  [9:0] byte_hold = 0;               // cycles left to stretch the polled level
+reg        sector_byte_n_raw_r = 1;
+
+always @(posedge clk) begin
+	sector_byte_n_raw_r <= sector_byte_n_raw;
+
+	if (reset) begin
+		byte_span <= 0;
+		byte_hold <= 0;
+	end
+	else if (~sector_byte_n_raw & sector_byte_n_raw_r) begin
+		byte_hold <= byte_span[11:2];
+		byte_span <= 0;
+	end
+	else begin
+		if (~&byte_span) byte_span <= byte_span + 1'b1;
+		// Reading VIA2 means the CPU has taken the byte, so drop the level early,
+		// the same way c157x_h156 does for the MFM path.
+		if (byte_hold) byte_hold <= (ted | ~soe) ? 10'd0 : byte_hold - 1'b1;
+	end
+end
+
+wire sector_byte_n_held = sector_byte_n_raw & ~|byte_hold;
+
+assign byte_n      = sector_gcr_enable ? sector_byte_n_raw  : h156_byte_n;
+assign byte_n_poll = sector_gcr_enable ? sector_byte_n_held : h156_byte_n;
 
 assign     stp    = via2_pb_o[1:0] | ~via2_pb_oe[1:0];
 assign     mtr    = via2_pb_o[2]   | ~via2_pb_oe[2];
@@ -365,7 +487,7 @@ c157x_h156 c157x_h156
 (
 	.clk(clk),
 	.reset(reset),
-	.enable(drive_enable),
+	.enable(drive_enable & ~sector_gcr_enable),
 	.mhz1_2(accl[1]),
 	
 	.hinit(gcr_hinit),
@@ -376,10 +498,10 @@ c157x_h156 c157x_h156
 	.mode(mode),
 	.soe(soe),
 	.ted(ted),
-	.sync_n(sync_n),
-	.byte_n(byte_n),
+	.sync_n(h156_sync_n),
+	.byte_n(h156_byte_n),
 
-	.dout(gcr_do),
+	.dout(h156_do),
 	.din(gcr_di)
 );
 
