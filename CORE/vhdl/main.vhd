@@ -352,6 +352,9 @@ signal iec_img_readonly : std_logic;
 signal iec_img_size     : std_logic_vector(31 downto 0);
 signal iec_img_type     : std_logic_vector(1 downto 0);
 signal iec_img_type4    : std_logic_vector(3 downto 0);
+-- vdrives only strobes one shared img_type. Remember it per drive so a D71 on
+-- unit 8 stays a 1571 after unit 9 mounts a D64.
+signal iec_img_type_latched : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);
 
 signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
 signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
@@ -1267,9 +1270,23 @@ end process iec_drive_ce_proc;
 iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
   iec_drives_reset(i) <= (not reset_core_n) or (not vdrives_mounted(i));
 
-  -- One shared menu group picks the 5.25" model for both drives. A mounted .D81 overrides this
-  -- inside iec_drive, which decodes img_hd from img_type and turns that drive into a 1581.
-  iec_drv_mode(i)     <= "00" when osm_control_i(C_MENU_DRV_1541) = '1' else "10";
+  -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
+  -- overrides this inside iec_drive (img_hd). A mounted .D71 must be a 1571:
+  -- 1541 DOS never runs the side-1 probe, so a valid D71 shows 0 BLOCKS FREE.
+  latch_img_type : process (clk_main_i)
+  begin
+    if rising_edge(clk_main_i) then
+      if reset_core_n = '0' then
+        iec_img_type_latched(i) <= "00";
+      elsif iec_img_mounted(i) = '1' then
+        iec_img_type_latched(i) <= iec_img_type;
+      end if;
+    end if;
+  end process latch_img_type;
+
+  iec_drv_mode(i) <= "10" when iec_img_type_latched(i) = "01" else
+                     "00" when osm_control_i(C_MENU_DRV_1541) = '1' else
+                     "10";
 
   vd_sd_lba(i)          <= iec_sd_lba(i);
   vd_sd_blk_cnt(i)      <= iec_sd_blk_cnt(i);

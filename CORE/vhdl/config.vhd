@@ -302,7 +302,7 @@ constant OPTM_ITEMS        : string :=
    " Model: %s\n"           &    -- 5.25" drive model submenu; %s shows the current selection
    " 5.25 inch drive\n"     &
    "\n"                     &
-   " 1541\n"                &
+   " 1541\n"                &    -- ignored while a .D71 is mounted (always 1571)
    " 1571\n"                &
    "\n"                     &
    " Back to main menu\n"   &
@@ -425,7 +425,7 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Expansion Port
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
-                                             OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- Use IEC port
+                                             OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
                                              OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))

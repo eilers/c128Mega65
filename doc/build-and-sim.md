@@ -245,22 +245,11 @@ The first failing gate stops the suite. `build_release.sh` asks whether to run
 this suite before synthesizing any board; a failure aborts the core build.
 `RUN_TESTBENCHES=y` or `RUN_TESTBENCHES=n` answers that prompt non-interactively.
 
-One testbench is deliberately left out: `CORE/sim/tb_c1581_iec.sv` was a control
-experiment for `tb_c157x_boot` and still drives the early serial bus model, so its
-verdict describes that model rather than the drive. Run it by hand if you pick that
-experiment up again.
-
 Every runner script goes through `CORE/scripts/sim_launch.tcl` instead of calling
 `launch_simulation` itself. It verifies that the requested top actually took effect,
 because Vivado silently falls back to the synthesis top when it cannot parse a
 testbench, and it retries once against a wiped `*.sim` directory, because xvhdl
 compiles incrementally and leaves units stale when a VHDL package changes.
-
-The narrower virtual-drive subset remains:
-
-```bash
-CORE/scripts/run_drive_sims.sh
-```
 
 | Simulation | Testbench | Covers |
 |------------|-----------|--------|
@@ -293,7 +282,7 @@ The last check is what "the C128 sees a device" means. Reaching it takes about
 0.6 ms of drive time, because the DOS runs a 256x256 zero-page test at `$EAB2`
 before it ever looks at the serial bus — the same reason a real 1541 needs a
 second or two after power-on. The gate therefore runs for seconds of simulated
-time and takes roughly 20 minutes; `run_drive_sims.sh` keeps it last.
+time and takes roughly 20 minutes; `run_all_sims.sh` keeps it last.
 
 `run_c157x_boot_sim.tcl` regenerates `CORE/sim/sim_boot1_path_pkg.sv` with the
 absolute path to `boot1.rom` for the current checkout — do not edit it by hand.

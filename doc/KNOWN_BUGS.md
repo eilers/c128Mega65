@@ -2,7 +2,8 @@
 * Sound
 * Mega65 Keyboard
 * Joystick Port
-* IEC (Serial) bus (inclusive Burst Mode)
+* IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
+  defaults to on; turn it off to isolate the physical DIN from the virtual drives.
 * Virtual drives: device 8 and 9, mountable from `/c128` on the SD card. Standard linear
   `.D64`, `.D71`, and `.D81` images have FPGA-side sector paths. The menu picks 1541 or
   1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless
@@ -170,6 +171,17 @@
   and coexistence with a real IEC drive are still unverified. Deterministic images
   and the remaining checklist are under `test/157x-rw/`. Do not interpret this as
   support for `.G64`, `.G71`, or 1571 MFM/CP-M images.
+
+# Planned
+* D71 `disk_present` vs `ch_timeout`: `c157x_drv.sv` raises `disk_present` when
+  `ch_timeout[24:23] = 00` so the 1571 side-1 probe does not run while GCR is still
+  forced busy. Dual-head track cache may already make that unnecessary. Confirm on
+  hardware (mount D71, `U0>M1`, `LOAD"$"` immediately) before deleting the special case.
+* VIA T1 IFR on `iecdrv_via6522`: native 1541/1571 serial currently masks a stale
+  timer-1 flag in `c157x_logic.sv` (`via1_t1_guard`) because the vendored 6522 can
+  keep IFR bit 6 set after a T1 load under Vivado. That bandage should move into
+  the VIA itself so DOS reads the real flag. Do not remove the mask until a VIA
+  unit test and a hardware 1541 EOI/LOAD"$" pass replace it.
 
 # Missing Features
 * Video:

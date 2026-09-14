@@ -47,13 +47,6 @@ run_tcl "D81 mount / 1581 selection (tb_vdrive_mount)" CORE/scripts/run_vdrive_m
 run_tcl "157x GCR stream (tb_c157x_stream)" CORE/scripts/run_c157x_stream_sim.tcl
 run_tcl "157x DOS job queue (tb_c157x_job)" CORE/scripts/run_c157x_job_sim.tcl
 
-# tb_c1581_iec is deliberately not run here. It was written as a control experiment
-# for tb_c157x_boot, back when neither drive answered a command byte, and it still
-# carries that early serial bus model. tb_c157x_boot has since grown a far more
-# complete one, so tb_c1581_iec now reports a failure that says something about its
-# own model rather than about the drive: the 1581 works on hardware and its sector
-# path is covered by tb_c1581_ready. Run it by hand when reviving that experiment.
-
 # Long-running bring-up gates last.
 run_step "C128 boot path (tb_c128_boot)" CORE/scripts/run_boot_sim.sh "$PROJECT"
 run_tcl "1541/1571 bring-up on D64 (tb_c157x_boot)" CORE/scripts/run_c157x_boot_sim.tcl "" d64
