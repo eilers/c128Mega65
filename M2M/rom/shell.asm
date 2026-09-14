@@ -537,6 +537,8 @@ _HM_SDMOUNTED5A RSUB    HANDLE_IO, 1            ; wait for Space to be pressed
                 RBRA    _HM_SDMOUNTED2, 1
 
 _HM_SDMOUNTED6A MOVE    R9, R6                  ; R6: disk image type
+
+_HM_SDMOUNTED6A_OSM
                 RSUB    SCR$OSM_OFF, 1          ; hide the big window
 
                 ; Step #5: Notify MiSTer using the "SD" protocol, if we
@@ -561,6 +563,7 @@ _HM_SDMOUNTED6A MOVE    R9, R6                  ; R6: disk image type
                 MOVE    R7, R8
                 SYSCALL(puthex, 1)
                 SYSCALL(crlf, 1)
+
                 RBRA    _HM_SDMOUNTED7, 1
 
                 ; We successfully loaded a manually loadable CRT/ROM and need
@@ -722,6 +725,8 @@ _LI_FOPEN_OK    MOVE    R5, R8
                 RSUB    PREP_LOAD_IMAGE, 1
                 MOVE    R8, R6                  ; R6: error code=0 (means OK)
                 MOVE    R9, R7                  ; R7: img type or error msg
+                MOVE    LI_IMGTYPE, R8          ; the progress bar code below
+                MOVE    R9, @R8                 ; reuses R7, so park the type
                 CMP     0, R6                   ; everything OK?
                 RBRA    _LI_FREAD_RET, !Z       ; no
 
@@ -874,7 +879,9 @@ _LI_FREAD_EOF   XOR     R6, R6                  ; R6 and R7 are status flags
                 XOR     R7, R7                  ; 0 means all good
                 CMP     0, R4                   ; disk image mode?
                 RBRA    _LI_FREAD_PM, !Z        ; no
-                MOVE    LOG_STR_LOADOK, R8      ; yes
+                MOVE    LI_IMGTYPE, R7          ; yes: hand the image type back,
+                MOVE    @R7, R7                 ; it is what selects the drive
+                MOVE    LOG_STR_LOADOK, R8
                 SYSCALL(puts, 1)
                 RBRA    _LI_FREAD_RET, 1
 
@@ -1044,7 +1051,7 @@ _HDR_SEND_LOOP  CMP     R6, R0                  ; transmission done?
                 MOVE    VD_B_WREN, R8           ; strobe write enable
                 MOVE    1, R9
                 RSUB    VD_CAD_WRITE, 1
-                XOR     0, R9
+                XOR     R9, R9                  ; ...and release it again
                 RSUB    VD_CAD_WRITE, 1
 
                 ADD     1, R6                   ; next byte
@@ -1347,7 +1354,6 @@ _FC_3           MOVE    VDRIVES_ITERSIZ, R8
 _FC_RET         SYSCALL(leave, 1)
                 RET
 
-; ----------------------------------------------------------------------------
 ; Debug mode:
 ; Hold "Run/Stop" + "Cursor Up" and then while holding these, press "Help"
 ; ----------------------------------------------------------------------------
@@ -1357,6 +1363,7 @@ _FC_RET         SYSCALL(leave, 1)
                 ; terminal program. You can return to the Shell by using
                 ; the Monitor C/R command while entering an address shown
                 ; in the terminal.
+                ;
 CHECK_DEBUG     INCRB
                 MOVE    M2M$KEY_UP, R0
                 OR      M2M$KEY_RUNSTOP, R0

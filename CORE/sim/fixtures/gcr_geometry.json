@@ -1,0 +1,14 @@
+{
+  "d64": {
+    "bytes": 174848,
+    "directory_sector_index": 357,
+    "sectors": 683,
+    "tracks": 35
+  },
+  "d71": {
+    "bytes": 349696,
+    "sectors": 1366,
+    "side_two_sector_index": 683,
+    "tracks": 70
+  }
+}

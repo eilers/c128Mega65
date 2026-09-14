@@ -58,23 +58,26 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 -- On-Screen-Menu control bit indices (must match OPTM_ITEMS line order in config.vhd)
 ----------------------------------------------------------------------------------------------------------
 
-constant C_MENU_VIDEO_FOLLOW     : natural := 2;   -- Video Out: Follow 40/80
-constant C_MENU_VIDEO_VIC        : natural := 3;   -- Video Out: VIC
-constant C_MENU_VIDEO_VDC        : natural := 4;   -- Video Out: VDC
-constant C_MENU_HDMI_720p_50     : natural := 9;
-constant C_MENU_HDMI_720p_60     : natural := 10;
-constant C_MENU_HDMI_576p_50     : natural := 11;
-constant C_MENU_HDMI_576p_50_5_4 : natural := 12;
-constant C_MENU_HDMI_640_60      : natural := 13;
-constant C_MENU_HDMI_720_5994    : natural := 14;
-constant C_MENU_HDMI_800_60      : natural := 15;
-constant C_MENU_HDMI_FF          : natural := 17;  -- HDMI: Flicker-free
-constant C_MENU_CRT_EMULATION    : natural := 21;
-constant C_MENU_JAILBARS_OFF     : natural := 25;
-constant C_MENU_JAILBARS_LOW     : natural := 26;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 27;
-constant C_MENU_JAILBARS_HIGH    : natural := 28;
-constant C_MENU_EXP_PORT_HW      : natural := 32;  -- Expansion Port: Use hardware slot
+constant C_MENU_DRV_1541         : natural := 7;   -- 5.25" drive model: 1541
+constant C_MENU_DRV_1571         : natural := 8;   -- 5.25" drive model: 1571
+constant C_MENU_VIDEO_FOLLOW     : natural := 14;  -- Video Out: Follow 40/80
+constant C_MENU_VIDEO_VIC        : natural := 15;  -- Video Out: VIC
+constant C_MENU_VIDEO_VDC        : natural := 16;  -- Video Out: VDC
+constant C_MENU_HDMI_720p_50     : natural := 21;
+constant C_MENU_HDMI_720p_60     : natural := 22;
+constant C_MENU_HDMI_576p_50     : natural := 23;
+constant C_MENU_HDMI_576p_50_5_4 : natural := 24;
+constant C_MENU_HDMI_640_60      : natural := 25;
+constant C_MENU_HDMI_720_5994    : natural := 26;
+constant C_MENU_HDMI_800_60      : natural := 27;
+constant C_MENU_HDMI_FF          : natural := 29;  -- HDMI: Flicker-free
+constant C_MENU_CRT_EMULATION    : natural := 33;
+constant C_MENU_JAILBARS_OFF     : natural := 37;
+constant C_MENU_JAILBARS_LOW     : natural := 38;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 39;
+constant C_MENU_JAILBARS_HIGH    : natural := 40;
+constant C_MENU_EXP_PORT_HW      : natural := 44;  -- Expansion Port: Use hardware slot
+constant C_MENU_IEC              : natural := 45;  -- IEC: Use hardware port
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -135,22 +138,37 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 constant C_DEV_RAM            : std_logic_vector(15 downto 0) := x"0100"; -- RAM
 constant C_DEV_SYSTEM_ROM     : std_logic_vector(15 downto 0) := x"0101"; -- boot0.rom
 constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boot1.rom
+constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
+constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- disk image of drive 8, staged in HyperRAM
+constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- disk image of drive 9, staged in HyperRAM
 
 ----------------------------------------------------------------------------------------------------------
--- HyperRAM memory map (in units of 4kW)
+-- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)
 ----------------------------------------------------------------------------------------------------------
 
-constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- Reserved for the M2M framework
-constant C_HMAP_DEMO          : std_logic_vector(15 downto 0) := x"0200";     -- Start address reserved for core
+-- The disk image buffers live in HyperRAM instead of BRAM because a single D81 is
+-- 819,200 bytes, which is more block RAM than this design has left. 100 windows are
+-- exactly one D81; the guard window after each buffer absorbs a write one byte past
+-- the end of the image.
+--
+-- Placement must stay above the HDMI ascal framebuffer. With VGA_DX x VGA_DY =
+-- 720x540, RAMSIZE rounds up to 2 MiB; triple-buffering (even if currently off in
+-- mega65.vhd) would then occupy 0..6 MiB. C64MEGA65 therefore puts its D81 buffer
+-- at 0x035A (~6.7 MiB). We used to start VD0 at 0x0200 (4 MiB), which sits inside
+-- that triple-buffer window and can be wiped to video black (zeros) after mount —
+-- Empty.d81 only has nonzero bytes at T40 (~offset 399360), so a wiped buffer
+-- looks exactly like "directory cylinder reads as 00 00 00 00".
+-- Layout (8 KiB windows): VD0 0x0300..0x0363, guard, VD1 0x0365..0x03C8, guard.
+constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- Low HyperRAM: ascal framebuffer
+constant C_HMAP_VD0           : std_logic_vector(15 downto 0) := x"0300";     -- Drive 8 disk image: 100 windows
+constant C_HMAP_VD0_GUARD     : std_logic_vector(15 downto 0) := x"0364";
+constant C_HMAP_VD1           : std_logic_vector(15 downto 0) := x"0365";     -- Drive 9 disk image: 100 windows
+constant C_HMAP_VD1_GUARD     : std_logic_vector(15 downto 0) := x"03C9";
+constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System
 ----------------------------------------------------------------------------------------------------------
-
--- example virtual drive handler, which is connected to nothing and only here to demo
--- the file- and directory browsing capabilities of the firmware
-constant C_DEV_DEMO_VD        : std_logic_vector(15 downto 0) := x"0101";
-constant C_DEV_DEMO_NOBUFFER  : std_logic_vector(15 downto 0) := x"AAAA";
 
 -- Virtual drive management system (handled by vdrives.vhd and the firmware)
 -- If you are not using virtual drives, make sure that:
@@ -160,12 +178,11 @@ constant C_DEV_DEMO_NOBUFFER  : std_logic_vector(15 downto 0) := x"AAAA";
 -- Otherwise make sure that you wire C_VD_DEVICE in the qnice_ramrom_devices process and that you
 -- have as many appropriately sized RAM buffers for disk images as you have drives
 type vd_buf_array is array(natural range <>) of std_logic_vector;
-constant C_VDNUM              : natural := 0;                                          -- amount of virtual drives; maximum is 15
-constant C_VD_DEVICE          : std_logic_vector(15 downto 0) := x"EEEE";          -- std_logic_vector(15 downto 0) := C_DEV_DEMO_VD;        -- device number of vdrives.vhd device
-constant C_VD_BUFFER          : vd_buf_array := (x"EEEE", x"EEEE");   -- vd_buf_array := (  C_DEV_DEMO_NOBUFFER,
-                                                                      -- C_DEV_DEMO_NOBUFFER,
-                                                                      -- C_DEV_DEMO_NOBUFFER,
-                                                                      -- x"EEEE");                           -- Always finish the array using x"EEEE"
+constant C_VDNUM              : natural := 2;                                     -- amount of virtual drives; maximum is 15
+constant C_VD_DEVICE          : std_logic_vector(15 downto 0) := C_DEV_VDRIVES;   -- device number of vdrives.vhd device
+constant C_VD_BUFFER          : vd_buf_array := (C_DEV_MOUNT_D8,
+                                                 C_DEV_MOUNT_D9,
+                                                 x"EEEE");                        -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------
 -- System for handling simulated cartridges and ROM loaders

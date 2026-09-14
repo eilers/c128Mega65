@@ -46,6 +46,15 @@ architecture sim of tb_c128_boot is
    signal sysrom_we_a      : std_logic := '0';
 
    signal boot_z80_n       : std_logic;
+   signal iec_hw_enable    : std_logic := '0';
+   signal iec_reset_n      : std_logic;
+   signal iec_atn_n        : std_logic;
+   signal iec_clk_en       : std_logic;
+   signal iec_clk_n        : std_logic;
+   signal iec_data_en      : std_logic;
+   signal iec_data_n       : std_logic;
+   signal iec_srq_en       : std_logic;
+   signal iec_srq_n        : std_logic;
 
    signal rom_mem          : byte_rom_t(0 to C_BOOT0_SIZE - 1) := (others => (others => '0'));
    signal rom_ready        : std_logic := '0';
@@ -105,6 +114,10 @@ begin
          q_b             => sys_rom_data
       );
 
+   -- Built without emulated drives on purpose. This testbench guards the Z80 boot path,
+   -- and two bit-level 1541/1571/1581 models would turn a several-minute run into an
+   -- hours-long one without touching anything the gate actually checks. An unmounted
+   -- drive is held in reset and releases every IEC line, which is what G_VDNUM = 0 does.
    u_dut : entity work.main
       generic map (
          G_BOARD => "MEGA65_R6",
@@ -113,6 +126,17 @@ begin
       port map (
          clk_main_i           => clk_main,
          clk_vdc_i            => clk_main,
+         clk_sd_i             => clk_qnice,
+         qnice_vd_addr_i      => (others => '0'),
+         qnice_vd_data_i      => (others => '0'),
+         qnice_vd_data_o      => open,
+         qnice_vd_ce_i        => '0',
+         qnice_vd_we_i        => '0',
+         drv_rom_loading_i    => '0',
+         drv_rom_req_o        => open,
+         drv_rom_addr_o       => open,
+         drv_rom_data_i       => (others => '0'),
+         drv_rom_wr_i         => '0',
          reset_soft_i         => reset_soft,
          reset_hard_i         => reset_hard,
          pause_i              => pause,
@@ -181,17 +205,18 @@ begin
          cart_data_oe_o       => open,
          cart_d_i             => (others => '1'),
          cart_d_o             => open,
-         iec_reset_n_o        => open,
-         iec_atn_n_o          => open,
-         iec_clk_en_o         => open,
-         iec_clk_n_o          => open,
-         iec_clk_n_i          => '1',
-         iec_data_en_o        => open,
-         iec_data_n_o         => open,
-         iec_data_n_i         => '1',
-         iec_srq_en_o         => open,
-         iec_srq_n_o          => open,
-         iec_srq_n_i          => '1',
+         iec_hardware_port_en_i => iec_hw_enable,
+         iec_reset_n_o        => iec_reset_n,
+         iec_atn_n_o          => iec_atn_n,
+         iec_clk_en_o         => iec_clk_en,
+         iec_clk_n_o          => iec_clk_n,
+         iec_clk_n_i          => '0',
+         iec_data_en_o        => iec_data_en,
+         iec_data_n_o         => iec_data_n,
+         iec_data_n_i         => '0',
+         iec_srq_en_o         => iec_srq_en,
+         iec_srq_n_o          => iec_srq_n,
+         iec_srq_n_i          => '0',
          kb_key_num_i         => 0,
          kb_key_pressed_n_i   => '1',
          joy_1_up_n_i         => '1',
@@ -209,6 +234,27 @@ begin
          pot2_x_i             => (others => '0'),
          pot2_y_i             => (others => '0')
       );
+
+   -- Match C64MEGA65's "IEC: Use hardware port" contract. Disabled outputs must
+   -- be harmless even if an attached device holds every sensed bus line low.
+   check_iec_port : process
+   begin
+      wait for 1 us;
+      assert iec_reset_n = '1' and iec_atn_n = '1'
+         report "FAIL: disabled hardware IEC drives RESET or ATN" severity failure;
+      assert iec_clk_en = '0' and iec_data_en = '0' and iec_srq_en = '0'
+         report "FAIL: disabled hardware IEC enables an output driver" severity failure;
+      assert iec_clk_n = '1' and iec_data_n = '1' and iec_srq_n = '1'
+         report "FAIL: disabled hardware IEC output levels are not inactive" severity failure;
+
+      iec_hw_enable <= '1';
+      wait for 1 ns;
+      assert iec_reset_n = '0' and iec_clk_n = '0' and
+             iec_data_n = '0' and iec_srq_n = '0'
+         report "FAIL: enabled hardware IEC is not connected during reset" severity failure;
+      iec_hw_enable <= '0';
+      wait;
+   end process check_iec_port;
 
    rom_load_proc : process
       variable loaded : byte_rom_t(0 to C_BOOT0_SIZE - 1);

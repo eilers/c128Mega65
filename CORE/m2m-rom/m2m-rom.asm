@@ -77,10 +77,37 @@ SUBMENU_SUMMARY XOR     R8, R8                  ; R8 = 0 = no custom string
 ; Input:
 ;   R8: Name of the file in capital letters
 ;   R9: 0=file, 1=directory
-;  R10: @TODO: Future release: Context (see CTX_* in sysdef.asm)
+;  R10: Context (CTX_* constants in sysdef.asm)
+;  R11: Menu group id (see config.vhd) of the menu item that is responsible
+;       for triggering FILTER_FILES
 ; Output:
 ;   R8: 0=do not filter file, i.e. show file
-FILTER_FILES    XOR     R8, R8                  ; R8 = 0 = do not filter file
+FILTER_FILES    INCRB
+                MOVE    R9, R0                  ; R0: remember the directory flag
+
+                CMP     1, R9                   ; directories are always shown
+                RBRA    _FFILES_SHOW, Z
+
+                ; Mounting a disk image is the only context this core browses for, but be
+                ; explicit about it so that adding a second context later cannot silently
+                ; inherit the disk-image extension list.
+                CMP     CTX_MOUNT_DISKIMG, R10
+                RBRA    _FFILES_SHOW, !Z
+
+                MOVE    DISKIMG_EXT, R1         ; R1: 0-terminated table of ext. pointers
+_FFILES_EXT     MOVE    @R1++, R9               ; R9: next extension (0 = end of table)
+                RBRA    _FFILES_HIDE, Z         ; end of table: no extension matched
+                RSUB    M2M$CHK_EXT, 1          ; leaves R8/R9/R10 and our R1 alone
+                RBRA    _FFILES_SHOW, C         ; extension matched
+                RBRA    _FFILES_EXT, 1          ; try the next extension
+
+_FFILES_HIDE    MOVE    1, R8                   ; filter the file
+                RBRA    _FFILES_RET, 1
+
+_FFILES_SHOW    XOR     R8, R8                  ; do not filter the file
+
+_FFILES_RET     MOVE    R0, R9
+                DECRB
                 RET
 
 ; PREP_LOAD_IMAGE callback function:
@@ -94,12 +121,52 @@ FILTER_FILES    XOR     R8, R8                  ; R8 = 0 = do not filter file
 ;
 ; Input:
 ;   R8: File handle: You are allowed to modify the read pointer of the handle
-;   R9: @TODO: Future release: Context (see CTX_* in sysdef.asm)
+;   R9: Context (CTX_* constants in sysdef.asm)
+;  R10: Menu group id (see config.vhd) of the menu item that is responsible
+;       for triggering PREP_LOAD_IMAGE
 ; Output:
 ;   R8: 0=OK, error code otherwise
 ;   R9: image type if R8=0, otherwise 0 or optional ptr to  error msg string
-PREP_LOAD_IMAGE XOR     R8, R8                  ; no errors
-                XOR     R9, R9                  ; image type hardcoded to 0
+;
+; D64/D71/D81 are raw sector dumps without a header, so the file size is the only thing
+; that identifies them -- and it has to identify them, because the image type decides
+; whether iec_drive turns that drive into a 1541/1571 or into a 1581. The read pointer
+; therefore stays at 0: the whole file is payload.
+PREP_LOAD_IMAGE INCRB
+
+                CMP     CTX_MOUNT_DISKIMG, R9   ; other contexts pass through unchecked
+                RBRA    _PREP_LI_OTHER, !Z
+
+                MOVE    R8, R0
+                MOVE    R8, R1
+                ADD     FAT32$FDH_SIZE_LO, R0
+                MOVE    @R0, R0                 ; R0: low word of the file size
+                ADD     FAT32$FDH_SIZE_HI, R1
+                MOVE    @R1, R1                 ; R1: high word of the file size
+
+                MOVE    IMGSIZE_TBL, R2         ; R2: table of (lo, hi, image type)
+_PREP_LI_CMP    MOVE    @R2++, R3               ; R3: expected low word
+                MOVE    @R2++, R4               ; R4: expected high word
+                MOVE    @R2++, R5               ; R5: image type for this size
+                CMP     IMGSIZE_END, R3         ; end of table reached?
+                RBRA    _PREP_LI_WRONG, Z       ; yes: no size matched
+                CMP     R3, R0
+                RBRA    _PREP_LI_CMP, !Z        ; low word differs: next entry
+                CMP     R4, R1
+                RBRA    _PREP_LI_CMP, !Z        ; high word differs: next entry
+
+                XOR     R8, R8                  ; no errors
+                MOVE    R5, R9                  ; R9: image type
+                RBRA    _PREP_LI_RET, 1
+
+_PREP_LI_WRONG  MOVE    1, R8                   ; R8: error code
+                MOVE    WRN_WRONG_IMG, R9       ; R9: error message
+                RBRA    _PREP_LI_RET, 1
+
+_PREP_LI_OTHER  XOR     R8, R8                  ; no errors
+                XOR     R9, R9                  ; image type 0
+
+_PREP_LI_RET    DECRB
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -176,14 +243,68 @@ OSM_SEL_PRE     INCRB
 ; Output:
 ;   R8: 0=no custom message available, otherwise pointer to string
 
-CUSTOM_MSG      XOR     R8, R8
-                RET              
+CUSTOM_MSG      INCRB
+                MOVE    R8, R0
+                XOR     R8, R8                  ; no custom message
+
+                CMP     CMSG_BROWSENOTHING, R0  ; "the folder has nothing to show"?
+                RBRA    _CUSTOM_MSG_RET, !Z
+                CMP     CTX_MOUNT_DISKIMG, R9   ; while browsing for a disk image?
+                RBRA    _CUSTOM_MSG_RET, !Z
+                MOVE    WRN_NO_DISKIMG, R8      ; yes: name the formats we accept
+
+_CUSTOM_MSG_RET DECRB
+                RET
 
 ; ----------------------------------------------------------------------------
 ; Core specific constants and strings
 ; ----------------------------------------------------------------------------
 
-; Add your core specific constants and strings here
+; Disk image file extensions offered by the file browser. The list is
+; 0-terminated, and the strings are compared against an upper-cased filename.
+IMGEXT_D64      .ASCII_W ".D64"
+IMGEXT_D71      .ASCII_W ".D71"
+IMGEXT_D81      .ASCII_W ".D81"
+DISKIMG_EXT     .DW      IMGEXT_D64, IMGEXT_D71, IMGEXT_D81, 0
+
+; Image types as expected by the 2-bit img_type of vdrives.vhd, which main.vhd expands
+; into the {img_hd, img_mfm, img_gcr, img_ds} vector of iec_drive. Raw GCR images (G64,
+; G71) would need a fourth value and are therefore not supported.
+IMGTYPE_D64     .EQU    0x0000                  ; 1541: single sided GCR
+IMGTYPE_D71     .EQU    0x0001                  ; 1571: double sided GCR
+IMGTYPE_D81     .EQU    0x0002                  ; 1581: MFM, 3.5 inch
+
+; Accepted image sizes as (low word, high word, image type) triples. Only exact standard
+; sizes are accepted: an error-info variant or a truncated image would hand the drive a
+; wrong track count, and a too-large one would run past its 819,200 byte HyperRAM buffer.
+;   D64, 35 tracks: 174,848 = 0x0002AB00      D71, 70 tracks: 349,696 = 0x00055600
+;   D64, 40 tracks: 196,608 = 0x00030000      D81, 80 tracks: 819,200 = 0x000C8000
+IMGSIZE_END     .EQU    0xFFFF                  ; end-of-table marker (no real size has it)
+IMGSIZE_TBL     .DW     0xAB00, 0x0002, IMGTYPE_D64
+                .DW     0x0000, 0x0003, IMGTYPE_D64
+                .DW     0x5600, 0x0005, IMGTYPE_D71
+                .DW     0x8000, 0x000C, IMGTYPE_D81
+                .DW     IMGSIZE_END, IMGSIZE_END, 0
+
+; Warning: the selected file is not an exact-size standard disk image
+WRN_WRONG_IMG   .ASCII_P "\n\nThis is not a supported disk image. Sizes\n"
+                .ASCII_P "must be exact: D64 174848 (35 tracks) or\n"
+                .ASCII_P "196608 (40 tracks), D71 349696, D81 819200.\n"
+                .ASCII_W "\nPress SPACE to continue.\n"
+
+; Warning: the folder the user browsed into holds no mountable disk image
+WRN_NO_DISKIMG  .ASCII_P "This core uses D64, D71 and D81 disk\n"
+                .ASCII_P "images.\n\n"
+                .ASCII_P "Please copy at least one D64, D71 or D81\n"
+                .ASCII_P "file to any sub-directory or to the root\n"
+                .ASCII_P "directory of this SD card.\n\n"
+                .ASCII_P "If you use a folder called /c128, then\n"
+                .ASCII_P "the file browser will always start there.\n\n"
+                .ASCII_P "You can use long file names and you can\n"
+                .ASCII_P "also use nested sub-directories to nicely\n"
+                .ASCII_P "order your collection of disk images.\n\n"
+                .ASCII_P "Nothing to browse.\n\n"
+                .ASCII_W "Press Space to continue."
 
 ; This needs to be the last thing before the "Variables" sections starts
 END_OF_ROM      .DW 0
