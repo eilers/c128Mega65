@@ -941,7 +941,9 @@ cpu_data_in_proc: process (all)
     end if;
   end process;
 
--- MiSTer exposes ramWE/ramCE separately; do not AND them (Z80 latch writes miss CE).
+-- MiSTer SDRAM ANDs ramCE with ramWE. MEGA65 BRAM uses ramWE alone, so fpga64
+-- already gates ramWE with cs_ram (I/O stores must not write RAM). Do not AND
+-- ramCE here: Z80 latch writes miss the CE strobe.
 ram_we_o <= ram_we;
 ram_data_o <= core_ram_data_out;
 sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
