@@ -345,10 +345,10 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
    " Use cartridge slot\n"  &
    " Use IEC port\n"        &
-   " Help menu on F13\n"    &    -- default off: Help stays the C128 Help key
+   "\n"                     &
 
    " Credits\n"             &
-   "\n"                     &
+   " Help menu on F13\n"    &    -- default off: Help stays the C128 Help key
    " Close Menu\n";
 
 -- define your own constants here and choose meaningful names
@@ -427,10 +427,10 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
                                              OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
-                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
+                                             OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
-                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
                                              OPTM_G_CLOSE                                         -- Close Menu
                                            );
 

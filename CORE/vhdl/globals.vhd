@@ -78,7 +78,7 @@ constant C_MENU_JAILBARS_MEDIUM  : natural := 39;
 constant C_MENU_JAILBARS_HIGH    : natural := 40;
 constant C_MENU_EXP_PORT_HW      : natural := 44;  -- Expansion Port: Use hardware slot
 constant C_MENU_IEC              : natural := 45;  -- IEC: Use hardware port
-constant C_MENU_HELP_F13         : natural := 46;  -- OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_HELP_F13         : natural := 48;  -- OSM trigger on F13 (Help stays C128 Help)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
