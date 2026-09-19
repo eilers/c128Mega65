@@ -1242,7 +1242,13 @@ turbo_std <= not (turbo_mode(1) or turbo_mode(0));
 
 ramDout <= cpuDo;
 ramAddr <= systemAddr;
-ramWE   <= systemWe;
+-- BRAM on MEGA65 is written from ramWE alone (unlike MiSTer SDRAM, which ANDs ramCE).
+-- systemWe follows cpuWe for every CPU cycle, including I/O, so ungated ramWE lets
+-- STA $D000 hit RAM under the VIC. GEOS relocates the under-I/O jump table, then
+-- programs the VIC with I/O mapped in and wipes J_ProcessDelays ($D01B). Gate with
+-- cs_ram, not ramCE: Z80 latch writes assert we while ramCE is already low, but
+-- cs_ram stays 1 for those RAM cycles.
+ramWE   <= systemWe and cs_ram;
 ramCE   <= cs_ram when
            sysCycle = CYCLE_VIC0 or
            (aec = '1' and sysCycle = CYCLE_CPU4) or
