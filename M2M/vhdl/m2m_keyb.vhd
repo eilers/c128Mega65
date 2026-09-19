@@ -143,6 +143,7 @@ begin
             when 67        => keys_n(7) <= key_status_n;     -- Help
             when 4         => keys_n(8) <= key_status_n;     -- F1
             when 5         => keys_n(9) <= key_status_n;     -- F3
+            when 70        => keys_n(10) <= key_status_n;    -- F13
             when others    => null;
          end case;
       end if;

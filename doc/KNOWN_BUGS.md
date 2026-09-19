@@ -4,6 +4,9 @@
 * Joystick Port
 * IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
   defaults to on; turn it off to isolate the physical DIN from the virtual drives.
+* The Help menu occupies the MEGA65 Help key, which is also the C128 Help key.
+  Enable **Help menu on F13** (default off) to open the menu with F13 instead,
+  so C128 software can use Help. Close the menu with F13, Help, or Close Menu.
 * Virtual drives: device 8 and 9, mountable from `/c128` on the SD card. Standard linear
   `.D64`, `.D71`, and `.D81` images have FPGA-side sector paths. The menu picks 1541 or
   1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless

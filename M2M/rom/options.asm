@@ -12,15 +12,29 @@
 ; ----------------------------------------------------------------------------
 ; Main routine
 ;
-; Expects a M2M$KEY_* in R8 and returns immediatelly, if it is not the
-; HELP key. Otherwise it runs the whole OSM logic, manages file browsing
+; Expects a M2M$KEY_* in R8 and returns immediately, if it is not the
+; OSM trigger key. By default that is Help; if the "Help menu on F13"
+; option is selected, F13 opens the OSM so the C128 can use Help.
+; Otherwise it runs the whole OSM logic, manages file browsing
 ; for drive mounting and also manages M2M$CFM_DATA.
 ; ----------------------------------------------------------------------------
 
-                ; Check if Help is pressed and if yes, run the Options menu
+                ; Check if the OSM trigger key is pressed and if yes, run
+                ; the Options menu. HELP_MENU_F13 is the OPTM_GROUPS index
+                ; of that option (see C_MENU_HELP_F13 in globals.vhd).
 HELP_MENU       SYSCALL(enter, 1)
-                CMP     M2M$KEY_HELP, R8        ; help key pressed?
+                MOVE    R8, R0                  ; R0: key that was pressed
+                MOVE    HELP_MENU_F13, R8
+                RSUB    M2M$GET_SETTING, 1      ; R9=1: OSM trigger is F13
+                MOVE    R0, R8                  ; restore pressed key
+                CMP     1, R9
+                RBRA    _HLP_USE_F13, Z
+                CMP     M2M$KEY_HELP, R8        ; default: Help opens OSM
                 RBRA    _HLP_RET_DIRECT, !Z
+                RBRA    _HLP_GO, 1
+_HLP_USE_F13    CMP     M2M$KEY_F13, R8         ; optional: F13 opens OSM
+                RBRA    _HLP_RET_DIRECT, !Z
+_HLP_GO
 
                 ; remember status of the write cache of all vdrives, if any
                 RSUB    VD_DTY_ST_SET, 1
@@ -1010,6 +1024,11 @@ _OPTM_GK_2B     CMP     M2M$KEY_SPACE, R8       ; Space (alternative select)
                 RBRA    _OPTMGK_RET, 1
 
 _OPTM_GK_3      CMP     M2M$KEY_HELP, R8        ; Help (close menu)
+                RBRA    _OPTM_GK_3B, !Z
+                MOVE    OPTM_KEY_CLOSE, R8
+                RBRA    _OPTMGK_RET, 1
+
+_OPTM_GK_3B     CMP     M2M$KEY_F13, R8         ; F13 also closes (Help menu on F13)
                 RBRA    _OPTM_GK_4, !Z
                 MOVE    OPTM_KEY_CLOSE, R8
                 RBRA    _OPTMGK_RET, 1
