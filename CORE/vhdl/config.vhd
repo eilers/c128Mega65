@@ -79,7 +79,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- Version of this core. It ends up inside a FAT32 path (see CFG_FILE), so keep it to characters
 -- that are legal there and use "_" instead of spaces. CORE/scripts/build_release.sh refuses to
 -- build unless this matches the release name that is being packaged.
-constant CORE_VERSION : string := "Alpha_4";
+constant CORE_VERSION : string := "V1.0_Beta1";
 
 constant SCR_CREDITS : string :=
 
