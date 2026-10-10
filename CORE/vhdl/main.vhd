@@ -422,10 +422,21 @@ signal core_iec_data_o  : std_logic;
 signal core_iec_atn_o   : std_logic;
 signal core_iec_srq_n_o : std_logic;
 
--- Same convention, driven by the emulated drives
+-- Same convention, driven by the emulated drives. The _raw versions are what
+-- iec_drive outputs; drv_iec_*_o is the same a short while later, see
+-- drv_iec_delay_proc for why the computer must not see them instantly.
+signal drv_iec_clk_raw  : std_logic;
+signal drv_iec_data_raw : std_logic;
+signal drv_iec_srq_raw  : std_logic;
 signal drv_iec_clk_o    : std_logic;
 signal drv_iec_data_o   : std_logic;
 signal drv_iec_srq_o    : std_logic;
+-- 16 clk_main cycles = 0.51 us of propagation delay, see drv_iec_delay_proc.
+-- Initialised to "released" so the bus is quiet until the first drive output.
+constant C_DRV_IEC_DELAY : natural := 16;
+signal drv_iec_clk_dly  : std_logic_vector(C_DRV_IEC_DELAY - 1 downto 0) := (others => '1');
+signal drv_iec_data_dly : std_logic_vector(C_DRV_IEC_DELAY - 1 downto 0) := (others => '1');
+signal drv_iec_srq_dly  : std_logic_vector(C_DRV_IEC_DELAY - 1 downto 0) := (others => '1');
 signal hw_iec_clk_n_i   : std_logic;
 signal hw_iec_data_n_i  : std_logic;
 signal hw_iec_srq_n_i   : std_logic;
@@ -1371,9 +1382,9 @@ iec_drive_inst : entity work.iec_drive
     iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
     iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
     iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
-    iec_clk_o    => drv_iec_clk_o,
-    iec_data_o   => drv_iec_data_o,
-    iec_fclk_o   => drv_iec_srq_o,
+    iec_clk_o    => drv_iec_clk_raw,
+    iec_data_o   => drv_iec_data_raw,
+    iec_fclk_o   => drv_iec_srq_raw,
 
     -- disk image status
     img_mounted  => iec_img_mounted,
@@ -1505,6 +1516,44 @@ i_vd_hr_pump : entity work.vd_hr_pump
 
 drives_dirty <= '1' when unsigned(cache_dirty)    /= 0 else '0';
 drives_busy  <= '1' when unsigned(iec_drive_led)  /= 0 else '0';
+
+-- Let the computer see the emulated drive's lines about half a microsecond late,
+-- the way it sees a real drive on the cable.
+--
+-- The 1571 side of iec_drive changes a line one clk after its processor's write
+-- cycle, and the 8502 above samples the bus 14 clks before the end of its own
+-- cycle; nothing in between adds any delay. A real 1571's 6522 port chip, its
+-- 7406 bus driver, the cable and the MEGA65 port's level shifters do, and the
+-- two-bit fast loaders in GEOS and Wheels were tuned on that hardware with
+-- margins of well under a microsecond.
+--
+-- Wheels' TURBO41 is the tightest: on a 50 Hz (PAL) machine the computer runs
+-- 1.5% slower than the drive, so by the third of the four bit pairs in a byte
+-- the drive is already 0.7 us ahead of where the loader counted it, and the next
+-- pair can land on the bus up to 0.1 us before the computer samples the current
+-- one. On the MEGA65 that showed as single-bit errors (bits 7 and 5 of a byte)
+-- roughly once per 2 KB of a Wheels load, which left a damaged kernal that
+-- crashed with "System error near $CA8B". A real 1571 on the physical port does
+-- not show it because its reply arrives those few hundred nanoseconds later.
+--
+-- Sixteen clks at 31.5 MHz are 0.51 us. The late-side margins of the same
+-- loaders (how long a pair stays on the bus after the computer samples it) are
+-- 5 us and more, so the delay costs nothing there, and every handshake that
+-- waits for the other side simply waits half a microsecond longer. All three
+-- drive lines are delayed by the same amount, so the fast serial clock on the
+-- service request line keeps its alignment with the data it clocks.
+drv_iec_delay_proc : process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    drv_iec_clk_dly  <= drv_iec_clk_dly (drv_iec_clk_dly'high  - 1 downto 0) & drv_iec_clk_raw;
+    drv_iec_data_dly <= drv_iec_data_dly(drv_iec_data_dly'high - 1 downto 0) & drv_iec_data_raw;
+    drv_iec_srq_dly  <= drv_iec_srq_dly (drv_iec_srq_dly'high  - 1 downto 0) & drv_iec_srq_raw;
+  end if;
+end process drv_iec_delay_proc;
+
+drv_iec_clk_o  <= drv_iec_clk_dly (drv_iec_clk_dly'high);
+drv_iec_data_o <= drv_iec_data_dly(drv_iec_data_dly'high);
+drv_iec_srq_o  <= drv_iec_srq_dly (drv_iec_srq_dly'high);
 
 else generate
 begin
