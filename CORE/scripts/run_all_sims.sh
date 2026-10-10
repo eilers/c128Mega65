@@ -39,6 +39,7 @@ run_tcl "D64/D71 track geometry (tb_c157x_track)" CORE/scripts/run_c157x_track_s
 run_tcl "1541 GCR path (tb_c1541_read_write)" CORE/scripts/run_c157x_gcr_path_sim.tcl tb_c1541_read_write
 run_tcl "1571 GCR path (tb_c1571_read_write)" CORE/scripts/run_c157x_gcr_path_sim.tcl tb_c1571_read_write
 run_tcl "Drive LED policy (tb_drive_led_policy)" CORE/scripts/run_drive_led_sim.tcl
+run_tcl "HyperRAM sector fill (tb_vd_hr_pump)" CORE/scripts/run_vd_hr_pump_sim.tcl
 run_tcl "VIA Timer 1 (tb_via_timer)" CORE/scripts/run_via_timer_sim.tcl
 run_tcl "Drive RAM (tb_iecdrv_mem)" CORE/scripts/run_drive_mem_sim.tcl
 run_tcl "Drive DOS ROM handover (tb_drive_rom)" CORE/scripts/run_drive_rom_sim.tcl
