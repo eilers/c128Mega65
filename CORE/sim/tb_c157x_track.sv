@@ -17,12 +17,15 @@ module tb_c157x_track;
 	wire [31:0] sd_lba;
 	wire [5:0] sd_blk_cnt;
 	wire sd_rd, sd_wr, busy, sd_bank;
+	wire [6:0] gcr_track;
+	wire       gcr_ready;
 	integer errors = 0;
 
 	c157x_track dut (
 		.clk, .reset, .sd_lba, .sd_blk_cnt, .sd_rd, .sd_wr, .sd_ack,
 		.freq, .sector_mode, .dual_side, .sector_track, .raw_blk_cnt,
-		.save_track, .change, .track, .busy, .sd_bank
+		.save_track, .change, .track, .busy, .sd_bank,
+		.gcr_track, .gcr_ready
 	);
 
 	task automatic acknowledge;
@@ -70,6 +73,11 @@ module tb_c157x_track;
 		expect_request(0, 357, 18, 0);
 		expect_request(0, 1040, 18, 1);
 		wait (!busy);
+		if (!gcr_ready || gcr_track != 7'd18) begin
+			$display("FAIL: after track 18 load gcr_ready=%0d gcr_track=%0d",
+			         gcr_ready, gcr_track);
+			errors = errors + 1;
+		end
 
 		// Switching heads on the cached cylinder must not ask the host anything.
 		sector_track = 53;
