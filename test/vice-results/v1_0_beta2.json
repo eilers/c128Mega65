@@ -1,0 +1,206 @@
+{
+  "core_version": "V1.0_Beta2",
+  "craft_column": "v1.0_beta_2",
+  "tests": [
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "general/Lorenz-2.15/src/cia1tanew.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "general/Lorenz-2.15/src/cia1ta.prg",
+      "check": "exitcode",
+      "result": "fail",
+      "exitcode": 255,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "general/Lorenz-2.15/src/cia1tabnew.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "general/Lorenz-2.15/src/cia1pb6.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "general/Lorenz-2.15/src/cia1pb7.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "general/Lorenz-2.15/src/cia2pb6.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "general/Lorenz-2.15/src/cia2pb7.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/cia-timer/cia-timer-newcias.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/timerbasics/timer_new.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/timerbasics/timer_test1_new.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/timerbasics/test_new.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/timerbasics/timer.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/irqdelay/irqdelay-oneshot-new.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/irqdelay/irqdelay-new.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/irqdelay/irqdelay-cia1-oneshot.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/shiftregister/cia-icr-test-oneshot-new.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/reload0/reload0a.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/reload0/reload0b.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "CIA/CIA-AcountsB/cia-b-counts-a.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    },
+    {
+      "id": null,
+      "collection": "87BE2595-0FC7-421F-B0B0-E2893B16C458",
+      "mode": "go64",
+      "test": "interrupts/irq-ackn-bug/cia1new.prg",
+      "check": "exitcode",
+      "result": "ok",
+      "exitcode": 0,
+      "hardware_go64": true
+    }
+  ]
+}
