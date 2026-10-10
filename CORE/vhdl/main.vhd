@@ -165,7 +165,23 @@ entity main is
       drv_rom_req_o           : out std_logic;
       drv_rom_addr_o          : out std_logic_vector(18 downto 0);
       drv_rom_data_i          : in  std_logic_vector(7 downto 0);
-      drv_rom_wr_i            : in  std_logic
+      drv_rom_wr_i            : in  std_logic;
+
+      -- Hardware fill of the virtual-drive sector buffer from HyperRAM (vd_hr_pump).
+      -- Defaults keep tb_c128_boot (G_VDNUM => 0) from having to list them.
+      hr_clk_i                : in  std_logic := '0';
+      hr_rst_i                : in  std_logic := '1';
+      hr_write_o              : out std_logic;
+      hr_read_o               : out std_logic;
+      hr_address_o            : out std_logic_vector(31 downto 0);
+      hr_writedata_o          : out std_logic_vector(15 downto 0);
+      hr_byteenable_o         : out std_logic_vector(1 downto 0);
+      hr_burstcount_o         : out std_logic_vector(7 downto 0);
+      hr_readdata_i           : in  std_logic_vector(15 downto 0) := (others => '0');
+      hr_readdatavalid_i      : in  std_logic := '0';
+      hr_waitrequest_i        : in  std_logic := '0';
+      hr_base_d8_i            : in  std_logic_vector(21 downto 0) := (others => '0');
+      hr_base_d9_i            : in  std_logic_vector(21 downto 0) := (others => '0')
    );
 end entity main;
 
@@ -389,6 +405,15 @@ signal iec_sd_buf_wr       : std_logic;
 signal vd_sd_lba           : vd_vec_array(G_VDNUM - 1 downto 0)(31 downto 0);
 signal vd_sd_blk_cnt       : vd_vec_array(G_VDNUM - 1 downto 0)( 5 downto 0);
 signal vd_sd_buf_data_out  : vd_vec_array(G_VDNUM - 1 downto 0)( 7 downto 0);
+
+-- Idle when G_VDNUM = 0 (the pump is not instantiated). mega65.vhd still
+-- connects these to the HyperRAM arbiter, so they must be driven.
+signal pump_hr_write         : std_logic := '0';
+signal pump_hr_read          : std_logic := '0';
+signal pump_hr_address       : std_logic_vector(31 downto 0) := (others => '0');
+signal pump_hr_writedata     : std_logic_vector(15 downto 0) := (others => '0');
+signal pump_hr_byteenable    : std_logic_vector( 1 downto 0) := "00";
+signal pump_hr_burstcount    : std_logic_vector( 7 downto 0) := x"00";
 
 -- Core's IEC serial bus line levels (fpga64_sid_iec convention: '1' = line released/high,
 -- '0' = line asserted/low; srq is active low: '0' = asserted).
@@ -1235,10 +1260,33 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
 -- Virtual disk drives (device 8 and 9)
 --------------------------------------------------------------------------------------------------
 
+hr_write_o      <= pump_hr_write;
+hr_read_o       <= pump_hr_read;
+hr_address_o    <= pump_hr_address;
+hr_writedata_o  <= pump_hr_writedata;
+hr_byteenable_o <= pump_hr_byteenable;
+hr_burstcount_o <= pump_hr_burstcount;
+
 -- G_VDNUM = 0 builds the core without any emulated drive. The boot simulation uses that to
 -- keep its runtime in minutes: two full 1541/1571/1581 models with bit-level GCR and MFM
 -- emulation dominate a behavioural run of the C128 boot path they have nothing to do with.
 drives_gen : if G_VDNUM > 0 generate
+
+-- Hardware HyperRAM fill (vd_hr_pump) owns reads. vdrives / the Shell still own writes.
+-- The mux below, the pump instance and the arbiter in mega65.vhd are the whole path.
+signal pump_busy          : std_logic;
+signal pump_ack           : vd_std_array(G_VDNUM - 1 downto 0);
+signal pump_buf_addr      : std_logic_vector(13 downto 0);
+signal pump_buf_dout      : std_logic_vector( 7 downto 0);
+signal pump_buf_wr        : std_logic;
+signal vd_ack             : vd_std_array(G_VDNUM - 1 downto 0);
+signal vd_buf_addr        : std_logic_vector(13 downto 0);
+signal vd_buf_dout        : std_logic_vector( 7 downto 0);
+signal vd_buf_wr          : std_logic;
+signal vd_sd_rd_off       : vd_std_array(G_VDNUM - 1 downto 0) := (others => '0');
+signal vd_sd_wr_gated     : vd_std_array(G_VDNUM - 1 downto 0);
+
+begin
 
 -- 16 MHz chip enable for the IEC drives, so that ph2_r and ph2_f can be 1 MHz (the 1541's CPU
 -- runs at 1 MHz). A counter compensates for the fact that the input clock is not exactly 32 MHz.
@@ -1395,14 +1443,16 @@ vdrives_inst : entity work.vdrives
 
     sd_lba_i         => vd_sd_lba,
     sd_blk_cnt_i     => vd_sd_blk_cnt,
-    sd_rd_i          => iec_sd_rd,
-    sd_wr_i          => iec_sd_wr,
-    sd_ack_o         => iec_sd_ack,
+    -- Reads are filled in hardware (vd_hr_pump). Leaving sd_rd at 0 keeps the
+    -- Shell HANDLE_DRV_RD loop from fighting the pump over the shared buffer bus.
+    sd_rd_i          => vd_sd_rd_off,
+    sd_wr_i          => vd_sd_wr_gated,
+    sd_ack_o         => vd_ack,
 
-    sd_buff_addr_o   => iec_sd_buf_addr,
-    sd_buff_dout_o   => iec_sd_buf_data_in,
+    sd_buff_addr_o   => vd_buf_addr,
+    sd_buff_dout_o   => vd_buf_dout,
     sd_buff_din_i    => vd_sd_buf_data_out,
-    sd_buff_wr_o     => iec_sd_buf_wr,
+    sd_buff_wr_o     => vd_buf_wr,
 
     qnice_addr_i     => qnice_vd_addr_i,
     qnice_data_i     => qnice_vd_data_i,
@@ -1411,10 +1461,53 @@ vdrives_inst : entity work.vdrives
     qnice_we_i       => qnice_vd_we_i
   ); -- vdrives_inst
 
+-- Hold off a Shell write while a hardware fill is using the shared buffer bus.
+-- The drive keeps sd_wr high until it sees ack, so the write proceeds after.
+vd_sd_wr_gated <= iec_sd_wr when pump_busy = '0' else (others => '0');
+
+iec_sd_ack         <= pump_ack      when pump_busy = '1' else vd_ack;
+iec_sd_buf_addr    <= pump_buf_addr when pump_busy = '1' else vd_buf_addr;
+iec_sd_buf_data_in <= pump_buf_dout when pump_busy = '1' else vd_buf_dout;
+iec_sd_buf_wr      <= pump_buf_wr   when pump_busy = '1' else vd_buf_wr;
+
+i_vd_hr_pump : entity work.vd_hr_pump
+  generic map (
+    G_VDNUM => G_VDNUM
+  )
+  port map (
+    clk_qnice_i        => clk_sd_i,
+    rst_qnice_i        => not reset_core_n,
+
+    sd_lba_i           => vd_sd_lba,
+    sd_blk_cnt_i       => vd_sd_blk_cnt,
+    sd_rd_i            => iec_sd_rd,
+    sd_ack_o           => pump_ack,
+    sd_buff_addr_o     => pump_buf_addr,
+    sd_buff_dout_o     => pump_buf_dout,
+    sd_buff_wr_o       => pump_buf_wr,
+    busy_o             => pump_busy,
+
+    hr_base_d8_i       => hr_base_d8_i,
+    hr_base_d9_i       => hr_base_d9_i,
+
+    hr_clk_i           => hr_clk_i,
+    hr_rst_i           => hr_rst_i,
+    hr_write_o         => pump_hr_write,
+    hr_read_o          => pump_hr_read,
+    hr_address_o       => pump_hr_address,
+    hr_writedata_o     => pump_hr_writedata,
+    hr_byteenable_o    => pump_hr_byteenable,
+    hr_burstcount_o    => pump_hr_burstcount,
+    hr_readdata_i      => hr_readdata_i,
+    hr_readdatavalid_i => hr_readdatavalid_i,
+    hr_waitrequest_i   => hr_waitrequest_i
+  ); -- i_vd_hr_pump
+
 drives_dirty <= '1' when unsigned(cache_dirty)    /= 0 else '0';
 drives_busy  <= '1' when unsigned(iec_drive_led)  /= 0 else '0';
 
 else generate
+begin
 
   -- No emulated drives: release every IEC line so the wired-AND merge sees only the
   -- computer and whatever real hardware is on the physical port.
