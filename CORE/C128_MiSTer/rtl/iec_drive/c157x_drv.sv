@@ -171,6 +171,12 @@ wire       drive_enable = disk_present & mtr;
 // that names an identifier before its declaration silently becomes an implicit net.
 wire       sd_busy;
 iecdrv_sync busy_sync(clk, busy, sd_busy);
+wire [6:0] gcr_track_sys;
+wire       gcr_ready_sys;
+wire [6:0] gcr_track_drv;
+wire       gcr_ready_drv;
+iecdrv_sync #(7) gcr_track_sync(clk, gcr_track_sys, gcr_track_drv);
+iecdrv_sync      gcr_ready_sync(clk, gcr_ready_sys, gcr_ready_drv);
 wire       sector_mode = img_gcr & ~img_mfm;
 // A head bump can step past track 35. The linear sector table only covers a real disk,
 // so clamp before adding the side offset instead of addressing past the end of a D64/D71.
@@ -321,8 +327,11 @@ c1541_gcr sector_gcr
 	.freq(freq),
 	.sync_n(sector_gcr_sync_n),
 	.byte_n(sector_gcr_byte_n),
-	.track(sector_track),
-	.busy(sd_busy | ~disk_present),
+	.track(gcr_track_drv),
+	// sd_busy must not silence the encoder. DOS $F556 times out after one
+	// revolution of no sync; a host track fill can last longer than that.
+	// Keep the last complete cylinder spinning until the requested one is cached.
+	.busy(~disk_present | ~gcr_ready_drv),
 	.we(sector_gcr_we),
 	.sd_clk(clk_sys),
 	.sd_lba(sd_lba),
@@ -388,7 +397,9 @@ c157x_track c157x_track
 	.change(img_mounted),
 	.track(track),
 	.busy(busy),
-	.sd_bank(sector_sd_bank)
+	.sd_bank(sector_sd_bank),
+	.gcr_track(gcr_track_sys),
+	.gcr_ready(gcr_ready_sys)
 );
 
 always @(posedge clk) begin

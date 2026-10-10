@@ -40,7 +40,12 @@ module c157x_track
 	input         change,
 	input   [7:0] track,
 	output reg    busy,
-	output reg    sd_bank
+	output reg    sd_bank,
+	// Last fully buffered logical track, so the GCR encoder can keep spinning
+	// the previous cylinder while the host fills the next one. DOS $F556 gives
+	// up after one VIA timer (~one revolution) if the stream goes silent.
+	output  [6:0] gcr_track,
+	output        gcr_ready
 );
 
 reg [31:0] lba;
@@ -94,7 +99,7 @@ endfunction
 // c1541_gcr stamps into every sector header it generates.
 localparam [31:0] BAM_LBA = 32'd357;
 
-reg [7:0] cur_track = 0;
+reg [7:0] cur_track = '1;
 reg [7:0] track_new = 0;
 reg [7:0] request_track = 0;
 reg [7:0] cached_track[0:1];
@@ -120,12 +125,28 @@ function automatic [7:0] opposite_track(input [7:0] logical_track);
 	end
 endfunction
 
+// The stepper can already be on the requested cylinder while this bank is still
+// filling. Header bytes are generated from gcr_track, not from the buffer, so
+// advertising the live track before the buffer is complete would make DOS accept
+// a header and then read half-filled sector data. Keep emitting the last complete
+// cylinder until the live one is cached; the compare at $F546 then mismatches
+// (old track) instead of succeeding with garbage.
+wire [7:0] live_track = sector_mode_s ? {1'b0, sector_track_s} : track_s;
+wire       live_cached = sector_mode_s &&
+                         cached_track[track_bank(live_track)] == live_track;
+wire       have_track  = ~&cur_track;
+
+assign gcr_ready = live_cached | have_track;
+assign gcr_track = (live_cached ? live_track[6:0] :
+                    have_track  ? cur_track[6:0]  : live_track[6:0]);
+
 always @(posedge clk) begin
 	track_new <= sector_mode_s ? {1'b0, sector_track_s} : track_s;
 
 	old_change <= change_s;
 	if(~old_change & change_s) begin
 		update <= 1;
+		cur_track <= '1;
 		cached_track[0] <= '1;
 		cached_track[1] <= '1;
 	end
