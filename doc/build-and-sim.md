@@ -37,10 +37,10 @@ git submodule update --init --recursive
 
 Submodules include:
 
-| Path | Purpose |
-|------|---------|
-| `M2M/QNICE` | QNICE assembler and monitor (M2M shell ROM) |
-| `CORE/C128_MiSTer` | MiSTer C128 core RTL |
+| Path               | Purpose                                     |
+|--------------------|---------------------------------------------|
+| `M2M/QNICE`        | QNICE assembler and monitor (M2M shell ROM) |
+| `CORE/C128_MiSTer` | MiSTer C128 core RTL                        |
 
 ### QNICE toolchain
 
@@ -69,10 +69,10 @@ Re-run after changing `globals.vhd` drive/CRT counts or editing `m2m-rom.asm`.
 Simulation and hardware both need the system ROM bundle on the SD card path.
 For simulation, the file must exist in the working tree:
 
-| File | Size | SD card path |
-|------|------|--------------|
+| File                    | Size                  | SD card path      |
+|-------------------------|-----------------------|-------------------|
 | `sdcard/c128/boot0.rom` | 73 728 bytes (72 KiB) | `/c128/boot0.rom` |
-| `sdcard/c128/boot1.rom` | 196 608 bytes | `/c128/boot1.rom` |
+| `sdcard/c128/boot1.rom` | 196 608 bytes         | `/c128/boot1.rom` |
 
 `boot0.rom` is required for the boot simulation. `run_boot_sim.tcl` checks
 that it exists before starting xsim.
@@ -86,8 +86,8 @@ The on-screen menu only persists its settings if a file of exactly `OPTM_SIZE`
 bytes exists at the `CFG_FILE` path from `CORE/vhdl/config.vhd`. The filename
 carries `CORE_VERSION`, so it changes with every release:
 
-| File | Size | SD card path |
-|------|------|--------------|
+| File                                    | Size                   | SD card path                     |
+|-----------------------------------------|------------------------|----------------------------------|
 | `CORE/m2m-rom/c128mega65-<version>.cfg` | one byte per menu line | `/c128/c128mega65-<version>.cfg` |
 
 Regenerate it whenever `OPTM_SIZE` or `CORE_VERSION` changes, and delete the
@@ -251,18 +251,18 @@ because Vivado silently falls back to the synthesis top when it cannot parse a
 testbench, and it retries once against a wiped `*.sim` directory, because xvhdl
 compiles incrementally and leaves units stale when a VHDL package changes.
 
-| Simulation | Testbench | Covers |
-|------------|-----------|--------|
-| C128 boot path | `CORE/sim/tb_c128_boot.vhd` | `main` with BRAM-backed RAM/ROM preloaded from `boot0.rom` — no M2M menu, HDMI, or SD-card model |
-| Drive DOS ROM handover | `CORE/sim/tb_drive_rom.vhd` | `drive_rom_server.vhd` feeding the real `iecdrv_rom.sv`, byte for byte, across a bank switch |
-| Drive RAM | `CORE/sim/tb_iecdrv_mem.vhd` | `iecdrv_mem` and `iecdrv_trackmem` storing what the drive CPU and the head actually wrote |
-| 1581 drive ready | `CORE/sim/tb_c1581_ready.sv` | `c1581_fdc1772.v` plus `floppy.v` from mounting a D81 through spin-up to the first `sd_rd` |
-| GCR codec | `CORE/sim/tb_c1541_gcr_codec.sv` | all valid/invalid 5-bit codes, exhaustive byte round-trip, checksums and D64/D71 geometry |
-| D64/D71 request contract | `CORE/sim/tb_c157x_track.sv` | all density zones, D71 side offset, read and write LBA/block-count handshakes |
-| 1541/1571 GCR path | `CORE/sim/tb_c157x_gcr_path.sv` | sector-buffer load, sync/data generation and valid write decode on tracks 18 and 53 |
-| Drive index bridge | `CORE/sim/tb_vdrive_index.vhd` | drive 0/1 across ascending SystemVerilog and descending VHDL arrays |
-| Authentic drive LED | `CORE/sim/tb_drive_led_policy.vhd` | green access/error pulses and delayed yellow dirty-cache indication |
-| 1541/1571 bring-up | `CORE/sim/tb_c157x_boot.sv` | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
+| Simulation               | Testbench                          | Covers                                                                                                     |
+|--------------------------|------------------------------------|------------------------------------------------------------------------------------------------------------|
+| C128 boot path           | `CORE/sim/tb_c128_boot.vhd`        | `main` with BRAM-backed RAM/ROM preloaded from `boot0.rom` — no M2M menu, HDMI, or SD-card model           |
+| Drive DOS ROM handover   | `CORE/sim/tb_drive_rom.vhd`        | `drive_rom_server.vhd` feeding the real `iecdrv_rom.sv`, byte for byte, across a bank switch               |
+| Drive RAM                | `CORE/sim/tb_iecdrv_mem.vhd`       | `iecdrv_mem` and `iecdrv_trackmem` storing what the drive CPU and the head actually wrote                  |
+| 1581 drive ready         | `CORE/sim/tb_c1581_ready.sv`       | `c1581_fdc1772.v` plus `floppy.v` from mounting a D81 through spin-up to the first `sd_rd`                 |
+| GCR codec                | `CORE/sim/tb_c1541_gcr_codec.sv`   | all valid/invalid 5-bit codes, exhaustive byte round-trip, checksums and D64/D71 geometry                  |
+| D64/D71 request contract | `CORE/sim/tb_c157x_track.sv`       | all density zones, D71 side offset, read and write LBA/block-count handshakes                              |
+| 1541/1571 GCR path       | `CORE/sim/tb_c157x_gcr_path.sv`    | sector-buffer load, sync/data generation and valid write decode on tracks 18 and 53                        |
+| Drive index bridge       | `CORE/sim/tb_vdrive_index.vhd`     | drive 0/1 across ascending SystemVerilog and descending VHDL arrays                                        |
+| Authentic drive LED      | `CORE/sim/tb_drive_led_policy.vhd` | green access/error pulses and delayed yellow dirty-cache indication                                        |
+| 1541/1571 bring-up       | `CORE/sim/tb_c157x_boot.sv`        | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
 
 ### 1541/1571 bring-up simulation
 
@@ -301,9 +301,9 @@ CORE/scripts/run_boot_sim.sh CORE/CORE-R6-vivado2022.xpr
 
 Exit codes:
 
-| Code | Meaning |
-|------|---------|
-| `0` | Gate passed — safe to proceed to hardware flash |
+| Code     | Meaning                                                 |
+|----------|---------------------------------------------------------|
+| `0`      | Gate passed — safe to proceed to hardware flash         |
 | non-zero | Gate failed — do not flash until the boot path is fixed |
 
 ### Drive DOS ROM simulation
@@ -420,11 +420,11 @@ Currently runs the same boot sim once and fails if the gate does not pass.
 The testbench runs for a fixed simulation time, releases the core from reset,
 then checks:
 
-| Check | Requirement |
-|-------|-------------|
+| Check              | Requirement                          |
+|--------------------|--------------------------------------|
 | Z80 → 8502 handoff | Rising edge on `boot_z80_n` observed |
-| Final CPU mode | `boot_z80_n = '1'` (8502 active) |
-| RAM activity | `ram_we_count > 0` |
+| Final CPU mode     | `boot_z80_n = '1'` (8502 active)     |
+| RAM activity       | `ram_we_count > 0`                   |
 
 On success, xsim reports:
 
@@ -443,11 +443,11 @@ gate is designed to catch.
 
 ### Logs and generated files
 
-| Output | Location |
-|--------|----------|
-| NDJSON debug log | `.cursor/debug-boot.log` (auto-generated absolute path) |
-| xsim console | Printed to stdout; Vivado may also write under `CORE/CORE-R6-vivado2022.sim/` |
-| Path package | `CORE/sim/boot_paths_pkg.vhd` (regenerated each run from repo root) |
+| Output           | Location                                                                      |
+|------------------|-------------------------------------------------------------------------------|
+| NDJSON debug log | `.cursor/debug-boot.log` (auto-generated absolute path)                       |
+| xsim console     | Printed to stdout; Vivado may also write under `CORE/CORE-R6-vivado2022.sim/` |
+| Path package     | `CORE/sim/boot_paths_pkg.vhd` (regenerated each run from repo root)           |
 
 `boot_paths_pkg.vhd` is generated by `gen_boot_paths_pkg.tcl` — do not edit it
 by hand. It embeds absolute paths to `boot0.rom` and the log file for the
@@ -455,12 +455,12 @@ current checkout.
 
 ### Simulation internals (reference)
 
-| File | Role |
-|------|------|
-| `CORE/sim/tb_c128_boot.vhd` | Testbench top |
-| `CORE/sim/sim_support_pkg.vhd` | ROM loader and JSON log helper |
-| `CORE/scripts/run_boot_sim.tcl` | Vivado xsim driver and exit-code gate |
-| `CORE/scripts/gen_boot_paths_pkg.tcl` | Regenerates `boot_paths_pkg.vhd` |
+| File                                  | Role                                  |
+|---------------------------------------|---------------------------------------|
+| `CORE/sim/tb_c128_boot.vhd`           | Testbench top                         |
+| `CORE/sim/sim_support_pkg.vhd`        | ROM loader and JSON log helper        |
+| `CORE/scripts/run_boot_sim.tcl`       | Vivado xsim driver and exit-code gate |
+| `CORE/scripts/gen_boot_paths_pkg.tcl` | Regenerates `boot_paths_pkg.vhd`      |
 
 ## Release check (optional)
 

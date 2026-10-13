@@ -40,12 +40,12 @@ Each layer has one responsibility:
 
 The generic M2M bridge is defined in `M2M/rom/sysdef.asm`:
 
-| QNICE address | Purpose |
-|---|---|
-| `FFE0` | M2M control/status register; bit 1 pauses the emulated core |
-| `FFF4` | RAM/ROM device selector |
-| `FFF5` | 4 Kiword window selector |
-| `7000..7FFF` | selected device/window data aperture |
+| QNICE address | Purpose                                                     |
+|---------------|-------------------------------------------------------------|
+| `FFE0`        | M2M control/status register; bit 1 pauses the emulated core |
+| `FFF4`        | RAM/ROM device selector                                     |
+| `FFF5`        | 4 Kiword window selector                                    |
+| `7000..7FFF`  | selected device/window data aperture                        |
 
 The drive diagnostic device used ID `0106`, declared as
 `C_DEV_VDRIVE_DIAG` in `CORE/vhdl/globals.vhd`. Device IDs `0100..FFFF`
@@ -64,12 +64,12 @@ four-digit hexadecimal address. `MD700077FF`, for example, dumps 2048 words.
 
 Relevant QMON commands:
 
-| Command | Meaning |
-|---|---|
-| `MEaaaa` | examine one word at address `aaaa` |
-| `MDaaaabbbb` | dump inclusive range `aaaa..bbbb` |
-| `MCaaaavvvv` | write word `vvvv` to address `aaaa` |
-| `CRaaaa` | continue execution at return address `aaaa` |
+| Command      | Meaning                                     |
+|--------------|---------------------------------------------|
+| `MEaaaa`     | examine one word at address `aaaa`          |
+| `MDaaaabbbb` | dump inclusive range `aaaa..bbbb`           |
+| `MCaaaavvvv` | write word `vvvv` to address `aaaa`         |
+| `CRaaaa`     | continue execution at return address `aaaa` |
 
 QMON prints lines with LF followed by CR, rather than conventional CR/LF.
 Host parsers must tolerate `"\n\r7000: ..."`.
@@ -121,10 +121,10 @@ an enable or wait value would infer state and can stall unrelated devices.
 
 The implementation used two windows:
 
-| Window | Address map | Behavior |
-|---|---|---|
-| `0` | `000..07F` drive 8, `080..0FF` drive 9 | combinational 16-bit snapshots |
-| `1` | `000..7FF` drive 8, `800..FFF` drive 9 | zero-extended bytes from 2 KiB DOS RAM |
+| Window | Address map                            | Behavior                               |
+|--------|----------------------------------------|----------------------------------------|
+| `0`    | `000..07F` drive 8, `080..0FF` drive 9 | combinational 16-bit snapshots         |
+| `1`    | `000..7FF` drive 8, `800..FFF` drive 9 | zero-extended bytes from 2 KiB DOS RAM |
 
 Unused addresses returned zero. The signatures `157D` and `D05A` in window 0
 made it possible to distinguish a valid snapshot from an all-zero or stale
@@ -263,4 +263,3 @@ QNICE task or hardware FIFO instead of QMON.
 11. Save and restore pause state; never assume it was initially clear.
 12. Test one-word reads, boundary addresses, full dumps and exception cleanup.
 13. Never run a Shell-serviced peripheral operation while QMON owns the Shell.
-
