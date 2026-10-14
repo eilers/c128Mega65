@@ -603,20 +603,24 @@ begin
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
-   qnice_dvi_o                <= '0';                                         -- 0=HDMI (with sound), 1=DVI (no sound)
-   qnice_scandoubler_o        <= '0';                                         -- no scandoubler
+   -- "HDMI audio" defaults to selected. Clearing it requests a DVI stream:
+   -- video only, no audio packets. The 3.5 mm headphone output is unaffected.
+   qnice_dvi_o                <= not qnice_osm_control_i(C_MENU_HDMI_AUDIO);
+   -- Double each line so the VGA connector runs at ~31.3 kHz instead of the
+   -- native 40-column and 80-column ~15.6 kHz. HDMI does not use this; the
+   -- ascaler retimes its own output. Pulse width and polarity come from
+   -- VGA_STD_SYNC.
+   qnice_scandoubler_o        <= '1';
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
    -- Audio filtering and HDMI zoom/crop are not offered in the menu yet, see doc/KNOWN_BUGS.md
    qnice_audio_filter_o       <= '0';                                         -- 0 = raw audio, 1 = use filters from globals.vhd
    qnice_zoom_crop_o          <= '0';                                         -- 0 = no zoom/crop
    qnice_hdmi_view_size_o     <= (others => '0');                             -- use the first cropped-view size
 
-   -- These two signals are often used as a pair (i.e. both '1'), particularly when
-   -- you want to run old analog cathode ray tube monitors or TVs (via SCART)
-   -- If you want to provide your users a choice, then a good choice is:
-   --    "Standard VGA":                     qnice_retro15kHz_o=0 and qnice_csync_o=0
-   --    "Retro 15 kHz with HSync and VSync" qnice_retro15kHz_o=1 and qnice_csync_o=0
-   --    "Retro 15 kHz with CSync"           qnice_retro15kHz_o=1 and qnice_csync_o=1
+   -- Standard VGA: separate horizontal and vertical sync, and the on-screen
+   -- menu uses the scandoubled line count. retro 15 kHz would bypass the
+   -- sync reshaper and tell the menu that each line is still the original
+   -- television line. Composite sync is for SCART, not for a VGA monitor.
    qnice_retro15kHz_o         <= '0';
    qnice_csync_o              <= '0';
    qnice_osm_cfg_scaling_o    <= (others => '1');

@@ -71,14 +71,15 @@ constant C_MENU_HDMI_640_60      : natural := 25;
 constant C_MENU_HDMI_720_5994    : natural := 26;
 constant C_MENU_HDMI_800_60      : natural := 27;
 constant C_MENU_HDMI_FF          : natural := 29;  -- HDMI: Flicker-free
-constant C_MENU_CRT_EMULATION    : natural := 33;
-constant C_MENU_JAILBARS_OFF     : natural := 37;
-constant C_MENU_JAILBARS_LOW     : natural := 38;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 39;
-constant C_MENU_JAILBARS_HIGH    : natural := 40;
-constant C_MENU_EXP_PORT_HW      : natural := 44;  -- Expansion Port: Use hardware slot
-constant C_MENU_IEC              : natural := 45;  -- IEC: Use hardware port
-constant C_MENU_HELP_F13         : natural := 48;  -- OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_HDMI_AUDIO       : natural := 30;  -- HDMI audio (default on); off selects DVI
+constant C_MENU_CRT_EMULATION    : natural := 34;
+constant C_MENU_JAILBARS_OFF     : natural := 38;
+constant C_MENU_JAILBARS_LOW     : natural := 39;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 40;
+constant C_MENU_JAILBARS_HIGH    : natural := 41;
+constant C_MENU_EXP_PORT_HW      : natural := 45;  -- Expansion Port: Use hardware slot
+constant C_MENU_IEC              : natural := 46;  -- IEC: Use hardware port
+constant C_MENU_HELP_F13         : natural := 49;  -- OSM trigger on F13 (Help stays C128 Help)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -95,14 +96,17 @@ constant C_MENU_HELP_F13         : natural := 48;  -- OSM trigger on F13 (Help s
 constant VGA_DX               : natural := 720;
 constant VGA_DY               : natural := 540;
 
--- Optional analog VGA Standard-mode sync reshaping.
--- Keep this OFF unless the core's scandoubled timing needs different sync
--- pulse widths or polarities for reliable PC-VGA monitor classification.
--- Example using the canonical 640x480@60 pulse profile when video_clk equals
--- CORE_CLK_SPEED:
--- constant VGA_STD_SYNC : vga_sync_reshaper_cfg_t :=
---    make_vga_sync_reshaper_cfg(C_VGA_SYNC_DMT_640X480_60, CORE_CLK_SPEED);
-constant VGA_STD_SYNC         : vga_sync_reshaper_cfg_t := C_VGA_SYNC_RESHAPER_OFF;
+-- Analog VGA sync pulse profile for the scandoubled raster.
+-- The scandoubler doubles the native ~15.6 kHz line to ~31.3 kHz and leaves
+-- the ~50 Hz frame rate unchanged. This profile does not change either period.
+-- It only replaces the pulse width and polarity with the standard 640x480
+-- values (about 3.8 microseconds, negative sync) so a PC monitor will
+-- classify the mode.
+-- The width is counted in CORE_CLK_SPEED clocks, which is the 40-column
+-- video clock. The 80-column video clock is 32 MHz; that 1.5% difference
+-- is about one clock of pulse width and stays inside a monitor's tolerance.
+constant VGA_STD_SYNC         : vga_sync_reshaper_cfg_t :=
+   make_vga_sync_reshaper_cfg(C_VGA_SYNC_DMT_640X480_60, CORE_CLK_SPEED);
 
 -- Optional digital HDMI output fitting. UNCROPPED is selected while the
 -- core's qnice_zoom_crop_o signal is low; CROPPED is selected while it is
