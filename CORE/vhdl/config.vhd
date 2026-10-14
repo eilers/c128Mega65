@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 51;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 59;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -289,9 +289,9 @@ constant OPTM_SIZE         : natural := 51;  -- amount of items including empty 
 -- Without submenus: Use OPTM_SIZE as height, otherwise count how large the actually visible main menu is.
 constant OPTM_DX           : natural := 23;
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so this must stay below 32.
--- Counted in main-menu lines: 6 for the Drives block (the drive model group is a submenu and
--- only contributes its header line) + 7 before the HDMI submenu + 18 after it.
-constant OPTM_DY           : natural := 31;
+-- Visible main-menu rows: Drives block (6) + Video and Keys labels (2) + the separator
+-- before External Hardware + that block (5) + Credits + Close Menu = 16.
+constant OPTM_DY           : natural := 16;
 
 constant OPTM_ITEMS        : string :=
 
@@ -308,15 +308,14 @@ constant OPTM_ITEMS        : string :=
    " Back to main menu\n"   &
    "\n"                     &
 
+   " Video: %s\n"           &    -- video submenu; %s is Follow 40/80, VIC, or VDC
    " Audio & Video\n"       &
    "\n"                     &
    " Follow 40/80\n"        &
    " VIC\n"                 &
    " VDC\n"                 &
    "\n"                     &
-
-   " HDMI: %s\n"            &    -- HDMI submenu
-   " HDMI Settings\n"       &
+   " HDMI\n"                &
    "\n"                     &
    " 720p 50 Hz 16:9\n"     &
    " 720p 60 Hz 16:9\n"     &
@@ -329,9 +328,6 @@ constant OPTM_ITEMS        : string :=
    " Flicker-free\n"        &
    " HDMI audio\n"          &    -- default on; off means DVI, no HDMI audio
    "\n"                     &
-   " Back to main menu\n"   &
-
-   "\n"                     &
    " HDMI: CRT emulation\n" &
    "\n"                     &
    " VIC-II Jailbars\n"     &
@@ -341,7 +337,19 @@ constant OPTM_ITEMS        : string :=
    " Medium\n"              &
    " High\n"                &
    "\n"                     &
+   " Back to main menu\n"   &
 
+   " Keys: %s\n"            &    -- %s is filled by the firmware from the latched F9 state
+   " Keyboard\n"            &
+   "\n"                     &
+   " Caps Lock is 40/80\n"  &    -- default: real Caps Lock is the 40/80 key, F9 latches Caps Lock
+   " Caps Lock is ASCII/DIN\n" & -- real Caps Lock is ASCII/DIN, F9 latches 40/80
+   "\n"                     &
+   " Help menu on F13\n"    &    -- default off: Help stays the C128 Help key
+   "\n"                     &
+   " Back to main menu\n"   &
+
+   "\n"                     &
    " External Hardware\n"   &
    "\n"                     &
    " Use cartridge slot\n"  &
@@ -349,7 +357,6 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
 
    " Credits\n"             &
-   " Help menu on F13\n"    &    -- default off: Help stays the C128 Help key
    " Close Menu\n";
 
 -- define your own constants here and choose meaningful names
@@ -370,6 +377,7 @@ constant OPTM_G_DRV_MODEL  : integer := 10;
 constant OPTM_G_IEC        : integer := 11;
 constant OPTM_G_HELP_F13   : integer := 12;   -- OSM on F13 so C128 can use Help
 constant OPTM_G_HDMI_AUDIO : integer := 13;   -- HDMI audio; off selects DVI output
+constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, and which is Caps Lock
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -392,15 +400,14 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
 
                                              OPTM_G_LINE,                                         -- Line
 
+                                             OPTM_G_SUBMENU,                                      -- Video submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Audio & Video
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_VIDEO_OUT + OPTM_G_STDSEL,                    -- Follow 40/80
                                              OPTM_G_VIDEO_OUT,                                    -- VIC
                                              OPTM_G_VIDEO_OUT,                                    -- VDC
                                              OPTM_G_LINE,                                         -- Line
-
-                                             OPTM_G_SUBMENU,                                      -- HDMI submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI Settings
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_HDMI + OPTM_G_STDSEL,                         -- 720p 50 Hz 16:9
                                              OPTM_G_HDMI,                                         -- 720p 60 Hz 16:9
@@ -413,9 +420,6 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_FF      + OPTM_G_SINGLESEL,                   -- Flicker-free
                                              OPTM_G_HDMI_AUDIO + OPTM_G_SINGLESEL + OPTM_G_STDSEL, -- HDMI audio (default on)
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
-
-                                             OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CRT     + OPTM_G_SINGLESEL,                   -- CRT emulation
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- VIC-II Jailbars
@@ -425,15 +429,26 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_JAILBARS,                                     -- Medium
                                              OPTM_G_JAILBARS,                                     -- High
                                              OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Expansion Port
+                                             OPTM_G_SUBMENU,                                      -- Keys submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Keyboard
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_KEYS + OPTM_G_STDSEL,                         -- Caps Lock is 40/80
+                                             OPTM_G_KEYS,                                         -- Caps Lock is ASCII/DIN
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
                                              OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
                                              OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
-                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
                                              OPTM_G_CLOSE                                         -- Close Menu
                                            );
 

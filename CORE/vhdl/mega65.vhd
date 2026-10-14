@@ -309,6 +309,9 @@ signal qnice_drv_rom_req     : std_logic;
 signal qnice_drv_rom_addr    : std_logic_vector(18 downto 0);
 signal qnice_drv_rom_wr      : std_logic := '0';
 signal qnice_core_rst        : std_logic;
+-- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
+signal f9_latched            : std_logic;
+signal qnice_f9_latched      : std_logic;
 
 begin
 
@@ -423,9 +426,9 @@ begin
       end if;
    end process p_core_speed;
 
-   -- Power LED: solid on.
+   -- Power LED stays on. Green means the latched F9 key is released, yellow means it is pressed.
    main_power_led_o     <= '1';
-   main_power_led_col_o <= x"00FF00";
+   main_power_led_col_o <= x"FFFF00" when f9_latched = '1' else x"00FF00";
 
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
@@ -443,6 +446,7 @@ begin
 
          clk_main_speed_i     => CORE_CLK_SPEED,
          osm_control_i        => main_osm_control_i,
+         f9_latched_o         => f9_latched,
 
          -- Video output (domain follows video_select_vdc_o / BUFGMUX above)
          video_ce_o           => video_ce_o,
@@ -698,6 +702,10 @@ begin
             qnice_dev_data_o  <= qnice_mount_data;
             qnice_dev_wait_o  <= qnice_mount_wait;
 
+        -- Latched F9 key. Bit 0 is 1 while the latch is pressed.
+        when C_DEV_KEYS =>
+            qnice_dev_data_o  <= x"000" & "000" & qnice_f9_latched;
+
          when others => null;
       end case;
    end process core_specific_devices;
@@ -796,6 +804,17 @@ begin
       ); -- i_cdc_main2qnice_rst
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
+
+   i_cdc_f9_latch : xpm_cdc_array_single
+      generic map (
+         WIDTH => 1
+      )
+      port map (
+         src_clk     => main_clk_o,
+         src_in(0)   => f9_latched,
+         dest_clk    => qnice_clk_i,
+         dest_out(0) => qnice_f9_latched
+      ); -- i_cdc_f9_latch
 
    i_drive_rom_server : entity work.drive_rom_server
       generic map (

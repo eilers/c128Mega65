@@ -142,6 +142,7 @@ begin
          pause_i              => pause,
          clk_main_speed_i     => CORE_CLK_SPEED,
          osm_control_i        => (others => '0'), -- Follow 40/80 (default decode)
+         f9_latched_o         => open,
          video_ce_o           => open,
          video_ce_ovl_o       => open,
          video_red_o          => open,
