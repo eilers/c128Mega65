@@ -71,14 +71,15 @@ constant C_MENU_HDMI_640_60      : natural := 25;
 constant C_MENU_HDMI_720_5994    : natural := 26;
 constant C_MENU_HDMI_800_60      : natural := 27;
 constant C_MENU_HDMI_FF          : natural := 29;  -- HDMI: Flicker-free
-constant C_MENU_CRT_EMULATION    : natural := 33;
-constant C_MENU_JAILBARS_OFF     : natural := 37;
-constant C_MENU_JAILBARS_LOW     : natural := 38;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 39;
-constant C_MENU_JAILBARS_HIGH    : natural := 40;
-constant C_MENU_EXP_PORT_HW      : natural := 44;  -- Expansion Port: Use hardware slot
-constant C_MENU_IEC              : natural := 45;  -- IEC: Use hardware port
-constant C_MENU_HELP_F13         : natural := 48;  -- OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_HDMI_AUDIO       : natural := 30;  -- HDMI audio (default on); off selects DVI
+constant C_MENU_CRT_EMULATION    : natural := 34;
+constant C_MENU_JAILBARS_OFF     : natural := 38;
+constant C_MENU_JAILBARS_LOW     : natural := 39;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 40;
+constant C_MENU_JAILBARS_HIGH    : natural := 41;
+constant C_MENU_EXP_PORT_HW      : natural := 45;  -- Expansion Port: Use hardware slot
+constant C_MENU_IEC              : natural := 46;  -- IEC: Use hardware port
+constant C_MENU_HELP_F13         : natural := 49;  -- OSM trigger on F13 (Help stays C128 Help)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode

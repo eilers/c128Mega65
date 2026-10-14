@@ -603,7 +603,9 @@ begin
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
-   qnice_dvi_o                <= '0';                                         -- 0=HDMI (with sound), 1=DVI (no sound)
+   -- "HDMI audio" defaults to selected. Clearing it requests a DVI stream:
+   -- video only, no audio packets. The 3.5 mm headphone output is unaffected.
+   qnice_dvi_o                <= not qnice_osm_control_i(C_MENU_HDMI_AUDIO);
    -- Double each line so the VGA connector runs at ~31.3 kHz instead of the
    -- native 40-column and 80-column ~15.6 kHz. HDMI does not use this; the
    -- ascaler retimes its own output. Pulse width and polarity come from
