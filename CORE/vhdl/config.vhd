@@ -285,13 +285,15 @@ constant OPTM_SIZE         : natural := 59;  -- amount of items including empty 
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
 
--- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters)
--- Without submenus: Use OPTM_SIZE as height, otherwise count how large the actually visible main menu is.
+-- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
+-- One height is used for the main menu and every submenu, so this must be the
+-- tallest page, not the main menu. The Audio & Video submenu is 29 rows
+-- (headline through Back to main menu; the "Video: %s" opener is hidden inside
+-- the submenu). The main menu is only 16 rows and will leave empty space below.
+-- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
+-- stay at or below 31.
 constant OPTM_DX           : natural := 23;
--- The screen is CHARS_DY = 33 rows tall and the frame adds two, so this must stay below 32.
--- Visible main-menu rows: Drives block (6) + Video and Keys labels (2) + the separator
--- before External Hardware + that block (5) + Credits + Close Menu = 16.
-constant OPTM_DY           : natural := 16;
+constant OPTM_DY           : natural := 29;
 
 constant OPTM_ITEMS        : string :=
 
