@@ -7,7 +7,7 @@ CORE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT_DIR="$(cd "$CORE_DIR/.." && pwd)"
 
 CORETOOL="${CORETOOL:-/var/home/bazzite/Desktop/m65tools-develo-207-c5bf0c-linux/coretool}"
-BOARDS=(6 5 4 3)
+BOARDS=(6 3 5 4)
 
 # Corefile capabilities and active boot flags (coretool --caps / --flags).
 #
