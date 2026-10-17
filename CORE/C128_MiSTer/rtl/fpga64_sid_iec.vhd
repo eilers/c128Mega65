@@ -65,6 +65,9 @@ port(
    shift_mod   : in  std_logic_vector(1 downto 0) := "11";
    azerty      : in  std_logic := '0';
    cpslk_mode  : in  std_logic;
+   -- MEGA65: Caps Lock / ASCII-DIN sense from outside. '1' = released. The default
+   -- keeps an unconnected build reading released, which is the power-on state.
+   cpslk_sense_i : in std_logic := '1';
    sftlk_sense : out std_logic;
    cpslk_sense : out std_logic;
    d4080_sense : out std_logic;
@@ -1411,9 +1414,9 @@ cpslk_sense <= cpslk_sense_kb;
 
 vic_ko_o <= std_logic_vector(vicKo);
 
--- CAPS LOCK is repurposed as the MEGA65's 40/80 column key (see d4080_sel), so the DIN/ASCII
--- sense line on 8502 port bit 6 always reads "released", matching fpga64_keyboard's power-on state.
-cpslk_sense_kb <= '1';
+-- MEGA65: main.vhd drives this from the real Caps Lock key or from latched F9.
+-- '1' = released, which is what the 8502 reads on port bit 6 at power-on.
+cpslk_sense_kb <= cpslk_sense_i;
 
 -- Keyboard LED / switch feedback and the tape and freeze keys have no MEGA65 equivalent here.
 sftlk_sense <= '0';
