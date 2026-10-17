@@ -1379,11 +1379,7 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
   iec_drives_reset(i) <= (not reset_core_n) or (not vdrives_mounted(i));
 
   -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
-  -- overrides this inside iec_drive (img_hd). A mounted .D71 must be a 1571:
-  -- 1541 DOS never runs the side-1 probe, so a valid D71 shows 0 BLOCKS FREE.
-  -- The latch is only updated by a mount strobe. Clearing it on a short reset
-  -- forgot a mounted D71/D81, and nothing strobes the mount again, so the drive
-  -- came back as the menu's default 1541/1571. A long reset drops the volume
+  -- overrides this inside iec_drive (img_hd). A long reset drops the volume
   -- (vdrives clears drive_mounted), so the remembered type goes with it.
   latch_img_type : process (clk_main_i)
   begin
