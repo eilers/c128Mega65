@@ -381,7 +381,7 @@ signal iec_img_type     : std_logic_vector(1 downto 0);
 signal iec_img_type4    : std_logic_vector(3 downto 0);
 -- vdrives only strobes one shared img_type. Remember it per drive so a D71 on
 -- unit 8 stays a 1571 after unit 9 mounts a D64.
-signal iec_img_type_latched : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);
+signal iec_img_type_latched : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0) := (others => "00");
 
 signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
 signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
@@ -1009,17 +1009,23 @@ audio_right_o <= signed(sid_audio_r(17 downto 2));
 -- Key 72 is the real Caps Lock key and stays down on its own. Key 68 is F9: a
 -- press edge toggles f9_latch. Changing which key has which job clears that latch
 -- so the function that just moved onto F9 starts released.
+--
+-- A short reset (reset_core_n) is the C128's reset button: the latched F9 function
+-- (Caps Lock, or 40/80) must survive it. Only a long press, which is reset_hard_i
+-- (M2M/QNICE reset, also power-on via main_rst), clears that latch.
 capslock_tracker : process(clk_main_i)
    variable v_role : std_logic;
 begin
   if rising_edge(clk_main_i) then
     v_role := osm_control_i(C_MENU_KEYS_ASCII);
-    if reset_core_n = '0' then
+    if reset_hard_i = '1' then
       capslock_engaged_n <= '1';
       f9_prev_n          <= '1';
       f9_seen            <= '0';
       f9_latch           <= '0';
       role_ascii_d       <= '0';
+    elsif reset_core_n = '0' then
+      capslock_engaged_n <= '1';
     else
       if kb_key_num_i = 72 then
         capslock_engaged_n <= kb_key_pressed_n_i;
@@ -1375,10 +1381,14 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
   -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
   -- overrides this inside iec_drive (img_hd). A mounted .D71 must be a 1571:
   -- 1541 DOS never runs the side-1 probe, so a valid D71 shows 0 BLOCKS FREE.
+  -- The latch is only updated by a mount strobe. Clearing it on a short reset
+  -- forgot a mounted D71/D81, and nothing strobes the mount again, so the drive
+  -- came back as the menu's default 1541/1571. A long reset drops the volume
+  -- (vdrives clears drive_mounted), so the remembered type goes with it.
   latch_img_type : process (clk_main_i)
   begin
     if rising_edge(clk_main_i) then
-      if reset_core_n = '0' then
+      if reset_hard_i = '1' then
         iec_img_type_latched(i) <= "00";
       elsif iec_img_mounted(i) = '1' then
         iec_img_type_latched(i) <= iec_img_type;
@@ -1481,6 +1491,7 @@ vdrives_inst : entity work.vdrives
     clk_qnice_i      => clk_sd_i,
     clk_core_i       => clk_main_i,
     reset_core_i     => not reset_core_n,
+    reset_hard_i     => reset_hard_i,
 
     img_mounted_o    => iec_img_mounted,
     img_readonly_o   => iec_img_readonly,
