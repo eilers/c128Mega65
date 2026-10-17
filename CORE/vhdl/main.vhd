@@ -219,7 +219,6 @@ signal vic_r             : unsigned(7 downto 0);
 signal vic_g             : unsigned(7 downto 0);
 signal vic_b             : unsigned(7 downto 0);
 signal vic_pixel_ce      : std_logic;
-signal vic_pixel_ce_d    : std_logic := '0';
 
 signal vic_r_reg         : unsigned(7 downto 0) := (others => '0');
 signal vic_g_reg         : unsigned(7 downto 0) := (others => '0');
@@ -237,7 +236,6 @@ signal vdc_vs_out        : std_logic;
 signal vdc_hblank        : std_logic;
 signal vdc_vblank        : std_logic;
 signal vdc_ce            : std_logic;
-signal vdc_ce_d          : std_logic := '0';
 signal vdc_r_reg         : unsigned(7 downto 0) := (others => '0');
 signal vdc_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vdc_b_reg         : unsigned(7 downto 0) := (others => '0');
@@ -499,7 +497,6 @@ vic_jailbars <= "11" when osm_control_i(C_MENU_JAILBARS_HIGH)   = '1' else
 vic_pixel_sample_proc : process (clk_main_i)
 begin
   if rising_edge(clk_main_i) then
-    vic_pixel_ce_d <= vic_pixel_ce;
     if vic_pixel_ce = '1' then
       vic_r_reg <= vic_r;
       vic_g_reg <= vic_g;
@@ -547,7 +544,6 @@ video_sync_vdc : entity work.video_sync_c128
 vdc_pixel_sample_proc : process (clk_vdc_i)
 begin
   if rising_edge(clk_vdc_i) then
-    vdc_ce_d <= vdc_ce;
     if vdc_ce = '1' then
       vdc_r_reg <= vdc_r;
       vdc_g_reg <= vdc_g;
@@ -574,7 +570,15 @@ end process video_switch_blank_proc;
 
 -- Native-domain mux: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes video_clk to match.
 video_ce_o     <= vdc_ce when sel_vdc = '1' else vic_pixel_ce;
-video_ce_ovl_o <= (vdc_ce or vdc_ce_d) when sel_vdc = '1' else (vic_pixel_ce or vic_pixel_ce_d);
+-- The on-screen menu counts this enable while the scan-doubled data-enable
+-- window is open. That window is one video clock per sample (about 768
+-- clocks for the 40-column picture, the same order for 80 columns), and the
+-- menu is laid out on the 720x540 canvas in globals.vhd. Counting every
+-- clock is what the C64 core does while its scan doubler is on. The previous
+-- enable was only the native pixel strobe stretched to twice that rate,
+-- which is the 15 kHz menu rate: the counter stopped near the middle of the
+-- line and the rest of the menu fell off the right edge.
+video_ce_ovl_o <= '1';
 video_hs_o     <= vdc_hs_out when sel_vdc = '1' else vic_hs_out;
 video_vs_o     <= vdc_vs_out when sel_vdc = '1' else vic_vs_out;
 video_hblank_o <= vdc_hblank when sel_vdc = '1' else vic_hblank;
