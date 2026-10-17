@@ -122,6 +122,9 @@ port (
    clk_qnice_i       : in std_logic;
    clk_core_i        : in std_logic;
    reset_core_i      : in std_logic;
+   -- Long reset (QNICE reset, also power-on). Drops every mounted disk. A short
+   -- core reset must not: the drive stays powered and keeps the disk it has.
+   reset_hard_i      : in std_logic := '0';
 
    ---------------------------------------------------------------------------------------
    -- Core clock domain
@@ -178,12 +181,20 @@ end vdrives;
 architecture beh of vdrives is
 
 signal reset_qnice      : std_logic;
+signal reset_hard_qnice : std_logic;
 
--- QNICE registers for output signals
-signal img_mounted      : std_logic_vector(VDNUM - 1 downto 0);
-signal img_readonly     : std_logic;
-signal img_size         : std_logic_vector(31 downto 0);
-signal img_type         : std_logic_vector(1 downto 0);
+-- QNICE registers for output signals.
+-- img_readonly / img_size / img_type describe the disk that is already in the
+-- drive. A short reset (reset_qnice alone) must not wipe them: that turned a
+-- mounted D81 back into a 1571, with no new mount strobe to correct it. A long
+-- reset (reset_hard_qnice) does wipe them, together with drive_mounted_reg, so
+-- the volume is gone when the menu comes back. The mount strobe itself is
+-- cleared on every core reset so a strobe that was high at that moment cannot
+-- be sampled again as a second mount.
+signal img_mounted      : std_logic_vector(VDNUM - 1 downto 0) := (others => '0');
+signal img_readonly     : std_logic := '0';
+signal img_size         : std_logic_vector(31 downto 0) := (others => '0');
+signal img_type         : std_logic_vector(1 downto 0) := (others => '0');
 
 signal sd_ack           : vd_std_array(VDNUM - 1 downto 0);
 
@@ -272,15 +283,17 @@ begin
 
    i_cdc_main2qnice: xpm_cdc_array_single
       generic map (
-         WIDTH => 1 + VDNUM
+         WIDTH => 2 + VDNUM
       )
       port map (
          src_clk                             => clk_core_i,
          src_in(0)                           => reset_core_i,
          src_in((1 + VDNUM - 1) downto 1)    => drive_mounted_reg,
+         src_in(1 + VDNUM)                   => reset_hard_i,
          dest_clk                            => clk_qnice_i,
          dest_out(0)                         => reset_qnice,
-         dest_out((1 + VDNUM - 1) downto 1)  => drive_mounted_reg_qnice
+         dest_out((1 + VDNUM - 1) downto 1)  => drive_mounted_reg_qnice,
+         dest_out(1 + VDNUM)                 => reset_hard_qnice
       );
 
    -- speed up the QNICE firmware by doing certain calculations in hardware instead of software
@@ -303,27 +316,34 @@ begin
    -- Latches the MiSTer mount strobe into a level used as the drive's "power switch"
    -- (main.vhd holds an unmounted drive in reset so it stays silent on the IEC bus).
    --
-   -- Soft/hard reset of the *computer* must NOT clear this. A real 1581 stays powered
-   -- and keeps its disk across a C128 reset; clearing drive_mounted_reg on reset_core_i
-   -- left the emulated drive permanently in reset after soft reset, so the next
-   -- LOAD"$",8 reported DEVICE NOT PRESENT until the user remounted from the menu.
-   -- Unmount is only the explicit size-zero mount strobe (and power-up, where the
-   -- register starts at 0).
+   -- A short reset of the computer must NOT clear this. A real 1581 stays powered
+   -- and keeps its disk; clearing drive_mounted_reg on reset_core_i left the
+   -- emulated drive permanently in reset, so the next LOAD"$",8 reported
+   -- DEVICE NOT PRESENT until the user remounted from the menu.
+   -- A long reset (reset_hard_i) is a QNICE reset: the menu's file handles are
+   -- gone, so the mounted volume has to go too. While it is held, it wins over
+   -- a mount strobe that has not crossed the clock boundary yet.
+   -- Otherwise unmount is the explicit size-zero mount strobe (and power-up,
+   -- where the register starts at 0).
    handle_drive_mounted : process(clk_core_i)
    begin
       if rising_edge(clk_core_i) then
-         for i in 0 to VDNUM - 1 loop
-            if img_mounted_out(i) = '1' then
-               -- to unmount a drive: strobe img_mounted while having the image size set to zero
-               if img_size_out = x"00000000" then
-                  drive_mounted_reg(i) <= '0';
+         if reset_hard_i = '1' then
+            drive_mounted_reg <= (others => '0');
+         else
+            for i in 0 to VDNUM - 1 loop
+               if img_mounted_out(i) = '1' then
+                  -- to unmount a drive: strobe img_mounted while having the image size set to zero
+                  if img_size_out = x"00000000" then
+                     drive_mounted_reg(i) <= '0';
 
-               -- to mount a drive: strobe img_mounted while having a nonzero image size
-               else
-                  drive_mounted_reg(i) <= '1';
+                  -- to mount a drive: strobe img_mounted while having a nonzero image size
+                  else
+                     drive_mounted_reg(i) <= '1';
+                  end if;
                end if;
-            end if;
-         end loop;
+            end loop;
+         end if;
       end if;
    end process;
 
@@ -332,9 +352,13 @@ begin
       if falling_edge(clk_qnice_i) then
          if reset_qnice = '1' then
             img_mounted             <= (others => '0');
-            img_readonly            <= '0';
-            img_size                <= (others => '0');
-            img_type                <= (others => '0');
+            -- Size, type and read-only stay put across a short reset. A long
+            -- reset drops the volume, so they go back to empty with it.
+            if reset_hard_qnice = '1' then
+               img_readonly         <= '0';
+               img_size             <= (others => '0');
+               img_type             <= (others => '0');
+            end if;
 
             sd_buff_addr            <= (others => '0');
             sd_buff_dout            <= (others => '0');

@@ -53,6 +53,7 @@ architecture sim of tb_vdrive_mount is
    signal clk_qnice    : std_logic := '0';
    signal clk_core     : std_logic := '0';
    signal reset_core_n : std_logic := '0';
+   signal reset_hard   : std_logic := '0';
    signal sim_done     : boolean   := false;
 
    -- vdrives -> core
@@ -186,6 +187,7 @@ begin
          clk_qnice_i      => clk_qnice,
          clk_core_i       => clk_core,
          reset_core_i     => not reset_core_n,
+         reset_hard_i     => reset_hard,
 
          img_mounted_o    => img_mounted,
          img_readonly_o   => img_readonly,
@@ -413,6 +415,7 @@ begin
       -- vdrives window / offset for the T40 header, read back over the QNICE bus
       variable win  : integer;
       variable offs : integer;
+      variable typ  : integer;
 
       procedure qnice_read(addr : integer; variable val : out integer) is
       begin
@@ -487,6 +490,38 @@ begin
          errors <= errors + 1;
       else
          report "PASS: drive_mounted survived soft reset" severity note;
+      end if;
+
+      -- A long reset is the QNICE reset: the menu forgets its file handles, so
+      -- the mounted volume must go too. Both resets are held together, the same
+      -- way the board does it.
+      report "--- hard reset must drop the mounted volume ---" severity note;
+      reset_hard   <= '1';
+      reset_core_n <= '0';
+      for i in 0 to 40 loop
+         wait until rising_edge(clk_core);
+      end loop;
+      reset_hard   <= '0';
+      reset_core_n <= '1';
+      for i in 0 to 40 loop
+         wait until rising_edge(clk_core);
+      end loop;
+      if drive_mounted(0) /= '0' then
+         report "FAIL: hard reset left the drive mounted" severity error;
+         errors <= errors + 1;
+      else
+         report "PASS: hard reset unmounted the drive" severity note;
+      end if;
+      qnice_read(2, win);
+      qnice_read(3, offs);
+      qnice_read(4, typ);
+      if win /= 0 or offs /= 0 or typ /= 0 then
+         report "FAIL: hard reset left image size/type (" &
+            integer'image(offs) & ":" & integer'image(win) & " type " &
+            integer'image(typ) & ")" severity error;
+         errors <= errors + 1;
+      else
+         report "PASS: hard reset cleared image size and type" severity note;
       end if;
 
       if errors = 0 then

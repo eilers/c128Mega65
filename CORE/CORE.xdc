@@ -18,9 +18,9 @@
 ## core path twice plus all the bogus crossings between the two. Pinning the select to 0
 ## leaves only the faster of the two clocks, which is the pessimistic (and therefore safe)
 ## one to close timing on.
-## Watch the implementation log for a "no pins matched" warning on the next line: if
-## synthesis ever renames hr_core_speed_reg[0], the case analysis silently stops applying
-## and STA quietly starts analysing both core clocks again.
+## Watch the implementation log for a "no pins matched" warning on the next line.
+## A renamed hr_core_speed_reg[0] makes the case analysis stop applying, and static
+## timing quietly starts analysing both core clocks again.
 set_case_analysis 0 [get_pins CORE/hr_core_speed_reg[0]/Q]
 create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_c64_orig/CLKOUT0]
 
@@ -31,6 +31,30 @@ create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_c64_orig/CLKO
 ## silently desynchronise the VIC video path from the core.
 # set_property CLOCK_DEDICATED_ROUTE ANY_CMT_COLUMN [get_nets -quiet CORE/main_clk_raw]
 
+## The mux above outputs one clock at a time, but static timing follows both inputs unless
+## the select is pinned. main_clk is 31.528 MHz and vdc_clk_raw is 32.000 MHz, both derived
+## from the 100 MHz board clock, so Vivado treats them as related and the worst alignment
+## it has to close is 0.027 ns. That requirement landed on every flip-flop and line-buffer
+## port downstream of the mux (ascal, the overlay, the HQ2x mixer): about 15,000 endpoints,
+## worst slack -13 ns, total violation -64 us. route_design cannot meet it and spent
+## 1 h 49 min on the R3 bitstream (CPU time 9 h 55 min) before giving up. The same stall
+## is where the R6 route sat until it was killed.
+##
+## Pin the select to I0 (main_clk_raw). That is the VIC/HDMI clock and the slower of the
+## two only by 0.47 ns/period; the intra-clock slack on both clocks is about 10 ns, so
+## timing closed here still covers 80-column mode. Do NOT replace this with
+## set_clock_groups -asynchronous or a blanket set_max_delay between main_clk and
+## vdc_clk_raw: that also cuts the VDC register bus, and it broke the boot when tried.
+##
+## The global clock multiplexer BUFGMUX_CTRL lowers to the primitive clock-control
+## buffer BUFGCTRL. Both select pins sit on the same net (main_video_sel_vdc); S0 is
+## inverted inside the cell and S1 is not. A logical 0 on both pins is "select I0".
+## Pinning only one pin leaves the other select free, and static timing still follows
+## vdc_clk_raw. The constraint parser in this file rejects Tcl control flow, so the
+## pins are pinned directly. A "no pins matched" warning on the next line means the
+## select was renamed and the phantom crossing is back.
+set_case_analysis 0 [get_pins {CORE/i_video_clk_mux/S0 CORE/i_video_clk_mux/S1}]
+
 ## NOTE (investigation): the VDC<->main bus crossing is intentionally left UNCONSTRAINED.
 ## Constraining it (set_clock_groups -asynchronous OR bounded set_max_delay) was tried on HW
 ## and BROKE the boot, so the unconstrained crossing is kept.
@@ -39,8 +63,8 @@ create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_c64_orig/CLKO
 set_property SEVERITY Warning [get_drc_checks AVAL-139]
 
 # Board 100 MHz (clk_i) feeds framework MMCMs + C64 dual-MMCM + VDC MMCM (>3 loads).
-# BACKBONE lets the placer spread them; RTRES-1 may still fire at bitgen if the router
-# does not use backbone wires — demote that check so bring-up bitstreams can be written.
+# BACKBONE lets the placer spread them. RTRES-1 may still fire at bitgen when the router
+# skips backbone wires. Demote that check so bring-up bitstreams can be written.
 set_property CLOCK_DEDICATED_ROUTE BACKBONE [get_nets -quiet clk_i_IBUF]
 set_property SEVERITY Warning [get_drc_checks RTRES-1]
 

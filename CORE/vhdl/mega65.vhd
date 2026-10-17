@@ -309,6 +309,9 @@ signal qnice_drv_rom_req     : std_logic;
 signal qnice_drv_rom_addr    : std_logic_vector(18 downto 0);
 signal qnice_drv_rom_wr      : std_logic := '0';
 signal qnice_core_rst        : std_logic;
+-- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
+signal f9_latched            : std_logic;
+signal qnice_f9_latched      : std_logic;
 
 begin
 
@@ -423,9 +426,9 @@ begin
       end if;
    end process p_core_speed;
 
-   -- Power LED: solid on.
+   -- Power LED stays on. Green means the latched F9 key is released, yellow means it is pressed.
    main_power_led_o     <= '1';
-   main_power_led_col_o <= x"00FF00";
+   main_power_led_col_o <= x"FFFF00" when f9_latched = '1' else x"00FF00";
 
    -- main.vhd contains the actual MiSTer core
    i_main : entity work.main
@@ -443,6 +446,7 @@ begin
 
          clk_main_speed_i     => CORE_CLK_SPEED,
          osm_control_i        => main_osm_control_i,
+         f9_latched_o         => f9_latched,
 
          -- Video output (domain follows video_select_vdc_o / BUFGMUX above)
          video_ce_o           => video_ce_o,
@@ -603,20 +607,24 @@ begin
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
-   qnice_dvi_o                <= '0';                                         -- 0=HDMI (with sound), 1=DVI (no sound)
-   qnice_scandoubler_o        <= '0';                                         -- no scandoubler
+   -- "HDMI audio" defaults to selected. Clearing it requests a DVI stream:
+   -- video only, no audio packets. The 3.5 mm headphone output is unaffected.
+   qnice_dvi_o                <= not qnice_osm_control_i(C_MENU_HDMI_AUDIO);
+   -- Double each line so the VGA connector runs at ~31.3 kHz instead of the
+   -- native 40-column and 80-column ~15.6 kHz. HDMI does not use this; the
+   -- ascaler retimes its own output. Pulse width and polarity come from
+   -- VGA_STD_SYNC.
+   qnice_scandoubler_o        <= '1';
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
    -- Audio filtering and HDMI zoom/crop are not offered in the menu yet, see doc/KNOWN_BUGS.md
    qnice_audio_filter_o       <= '0';                                         -- 0 = raw audio, 1 = use filters from globals.vhd
    qnice_zoom_crop_o          <= '0';                                         -- 0 = no zoom/crop
    qnice_hdmi_view_size_o     <= (others => '0');                             -- use the first cropped-view size
 
-   -- These two signals are often used as a pair (i.e. both '1'), particularly when
-   -- you want to run old analog cathode ray tube monitors or TVs (via SCART)
-   -- If you want to provide your users a choice, then a good choice is:
-   --    "Standard VGA":                     qnice_retro15kHz_o=0 and qnice_csync_o=0
-   --    "Retro 15 kHz with HSync and VSync" qnice_retro15kHz_o=1 and qnice_csync_o=0
-   --    "Retro 15 kHz with CSync"           qnice_retro15kHz_o=1 and qnice_csync_o=1
+   -- Standard VGA: separate horizontal and vertical sync, and the on-screen
+   -- menu uses the scandoubled line count. retro 15 kHz would bypass the
+   -- sync reshaper and tell the menu that each line is still the original
+   -- television line. Composite sync is for SCART, not for a VGA monitor.
    qnice_retro15kHz_o         <= '0';
    qnice_csync_o              <= '0';
    qnice_osm_cfg_scaling_o    <= (others => '1');
@@ -693,6 +701,10 @@ begin
             qnice_mount_we    <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_mount_data;
             qnice_dev_wait_o  <= qnice_mount_wait;
+
+        -- Latched F9 key. Bit 0 is 1 while the latch is pressed.
+        when C_DEV_KEYS =>
+            qnice_dev_data_o  <= x"000" & "000" & qnice_f9_latched;
 
          when others => null;
       end case;
@@ -792,6 +804,17 @@ begin
       ); -- i_cdc_main2qnice_rst
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
+
+   i_cdc_f9_latch : xpm_cdc_array_single
+      generic map (
+         WIDTH => 1
+      )
+      port map (
+         src_clk     => main_clk_o,
+         src_in(0)   => f9_latched,
+         dest_clk    => qnice_clk_i,
+         dest_out(0) => qnice_f9_latched
+      ); -- i_cdc_f9_latch
 
    i_drive_rom_server : entity work.drive_rom_server
       generic map (

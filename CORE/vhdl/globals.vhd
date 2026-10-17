@@ -60,9 +60,9 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 
 constant C_MENU_DRV_1541         : natural := 7;   -- 5.25" drive model: 1541
 constant C_MENU_DRV_1571         : natural := 8;   -- 5.25" drive model: 1571
-constant C_MENU_VIDEO_FOLLOW     : natural := 14;  -- Video Out: Follow 40/80
-constant C_MENU_VIDEO_VIC        : natural := 15;  -- Video Out: VIC
-constant C_MENU_VIDEO_VDC        : natural := 16;  -- Video Out: VDC
+constant C_MENU_VIDEO_FOLLOW     : natural := 15;  -- Video Out: Follow 40/80
+constant C_MENU_VIDEO_VIC        : natural := 16;  -- Video Out: VIC
+constant C_MENU_VIDEO_VDC        : natural := 17;  -- Video Out: VDC
 constant C_MENU_HDMI_720p_50     : natural := 21;
 constant C_MENU_HDMI_720p_60     : natural := 22;
 constant C_MENU_HDMI_576p_50     : natural := 23;
@@ -71,14 +71,17 @@ constant C_MENU_HDMI_640_60      : natural := 25;
 constant C_MENU_HDMI_720_5994    : natural := 26;
 constant C_MENU_HDMI_800_60      : natural := 27;
 constant C_MENU_HDMI_FF          : natural := 29;  -- HDMI: Flicker-free
-constant C_MENU_CRT_EMULATION    : natural := 33;
-constant C_MENU_JAILBARS_OFF     : natural := 37;
-constant C_MENU_JAILBARS_LOW     : natural := 38;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 39;
-constant C_MENU_JAILBARS_HIGH    : natural := 40;
-constant C_MENU_EXP_PORT_HW      : natural := 44;  -- Expansion Port: Use hardware slot
-constant C_MENU_IEC              : natural := 45;  -- IEC: Use hardware port
+constant C_MENU_HDMI_AUDIO       : natural := 30;  -- HDMI audio (default on); off selects DVI
+constant C_MENU_CRT_EMULATION    : natural := 32;
+constant C_MENU_JAILBARS_OFF     : natural := 36;
+constant C_MENU_JAILBARS_LOW     : natural := 37;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 38;
+constant C_MENU_JAILBARS_HIGH    : natural := 39;
+constant C_MENU_KEYS_4080        : natural := 45;  -- real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 46;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
 constant C_MENU_HELP_F13         : natural := 48;  -- OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_EXP_PORT_HW      : natural := 54;  -- Expansion Port: Use hardware slot
+constant C_MENU_IEC              : natural := 55;  -- IEC: Use hardware port
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -95,14 +98,17 @@ constant C_MENU_HELP_F13         : natural := 48;  -- OSM trigger on F13 (Help s
 constant VGA_DX               : natural := 720;
 constant VGA_DY               : natural := 540;
 
--- Optional analog VGA Standard-mode sync reshaping.
--- Keep this OFF unless the core's scandoubled timing needs different sync
--- pulse widths or polarities for reliable PC-VGA monitor classification.
--- Example using the canonical 640x480@60 pulse profile when video_clk equals
--- CORE_CLK_SPEED:
--- constant VGA_STD_SYNC : vga_sync_reshaper_cfg_t :=
---    make_vga_sync_reshaper_cfg(C_VGA_SYNC_DMT_640X480_60, CORE_CLK_SPEED);
-constant VGA_STD_SYNC         : vga_sync_reshaper_cfg_t := C_VGA_SYNC_RESHAPER_OFF;
+-- Analog VGA sync pulse profile for the scandoubled raster.
+-- The scandoubler doubles the native ~15.6 kHz line to ~31.3 kHz and leaves
+-- the ~50 Hz frame rate unchanged. This profile does not change either period.
+-- It only replaces the pulse width and polarity with the standard 640x480
+-- values (about 3.8 microseconds, negative sync) so a PC monitor will
+-- classify the mode.
+-- The width is counted in CORE_CLK_SPEED clocks, which is the 40-column
+-- video clock. The 80-column video clock is 32 MHz; that 1.5% difference
+-- is about one clock of pulse width and stays inside a monitor's tolerance.
+constant VGA_STD_SYNC         : vga_sync_reshaper_cfg_t :=
+   make_vga_sync_reshaper_cfg(C_VGA_SYNC_DMT_640X480_60, CORE_CLK_SPEED);
 
 -- Optional digital HDMI output fitting. UNCROPPED is selected while the
 -- core's qnice_zoom_crop_o signal is low; CROPPED is selected while it is
@@ -142,6 +148,7 @@ constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boo
 constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
 constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- disk image of drive 8, staged in HyperRAM
 constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- disk image of drive 9, staged in HyperRAM
+constant C_DEV_KEYS           : std_logic_vector(15 downto 0) := x"0106"; -- latched F9 state: bit 0 = 1 when pressed
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)

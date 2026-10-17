@@ -37,6 +37,9 @@ entity main is
       -- Help-menu selections (main clock domain; bit index = OPTM_ITEMS line)
       osm_control_i           : in  std_logic_vector(255 downto 0);
 
+      -- Latched F9 key: '1' = pressed. Drives the power LED color and the menu title.
+      f9_latched_o            : out std_logic;
+
       -- Video output (synchronous to VIC or VDC clock; see video_select_vdc_o)
       video_ce_o              : out std_logic;
       video_ce_ovl_o          : out std_logic;
@@ -256,9 +259,17 @@ signal cia1_pb_in            : std_logic_vector(7 downto 0);
 signal cia1_pb_out           : std_logic_vector(7 downto 0);
 signal vic_ko_s              : std_logic_vector(2 downto 0);
 signal capslock_engaged_n    : std_logic := '1';
+-- F9 (matrix index 68) is momentary, so its function is a toggle. '0' = released.
+signal f9_prev_n             : std_logic := '1';
+signal f9_seen               : std_logic := '0';
+signal f9_latch              : std_logic := '0';
+signal role_ascii_d          : std_logic := '0';
 
--- Caps Lock (MEGA65 key 72) drives the C128 40/80-column sense line as a level.
+-- 40/80 column sense and the Caps Lock / ASCII-DIN sense. Both are active-low:
+-- '1' = released (40 columns, or Caps Lock released). Which physical key drives
+-- which sense is chosen by the Keys menu.
 signal d4080_sel_s       : std_logic := '1';
+signal cpslk_sense_s     : std_logic := '1';
 -- RESTORE (key 75) -> NMI: latched on the RESTORE key edge, cleared by nmi_ack.
 signal restore_key_s     : std_logic := '0';
 signal restore_key_d     : std_logic := '0';
@@ -370,7 +381,7 @@ signal iec_img_type     : std_logic_vector(1 downto 0);
 signal iec_img_type4    : std_logic_vector(3 downto 0);
 -- vdrives only strobes one shared img_type. Remember it per drive so a D71 on
 -- unit 8 stays a 1571 after unit 9 mounts a D64.
-signal iec_img_type_latched : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);
+signal iec_img_type_latched : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0) := (others => "00");
 
 signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
 signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
@@ -471,7 +482,7 @@ drive_led_policy_inst : entity work.drive_led_policy
 
 --------------------------------------------------------------------------------------------------
 -- Video Out select (MiSTer status[106:105] / auto_config): Follow 40/80, force VIC, force VDC.
--- Follow uses Caps Lock -> d4080_sel ('1'=40-col/VIC, '0'=80-col/VDC).
+-- Follow uses the 40/80 sense ('1'=40-col/VIC, '0'=80-col/VDC).
 --------------------------------------------------------------------------------------------------
 sel_vdc <= '1' when osm_control_i(C_MENU_VIDEO_VDC) = '1' else
            '0' when osm_control_i(C_MENU_VIDEO_VIC) = '1' else
@@ -995,19 +1006,54 @@ audio_right_o <= signed(sid_audio_r(17 downto 2));
 --------------------------------------------------------------------------------------------------
 -- Keyboard: direct MEGA65 matrix emulation (same approach as C64 MEGA65 core).
 --------------------------------------------------------------------------------------------------
+-- Key 72 is the real Caps Lock key and stays down on its own. Key 68 is F9: a
+-- press edge toggles f9_latch. Changing which key has which job clears that latch
+-- so the function that just moved onto F9 starts released.
+--
+-- A short reset (reset_core_n) is the C128's reset button: the latched F9 function
+-- (Caps Lock, or 40/80) must survive it. Only a long press, which is reset_hard_i
+-- (M2M/QNICE reset, also power-on via main_rst), clears that latch.
 capslock_tracker : process(clk_main_i)
+   variable v_role : std_logic;
 begin
   if rising_edge(clk_main_i) then
-    if reset_core_n = '0' then
+    v_role := osm_control_i(C_MENU_KEYS_ASCII);
+    if reset_hard_i = '1' then
       capslock_engaged_n <= '1';
-    elsif kb_key_num_i = 72 then
-      capslock_engaged_n <= kb_key_pressed_n_i;
+      f9_prev_n          <= '1';
+      f9_seen            <= '0';
+      f9_latch           <= '0';
+      role_ascii_d       <= '0';
+    elsif reset_core_n = '0' then
+      capslock_engaged_n <= '1';
+    else
+      if kb_key_num_i = 72 then
+        capslock_engaged_n <= kb_key_pressed_n_i;
+      end if;
+      if kb_key_num_i = 68 then
+        -- The first sample after reset only records the level, so a key that
+        -- is still held does not count as a new press.
+        if f9_seen = '1' and kb_key_pressed_n_i = '0' and f9_prev_n = '1'
+           and v_role = role_ascii_d then
+          f9_latch <= not f9_latch;
+        end if;
+        f9_prev_n <= kb_key_pressed_n_i;
+        f9_seen   <= '1';
+      end if;
+      if v_role /= role_ascii_d then
+        f9_latch <= '0';
+      end if;
+      role_ascii_d <= v_role;
     end if;
   end if;
 end process;
 
--- capslock_engaged_n is the raw low-active scan level: released = '1' = 40 col (power-on default).
-d4080_sel_s <= capslock_engaged_n;
+f9_latched_o <= f9_latch;
+
+-- Default (ASCII/DIN menu bit clear): real Caps Lock is 40/80, F9 is Caps Lock.
+-- The other choice swaps them. A pressed key reads as '0' on the sense line.
+d4080_sel_s   <= capslock_engaged_n when osm_control_i(C_MENU_KEYS_ASCII) = '0' else not f9_latch;
+cpslk_sense_s <= not f9_latch       when osm_control_i(C_MENU_KEYS_ASCII) = '0' else capslock_engaged_n;
 
 keyboard_inst : entity work.keyboard
   port map (
@@ -1094,6 +1140,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vic_ko_o      => vic_ko_s,
 
       cpslk_mode    => '0',
+      cpslk_sense_i => cpslk_sense_s,
       sftlk_sense   => open,
       cpslk_sense   => open,
       d4080_sense   => open,
@@ -1257,7 +1304,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       sys256k       => '0', -- We have 128k memory
       force64       => '0',
       pure64        => '0',
-      d4080_sel     => d4080_sel_s, -- Caps Lock acts as the 40/80-column key (see d4080_sel_s)
+      d4080_sel     => d4080_sel_s, -- 40/80 sense: real Caps Lock, or latched F9 (see d4080_sel_s)
       c128_n        => core_c128_n,
       z80_n           => core_z80_n,
       z80_we_o        => open,
@@ -1334,10 +1381,14 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
   -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
   -- overrides this inside iec_drive (img_hd). A mounted .D71 must be a 1571:
   -- 1541 DOS never runs the side-1 probe, so a valid D71 shows 0 BLOCKS FREE.
+  -- The latch is only updated by a mount strobe. Clearing it on a short reset
+  -- forgot a mounted D71/D81, and nothing strobes the mount again, so the drive
+  -- came back as the menu's default 1541/1571. A long reset drops the volume
+  -- (vdrives clears drive_mounted), so the remembered type goes with it.
   latch_img_type : process (clk_main_i)
   begin
     if rising_edge(clk_main_i) then
-      if reset_core_n = '0' then
+      if reset_hard_i = '1' then
         iec_img_type_latched(i) <= "00";
       elsif iec_img_mounted(i) = '1' then
         iec_img_type_latched(i) <= iec_img_type;
@@ -1440,6 +1491,7 @@ vdrives_inst : entity work.vdrives
     clk_qnice_i      => clk_sd_i,
     clk_core_i       => clk_main_i,
     reset_core_i     => not reset_core_n,
+    reset_hard_i     => reset_hard_i,
 
     img_mounted_o    => iec_img_mounted,
     img_readonly_o   => iec_img_readonly,
