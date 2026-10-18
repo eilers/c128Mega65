@@ -40,9 +40,8 @@ entity main is
       -- Latched F9 key: '1' = pressed. Drives the power LED color and the menu title.
       f9_latched_o            : out std_logic;
 
-      -- Video output (synchronous to VIC or VDC clock; see video_select_vdc_o)
+      -- HDMI video stream (synchronous to VIC or VDC clock; see video_select_vdc_o)
       video_ce_o              : out std_logic;
-      video_ce_ovl_o          : out std_logic;
       video_red_o             : out std_logic_vector(7 downto 0);
       video_green_o           : out std_logic_vector(7 downto 0);
       video_blue_o            : out std_logic_vector(7 downto 0);
@@ -52,6 +51,18 @@ entity main is
       video_vblank_o          : out std_logic;
       -- '1' = HDMI shows VDC (video_* on clk_vdc); '0' = VIC (video_* on clk_main)
       video_select_vdc_o      : out std_logic;
+
+      -- VGA video stream, same rules (see vga_video_select_vdc_o)
+      vga_video_ce_o          : out std_logic;
+      vga_video_ce_ovl_o      : out std_logic;
+      vga_video_red_o         : out std_logic_vector(7 downto 0);
+      vga_video_green_o       : out std_logic_vector(7 downto 0);
+      vga_video_blue_o        : out std_logic_vector(7 downto 0);
+      vga_video_vs_o          : out std_logic;
+      vga_video_hs_o          : out std_logic;
+      vga_video_hblank_o      : out std_logic;
+      vga_video_vblank_o      : out std_logic;
+      vga_video_select_vdc_o  : out std_logic;
 
       -- Audio output (Signed PCM)
       audio_left_o            : out signed(15 downto 0);
@@ -242,11 +253,15 @@ signal vdc_r_reg        : unsigned(7 downto 0) := (others => '0');
 signal vdc_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vdc_b_reg         : unsigned(7 downto 0) := (others => '0');
 
-signal sel_vdc           : std_logic := '0';
+signal hdmi_sel_vdc      : std_logic := '0';
+signal vga_sel_vdc       : std_logic := '0';
 signal vga_retro15khz    : std_logic;
-signal sel_vdc_d        : std_logic := '0';
-signal video_switching   : std_logic := '0';
-signal video_switch_cnt  : natural range 0 to 65535 := 0;
+signal hdmi_sel_vdc_d    : std_logic := '0';
+signal vga_sel_vdc_d     : std_logic := '0';
+signal hdmi_switching    : std_logic := '0';
+signal vga_switching     : std_logic := '0';
+signal hdmi_switch_cnt   : natural range 0 to 65535 := 0;
+signal vga_switch_cnt    : natural range 0 to 65535 := 0;
 signal vic_jailbars      : std_logic_vector(1 downto 0) := "00";
 signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiSTer z80_n port)
 signal core_c128_n       : std_logic;
@@ -482,14 +497,20 @@ drive_led_policy_inst : entity work.drive_led_policy
    );
 
 --------------------------------------------------------------------------------------------------
--- Video Out select (MiSTer status[106:105] / auto_config): Follow 40/80, force VIC, force VDC.
--- Follow uses the 40/80 sense ('1'=40-col/VIC, '0'=80-col/VDC).
+-- Video Output: which chip each port shows. Follow (the default) uses the 40/80 sense
+-- ('1'=40-col/VIC, '0'=80-col/VDC); Swap puts that chip on HDMI and the other one on VGA.
 --------------------------------------------------------------------------------------------------
-sel_vdc <= '1' when osm_control_i(C_MENU_VIDEO_VDC) = '1' else
-           '0' when osm_control_i(C_MENU_VIDEO_VIC) = '1' else
-           not d4080_sel_s;
+hdmi_sel_vdc <= '1' when osm_control_i(C_MENU_VIDEO_80) = '1' or osm_control_i(C_MENU_VIDEO_H80_V40) = '1' else
+                '0' when osm_control_i(C_MENU_VIDEO_40) = '1' or osm_control_i(C_MENU_VIDEO_H40_V80) = '1' else
+                not d4080_sel_s;
 
-video_select_vdc_o <= sel_vdc;
+vga_sel_vdc  <= '1' when osm_control_i(C_MENU_VIDEO_80) = '1' or osm_control_i(C_MENU_VIDEO_H40_V80) = '1' else
+                '0' when osm_control_i(C_MENU_VIDEO_40) = '1' or osm_control_i(C_MENU_VIDEO_H80_V40) = '1' else
+                d4080_sel_s when osm_control_i(C_MENU_VIDEO_SWAP) = '1' else
+                not d4080_sel_s;
+
+video_select_vdc_o     <= hdmi_sel_vdc;
+vga_video_select_vdc_o <= vga_sel_vdc;
 
 vic_jailbars <= "11" when osm_control_i(C_MENU_JAILBARS_HIGH)   = '1' else
                 "10" when osm_control_i(C_MENU_JAILBARS_MEDIUM) = '1' else
@@ -557,24 +578,46 @@ begin
   end if;
 end process vdc_pixel_sample_proc;
 
--- Blank briefly when HDMI source changes (video_clk BUFGMUX switches with sel_vdc).
+-- Blank a port briefly when its source changes (its video clock BUFGMUX switches with it).
 video_switch_blank_proc : process (clk_main_i)
 begin
   if rising_edge(clk_main_i) then
-    sel_vdc_d <= sel_vdc;
-    if sel_vdc /= sel_vdc_d then
-      video_switching  <= '1';
-      video_switch_cnt <= 65535;
-    elsif video_switch_cnt /= 0 then
-      video_switch_cnt <= video_switch_cnt - 1;
+    hdmi_sel_vdc_d <= hdmi_sel_vdc;
+    if hdmi_sel_vdc /= hdmi_sel_vdc_d then
+      hdmi_switching  <= '1';
+      hdmi_switch_cnt <= 65535;
+    elsif hdmi_switch_cnt /= 0 then
+      hdmi_switch_cnt <= hdmi_switch_cnt - 1;
     else
-      video_switching <= '0';
+      hdmi_switching <= '0';
+    end if;
+
+    vga_sel_vdc_d <= vga_sel_vdc;
+    if vga_sel_vdc /= vga_sel_vdc_d then
+      vga_switching  <= '1';
+      vga_switch_cnt <= 65535;
+    elsif vga_switch_cnt /= 0 then
+      vga_switch_cnt <= vga_switch_cnt - 1;
+    else
+      vga_switching <= '0';
     end if;
   end if;
 end process video_switch_blank_proc;
 
--- Native-domain mux: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes video_clk to match.
-video_ce_o     <= vdc_dot_ce when sel_vdc = '1' else vic_pixel_ce;
+-- Native-domain muxes: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes each port's clock to match.
+video_ce_o     <= vdc_dot_ce when hdmi_sel_vdc = '1' else vic_pixel_ce;
+video_hs_o     <= vdc_hs_out when hdmi_sel_vdc = '1' else vic_hs_out;
+video_vs_o     <= vdc_vs_out when hdmi_sel_vdc = '1' else vic_vs_out;
+video_hblank_o <= vdc_hblank when hdmi_sel_vdc = '1' else vic_hblank;
+video_vblank_o <= vdc_vblank when hdmi_sel_vdc = '1' else vic_vblank;
+video_red_o    <= (others => '0') when hdmi_switching = '1' else
+                  std_logic_vector(vdc_r_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_r_reg);
+video_green_o  <= (others => '0') when hdmi_switching = '1' else
+                  std_logic_vector(vdc_g_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_g_reg);
+video_blue_o   <= (others => '0') when hdmi_switching = '1' else
+                  std_logic_vector(vdc_b_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_b_reg);
+
+vga_video_ce_o <= vdc_dot_ce when vga_sel_vdc = '1' else vic_pixel_ce;
 -- The on-screen menu counts this enable while the data-enable window is open
 -- and lays the menu out on the 720x540 canvas in globals.vhd. It also
 -- samples the VGA picture and syncs on it. Same rule as the C64 core:
@@ -584,20 +627,20 @@ video_ce_o     <= vdc_dot_ce when sel_vdc = '1' else vic_pixel_ce;
 --   clock. Without the scan doubler the mixer updates the picture at most every
 --   other clock, so this still samples every pixel, and the even spacing keeps
 --   the menu's font columns the same width.
-vga_retro15khz <= osm_control_i(C_MENU_VGA_15KHZHSVS) or osm_control_i(C_MENU_VGA_15KHZCS);
-video_ce_ovl_o <= '1'          when vga_retro15khz = '0' else
-                  vdc_dot_ce   when sel_vdc = '1'        else
-                  vic_ovl_half;
-video_hs_o     <= vdc_hs_out when sel_vdc = '1' else vic_hs_out;
-video_vs_o     <= vdc_vs_out when sel_vdc = '1' else vic_vs_out;
-video_hblank_o <= vdc_hblank when sel_vdc = '1' else vic_hblank;
-video_vblank_o <= vdc_vblank when sel_vdc = '1' else vic_vblank;
-video_red_o    <= (others => '0') when video_switching = '1' else
-                  std_logic_vector(vdc_r_reg) when sel_vdc = '1' else std_logic_vector(vic_r_reg);
-video_green_o  <= (others => '0') when video_switching = '1' else
-                  std_logic_vector(vdc_g_reg) when sel_vdc = '1' else std_logic_vector(vic_g_reg);
-video_blue_o   <= (others => '0') when video_switching = '1' else
-                  std_logic_vector(vdc_b_reg) when sel_vdc = '1' else std_logic_vector(vic_b_reg);
+vga_retro15khz     <= osm_control_i(C_MENU_VGA_15KHZHSVS) or osm_control_i(C_MENU_VGA_15KHZCS);
+vga_video_ce_ovl_o <= '1'          when vga_retro15khz = '0' else
+                      vdc_dot_ce   when vga_sel_vdc = '1'    else
+                      vic_ovl_half;
+vga_video_hs_o     <= vdc_hs_out when vga_sel_vdc = '1' else vic_hs_out;
+vga_video_vs_o     <= vdc_vs_out when vga_sel_vdc = '1' else vic_vs_out;
+vga_video_hblank_o <= vdc_hblank when vga_sel_vdc = '1' else vic_hblank;
+vga_video_vblank_o <= vdc_vblank when vga_sel_vdc = '1' else vic_vblank;
+vga_video_red_o    <= (others => '0') when vga_switching = '1' else
+                      std_logic_vector(vdc_r_reg) when vga_sel_vdc = '1' else std_logic_vector(vic_r_reg);
+vga_video_green_o  <= (others => '0') when vga_switching = '1' else
+                      std_logic_vector(vdc_g_reg) when vga_sel_vdc = '1' else std_logic_vector(vic_g_reg);
+vga_video_blue_o   <= (others => '0') when vga_switching = '1' else
+                      std_logic_vector(vdc_b_reg) when vga_sel_vdc = '1' else std_logic_vector(vic_b_reg);
 --------------------------------------------------------------------------------------------------
 -- Expansion Port (aka Cartridge Port): real cartridges in the MEGA65's slot
 --------------------------------------------------------------------------------------------------

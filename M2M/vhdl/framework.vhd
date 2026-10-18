@@ -122,10 +122,9 @@ port (
    main_qnice_gp_reg_o     : out   std_logic_vector(255 downto 0);
    main_audio_l_i          : in    signed(15 downto 0);
    main_audio_r_i          : in    signed(15 downto 0);
-   video_clk_i             : in    std_logic;
+   video_clk_i             : in    std_logic;   -- video_*: HDMI stream
    video_rst_i             : in    std_logic;
    video_ce_i              : in    std_logic;
-   video_ce_ovl_i          : in    std_logic;
    video_red_i             : in    std_logic_vector(7 downto 0);
    video_green_i           : in    std_logic_vector(7 downto 0);
    video_blue_i            : in    std_logic_vector(7 downto 0);
@@ -133,6 +132,17 @@ port (
    video_hs_i              : in    std_logic;
    video_hblank_i          : in    std_logic;
    video_vblank_i          : in    std_logic;
+   vga_video_clk_i         : in    std_logic;   -- vga_video_*: VGA stream
+   vga_video_rst_i         : in    std_logic;
+   vga_video_ce_i          : in    std_logic;
+   vga_video_ce_ovl_i      : in    std_logic;
+   vga_video_red_i         : in    std_logic_vector(7 downto 0);
+   vga_video_green_i       : in    std_logic_vector(7 downto 0);
+   vga_video_blue_i        : in    std_logic_vector(7 downto 0);
+   vga_video_vs_i          : in    std_logic;
+   vga_video_hs_i          : in    std_logic;
+   vga_video_hblank_i      : in    std_logic;
+   vga_video_vblank_i      : in    std_logic;
    main_joy1_up_n_o        : out   std_logic;
    main_joy1_down_n_o      : out   std_logic;
    main_joy1_left_n_o      : out   std_logic;
@@ -882,7 +892,6 @@ begin
          video_clk_i             => video_clk_i,
          video_rst_i             => video_rst_i,
          video_ce_i              => video_ce_i,
-         video_ce_ovl_i          => video_ce_ovl_i,
          video_red_i             => video_red_i,
          video_green_i           => video_green_i,
          video_blue_i            => video_blue_i,
@@ -890,6 +899,17 @@ begin
          video_hs_i              => video_hs_i,
          video_hblank_i          => video_hblank_i,
          video_vblank_i          => video_vblank_i,
+         vga_video_clk_i         => vga_video_clk_i,
+         vga_video_rst_i         => vga_video_rst_i,
+         vga_video_ce_i          => vga_video_ce_i,
+         vga_video_ce_ovl_i      => vga_video_ce_ovl_i,
+         vga_video_red_i         => vga_video_red_i,
+         vga_video_green_i       => vga_video_green_i,
+         vga_video_blue_i        => vga_video_blue_i,
+         vga_video_vs_i          => vga_video_vs_i,
+         vga_video_hs_i          => vga_video_hs_i,
+         vga_video_hblank_i      => vga_video_hblank_i,
+         vga_video_vblank_i      => vga_video_vblank_i,
          audio_clk_i             => audio_clk,
          audio_rst_i             => audio_rst,
          audio_left_i            => audio_left,

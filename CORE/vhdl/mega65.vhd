@@ -91,10 +91,10 @@ port (
    -- Video Clock Domain
    --------------------------------------------------------------------------------------------------------
 
+   -- HDMI stream
    video_clk_o             : out std_logic;
    video_rst_o             : out std_logic;
    video_ce_o              : out std_logic;
-   video_ce_ovl_o          : out std_logic;
    video_red_o             : out std_logic_vector(7 downto 0);
    video_green_o           : out std_logic_vector(7 downto 0);
    video_blue_o            : out std_logic_vector(7 downto 0);
@@ -102,6 +102,19 @@ port (
    video_hs_o              : out std_logic;
    video_hblank_o          : out std_logic;
    video_vblank_o          : out std_logic;
+
+   -- VGA stream: its own clock, so VGA can show the other chip
+   vga_video_clk_o         : out std_logic;
+   vga_video_rst_o         : out std_logic;
+   vga_video_ce_o          : out std_logic;
+   vga_video_ce_ovl_o      : out std_logic;
+   vga_video_red_o         : out std_logic_vector(7 downto 0);
+   vga_video_green_o       : out std_logic_vector(7 downto 0);
+   vga_video_blue_o        : out std_logic_vector(7 downto 0);
+   vga_video_vs_o          : out std_logic;
+   vga_video_hs_o          : out std_logic;
+   vga_video_hblank_o      : out std_logic;
+   vga_video_vblank_o      : out std_logic;
 
    --------------------------------------------------------------------------------------------------------
    -- Core Clock Domain
@@ -236,13 +249,14 @@ signal main_clk_raw        : std_logic;
 signal vdc_clk_locked      : std_logic;
 signal vdc_rst             : std_logic;
 signal main_video_sel_vdc  : std_logic;
+signal main_vga_sel_vdc    : std_logic;
 signal video_clk_sel       : std_logic;
 
 -- Power-on default is the original PAL speed; the process below has no reset, so the
 -- initial value also keeps the clock mux select defined in simulation.
 signal hr_core_speed : unsigned(1 downto 0) := "00"; -- see clock.vhd for details
 signal hr_hdmi_ff          : std_logic;      -- "HDMI: Flicker-free" menu bit, synced to hr_clk
-signal hr_video_sel_vdc    : std_logic;      -- VDC is the displayed source, synced to hr_clk
+signal hr_video_sel_vdc    : std_logic;      -- HDMI shows the VDC, synced to hr_clk
 
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
@@ -384,6 +398,17 @@ begin
 
    video_rst_o <= vdc_rst when main_video_sel_vdc = '1' else main_rst_o;
 
+   -- VGA vga_video_clk: the same mux again, so VGA can show the other chip than HDMI.
+   i_vga_clk_mux: bufgmux_ctrl
+      port map (
+         i0 => main_clk_raw,
+         i1 => vdc_clk_raw,
+         s  => main_vga_sel_vdc,
+         o  => vga_video_clk_o
+      );
+
+   vga_video_rst_o <= vdc_rst when main_vga_sel_vdc = '1' else main_rst_o;
+
    ---------------------------------------------------------------------------------------------
    -- hr_clk (HyperRAM clock): "HDMI: Flicker-free"
    ---------------------------------------------------------------------------------------------
@@ -409,8 +434,8 @@ begin
    -- "embrace" 50 Hz (see clk.vhd). On average the core then runs at exactly 50 Hz.
    --
    -- Only the VIC benefits: the VDC has its own 32 MHz MMCM that is not part of the switch,
-   -- so while the VDC is the displayed source we keep the core at full speed instead of
-   -- slowing it down without gaining anything.
+   -- so while HDMI shows the VDC we keep the core at full speed instead of slowing it down
+   -- without gaining anything. VGA has no frame buffer and does not care.
    p_core_speed : process (hr_clk_i)
    begin
       if rising_edge(hr_clk_i) then
@@ -448,9 +473,8 @@ begin
          osm_control_i        => main_osm_control_i,
          f9_latched_o         => f9_latched,
 
-         -- Video output (domain follows video_select_vdc_o / BUFGMUX above)
+         -- HDMI video output (domain follows video_select_vdc_o / BUFGMUX above)
          video_ce_o           => video_ce_o,
-         video_ce_ovl_o       => video_ce_ovl_o,
          video_red_o          => video_red_o,
          video_green_o        => video_green_o,
          video_blue_o         => video_blue_o,
@@ -459,6 +483,18 @@ begin
          video_hblank_o       => video_hblank_o,
          video_vblank_o       => video_vblank_o,
          video_select_vdc_o   => main_video_sel_vdc,
+
+         -- VGA video output (domain follows vga_video_select_vdc_o / i_vga_clk_mux)
+         vga_video_ce_o         => vga_video_ce_o,
+         vga_video_ce_ovl_o     => vga_video_ce_ovl_o,
+         vga_video_red_o        => vga_video_red_o,
+         vga_video_green_o      => vga_video_green_o,
+         vga_video_blue_o       => vga_video_blue_o,
+         vga_video_vs_o         => vga_video_vs_o,
+         vga_video_hs_o         => vga_video_hs_o,
+         vga_video_hblank_o     => vga_video_hblank_o,
+         vga_video_vblank_o     => vga_video_vblank_o,
+         vga_video_select_vdc_o => main_vga_sel_vdc,
 
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,

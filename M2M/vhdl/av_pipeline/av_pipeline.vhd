@@ -34,11 +34,10 @@ entity av_pipeline is
       G_HDMI_VIEW             : hdmi_view_cfg_t := C_HDMI_VIEW_LEGACY
    );
    port (
-      -- From CORE
+      -- From CORE: video_* feeds HDMI and the measurement counters
       video_clk_i             : in  std_logic;
       video_rst_i             : in  std_logic;
       video_ce_i              : in  std_logic;
-      video_ce_ovl_i          : in  std_logic;
       video_red_i             : in  std_logic_vector( 7 downto 0);
       video_green_i           : in  std_logic_vector( 7 downto 0);
       video_blue_i            : in  std_logic_vector( 7 downto 0);
@@ -46,6 +45,18 @@ entity av_pipeline is
       video_hs_i              : in  std_logic;
       video_hblank_i          : in  std_logic;
       video_vblank_i          : in  std_logic;
+      -- vga_video_* feeds VGA; it may run on a different clock than video_*
+      vga_video_clk_i         : in  std_logic;
+      vga_video_rst_i         : in  std_logic;
+      vga_video_ce_i          : in  std_logic;
+      vga_video_ce_ovl_i      : in  std_logic;
+      vga_video_red_i         : in  std_logic_vector( 7 downto 0);
+      vga_video_green_i       : in  std_logic_vector( 7 downto 0);
+      vga_video_blue_i        : in  std_logic_vector( 7 downto 0);
+      vga_video_vs_i          : in  std_logic;
+      vga_video_hs_i          : in  std_logic;
+      vga_video_hblank_i      : in  std_logic;
+      vga_video_vblank_i      : in  std_logic;
       audio_clk_i             : in  std_logic; -- 12.288 MHz
       audio_rst_i             : in  std_logic;
       audio_left_i            : in  std_logic_vector(15 downto 0);
@@ -158,9 +169,6 @@ signal audio_mute             : std_logic;
 ---------------------------------------------------------------------------------------------
 -- video_clk
 ---------------------------------------------------------------------------------------------
-signal video_retro15kHz       : std_logic;
-signal video_scandoubler      : std_logic;
-signal video_csync            : std_logic;
 signal video_zoom_crop        : std_logic;
 
 signal video_crop_ce          : std_logic;
@@ -172,13 +180,6 @@ signal video_crop_vs          : std_logic;
 signal video_crop_hblank      : std_logic;
 signal video_crop_vblank      : std_logic;
 
--- On-Screen-Menu (OSM) for VGA
-signal video_osm_cfg_scaling  : std_logic_vector(8 downto 0);
-signal video_osm_cfg_enable   : std_logic;
-signal video_osm_cfg_xy       : std_logic_vector(15 downto 0);
-signal video_osm_cfg_dxdy     : std_logic_vector(15 downto 0);
-signal video_osm_vram_addr    : std_logic_vector(15 downto 0);
-signal video_osm_vram_data    : std_logic_vector(15 downto 0);
 signal video_hdmax            : natural range 0 to 4095;
 signal video_vdmax            : natural range 0 to 4095;
 
@@ -192,6 +193,21 @@ signal video_v_pulse          : std_logic_vector(11 downto 0); -- horizontal syn
 signal video_v_bp             : std_logic_vector(11 downto 0); -- horizontal back porch width in pixels
 signal video_v_fp             : std_logic_vector(11 downto 0); -- horizontal front porch width in pixels
 signal video_h_freq           : std_logic_vector(15 downto 0); -- horizontal sync frequency
+
+---------------------------------------------------------------------------------------------
+-- vga_video_clk
+---------------------------------------------------------------------------------------------
+signal vga_retro15kHz         : std_logic;
+signal vga_scandoubler        : std_logic;
+signal vga_csync              : std_logic;
+
+-- On-Screen-Menu (OSM) for VGA
+signal vga_osm_cfg_scaling    : std_logic_vector(8 downto 0);
+signal vga_osm_cfg_enable     : std_logic;
+signal vga_osm_cfg_xy         : std_logic_vector(15 downto 0);
+signal vga_osm_cfg_dxdy       : std_logic_vector(15 downto 0);
+signal vga_osm_vram_addr      : std_logic_vector(15 downto 0);
+signal vga_osm_vram_data      : std_logic_vector(15 downto 0);
 
 ---------------------------------------------------------------------------------------------
 -- hdmi_clk
@@ -274,10 +290,10 @@ begin
    -- Analog pipeline (VGA + audio out)
    ---------------------------------------------------------------------------------------------
 
-   -- Clock domain crossing: QNICE to VIDEO
-   i_qnice2video: xpm_cdc_array_single
+   -- Clock domain crossing: QNICE to VGA
+   i_qnice2vga: xpm_cdc_array_single
       generic map (
-         WIDTH => 46
+         WIDTH => 45
       )
       port map (
          src_clk                => qnice_clk_i,
@@ -287,17 +303,27 @@ begin
          src_in(33)             => qnice_retro15kHz_i,
          src_in(34)             => qnice_scandoubler_i,
          src_in(35)             => qnice_csync_i,
-         src_in(36)             => qnice_zoom_crop_i,
-         src_in(45 downto 37)   => qnice_osm_cfg_scaling_i,
-         dest_clk               => video_clk_i,
-         dest_out(15 downto 0)  => video_osm_cfg_xy,
-         dest_out(31 downto 16) => video_osm_cfg_dxdy,
-         dest_out(32)           => video_osm_cfg_enable,
-         dest_out(33)           => video_retro15kHz,
-         dest_out(34)           => video_scandoubler,
-         dest_out(35)           => video_csync,
-         dest_out(36)           => video_zoom_crop,
-         dest_out(45 downto 37) => video_osm_cfg_scaling
+         src_in(44 downto 36)   => qnice_osm_cfg_scaling_i,
+         dest_clk               => vga_video_clk_i,
+         dest_out(15 downto 0)  => vga_osm_cfg_xy,
+         dest_out(31 downto 16) => vga_osm_cfg_dxdy,
+         dest_out(32)           => vga_osm_cfg_enable,
+         dest_out(33)           => vga_retro15kHz,
+         dest_out(34)           => vga_scandoubler,
+         dest_out(35)           => vga_csync,
+         dest_out(44 downto 36) => vga_osm_cfg_scaling
+      ); -- i_qnice2vga
+
+   -- Clock domain crossing: QNICE to VIDEO
+   i_qnice2video: xpm_cdc_array_single
+      generic map (
+         WIDTH => 1
+      )
+      port map (
+         src_clk     => qnice_clk_i,
+         src_in(0)   => qnice_zoom_crop_i,
+         dest_clk    => video_clk_i,
+         dest_out(0) => video_zoom_crop
       ); -- i_qnice2video
 
    -- Clock domain crossing: QNICE to AUDIO
@@ -405,30 +431,30 @@ begin
       )
       port map (
          -- Input from Core (video and audio)
-         video_clk_i             => video_clk_i,
-         video_rst_i             => video_rst_i,
-         video_ce_i              => video_ce_i,
-         video_ce_ovl_i          => video_ce_ovl_i,
-         video_red_i             => video_red_i,
-         video_green_i           => video_green_i,
-         video_blue_i            => video_blue_i,
-         video_hs_i              => video_hs_i,
-         video_vs_i              => video_vs_i,
-         video_hblank_i          => video_hblank_i,
-         video_vblank_i          => video_vblank_i,
+         video_clk_i             => vga_video_clk_i,
+         video_rst_i             => vga_video_rst_i,
+         video_ce_i              => vga_video_ce_i,
+         video_ce_ovl_i          => vga_video_ce_ovl_i,
+         video_red_i             => vga_video_red_i,
+         video_green_i           => vga_video_green_i,
+         video_blue_i            => vga_video_blue_i,
+         video_hs_i              => vga_video_hs_i,
+         video_vs_i              => vga_video_vs_i,
+         video_hblank_i          => vga_video_hblank_i,
+         video_vblank_i          => vga_video_vblank_i,
          audio_clk_i             => audio_clk_i,
          audio_rst_i             => audio_rst_i,
          audio_left_i            => signed(audio_left),
          audio_right_i           => signed(audio_right),
 
          -- Configure the scandoubler: 0 =off/1=on
-         video_scandoubler_i     => video_scandoubler,
+         video_scandoubler_i     => vga_scandoubler,
 
          -- Configure composite sync: 0 =off/1=on
-         video_csync_i           => video_csync,
+         video_csync_i           => vga_csync,
 
          -- Configure 15 kHz mode: 0 =off/1=on
-         video_retro15kHz_i      => video_retro15kHz,
+         video_retro15kHz_i      => vga_retro15kHz,
 
          -- Analog output (VGA and audio jack)
          vga_red_o               => vga_red,
@@ -441,12 +467,12 @@ begin
          vdac_blankn_o           => vdac_blank_n,
 
          -- Connect to QNICE and Video RAM
-         video_osm_cfg_scaling_i => first_nonzero_bit(video_osm_cfg_scaling),
-         video_osm_cfg_enable_i  => video_osm_cfg_enable,
-         video_osm_cfg_xy_i      => video_osm_cfg_xy,
-         video_osm_cfg_dxdy_i    => video_osm_cfg_dxdy,
-         video_osm_vram_addr_o   => video_osm_vram_addr,
-         video_osm_vram_data_i   => video_osm_vram_data
+         video_osm_cfg_scaling_i => first_nonzero_bit(vga_osm_cfg_scaling),
+         video_osm_cfg_enable_i  => vga_osm_cfg_enable,
+         video_osm_cfg_xy_i      => vga_osm_cfg_xy,
+         video_osm_cfg_dxdy_i    => vga_osm_cfg_dxdy,
+         video_osm_vram_addr_o   => vga_osm_vram_addr,
+         video_osm_vram_data_i   => vga_osm_vram_data
       ); -- i_analog_pipeline
 
    -- Clock domain crossing: VIDEO to QNICE
@@ -642,7 +668,7 @@ begin
       ); -- i_hdmi_flicker_free
 
    ---------------------------------------------------------------------------------------------------------------
-   -- On-Screen-Menu video and attribute RAM: Dual-clock QNICE and VIDEO
+   -- On-Screen-Menu video and attribute RAM: Dual-clock QNICE and VGA
    ---------------------------------------------------------------------------------------------------------------
 
    i_osm_vram_vga : entity work.dualport_2clk_ram_byteenable
@@ -660,9 +686,9 @@ begin
          a_byteenable_i => qnice_byteenable_i,
          a_q_o          => qnice_q_o,
 
-         b_clk_i        => video_clk_i,
-         b_address_i    => video_osm_vram_addr(VRAM_ADDR_WIDTH-1 downto 0),
-         b_q_o          => video_osm_vram_data
+         b_clk_i        => vga_video_clk_i,
+         b_address_i    => vga_osm_vram_addr(VRAM_ADDR_WIDTH-1 downto 0),
+         b_q_o          => vga_osm_vram_data
       ); -- i_osm_vram_vga
 
 

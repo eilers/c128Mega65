@@ -13,6 +13,11 @@
   of the menu. Raw `.G64`/`.G71` and MFM/CP-M images are not supported.
 * Real cartridges in the expansion port (C64 and C128 cartridges)
 * 40/70 Column mode (HDMI, audio: untested - please report)
+* Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
+  (default), 40 columns and 80 columns put the same picture on both ports. HDMI 40, VGA 80
+  and HDMI 80, VGA 40 show both chips at once, like a C128 with two monitors; the 40/80
+  key then only picks the screen BASIC starts on. Swap with 40/80 puts the chip the key
+  selects on HDMI and the other chip on VGA.
 * Go64 and native C128 Mode
 * Reset-Button
 
