@@ -41,6 +41,7 @@ run_tcl "1571 GCR path (tb_c1571_read_write)" CORE/scripts/run_c157x_gcr_path_si
 run_tcl "Drive LED policy (tb_drive_led_policy)" CORE/scripts/run_drive_led_sim.tcl
 run_tcl "HyperRAM sector fill (tb_vd_hr_pump)" CORE/scripts/run_vd_hr_pump_sim.tcl
 run_tcl "VIA Timer 1 (tb_via_timer)" CORE/scripts/run_via_timer_sim.tcl
+run_tcl "VGA scandoubler (tb_vga_scandoubler)" CORE/scripts/run_vga_scandoubler_sim.tcl
 run_tcl "Drive RAM (tb_iecdrv_mem)" CORE/scripts/run_drive_mem_sim.tcl
 run_tcl "Drive DOS ROM handover (tb_drive_rom)" CORE/scripts/run_drive_rom_sim.tcl
 run_tcl "1581 ready / sector path (tb_c1581_ready)" CORE/scripts/run_c1581_ready_sim.tcl

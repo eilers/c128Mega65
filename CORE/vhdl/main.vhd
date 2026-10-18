@@ -236,8 +236,7 @@ signal vdc_hs_out        : std_logic;
 signal vdc_vs_out        : std_logic;
 signal vdc_hblank        : std_logic;
 signal vdc_vblank        : std_logic;
-signal vdc_ce            : std_logic;
-signal vdc_ovl_half      : std_logic := '0';  -- every other clk_vdc, on-screen menu at 15 kHz
+signal vdc_dot_ce        : std_logic := '0';  -- every other clk_vdc: one pulse per VDC dot
 signal vdc_r_reg        : unsigned(7 downto 0) := (others => '0');
 signal vdc_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vdc_b_reg         : unsigned(7 downto 0) := (others => '0');
@@ -523,7 +522,7 @@ video_sync_vic : entity work.video_sync
     vblank    => vic_vblank
   );
 
--- VDC path: C128 MiSTer video_sync (centered PAL/NTSC shifts) + ~16 MHz CE.
+-- VDC path: C128 MiSTer video_sync for sync and blanking (centered PAL/NTSC shifts).
 video_sync_vdc : entity work.video_sync_c128
   port map (
     reset       => reset_soft_i or reset_hard_i,
@@ -542,18 +541,18 @@ video_sync_vdc : entity work.video_sync_c128
     ilace       => open,
     field       => open,
     valid       => open,
-    ce          => vdc_ce
+    ce          => open
   );
 
+-- The VDC outputs a dot every other clock. A one-clock strobe on alternate clocks samples each
+-- dot once; video_sync_c128's 2-on/2-off ce made the VGA path skip every other dot.
 vdc_pixel_sample_proc : process (clk_vdc_i)
 begin
   if rising_edge(clk_vdc_i) then
-    vdc_ovl_half <= not vdc_ovl_half;
-    if vdc_ce = '1' then
-      vdc_r_reg <= vdc_r;
-      vdc_g_reg <= vdc_g;
-      vdc_b_reg <= vdc_b;
-    end if;
+    vdc_dot_ce <= not vdc_dot_ce;
+    vdc_r_reg  <= vdc_r;
+    vdc_g_reg  <= vdc_g;
+    vdc_b_reg  <= vdc_b;
   end if;
 end process vdc_pixel_sample_proc;
 
@@ -574,19 +573,19 @@ begin
 end process video_switch_blank_proc;
 
 -- Native-domain mux: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes video_clk to match.
-video_ce_o     <= vdc_ce when sel_vdc = '1' else vic_pixel_ce;
+video_ce_o     <= vdc_dot_ce when sel_vdc = '1' else vic_pixel_ce;
 -- The on-screen menu counts this enable while the data-enable window is open
 -- and lays the menu out on the 720x540 canvas in globals.vhd. It also
 -- samples the VGA picture and syncs on it. Same rule as the C64 core:
 -- * VGA Standard: the scan-doubled window is about 768 video clocks for the
 --   40-column picture and the same order for 80 columns, so count every clock.
 -- * Retro 15 kHz: the native window is twice as long, so count every other
---   clock. Without the scan doubler the mixer updates the picture at most once
---   every 4 clocks on both paths, so this still samples every pixel, and the
---   even spacing keeps the menu's font columns the same width.
+--   clock. Without the scan doubler the mixer updates the picture at most every
+--   other clock, so this still samples every pixel, and the even spacing keeps
+--   the menu's font columns the same width.
 vga_retro15khz <= osm_control_i(C_MENU_VGA_15KHZHSVS) or osm_control_i(C_MENU_VGA_15KHZCS);
 video_ce_ovl_o <= '1'          when vga_retro15khz = '0' else
-                  vdc_ovl_half when sel_vdc = '1'        else
+                  vdc_dot_ce   when sel_vdc = '1'        else
                   vic_ovl_half;
 video_hs_o     <= vdc_hs_out when sel_vdc = '1' else vic_hs_out;
 video_vs_o     <= vdc_vs_out when sel_vdc = '1' else vic_vs_out;
