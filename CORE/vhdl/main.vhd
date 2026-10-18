@@ -136,6 +136,7 @@ entity main is
       -- M2M Keyboard interface
       kb_key_num_i            : in  integer range 0 to 79;    -- cycles through all MEGA65 keys
       kb_key_pressed_n_i      : in  std_logic;                -- low active: debounced feedback: is kb_key_num_i pressed right now?
+      kb_key_enabled_i        : in  std_logic;                -- '0' while the on-screen menu owns the keyboard (all keys read released)
 
       -- MEGA65 joysticks and paddles/mouse/potentiometers
       joy_1_up_n_i            : in  std_logic;
@@ -1025,6 +1026,10 @@ audio_right_o <= signed(sid_audio_r(17 downto 2));
 -- A short reset (reset_core_n) is the C128's reset button: the latched F9 function
 -- (Caps Lock, or 40/80) must survive it. Only a long press, which is reset_hard_i
 -- (M2M/QNICE reset, also power-on via main_rst), clears that latch.
+--
+-- While the menu or a reset has the keyboard, every key reads released, so both keys
+-- keep their last real state. Otherwise "Follow 40/80" flips to the VIC whenever the
+-- menu opens.
 capslock_tracker : process(clk_main_i)
    variable v_role : std_logic;
 begin
@@ -1037,12 +1042,12 @@ begin
       f9_latch           <= '0';
       role_ascii_d       <= '0';
     elsif reset_core_n = '0' then
-      capslock_engaged_n <= '1';
+      null;
     else
-      if kb_key_num_i = 72 then
+      if kb_key_num_i = 72 and kb_key_enabled_i = '1' then
         capslock_engaged_n <= kb_key_pressed_n_i;
       end if;
-      if kb_key_num_i = 68 then
+      if kb_key_num_i = 68 and kb_key_enabled_i = '1' then
         -- The first sample after reset only records the level, so a key that
         -- is still held does not count as a new press.
         if f9_seen = '1' and kb_key_pressed_n_i = '0' and f9_prev_n = '1'

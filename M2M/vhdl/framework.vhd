@@ -113,6 +113,7 @@ port (
    main_reset_core_o       : out   std_logic;
    main_key_num_o          : out   integer range 0 to 79;
    main_key_pressed_n_o    : out   std_logic;
+   main_key_enabled_o      : out   std_logic;   -- '0' while QNICE (e.g. the on-screen menu) owns the keyboard
    main_power_led_i        : in    std_logic;
    main_power_led_col_i    : in    std_logic_vector(23 downto 0);
    main_drive_led_i        : in    std_logic;
@@ -552,6 +553,8 @@ begin
    joy_2_right_n_o <= main_joy2_right_n_i;
    joy_2_fire_n_o  <= main_joy2_fire_n_i;
 
+
+   main_key_enabled_o <= main_csr_keyboard_on;
 
    -- M2M keyboard driver that outputs two distinct keyboard states: key_* for being used by the core and qnice_* for the firmware/Shell
    i_m2m_keyb : entity work.m2m_keyb

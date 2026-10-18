@@ -220,6 +220,7 @@ begin
          iec_srq_n_i          => '0',
          kb_key_num_i         => 0,
          kb_key_pressed_n_i   => '1',
+         kb_key_enabled_i     => '1',
          joy_1_up_n_i         => '1',
          joy_1_down_n_i       => '1',
          joy_1_left_n_i       => '1',

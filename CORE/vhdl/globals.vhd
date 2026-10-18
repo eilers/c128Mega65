@@ -80,11 +80,11 @@ constant C_MENU_CRT_EMULATION    : natural := 44;
 constant C_MENU_VGA_STD          : natural := 48;  -- VGA: Standard, scandoubled ~31 kHz (default)
 constant C_MENU_VGA_15KHZHSVS    : natural := 52;  -- VGA: native 15 kHz, separate HS/VS
 constant C_MENU_VGA_15KHZCS      : natural := 53;  -- VGA: native 15 kHz, composite sync on pin 13
-constant C_MENU_KEYS_4080        : natural := 60;  -- real Caps Lock is the 40/80 key (default)
-constant C_MENU_KEYS_ASCII       : natural := 61;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
-constant C_MENU_HELP_F13         : natural := 63;  -- OSM trigger on F13 (Help stays C128 Help)
-constant C_MENU_EXP_PORT_HW      : natural := 69;  -- Expansion Port: Use hardware slot
-constant C_MENU_IEC              : natural := 70;  -- IEC: Use hardware port
+constant C_MENU_KEYS_4080        : natural := 62;  -- real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 63;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
+constant C_MENU_HELP_F13         : natural := 68;  -- OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_EXP_PORT_HW      : natural := 72;  -- Expansion Port: Use hardware slot
+constant C_MENU_IEC              : natural := 73;  -- IEC: Use hardware port
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -151,7 +151,6 @@ constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boo
 constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
 constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- disk image of drive 8, staged in HyperRAM
 constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- disk image of drive 9, staged in HyperRAM
-constant C_DEV_KEYS           : std_logic_vector(15 downto 0) := x"0106"; -- latched F9 state: bit 0 = 1 when pressed
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)

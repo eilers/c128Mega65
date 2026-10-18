@@ -134,6 +134,7 @@ port (
    -- M2M Keyboard interface (incl. power led and drive led)
    main_kb_key_num_i       : in  integer range 0 to 79;  -- cycles through all MEGA65 keys
    main_kb_key_pressed_n_i : in  std_logic;              -- low active: debounced feedback: is kb_key_num_i pressed right now?
+   main_kb_key_enabled_i   : in  std_logic;              -- '0' while the on-screen menu owns the keyboard
    main_power_led_o        : out std_logic;
    main_power_led_col_o    : out std_logic_vector(23 downto 0);
    main_drive_led_o        : out std_logic;
@@ -311,7 +312,6 @@ signal qnice_drv_rom_wr      : std_logic := '0';
 signal qnice_core_rst        : std_logic;
 -- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
 signal f9_latched            : std_logic;
-signal qnice_f9_latched      : std_logic;
 
 begin
 
@@ -472,6 +472,7 @@ begin
          -- M2M Keyboard interface
          kb_key_num_i         => main_kb_key_num_i,
          kb_key_pressed_n_i   => main_kb_key_pressed_n_i,
+         kb_key_enabled_i     => main_kb_key_enabled_i,
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
@@ -705,10 +706,6 @@ begin
             qnice_dev_data_o  <= qnice_mount_data;
             qnice_dev_wait_o  <= qnice_mount_wait;
 
-        -- Latched F9 key. Bit 0 is 1 while the latch is pressed.
-        when C_DEV_KEYS =>
-            qnice_dev_data_o  <= x"000" & "000" & qnice_f9_latched;
-
          when others => null;
       end case;
    end process core_specific_devices;
@@ -807,17 +804,6 @@ begin
       ); -- i_cdc_main2qnice_rst
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
-
-   i_cdc_f9_latch : xpm_cdc_array_single
-      generic map (
-         WIDTH => 1
-      )
-      port map (
-         src_clk     => main_clk_o,
-         src_in(0)   => f9_latched,
-         dest_clk    => qnice_clk_i,
-         dest_out(0) => qnice_f9_latched
-      ); -- i_cdc_f9_latch
 
    i_drive_rom_server : entity work.drive_rom_server
       generic map (

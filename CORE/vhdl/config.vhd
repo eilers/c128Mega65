@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 74;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 77;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -289,13 +289,13 @@ constant OPTM_SIZE         : natural := 74;  -- amount of items including empty 
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 22 rows. The Video and HDMI
+-- tallest page. The main menu is the tallest at 25 rows. The Video and HDMI
 -- submenus are 14 rows each (headline through Back to main menu; the "%s"
 -- opener is hidden inside the submenu) and leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 22;
+constant OPTM_DY           : natural := 25;
 
 constant OPTM_ITEMS        : string :=
 
@@ -364,15 +364,18 @@ constant OPTM_ITEMS        : string :=
    " Back to main menu\n"   &
    "\n"                     &
 
-   " Keys: %s\n"            &    -- %s is filled by the firmware from the latched F9 state
    " Keyboard\n"            &
    "\n"                     &
-   " Caps Lock is 40/80\n"  &    -- default: real Caps Lock is the 40/80 key, F9 latches Caps Lock
-   " Caps Lock is ASCII/DIN\n" & -- real Caps Lock is ASCII/DIN, F9 latches 40/80
+   " Caps Lock: %s\n"       &    -- Caps Lock submenu; %s is 40/80 or ASCII/DIN
+   " Caps Lock Key\n"       &
    "\n"                     &
-   " Help menu on F13\n"    &    -- default off: Help stays the C128 Help key
+   " 40/80\n"               &    -- default: real Caps Lock is the 40/80 key, F9 latches Caps Lock
+   " ASCII/DIN\n"           &    -- real Caps Lock is ASCII/DIN, F9 latches 40/80
+   "\n"                     &
+   " F9 toggles the other\n" &
    "\n"                     &
    " Back to main menu\n"   &
+   " Help menu on F13\n"    &    -- default off: Help opens the menu
 
    "\n"                     &
    " External Hardware\n"   &
@@ -477,15 +480,18 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
 
                                              OPTM_G_LINE,                                         -- Line
 
-                                             OPTM_G_SUBMENU,                                      -- Keys submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Keyboard
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_KEYS + OPTM_G_STDSEL,                         -- Caps Lock is 40/80
-                                             OPTM_G_KEYS,                                         -- Caps Lock is ASCII/DIN
+                                             OPTM_G_SUBMENU,                                      -- Caps Lock submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Caps Lock Key
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
+                                             OPTM_G_KEYS + OPTM_G_STDSEL,                         -- 40/80
+                                             OPTM_G_KEYS,                                         -- ASCII/DIN
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- F9 toggles the other
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
 
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
