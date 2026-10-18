@@ -36,6 +36,10 @@
   - Keymap (CXKYCODE/CXINTR): `1` = col7/bit0 → code `$38` → ASCII `$31`.
     Visible `↑D` is `$5E` + `D` — **not** the normal `1` mapping.
 * GEOS for C128 does not boot and is crashing. 
+* 80 columns on HDMI: some dots come out one pixel wide and others two. The HDMI scaler
+  uses nearest neighbour and, in 720p, stretches the 80-column line by about 1.26x.
+  Turn on **HDMI: CRT emulation** for 80-column work; its filter evens the dots out
+  (and adds scanlines). VGA is not affected.
 * Expansion port on R3/R3A/R4 boards: those boards drive the slot's RESET line
   output-only, so a cartridge cannot reset the C128. Freezer/menu buttons that work
   by pulling RESET therefore do nothing. The EasyFlash 3 is detected by
@@ -189,6 +193,8 @@
 # Missing Features
 * Video:
     * "Flicker-free" has no effect in 80-column mode. 
+    * A smooth HDMI filter without scanlines for 80 columns. CRT emulation's polyphase
+      filter does the smoothing, but its coefficients are hard-coded in the framework.
     * "HDMI: Zoom-in": removed from the menu, `qnice_zoom_crop_o` is hardwired to
       '0' in `mega65.vhd`. `crop.vhd` uses fixed VIC-II geometry (border 33/35,
       image 320x200), so it has to become source-aware before the menu item can
