@@ -280,20 +280,22 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 59;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 74;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
+                                             -- More items or submenus also need more MENU_HEAP_SIZE in m2m-rom.asm. If it is too
+                                             -- small, opening the menu stops the core with "Heap corruption: Hint: OPTM_HEAP_SIZE".
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page, not the main menu. The Audio & Video submenu is 29 rows
--- (headline through Back to main menu; the "Video: %s" opener is hidden inside
--- the submenu). The main menu is only 16 rows and will leave empty space below.
+-- tallest page. The main menu is the tallest at 22 rows. The Video and HDMI
+-- submenus are 14 rows each (headline through Back to main menu; the "%s"
+-- opener is hidden inside the submenu) and leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 29;
+constant OPTM_DY           : natural := 22;
 
 constant OPTM_ITEMS        : string :=
 
@@ -310,27 +312,17 @@ constant OPTM_ITEMS        : string :=
    " Back to main menu\n"   &
    "\n"                     &
 
+   -- Display Settings follows the C64 core: one submenu per output, each
+   -- showing its current choice on the main menu.
+   " Display Settings\n"    &
+   "\n"                     &
+
    " Video: %s\n"           &    -- video submenu; %s is Follow 40/80, VIC, or VDC
-   " Audio & Video\n"       &
+   " Video Output\n"        &
    "\n"                     &
    " Follow 40/80\n"        &
    " VIC\n"                 &
    " VDC\n"                 &
-   "\n"                     &
-   " HDMI\n"                &
-   "\n"                     &
-   " 720p 50 Hz 16:9\n"     &
-   " 720p 60 Hz 16:9\n"     &
-   " 576p 50 Hz 4:3\n"      &
-   " 576p 50 Hz 5:4\n"      &
-   " 640x480 60 Hz\n"       &
-   " 720x480 59.94 Hz\n"    &
-   " 800x600 60 Hz\n"       &
-   "\n"                     &
-   " Flicker-free\n"        &
-   " HDMI audio\n"          &    -- default on; off means DVI, no HDMI audio
-   "\n"                     &
-   " HDMI: CRT emulation\n" &
    "\n"                     &
    " VIC-II Jailbars\n"     &
    "\n"                     &
@@ -340,6 +332,37 @@ constant OPTM_ITEMS        : string :=
    " High\n"                &
    "\n"                     &
    " Back to main menu\n"   &
+
+   " HDMI: %s\n"            &    -- HDMI submenu; %s is the HDMI mode
+   " HDMI Display Mode\n"   &
+   "\n"                     &
+   " 720p 50 Hz 16:9\n"     &
+   " 720p 60 Hz 16:9\n"     &
+   " 576p 50 Hz 4:3\n"      &
+   " 576p 50 Hz 5:4\n"      &
+   " 640x480 60 Hz\n"       &
+   " 720x480 59.94 Hz\n"    &    -- longest summary: " HDMI: 720x480 59.94 Hz" is exactly OPTM_DX
+   " 800x600 60 Hz\n"       &
+   "\n"                     &
+   " Flicker-free\n"        &
+   " HDMI audio\n"          &    -- default on; off means DVI, no HDMI audio
+   "\n"                     &
+   " Back to main menu\n"   &
+
+   " HDMI: CRT emulation\n" &
+
+   " VGA: %s\n"             &    -- VGA submenu; %s is the VGA mode
+   " VGA Display Mode\n"    &
+   "\n"                     &
+   " Standard\n"            &    -- scandoubled ~31 kHz, separate HS/VS
+   "\n"                     &
+   " Retro 15 kHz mode\n"   &
+   "\n"                     &
+   " 15 kHz with HS/VS\n"   &
+   " 15 kHz with CSYNC\n"   &    -- composite sync for RGB monitors and SCART
+   "\n"                     &
+   " Back to main menu\n"   &
+   "\n"                     &
 
    " Keys: %s\n"            &    -- %s is filled by the firmware from the latched F9 state
    " Keyboard\n"            &
@@ -380,6 +403,7 @@ constant OPTM_G_IEC        : integer := 11;
 constant OPTM_G_HELP_F13   : integer := 12;   -- OSM on F13 so C128 can use Help
 constant OPTM_G_HDMI_AUDIO : integer := 13;   -- HDMI audio; off selects DVI output
 constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, and which is Caps Lock
+constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/VS, 15 kHz with CSYNC
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -402,14 +426,27 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
 
                                              OPTM_G_LINE,                                         -- Line
 
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Display Settings
+                                             OPTM_G_LINE,                                         -- Line
+
                                              OPTM_G_SUBMENU,                                      -- Video submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Audio & Video
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Video Output
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_VIDEO_OUT + OPTM_G_STDSEL,                    -- Follow 40/80
                                              OPTM_G_VIDEO_OUT,                                    -- VIC
                                              OPTM_G_VIDEO_OUT,                                    -- VDC
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- VIC-II Jailbars
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_JAILBARS + OPTM_G_STDSEL,                     -- Off
+                                             OPTM_G_JAILBARS,                                     -- Low
+                                             OPTM_G_JAILBARS,                                     -- Medium
+                                             OPTM_G_JAILBARS,                                     -- High
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_SUBMENU,                                      -- HDMI submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI Display Mode
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_HDMI + OPTM_G_STDSEL,                         -- 720p 50 Hz 16:9
                                              OPTM_G_HDMI,                                         -- 720p 60 Hz 16:9
@@ -422,16 +459,23 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_FF      + OPTM_G_SINGLESEL,                   -- Flicker-free
                                              OPTM_G_HDMI_AUDIO + OPTM_G_SINGLESEL + OPTM_G_STDSEL, -- HDMI audio (default on)
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,                   -- CRT emulation
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,                   -- HDMI: CRT emulation
+
+                                             OPTM_G_SUBMENU,                                      -- VGA submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- VGA Display Mode
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- VIC-II Jailbars
+                                             OPTM_G_VGA_MODES + OPTM_G_STDSEL,                    -- Standard
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_JAILBARS + OPTM_G_STDSEL,                     -- Off
-                                             OPTM_G_JAILBARS,                                     -- Low
-                                             OPTM_G_JAILBARS,                                     -- Medium
-                                             OPTM_G_JAILBARS,                                     -- High
+                                             OPTM_G_TEXT,                                         -- Retro 15 kHz mode
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_VGA_MODES,                                    -- 15 kHz with HS/VS
+                                             OPTM_G_VGA_MODES,                                    -- 15 kHz with CSYNC
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_SUBMENU,                                      -- Keys submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Keyboard

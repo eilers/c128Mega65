@@ -610,23 +610,26 @@ begin
    -- "HDMI audio" defaults to selected. Clearing it requests a DVI stream:
    -- video only, no audio packets. The 3.5 mm headphone output is unaffected.
    qnice_dvi_o                <= not qnice_osm_control_i(C_MENU_HDMI_AUDIO);
-   -- Double each line so the VGA connector runs at ~31.3 kHz instead of the
-   -- native 40-column and 80-column ~15.6 kHz. HDMI does not use this; the
-   -- ascaler retimes its own output. Pulse width and polarity come from
-   -- VGA_STD_SYNC.
-   qnice_scandoubler_o        <= '1';
+   -- VGA Standard doubles each line so the VGA connector runs at ~31.3 kHz
+   -- instead of the native 40-column and 80-column ~15.6 kHz. Pulse width and
+   -- polarity come from VGA_STD_SYNC. The two retro 15 kHz modes send the
+   -- native lines unchanged for RGB monitors and SCART. HDMI does not use
+   -- this; the ascaler retimes its own output.
+   qnice_scandoubler_o        <= (not qnice_osm_control_i(C_MENU_VGA_15KHZHSVS)) and
+                                 (not qnice_osm_control_i(C_MENU_VGA_15KHZCS));
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
    -- Audio filtering and HDMI zoom/crop are not offered in the menu yet, see doc/KNOWN_BUGS.md
    qnice_audio_filter_o       <= '0';                                         -- 0 = raw audio, 1 = use filters from globals.vhd
    qnice_zoom_crop_o          <= '0';                                         -- 0 = no zoom/crop
    qnice_hdmi_view_size_o     <= (others => '0');                             -- use the first cropped-view size
 
-   -- Standard VGA: separate horizontal and vertical sync, and the on-screen
-   -- menu uses the scandoubled line count. retro 15 kHz would bypass the
-   -- sync reshaper and tell the menu that each line is still the original
-   -- television line. Composite sync is for SCART, not for a VGA monitor.
-   qnice_retro15kHz_o         <= '0';
-   qnice_csync_o              <= '0';
+   -- Retro 15 kHz bypasses the sync reshaper and tells the on-screen menu that
+   -- each line is still the original television line. Composite sync puts
+   -- CSYNC on VGA pin 13 and holds pin 14 high, which is what most RGB
+   -- monitors (Sony BVM/PVM) and the MiSTer VGA-to-SCART adaptor expect.
+   qnice_retro15kHz_o         <= qnice_osm_control_i(C_MENU_VGA_15KHZHSVS) or
+                                 qnice_osm_control_i(C_MENU_VGA_15KHZCS);
+   qnice_csync_o              <= qnice_osm_control_i(C_MENU_VGA_15KHZCS);
    qnice_osm_cfg_scaling_o    <= (others => '1');
 
    -- ascal filters that are applied while processing the input

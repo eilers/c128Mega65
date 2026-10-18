@@ -219,8 +219,9 @@ signal vic_r             : unsigned(7 downto 0);
 signal vic_g             : unsigned(7 downto 0);
 signal vic_b             : unsigned(7 downto 0);
 signal vic_pixel_ce      : std_logic;
+signal vic_ovl_half      : std_logic := '0';  -- every other clk_main, on-screen menu at 15 kHz
 
-signal vic_r_reg         : unsigned(7 downto 0) := (others => '0');
+signal vic_r_reg        : unsigned(7 downto 0) := (others => '0');
 signal vic_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vic_b_reg         : unsigned(7 downto 0) := (others => '0');
 signal core_vic_hs       : std_logic;
@@ -236,12 +237,14 @@ signal vdc_vs_out        : std_logic;
 signal vdc_hblank        : std_logic;
 signal vdc_vblank        : std_logic;
 signal vdc_ce            : std_logic;
-signal vdc_r_reg         : unsigned(7 downto 0) := (others => '0');
+signal vdc_ovl_half      : std_logic := '0';  -- every other clk_vdc, on-screen menu at 15 kHz
+signal vdc_r_reg        : unsigned(7 downto 0) := (others => '0');
 signal vdc_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vdc_b_reg         : unsigned(7 downto 0) := (others => '0');
 
 signal sel_vdc           : std_logic := '0';
-signal sel_vdc_d         : std_logic := '0';
+signal vga_retro15khz    : std_logic;
+signal sel_vdc_d        : std_logic := '0';
 signal video_switching   : std_logic := '0';
 signal video_switch_cnt  : natural range 0 to 65535 := 0;
 signal vic_jailbars      : std_logic_vector(1 downto 0) := "00";
@@ -497,6 +500,7 @@ vic_jailbars <= "11" when osm_control_i(C_MENU_JAILBARS_HIGH)   = '1' else
 vic_pixel_sample_proc : process (clk_main_i)
 begin
   if rising_edge(clk_main_i) then
+    vic_ovl_half <= not vic_ovl_half;
     if vic_pixel_ce = '1' then
       vic_r_reg <= vic_r;
       vic_g_reg <= vic_g;
@@ -544,6 +548,7 @@ video_sync_vdc : entity work.video_sync_c128
 vdc_pixel_sample_proc : process (clk_vdc_i)
 begin
   if rising_edge(clk_vdc_i) then
+    vdc_ovl_half <= not vdc_ovl_half;
     if vdc_ce = '1' then
       vdc_r_reg <= vdc_r;
       vdc_g_reg <= vdc_g;
@@ -570,15 +575,19 @@ end process video_switch_blank_proc;
 
 -- Native-domain mux: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes video_clk to match.
 video_ce_o     <= vdc_ce when sel_vdc = '1' else vic_pixel_ce;
--- The on-screen menu counts this enable while the scan-doubled data-enable
--- window is open. That window is one video clock per sample (about 768
--- clocks for the 40-column picture, the same order for 80 columns), and the
--- menu is laid out on the 720x540 canvas in globals.vhd. Counting every
--- clock is what the C64 core does while its scan doubler is on. The previous
--- enable was only the native pixel strobe stretched to twice that rate,
--- which is the 15 kHz menu rate: the counter stopped near the middle of the
--- line and the rest of the menu fell off the right edge.
-video_ce_ovl_o <= '1';
+-- The on-screen menu counts this enable while the data-enable window is open
+-- and lays the menu out on the 720x540 canvas in globals.vhd. It also
+-- samples the VGA picture and syncs on it. Same rule as the C64 core:
+-- * VGA Standard: the scan-doubled window is about 768 video clocks for the
+--   40-column picture and the same order for 80 columns, so count every clock.
+-- * Retro 15 kHz: the native window is twice as long, so count every other
+--   clock. Without the scan doubler the mixer updates the picture at most once
+--   every 4 clocks on both paths, so this still samples every pixel, and the
+--   even spacing keeps the menu's font columns the same width.
+vga_retro15khz <= osm_control_i(C_MENU_VGA_15KHZHSVS) or osm_control_i(C_MENU_VGA_15KHZCS);
+video_ce_ovl_o <= '1'          when vga_retro15khz = '0' else
+                  vdc_ovl_half when sel_vdc = '1'        else
+                  vic_ovl_half;
 video_hs_o     <= vdc_hs_out when sel_vdc = '1' else vic_hs_out;
 video_vs_o     <= vdc_vs_out when sel_vdc = '1' else vic_vs_out;
 video_hblank_o <= vdc_hblank when sel_vdc = '1' else vic_hblank;
