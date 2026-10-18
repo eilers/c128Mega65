@@ -3,8 +3,11 @@
 // The M2M analog VGA path (MiSTer video_mixer as analog_pipeline.vhd uses it) at the core's
 // two dot rates on a ~32 MHz clock: VIC-II one dot per 4 clocks, VDC one per 2. Each dot
 // encodes its position, so every output line must show dots 0..H_ACTIVE-1 of one input line,
-// and the scandoubler must show each input line twice. Beta 2's VDC enable is a negative
-// control. State lives at module scope: xsim re-initialises variables declared in always blocks.
+// and the scandoubler must show each input line twice. Interlaced cases alternate fields of
+// V_TOTAL and V_TOTAL+1 lines; as in video_sync_c128, one field's vsync starts with hsync
+// and the other's half a line away.
+// Beta 2's VDC enable is a negative control.
+// State lives at module scope: xsim re-initialises variables declared in always blocks.
 
 module vga_sd_case #(
    parameter string NAME        = "",
@@ -21,6 +24,8 @@ module vga_sd_case #(
    parameter int    V_TOTAL     = 20,
    parameter int    VS_START    = 15,
    parameter int    VS_LEN      = 2,
+   parameter int    VS_DOT      = 0,    // dot where vsync starts
+   parameter int    INTERLACE   = 0,
    parameter int    QUIET       = 0     // negative control: count errors, do not print them
 ) (
    input  logic clk,
@@ -38,19 +43,27 @@ module vga_sd_case #(
    logic       hs = 0, vs = 0, hb = 1, vb = 1;
    logic       ce;
 
+   // Field 1 follows field 0 within the same line count; pixels carry the field in bit 7 of B.
+   localparam int FRAME_LINES = INTERLACE ? 2 * V_TOTAL + 1 : V_TOTAL;
+   wire       fld  = (INTERLACE != 0) && (line >= V_TOTAL);
+   wire [9:0] lrel = fld ? line - V_TOTAL : line;
+   wire [19:0] pos  = lrel * H_TOTAL + dot;
+   wire [19:0] vs_a = VS_START * H_TOTAL + VS_DOT + (fld ? H_TOTAL / 2 : 0);
+   wire        vs_x = (pos >= vs_a) && (pos < vs_a + VS_LEN * H_TOTAL);
+
    always @(posedge clk) begin
       c4 <= c4 + 2'd1;
       if (int'(c4) % P == DATA_PHASE) begin
          r  <= dot[7:0];
-         g  <= {line[5:0], dot[9:8]};
-         b  <= line[7:0];
+         g  <= {lrel[5:0], dot[9:8]};
+         b  <= {fld, lrel[6:0]};
          hb <= (dot >= H_ACTIVE);
-         vb <= (line >= V_ACTIVE);
+         vb <= (lrel >= V_ACTIVE);
          hs <= (dot >= HS_START) && (dot < HS_START + HS_LEN);
-         vs <= (line >= VS_START) && (line < VS_START + VS_LEN);
+         vs <= vs_x;
          if (dot == H_TOTAL - 1) begin
             dot  <= 0;
-            line <= (line == V_TOTAL - 1) ? 0 : line + 1;
+            line <= (line == FRAME_LINES - 1) ? 0 : line + 1;
          end
          else
             dot <= dot + 1;
@@ -101,6 +114,8 @@ module vga_sd_case #(
    int   px_since_hs = 0;
    int   hs_since_vs = 0;
    int   x, l;
+   bit   f, frame_fld, prev_fld;
+   bit   have_prev = 0;
    bit   checking;
 
    initial begin
@@ -122,7 +137,8 @@ module vga_sd_case #(
    always @(posedge clk) begin
       if (ce_pixel) begin
          x = {vga_g[1:0], vga_r};
-         l = vga_b;
+         l = vga_b[6:0];
+         f = vga_b[7];
 
          px_since_hs = (vga_hs && !hs_q) ? 0 : px_since_hs + 1;
 
@@ -144,11 +160,20 @@ module vga_sd_case #(
             if (!de_q) begin
                run_px = 0;
                run_line = out_line / LINES_PER_IN;
+               if (out_line == 0) begin
+                  if (checking && INTERLACE && have_prev && f == prev_fld)
+                     fail("field did not alternate");
+                  frame_fld = f;
+                  prev_fld  = f;
+                  have_prev = 1;
+               end
                if (checking) begin
                   if (out_line == 0) first_line = hs_since_vs;
                   first_px = px_since_hs;
                end
             end
+            if (checking && f != frame_fld)
+               fail("line from the other field");
             if (checking && $isunknown({vga_r, vga_g, vga_b}))
                fail($sformatf("pixel %0d is unknown (X)", run_px));
             else if (checking && (x != run_px || l != run_line))
@@ -180,7 +205,7 @@ module tb_vga_scandoubler;
    localparam int VIC_HA = 403, VIC_HT = 504, VIC_HS = 420, VIC_HL = 37;
    localparam int VDC_HA = 760, VDC_HT = 1024, VDC_HS = 800, VDC_HL = 72;
 
-   localparam int N = 7;
+   localparam int N = 9;
    int    errors[N], frames[N], fpx[N], fline[N];
    string names[N];
    bit    must_fail[N];
@@ -207,17 +232,26 @@ module tb_vga_scandoubler;
                  .H_ACTIVE(VDC_HA), .H_TOTAL(VDC_HT), .HS_START(VDC_HS), .HS_LEN(VDC_HL))
       c5 (clk, errors[5], frames[5], fpx[5], fline[5]);
 
+   // VDC interlace (R8 = 1 or 3).
+   vga_sd_case #(.NAME("VDC  Standard, interlaced"), .P(2), .SCANDOUBLER(1), .INTERLACE(1), .VS_DOT(VDC_HS),
+                 .H_ACTIVE(VDC_HA), .H_TOTAL(VDC_HT), .HS_START(VDC_HS), .HS_LEN(VDC_HL))
+      c6 (clk, errors[6], frames[6], fpx[6], fline[6]);
+   vga_sd_case #(.NAME("VDC  15 kHz, interlaced"), .P(2), .SCANDOUBLER(0), .INTERLACE(1), .VS_DOT(VDC_HS),
+                 .H_ACTIVE(VDC_HA), .H_TOTAL(VDC_HT), .HS_START(VDC_HS), .HS_LEN(VDC_HL))
+      c7 (clk, errors[7], frames[7], fpx[7], fline[7]);
+
    // Negative control: Beta 2's 2-on/2-off VDC enable.
    vga_sd_case #(.NAME("VDC  15 kHz, Beta 2 enable"), .P(2), .CE_SQUARE(1), .SCANDOUBLER(0), .QUIET(1),
                  .H_ACTIVE(VDC_HA), .H_TOTAL(VDC_HT), .HS_START(VDC_HS), .HS_LEN(VDC_HL))
-      c6 (clk, errors[6], frames[6], fpx[6], fline[6]);
+      c8 (clk, errors[8], frames[8], fpx[8], fline[8]);
 
    initial begin
       bit ok;
 
       names = '{"VIC  Standard", "VIC  15 kHz", "VDC  Standard, phase 0", "VDC  Standard, phase 1",
-                "VDC  15 kHz, phase 0", "VDC  15 kHz, phase 1", "VDC  15 kHz, Beta 2 enable"};
-      must_fail = '{0, 0, 0, 0, 0, 0, 1};
+                "VDC  15 kHz, phase 0", "VDC  15 kHz, phase 1", "VDC  Standard, interlaced",
+                "VDC  15 kHz, interlaced", "VDC  15 kHz, Beta 2 enable"};
+      must_fail = '{0, 0, 0, 0, 0, 0, 0, 0, 1};
 
       // 11 frames of the longer (VDC) line: 3 to settle, then at least 5 checked.
       repeat (11 * 20 * VDC_HT * 2) @(posedge clk);
