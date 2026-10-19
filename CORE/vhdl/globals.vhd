@@ -157,22 +157,13 @@ constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- dis
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)
+-- Layout and rationale: doc/hyperram-map.md
 ----------------------------------------------------------------------------------------------------------
 
--- The disk image buffers live in HyperRAM instead of BRAM because a single D81 is
--- 819,200 bytes, which is more block RAM than this design has left. 100 windows are
--- exactly one D81; the guard window after each buffer absorbs a write one byte past
--- the end of the image.
---
--- Placement must stay above the HDMI ascal framebuffer. With VGA_DX x VGA_DY =
--- 720x540, RAMSIZE rounds up to 2 MiB; triple-buffering (even if currently off in
--- mega65.vhd) would then occupy 0..6 MiB. C64MEGA65 therefore puts its D81 buffer
--- at 0x035A (~6.7 MiB). We used to start VD0 at 0x0200 (4 MiB), which sits inside
--- that triple-buffer window and can be wiped to video black (zeros) after mount —
--- Empty.d81 only has nonzero bytes at T40 (~offset 399360), so a wiped buffer
--- looks exactly like "directory cylinder reads as 00 00 00 00".
--- Layout (8 KiB windows): VD0 0x0300..0x0363, guard, VD1 0x0365..0x03C8, guard.
-constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- Low HyperRAM: ascal framebuffer
+-- 100 windows hold exactly one D81; each guard window absorbs a write one byte past the image.
+constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 2 MiB
+constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB, 2 MiB or 4 MiB
+constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB, inside a 4 MiB REU
 constant C_HMAP_VD0           : std_logic_vector(15 downto 0) := x"0300";     -- Drive 8 disk image: 100 windows
 constant C_HMAP_VD0_GUARD     : std_logic_vector(15 downto 0) := x"0364";
 constant C_HMAP_VD1           : std_logic_vector(15 downto 0) := x"0365";     -- Drive 9 disk image: 100 windows
