@@ -62,60 +62,8 @@ START_FIRMWARE  RBRA    START_SHELL, 1
 ;       string pointer to completely new headline (do not modify/re-use R8)
 ;   R9, R10: unchanged
 
-; The Keys title is the only custom summary. Model and Video keep the
-; framework text, which is the selected item of the first group.
-; C_DEV_KEYS in globals.vhd is device 0x0106; bit 0 is 1 while F9 is latched.
-DEV_KEYS        .EQU    0x0106
-
-SUBMENU_SUMMARY INCRB
-                MOVE    R9, R0                  ; keep R9 and R10 for the caller
-                MOVE    R10, R1
-                ADD     1, R8                   ; second character of the line
-                CMP     'K', @R8                ; " Keys: %s" and nothing else
-                RBRA    _SMS_STD, !Z
-
-                MOVE    KEYS_ROLE_ASCII, R8
-                RSUB    M2M$GET_SETTING, 1      ; R9 = 1: F9 latches 40/80
-                MOVE    R9, R2
-
-                MOVE    M2M$RAMROM_DEV, R3      ; read the latch, then restore
-                MOVE    @R3, R4                 ; the config window this call
-                MOVE    M2M$RAMROM_4KWIN, R5    ; interrupted
-                MOVE    @R5, R6
-                MOVE    DEV_KEYS, @R3
-                XOR     R7, R7
-                MOVE    R7, @R5
-                MOVE    M2M$RAMROM_DATA, R7
-                MOVE    @R7, R7
-                MOVE    R4, @R3
-                MOVE    R6, @R5
-                AND     1, R7                   ; R7 = 1: F9 latched (pressed)
-
-                CMP     1, R2
-                RBRA    _SMS_4080, Z
-                CMP     1, R7
-                RBRA    _SMS_CAPS_ON, Z
-                MOVE    STR_CAPS_REL, R8
-                RBRA    _SMS_OUT, 1
-_SMS_CAPS_ON    MOVE    STR_CAPS_PRS, R8
-                RBRA    _SMS_OUT, 1
-_SMS_4080       CMP     1, R7
-                RBRA    _SMS_4080_ON, Z
-                MOVE    STR_4080_REL, R8
-                RBRA    _SMS_OUT, 1
-_SMS_4080_ON    MOVE    STR_4080_PRS, R8
-                RBRA    _SMS_OUT, 1
-
-_SMS_STD        XOR     R8, R8                  ; framework fills %s
-_SMS_OUT        MOVE    R0, R9
-                MOVE    R1, R10
-                DECRB
+SUBMENU_SUMMARY XOR     R8, R8                  ; R8 = 0 = no custom string
                 RET
-
-STR_CAPS_REL    .ASCII_W " Keys: Caps released"
-STR_CAPS_PRS    .ASCII_W " Keys: Caps pressed"
-STR_4080_REL    .ASCII_W " Keys: 40/80 released"
-STR_4080_PRS    .ASCII_W " Keys: 40/80 pressed"
 
 ; ----------------------------------------------------------------------------
 ; Core specific callback functions: File browsing and disk image mounting
@@ -385,7 +333,7 @@ END_OF_ROM      .DW 0
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
 ; Example: If your HEAP_SIZE would be 29696, then you write 29696-1024=28672
 ; instead, but when doing the sanity check calculations, you use 29696
-MENU_HEAP_SIZE  .EQU 1024
+MENU_HEAP_SIZE  .EQU 1536
 
 #ifndef RELEASE
 
@@ -393,14 +341,14 @@ MENU_HEAP_SIZE  .EQU 1024
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 6144                       ; 7168 - 1024 = 6144
+HEAP_SIZE       .EQU 5632                       ; 7168 - 1536 = 5632
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28k of heap which leads to a better user experience when
 ; it comes to folders with a lot of files
 #else
 
-HEAP_SIZE       .EQU 28672                      ; 29696 - 1024 = 28672
+HEAP_SIZE       .EQU 28160                      ; 29696 - 1536 = 28160
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

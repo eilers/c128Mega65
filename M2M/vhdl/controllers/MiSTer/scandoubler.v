@@ -104,6 +104,7 @@ end
 
 reg ce_x4o, ce_x2o;
 reg [1:0] sd_line;
+wire [DWIDTH*3+2:0] hq_pixel;
 Hq2x #(.LENGTH(LENGTH), .HALF_DEPTH(HALF_DEPTH)) Hq2x
 (
 	.clk(clk_vid),
@@ -117,7 +118,7 @@ Hq2x #(.LENGTH(LENGTH), .HALF_DEPTH(HALF_DEPTH)) Hq2x
 	.ce_out(ce_x4o),
 	.read_y(sd_line),
 	.hblank(hbo[0]&hbo[8]),
-	.outpixel({b_out,g_out,r_out})
+	.outpixel(hq_pixel)
 );
 
 reg  [7:0] pix_out_cnt = 0;
@@ -203,11 +204,51 @@ always @(posedge clk_vid) begin
 	if(!hs && hs_in) hs_start <= hcnt[31:1];
 end
 
-assign vs_out = vso[3];
+// MEGA65: plain line doubler for hq2x = 0. Hq2x needs four clocks per input pixel even
+// with the filter off; the C128's VDC delivers one every two. Each input line goes into
+// one of two buffers and is read back for both output lines of the next input line.
+localparam LB_AW = $clog2(LENGTH);
+
+reg  [DWIDTH*3+2:0] lb_ram[0:(2<<LB_AW)-1];
+reg  [DWIDTH*3+2:0] lb_q;
+reg     [LB_AW-1:0] lb_wx, lb_rx;
+reg                 lb_hb, lb_wbuf = 0, lb_rbuf = 0;
+reg           [2:0] lb_hbd;
+wire                lb_line_start = lb_hb & ~hb_in;
+
+always @(posedge clk_vid) begin
+	lb_hb <= hb_in;
+	if(lb_line_start) begin
+		lb_wbuf <= ~lb_wbuf;
+		lb_rbuf <= lb_wbuf;
+	end
+
+	if(hb_in) lb_wx <= 0;
+	else if(ce_x1i && ~&lb_wx) lb_wx <= lb_wx + 1'd1;
+end
+
+// The first pixel can arrive on the clock the buffers swap.
+always @(posedge clk_vid) begin
+	if(ce_x1i && ~hb_in) lb_ram[{lb_wbuf ^ lb_line_start, lb_wx}] <= {b_in, g_in, r_in};
+end
+
+// Three output pixels behind hbo[0], the position of hbo[6] at four clocks per pixel.
+always @(posedge clk_vid) begin
+	if(ce_x2o) begin
+		lb_hbd <= {lb_hbd[1:0], hbo[0]};
+		if(lb_hbd[1]) lb_rx <= 0;
+		else if(~&lb_rx) lb_rx <= lb_rx + 1'd1;
+		lb_q <= lb_ram[{lb_rbuf, lb_rx}];
+	end
+end
+
+// One output line earlier than Hq2x, which waits for the next input line; sync moves too.
+assign vs_out = hq2x ? vso[3] : vso[2];
 assign ce_pix_out = hq2x ? ce_x4o : ce_x2o;
 
 //Compensate picture shift after HQ2x
-assign vb_out = vbo[3];
-assign hb_out = hbo[6];
+assign vb_out = hq2x ? vbo[3] : vbo[2];
+assign hb_out = hq2x ? hbo[6] : lb_hbd[2];
+assign {b_out, g_out, r_out} = hq2x ? hq_pixel : lb_q;
 
 endmodule

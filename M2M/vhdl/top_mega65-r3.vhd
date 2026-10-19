@@ -233,6 +233,7 @@ architecture synthesis of mega65_r3 is
    -- keyboard handling (incl. drive led)
    signal main_key_num           : integer range 0 to 79;
    signal main_key_pressed_n     : std_logic;
+   signal main_key_enabled       : std_logic;
    signal main_power_led         : std_logic;
    signal main_power_led_col     : std_logic_vector(23 downto 0);
    signal main_drive_led         : std_logic;
@@ -253,7 +254,6 @@ architecture synthesis of mega65_r3 is
    signal video_clk              : std_logic;
    signal video_rst              : std_logic;
    signal video_ce               : std_logic;
-   signal video_ce_ovl           : std_logic;
    signal video_red              : std_logic_vector(7 downto 0);
    signal video_green            : std_logic_vector(7 downto 0);
    signal video_blue             : std_logic_vector(7 downto 0);
@@ -261,6 +261,17 @@ architecture synthesis of mega65_r3 is
    signal video_hs               : std_logic;
    signal video_hblank           : std_logic;
    signal video_vblank           : std_logic;
+   signal vga_video_clk          : std_logic;
+   signal vga_video_rst          : std_logic;
+   signal vga_video_ce           : std_logic;
+   signal vga_video_ce_ovl       : std_logic;
+   signal vga_video_red          : std_logic_vector(7 downto 0);
+   signal vga_video_green        : std_logic_vector(7 downto 0);
+   signal vga_video_blue         : std_logic_vector(7 downto 0);
+   signal vga_video_vs           : std_logic;
+   signal vga_video_hs           : std_logic;
+   signal vga_video_hblank       : std_logic;
+   signal vga_video_vblank       : std_logic;
 
    -- Joysticks and Paddles
    signal main_joy1_up_n         : std_logic;
@@ -559,6 +570,7 @@ begin
       main_reset_core_o       => main_reset_core,
       main_key_num_o          => main_key_num,
       main_key_pressed_n_o    => main_key_pressed_n,
+      main_key_enabled_o      => main_key_enabled,
       main_power_led_i        => main_power_led,
       main_power_led_col_i    => main_power_led_col,
       main_drive_led_i        => main_drive_led,
@@ -570,7 +582,6 @@ begin
       video_clk_i             => video_clk,
       video_rst_i             => video_rst,
       video_ce_i              => video_ce,
-      video_ce_ovl_i          => video_ce_ovl,
       video_red_i             => video_red,
       video_green_i           => video_green,
       video_blue_i            => video_blue,
@@ -578,6 +589,17 @@ begin
       video_hs_i              => video_hs,
       video_hblank_i          => video_hblank,
       video_vblank_i          => video_vblank,
+      vga_video_clk_i         => vga_video_clk,
+      vga_video_rst_i         => vga_video_rst,
+      vga_video_ce_i          => vga_video_ce,
+      vga_video_ce_ovl_i      => vga_video_ce_ovl,
+      vga_video_red_i         => vga_video_red,
+      vga_video_green_i       => vga_video_green,
+      vga_video_blue_i        => vga_video_blue,
+      vga_video_vs_i          => vga_video_vs,
+      vga_video_hs_i          => vga_video_hs,
+      vga_video_hblank_i      => vga_video_hblank,
+      vga_video_vblank_i      => vga_video_vblank,
       main_joy1_up_n_o        => main_joy1_up_n,
       main_joy1_down_n_o      => main_joy1_down_n,
       main_joy1_left_n_o      => main_joy1_left_n,
@@ -742,7 +764,6 @@ begin
          video_clk_o             => video_clk,
          video_rst_o             => video_rst,
          video_ce_o              => video_ce,
-         video_ce_ovl_o          => video_ce_ovl,
          video_red_o             => video_red,
          video_green_o           => video_green,
          video_blue_o            => video_blue,
@@ -750,6 +771,17 @@ begin
          video_hs_o              => video_hs,
          video_hblank_o          => video_hblank,
          video_vblank_o          => video_vblank,
+         vga_video_clk_o         => vga_video_clk,
+         vga_video_rst_o         => vga_video_rst,
+         vga_video_ce_o          => vga_video_ce,
+         vga_video_ce_ovl_o      => vga_video_ce_ovl,
+         vga_video_red_o         => vga_video_red,
+         vga_video_green_o       => vga_video_green,
+         vga_video_blue_o        => vga_video_blue,
+         vga_video_vs_o          => vga_video_vs,
+         vga_video_hs_o          => vga_video_hs,
+         vga_video_hblank_o      => vga_video_hblank,
+         vga_video_vblank_o      => vga_video_vblank,
 
          -- Audio output (Signed PCM)
          main_audio_left_o       => main_audio_l,
@@ -758,6 +790,7 @@ begin
          -- M2M Keyboard interface
          main_kb_key_num_i       => main_key_num,
          main_kb_key_pressed_n_i => main_key_pressed_n,
+         main_kb_key_enabled_i   => main_key_enabled,
          main_power_led_o        => main_power_led,
          main_power_led_col_o    => main_power_led_col,
          main_drive_led_o        => main_drive_led,

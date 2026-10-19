@@ -9,8 +9,8 @@
 
 ## NOTE: auto-derived core clocks are main_clk_mmcm_orig / main_clk_mmcm_slow
 ## (BUFGMUX-selected onto the core clock). VDC has a dedicated 32.000 MHz MMCM
-## (entity vdc_clk / clk_vdc.vhd). HDMI video_clk is BUFGMUX of the core clock net
-## (main_clk_raw, i.e. behind the flicker-free mux) and vdc_clk_raw.
+## (entity vdc_clk / clk_vdc.vhd). HDMI video_clk and VGA vga_video_clk are each a BUFGMUX
+## of the core clock net (main_clk_raw, i.e. behind the flicker-free mux) and vdc_clk_raw.
 
 ## "HDMI: Flicker-free" switches the core between main_clk_mmcm_orig (31.527778 MHz) and
 ## main_clk_mmcm_slow (31.448993 MHz) through a glitch-free BUFGMUX_CTRL. Without the
@@ -54,6 +54,18 @@ create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_c64_orig/CLKO
 ## pins are pinned directly. A "no pins matched" warning on the next line means the
 ## select was renamed and the phantom crossing is back.
 set_case_analysis 0 [get_pins {CORE/i_video_clk_mux/S0 CORE/i_video_clk_mux/S1}]
+
+## The VGA port has its own copy of that mux (i_vga_clk_mux), pinned the same way for the
+## same reasons. With both pinned, STA sees the HDMI and VGA video clocks as one clock, so a
+## path between the two streams would go unchecked: keep them separate in the RTL.
+set_case_analysis 0 [get_pins {CORE/i_vga_clk_mux/S0 CORE/i_vga_clk_mux/S1}]
+
+## The C64 orig/slow and VDC MMCMs all feed BUFGs that cascade into both video muxes, so they
+## must share a half of the device, and the bottom half of the clk_i column has exactly three
+## MMCM sites. With two video muxes the clock placer no longer finds that on its own.
+set_property LOC MMCME2_ADV_X0Y0 [get_cells CORE/clk_gen/i_clk_c64_orig]
+set_property LOC MMCME2_ADV_X0Y2 [get_cells CORE/clk_gen/i_clk_c64_slow]
+set_property LOC MMCME2_ADV_X0Y1 [get_cells CORE/clk_vdc_gen/mmcm_adv_inst]
 
 ## NOTE (investigation): the VDC<->main bus crossing is intentionally left UNCONSTRAINED.
 ## Constraining it (set_clock_groups -asynchronous OR bounded set_max_delay) was tried on HW

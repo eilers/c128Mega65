@@ -91,10 +91,10 @@ port (
    -- Video Clock Domain
    --------------------------------------------------------------------------------------------------------
 
+   -- HDMI stream
    video_clk_o             : out std_logic;
    video_rst_o             : out std_logic;
    video_ce_o              : out std_logic;
-   video_ce_ovl_o          : out std_logic;
    video_red_o             : out std_logic_vector(7 downto 0);
    video_green_o           : out std_logic_vector(7 downto 0);
    video_blue_o            : out std_logic_vector(7 downto 0);
@@ -102,6 +102,19 @@ port (
    video_hs_o              : out std_logic;
    video_hblank_o          : out std_logic;
    video_vblank_o          : out std_logic;
+
+   -- VGA stream: its own clock, so VGA can show the other chip
+   vga_video_clk_o         : out std_logic;
+   vga_video_rst_o         : out std_logic;
+   vga_video_ce_o          : out std_logic;
+   vga_video_ce_ovl_o      : out std_logic;
+   vga_video_red_o         : out std_logic_vector(7 downto 0);
+   vga_video_green_o       : out std_logic_vector(7 downto 0);
+   vga_video_blue_o        : out std_logic_vector(7 downto 0);
+   vga_video_vs_o          : out std_logic;
+   vga_video_hs_o          : out std_logic;
+   vga_video_hblank_o      : out std_logic;
+   vga_video_vblank_o      : out std_logic;
 
    --------------------------------------------------------------------------------------------------------
    -- Core Clock Domain
@@ -134,6 +147,7 @@ port (
    -- M2M Keyboard interface (incl. power led and drive led)
    main_kb_key_num_i       : in  integer range 0 to 79;  -- cycles through all MEGA65 keys
    main_kb_key_pressed_n_i : in  std_logic;              -- low active: debounced feedback: is kb_key_num_i pressed right now?
+   main_kb_key_enabled_i   : in  std_logic;              -- '0' while the on-screen menu owns the keyboard
    main_power_led_o        : out std_logic;
    main_power_led_col_o    : out std_logic_vector(23 downto 0);
    main_drive_led_o        : out std_logic;
@@ -235,13 +249,14 @@ signal main_clk_raw        : std_logic;
 signal vdc_clk_locked      : std_logic;
 signal vdc_rst             : std_logic;
 signal main_video_sel_vdc  : std_logic;
+signal main_vga_sel_vdc    : std_logic;
 signal video_clk_sel       : std_logic;
 
 -- Power-on default is the original PAL speed; the process below has no reset, so the
 -- initial value also keeps the clock mux select defined in simulation.
 signal hr_core_speed : unsigned(1 downto 0) := "00"; -- see clock.vhd for details
 signal hr_hdmi_ff          : std_logic;      -- "HDMI: Flicker-free" menu bit, synced to hr_clk
-signal hr_video_sel_vdc    : std_logic;      -- VDC is the displayed source, synced to hr_clk
+signal hr_video_sel_vdc    : std_logic;      -- HDMI shows the VDC, synced to hr_clk
 
 ---------------------------------------------------------------------------------------------
 -- qnice_clk
@@ -311,7 +326,6 @@ signal qnice_drv_rom_wr      : std_logic := '0';
 signal qnice_core_rst        : std_logic;
 -- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
 signal f9_latched            : std_logic;
-signal qnice_f9_latched      : std_logic;
 
 begin
 
@@ -384,6 +398,17 @@ begin
 
    video_rst_o <= vdc_rst when main_video_sel_vdc = '1' else main_rst_o;
 
+   -- VGA vga_video_clk: the same mux again, so VGA can show the other chip than HDMI.
+   i_vga_clk_mux: bufgmux_ctrl
+      port map (
+         i0 => main_clk_raw,
+         i1 => vdc_clk_raw,
+         s  => main_vga_sel_vdc,
+         o  => vga_video_clk_o
+      );
+
+   vga_video_rst_o <= vdc_rst when main_vga_sel_vdc = '1' else main_rst_o;
+
    ---------------------------------------------------------------------------------------------
    -- hr_clk (HyperRAM clock): "HDMI: Flicker-free"
    ---------------------------------------------------------------------------------------------
@@ -409,8 +434,8 @@ begin
    -- "embrace" 50 Hz (see clk.vhd). On average the core then runs at exactly 50 Hz.
    --
    -- Only the VIC benefits: the VDC has its own 32 MHz MMCM that is not part of the switch,
-   -- so while the VDC is the displayed source we keep the core at full speed instead of
-   -- slowing it down without gaining anything.
+   -- so while HDMI shows the VDC we keep the core at full speed instead of slowing it down
+   -- without gaining anything. VGA has no frame buffer and does not care.
    p_core_speed : process (hr_clk_i)
    begin
       if rising_edge(hr_clk_i) then
@@ -448,9 +473,8 @@ begin
          osm_control_i        => main_osm_control_i,
          f9_latched_o         => f9_latched,
 
-         -- Video output (domain follows video_select_vdc_o / BUFGMUX above)
+         -- HDMI video output (domain follows video_select_vdc_o / BUFGMUX above)
          video_ce_o           => video_ce_o,
-         video_ce_ovl_o       => video_ce_ovl_o,
          video_red_o          => video_red_o,
          video_green_o        => video_green_o,
          video_blue_o         => video_blue_o,
@@ -459,6 +483,18 @@ begin
          video_hblank_o       => video_hblank_o,
          video_vblank_o       => video_vblank_o,
          video_select_vdc_o   => main_video_sel_vdc,
+
+         -- VGA video output (domain follows vga_video_select_vdc_o / i_vga_clk_mux)
+         vga_video_ce_o         => vga_video_ce_o,
+         vga_video_ce_ovl_o     => vga_video_ce_ovl_o,
+         vga_video_red_o        => vga_video_red_o,
+         vga_video_green_o      => vga_video_green_o,
+         vga_video_blue_o       => vga_video_blue_o,
+         vga_video_vs_o         => vga_video_vs_o,
+         vga_video_hs_o         => vga_video_hs_o,
+         vga_video_hblank_o     => vga_video_hblank_o,
+         vga_video_vblank_o     => vga_video_vblank_o,
+         vga_video_select_vdc_o => main_vga_sel_vdc,
 
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,
@@ -472,6 +508,7 @@ begin
          -- M2M Keyboard interface
          kb_key_num_i         => main_kb_key_num_i,
          kb_key_pressed_n_i   => main_kb_key_pressed_n_i,
+         kb_key_enabled_i     => main_kb_key_enabled_i,
 
          -- MEGA65 joysticks and paddles/mouse/potentiometers
          joy_1_up_n_i         => main_joy_1_up_n_i ,
@@ -610,23 +647,26 @@ begin
    -- "HDMI audio" defaults to selected. Clearing it requests a DVI stream:
    -- video only, no audio packets. The 3.5 mm headphone output is unaffected.
    qnice_dvi_o                <= not qnice_osm_control_i(C_MENU_HDMI_AUDIO);
-   -- Double each line so the VGA connector runs at ~31.3 kHz instead of the
-   -- native 40-column and 80-column ~15.6 kHz. HDMI does not use this; the
-   -- ascaler retimes its own output. Pulse width and polarity come from
-   -- VGA_STD_SYNC.
-   qnice_scandoubler_o        <= '1';
+   -- VGA Standard doubles each line so the VGA connector runs at ~31.3 kHz
+   -- instead of the native 40-column and 80-column ~15.6 kHz. Pulse width and
+   -- polarity come from VGA_STD_SYNC. The two retro 15 kHz modes send the
+   -- native lines unchanged for RGB monitors and SCART. HDMI does not use
+   -- this; the ascaler retimes its own output.
+   qnice_scandoubler_o        <= (not qnice_osm_control_i(C_MENU_VGA_15KHZHSVS)) and
+                                 (not qnice_osm_control_i(C_MENU_VGA_15KHZCS));
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
    -- Audio filtering and HDMI zoom/crop are not offered in the menu yet, see doc/KNOWN_BUGS.md
    qnice_audio_filter_o       <= '0';                                         -- 0 = raw audio, 1 = use filters from globals.vhd
    qnice_zoom_crop_o          <= '0';                                         -- 0 = no zoom/crop
    qnice_hdmi_view_size_o     <= (others => '0');                             -- use the first cropped-view size
 
-   -- Standard VGA: separate horizontal and vertical sync, and the on-screen
-   -- menu uses the scandoubled line count. retro 15 kHz would bypass the
-   -- sync reshaper and tell the menu that each line is still the original
-   -- television line. Composite sync is for SCART, not for a VGA monitor.
-   qnice_retro15kHz_o         <= '0';
-   qnice_csync_o              <= '0';
+   -- Retro 15 kHz bypasses the sync reshaper and tells the on-screen menu that
+   -- each line is still the original television line. Composite sync puts
+   -- CSYNC on VGA pin 13 and holds pin 14 high, which is what most RGB
+   -- monitors (Sony BVM/PVM) and the MiSTer VGA-to-SCART adaptor expect.
+   qnice_retro15kHz_o         <= qnice_osm_control_i(C_MENU_VGA_15KHZHSVS) or
+                                 qnice_osm_control_i(C_MENU_VGA_15KHZCS);
+   qnice_csync_o              <= qnice_osm_control_i(C_MENU_VGA_15KHZCS);
    qnice_osm_cfg_scaling_o    <= (others => '1');
 
    -- ascal filters that are applied while processing the input
@@ -701,10 +741,6 @@ begin
             qnice_mount_we    <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_mount_data;
             qnice_dev_wait_o  <= qnice_mount_wait;
-
-        -- Latched F9 key. Bit 0 is 1 while the latch is pressed.
-        when C_DEV_KEYS =>
-            qnice_dev_data_o  <= x"000" & "000" & qnice_f9_latched;
 
          when others => null;
       end case;
@@ -804,17 +840,6 @@ begin
       ); -- i_cdc_main2qnice_rst
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
-
-   i_cdc_f9_latch : xpm_cdc_array_single
-      generic map (
-         WIDTH => 1
-      )
-      port map (
-         src_clk     => main_clk_o,
-         src_in(0)   => f9_latched,
-         dest_clk    => qnice_clk_i,
-         dest_out(0) => qnice_f9_latched
-      ); -- i_cdc_f9_latch
 
    i_drive_rom_server : entity work.drive_rom_server
       generic map (
