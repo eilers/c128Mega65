@@ -86,8 +86,12 @@ constant C_MENU_VGA_15KHZCS      : natural := 59;  -- VGA: native 15 kHz, compos
 constant C_MENU_KEYS_4080        : natural := 68;  -- real Caps Lock is the 40/80 key (default)
 constant C_MENU_KEYS_ASCII       : natural := 69;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
 constant C_MENU_HELP_F13         : natural := 74;  -- OSM trigger on F13 (Help stays C128 Help)
-constant C_MENU_EXP_PORT_HW      : natural := 78;  -- Expansion Port: Use hardware slot
-constant C_MENU_IEC              : natural := 79;  -- IEC: Use hardware port
+constant C_MENU_IEC              : natural := 78;  -- IEC: Use hardware port
+constant C_MENU_EXP_PORT_HW      : natural := 82;  -- Expansion Port: hardware slot (default)
+constant C_MENU_EXP_PORT_REU_512K: natural := 83;  -- Expansion Port: REU 512 KB
+constant C_MENU_EXP_PORT_REU_2M  : natural := 84;  -- Expansion Port: REU 2 MB
+constant C_MENU_EXP_PORT_REU_4M  : natural := 85;  -- Expansion Port: REU 4 MB
+constant C_MENU_EXP_PORT_CRT     : natural := 86;  -- Expansion Port: virtual cartridge (.crt)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode

@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 83;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 92;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -386,8 +386,17 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
    " External Hardware\n"   &
    "\n"                     &
-   " Use cartridge slot\n"  &
    " Use IEC port\n"        &
+   " Expansion: %s\n"       &    -- Expansion Port submenu; %s is the selected source
+   " Expansion Port\n"      &
+   "\n"                     &
+   " Hardware\n"            &    -- default: the physical cartridge slot
+   " REU 512 KB\n"          &    -- longest summary: " Expansion: REU 512 KB" is OPTM_DX - 1
+   " REU 2 MB\n"            &
+   " REU 4 MB\n"            &
+   " CRT file\n"            &    -- virtual cartridge
+   "\n"                     &
+   " Back to main menu\n"   &
    "\n"                     &
 
    " Credits\n"             &
@@ -508,8 +517,17 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
                                              OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
+                                             OPTM_G_SUBMENU,                                      -- Expansion Port submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Expansion Port
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_EXP_PORT + OPTM_G_STDSEL,                     -- Hardware
+                                             OPTM_G_EXP_PORT,                                     -- REU 512 KB
+                                             OPTM_G_EXP_PORT,                                     -- REU 2 MB
+                                             OPTM_G_EXP_PORT,                                     -- REU 4 MB
+                                             OPTM_G_EXP_PORT,                                     -- CRT file
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))

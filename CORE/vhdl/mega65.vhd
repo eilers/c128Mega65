@@ -295,8 +295,9 @@ signal qnice_mount_data      : std_logic_vector(15 downto 0);
 signal qnice_mount_wait      : std_logic;
 signal qnice_mount_base      : std_logic_vector(21 downto 0);
 
--- Two Avalon masters share hr_core_*: QNICE still stages the image through
--- mount_buf_wrapper (s0), the hardware pump fills the drive buffer (s1).
+-- Four Avalon masters share hr_core_*: QNICE still stages the image through
+-- mount_buf_wrapper (s0), the hardware pump fills the drive buffer (s1), and
+-- the REU (s2) and the virtual cartridge (s3) each own a region of doc/hyperram-map.md.
 signal mount_hr_write         : std_logic;
 signal mount_hr_read          : std_logic;
 signal mount_hr_address       : std_logic_vector(31 downto 0);
@@ -315,6 +316,28 @@ signal pump_hr_burstcount     : std_logic_vector( 7 downto 0);
 signal pump_hr_readdata       : std_logic_vector(15 downto 0);
 signal pump_hr_readdatavalid  : std_logic;
 signal pump_hr_waitrequest    : std_logic;
+
+-- REU
+signal reu_hr_write           : std_logic;
+signal reu_hr_read            : std_logic;
+signal reu_hr_address         : std_logic_vector(31 downto 0);
+signal reu_hr_writedata       : std_logic_vector(15 downto 0);
+signal reu_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal reu_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal reu_hr_readdata        : std_logic_vector(15 downto 0);
+signal reu_hr_readdatavalid   : std_logic;
+signal reu_hr_waitrequest     : std_logic;
+
+-- Virtual cartridge
+signal crt_hr_write           : std_logic;
+signal crt_hr_read            : std_logic;
+signal crt_hr_address         : std_logic_vector(31 downto 0);
+signal crt_hr_writedata       : std_logic_vector(15 downto 0);
+signal crt_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal crt_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal crt_hr_readdata        : std_logic_vector(15 downto 0);
+signal crt_hr_readdatavalid   : std_logic;
+signal crt_hr_waitrequest     : std_logic;
 
 -- Drive ROM server: hands boot1.rom to iec_drive byte by byte (QNICE clock domain)
 signal qnice_drvrom_b_addr   : std_logic_vector(17 downto 0) := (others => '0');
@@ -775,47 +798,63 @@ begin
          hr_waitrequest_i   => mount_hr_waitrequest
       ); -- i_mount_buf_wrapper
 
+   -- REU: idle until the REU drives this port
+   reu_hr_write      <= '0';
+   reu_hr_read       <= '0';
+   reu_hr_address    <= (others => '0');
+   reu_hr_writedata  <= (others => '0');
+   reu_hr_byteenable <= (others => '0');
+   reu_hr_burstcount <= (others => '0');
+
+   -- Virtual cartridge: idle until the cartridge drives this port
+   crt_hr_write      <= '0';
+   crt_hr_read       <= '0';
+   crt_hr_address    <= (others => '0');
+   crt_hr_writedata  <= (others => '0');
+   crt_hr_byteenable <= (others => '0');
+   crt_hr_burstcount <= (others => '0');
+
    -- s0 = QNICE mount (image staging, including writes). s1 = hardware fill of
-   -- the drive's sector buffer. Round-robin; the Shell and the pump never hold
-   -- the HyperRAM for a whole cylinder at once.
-   i_vd_hr_arbit : entity work.avm_arbit
+   -- the drive's sector buffer. s2 = REU, s3 = virtual cartridge. Round-robin;
+   -- the Shell and the pump never hold the HyperRAM for a whole cylinder at once.
+   i_core_hr_arbit : entity work.avm_arbit_general
       generic map (
-         G_PREFER_SWAP  => false,
+         G_NUM_SLAVES   => 4,
          G_FREQ_HZ      => 100_000_000,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                  => hr_clk_i,
-         rst_i                  => hr_rst_i,
-         s0_avm_write_i         => mount_hr_write,
-         s0_avm_read_i          => mount_hr_read,
-         s0_avm_address_i       => mount_hr_address,
-         s0_avm_writedata_i     => mount_hr_writedata,
-         s0_avm_byteenable_i    => mount_hr_byteenable,
-         s0_avm_burstcount_i    => mount_hr_burstcount,
-         s0_avm_readdata_o      => mount_hr_readdata,
-         s0_avm_readdatavalid_o => mount_hr_readdatavalid,
-         s0_avm_waitrequest_o   => mount_hr_waitrequest,
-         s1_avm_write_i         => pump_hr_write,
-         s1_avm_read_i          => pump_hr_read,
-         s1_avm_address_i       => pump_hr_address,
-         s1_avm_writedata_i     => pump_hr_writedata,
-         s1_avm_byteenable_i    => pump_hr_byteenable,
-         s1_avm_burstcount_i    => pump_hr_burstcount,
-         s1_avm_readdata_o      => pump_hr_readdata,
-         s1_avm_readdatavalid_o => pump_hr_readdatavalid,
-         s1_avm_waitrequest_o   => pump_hr_waitrequest,
-         m_avm_write_o          => hr_core_write_o,
-         m_avm_read_o           => hr_core_read_o,
-         m_avm_address_o        => hr_core_address_o,
-         m_avm_writedata_o      => hr_core_writedata_o,
-         m_avm_byteenable_o     => hr_core_byteenable_o,
-         m_avm_burstcount_o     => hr_core_burstcount_o,
-         m_avm_readdata_i       => hr_core_readdata_i,
-         m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
-         m_avm_waitrequest_i    => hr_core_waitrequest_i
-      ); -- i_vd_hr_arbit
+         clk_i                    => hr_clk_i,
+         rst_i                    => hr_rst_i,
+         s_avm_write_i            => crt_hr_write      & reu_hr_write      & pump_hr_write      & mount_hr_write,
+         s_avm_read_i             => crt_hr_read       & reu_hr_read       & pump_hr_read       & mount_hr_read,
+         s_avm_address_i          => crt_hr_address    & reu_hr_address    & pump_hr_address    & mount_hr_address,
+         s_avm_writedata_i        => crt_hr_writedata  & reu_hr_writedata  & pump_hr_writedata  & mount_hr_writedata,
+         s_avm_byteenable_i       => crt_hr_byteenable & reu_hr_byteenable & pump_hr_byteenable & mount_hr_byteenable,
+         s_avm_burstcount_i       => crt_hr_burstcount & reu_hr_burstcount & pump_hr_burstcount & mount_hr_burstcount,
+         s_avm_readdata_o(4*16-1 downto 3*16) => crt_hr_readdata,
+         s_avm_readdata_o(3*16-1 downto 2*16) => reu_hr_readdata,
+         s_avm_readdata_o(2*16-1 downto 1*16) => pump_hr_readdata,
+         s_avm_readdata_o(1*16-1 downto 0*16) => mount_hr_readdata,
+         s_avm_readdatavalid_o(3) => crt_hr_readdatavalid,
+         s_avm_readdatavalid_o(2) => reu_hr_readdatavalid,
+         s_avm_readdatavalid_o(1) => pump_hr_readdatavalid,
+         s_avm_readdatavalid_o(0) => mount_hr_readdatavalid,
+         s_avm_waitrequest_o(3)   => crt_hr_waitrequest,
+         s_avm_waitrequest_o(2)   => reu_hr_waitrequest,
+         s_avm_waitrequest_o(1)   => pump_hr_waitrequest,
+         s_avm_waitrequest_o(0)   => mount_hr_waitrequest,
+         m_avm_write_o            => hr_core_write_o,
+         m_avm_read_o             => hr_core_read_o,
+         m_avm_address_o          => hr_core_address_o,
+         m_avm_writedata_o        => hr_core_writedata_o,
+         m_avm_byteenable_o       => hr_core_byteenable_o,
+         m_avm_burstcount_o       => hr_core_burstcount_o,
+         m_avm_readdata_i         => hr_core_readdata_i,
+         m_avm_readdatavalid_i    => hr_core_readdatavalid_i,
+         m_avm_waitrequest_i      => hr_core_waitrequest_i
+      ); -- i_core_hr_arbit
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)

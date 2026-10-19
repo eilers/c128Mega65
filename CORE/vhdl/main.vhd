@@ -351,6 +351,11 @@ signal core_irq_n           : std_logic;
 signal core_nmi_n           : std_logic;
 signal core_phi2            : std_logic;
 signal core_phi2_prev       : std_logic := '0';
+signal core_dma             : std_logic;   -- bus-master request from the REU or virtual cartridge
+
+-- Expansion Port mode: only one source drives the C128's expansion bus at a time
+type t_exp_port_mode is (EXP_MODE_HW, EXP_MODE_REU, EXP_MODE_CRT);
+signal exp_port_mode        : t_exp_port_mode;
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
@@ -652,7 +657,12 @@ vga_video_blue_o   <= (others => '0') when vga_switching = '1' else
 -- Nothing here is registered: the C128 bus and the pins are in the same clock domain
 -- (clk_main_i) and a cartridge expects to see address, data and the chip selects settle
 -- within the PHI2 cycle they belong to, so an extra pipeline stage is not an option.
-exp_port_hw <= osm_control_i(C_MENU_EXP_PORT_HW);
+exp_port_mode <= EXP_MODE_REU when osm_control_i(C_MENU_EXP_PORT_REU_512K) = '1' or
+                                   osm_control_i(C_MENU_EXP_PORT_REU_2M)   = '1' or
+                                   osm_control_i(C_MENU_EXP_PORT_REU_4M)   = '1' else
+                 EXP_MODE_CRT when osm_control_i(C_MENU_EXP_PORT_CRT)      = '1' else
+                 EXP_MODE_HW;
+exp_port_hw   <= '1' when exp_port_mode = EXP_MODE_HW else '0';
 
 -- Low-active chip selects as the expansion port expects them. The core reports these accesses
 -- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
@@ -778,7 +788,7 @@ begin
    end if;
 end process handle_hardware_expansion_proc;
 
--- Route the cartridge back into the C128
+-- Route the selected Expansion Port source back into the C128
 handle_cores_expansion_port_signals_proc : process (all)
 begin
    core_game_n  <= '1';
@@ -788,18 +798,26 @@ begin
    core_io_data <= x"FF";
    core_irq_n   <= '1';
    core_nmi_n   <= core_nmi_n_s;    -- RESTORE key, see restore_nmi
+   core_dma     <= '0';
 
-   if exp_port_hw = '1' then
-      core_game_n  <= cart_game_n;
-      core_exrom_n <= cart_exrom_n;
-      core_irq_n   <= cart_irq_n;
-      core_nmi_n   <= cart_nmi_n and core_nmi_n_s;
-      -- Let the cartridge win every $DExx/$DFxx read. io_rom stays '0' because that would map
-      -- the I/O windows into cartridge ROM held in the core's own memory, which only applies to
-      -- emulated cartridges.
-      core_io_ext  <= core_ioe or core_iof;
-      core_io_data <= data_from_cart;
-   end if;
+   case exp_port_mode is
+      when EXP_MODE_HW =>
+         core_game_n  <= cart_game_n;
+         core_exrom_n <= cart_exrom_n;
+         core_irq_n   <= cart_irq_n;
+         core_nmi_n   <= cart_nmi_n and core_nmi_n_s;
+         -- Let the cartridge win every $DExx/$DFxx read. io_rom stays '0' because that would map
+         -- the I/O windows into cartridge ROM held in the core's own memory, which only applies to
+         -- emulated cartridges.
+         core_io_ext  <= core_ioe or core_iof;
+         core_io_data <= data_from_cart;
+
+      when EXP_MODE_REU =>
+         null;
+
+      when EXP_MODE_CRT =>
+         null;
+   end case;
 end process handle_cores_expansion_port_signals_proc;
 
 -- Detect cartridges that need special treatment because R3/R3A/R4 boards cannot sense a
@@ -1284,10 +1302,9 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       mod_key     => open,
       tape_play   => open,
       
-      -- The expansion port's /DMA line (cart_dma_i) is deliberately ignored: dma_req is the
-      -- REU-style bus-master interface, and asserting it from a floating pin would freeze the
-      -- Z80. Cartridges that need to become bus master are therefore not supported yet.
-      dma_req       => '0',
+      -- The expansion port's /DMA line (cart_dma_i) is deliberately ignored: asserting dma_req
+      -- from a floating pin would freeze the Z80. Only the REU and virtual cartridge drive it.
+      dma_req       => core_dma,
       dma_cycle     => open,
       dma_addr      => open,
       dma_dout      => open,

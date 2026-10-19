@@ -333,7 +333,7 @@ END_OF_ROM      .DW 0
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
 ; Example: If your HEAP_SIZE would be 29696, then you write 29696-1024=28672
 ; instead, but when doing the sanity check calculations, you use 29696
-MENU_HEAP_SIZE  .EQU 1536
+MENU_HEAP_SIZE  .EQU 2048
 
 #ifndef RELEASE
 
@@ -341,14 +341,14 @@ MENU_HEAP_SIZE  .EQU 1536
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 5632                       ; 7168 - 1536 = 5632
+HEAP_SIZE       .EQU 5120                       ; 7168 - 2048 = 5120
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28k of heap which leads to a better user experience when
 ; it comes to folders with a lot of files
 #else
 
-HEAP_SIZE       .EQU 28160                      ; 29696 - 1536 = 28160
+HEAP_SIZE       .EQU 27648                      ; 29696 - 2048 = 27648
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

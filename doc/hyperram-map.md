@@ -60,10 +60,11 @@ ascal reserves 2 MiB at address 0: `RAMSIZE = 2^ceil(log2(720 × 540 × 3))` (`M
 
 ## Shared code both features touch
 
-These are the places where the REU and cartridge work meet. Whoever gets there first should set them up for both.
+These are the places where the REU and cartridge work meet. They are already set up for both, so each feature only edits its own blocks.
 
-- **Core HyperRAM port.** `CORE/vhdl/mega65.vhd` has one HyperRAM master, split by a 2-way `avm_arbit` between disk-image staging and the drive sector fill. The REU and the cartridge each need a port, so this becomes `avm_arbit_general` with `G_NUM_SLAVES => 4`. That is the arbiter's maximum.
-- **Expansion port mode.** One menu setting chooses the hardware slot, REU or virtual cartridge, and one switch in `CORE/vhdl/main.vhd` connects only that source to the C128's expansion bus.
+- **Core HyperRAM port.** In `CORE/vhdl/mega65.vhd`, `i_core_hr_arbit` (`avm_arbit_general`, 4 ports, its maximum) shares the core's HyperRAM master between disk-image staging, the drive sector fill, the REU (`reu_hr_*`) and the virtual cartridge (`crt_hr_*`). Each feature replaces its own tie-off block above the arbiter.
+- **Expansion port mode.** The Expansion Port submenu chooses Hardware, REU 512 KB, REU 2 MB, REU 4 MB or CRT file. In `CORE/vhdl/main.vhd`, `exp_port_mode` decodes it, and `handle_cores_expansion_port_signals_proc` has one `case` arm per source. Each feature fills its own arm, including `core_dma`, the C128's DMA request. The REU reads its size from `C_MENU_EXP_PORT_REU_*`.
+- **Menu.** New items go below `CRT file`, the last item with a `C_MENU_*` index, so they shift no index. The cartridge's `CRT:%s` load line goes there. `MENU_HEAP_SIZE` in `CORE/m2m-rom/m2m-rom.asm` has room for it.
 - **QNICE device IDs.** The next free ID is `0x0106` (`globals.vhd`).
 
 ## Later
