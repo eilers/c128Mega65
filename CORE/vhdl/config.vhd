@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 92;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 97;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -289,13 +289,13 @@ constant OPTM_SIZE         : natural := 92;  -- amount of items including empty 
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 25 rows. The Video submenu is
+-- tallest page. The main menu is the tallest at 26 rows. The Video submenu is
 -- 20 rows and the HDMI submenu 14 (headline through Back to main menu; the "%s"
 -- opener is hidden inside the submenu); both leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 25;
+constant OPTM_DY           : natural := 26;
 
 constant OPTM_ITEMS        : string :=
 
@@ -387,13 +387,18 @@ constant OPTM_ITEMS        : string :=
    " External Hardware\n"   &
    "\n"                     &
    " Use IEC port\n"        &
-   " Expansion: %s\n"       &    -- Expansion Port submenu; %s is the selected source
-   " Expansion Port\n"      &
+   " REU: %s\n"             &    -- REU submenu; %s is the size or Off
+   " RAM Expansion Unit\n"  &
+   "\n"                     &
+   " Off\n"                 &    -- default
+   " 512 KB\n"              &    -- Commodore 1750
+   " 2 MB\n"                &
+   "\n"                     &
+   " Back to main menu\n"   &
+   " Cartridge: %s\n"       &    -- Cartridge submenu; %s is the selected source
+   " Cartridge\n"           &
    "\n"                     &
    " Hardware\n"            &    -- default: the physical cartridge slot
-   " REU 512 KB\n"          &    -- longest summary: " Expansion: REU 512 KB" is OPTM_DX - 1
-   " REU 2 MB\n"            &
-   " REU 4 MB\n"            &
    " CRT file\n"            &    -- virtual cartridge
    "\n"                     &
    " Back to main menu\n"   &
@@ -413,7 +418,7 @@ constant OPTM_G_FF         : integer := 3;
 constant OPTM_G_CRT        : integer := 4;
 constant OPTM_G_JAILBARS   : integer := 5;
 constant OPTM_G_CREDITS    : integer := 6;
-constant OPTM_G_EXP_PORT   : integer := 7;
+constant OPTM_G_CART       : integer := 7;    -- Cartridge source: hardware slot or virtual cartridge
 constant OPTM_G_MOUNT_D8   : integer := 8;
 constant OPTM_G_MOUNT_D9   : integer := 9;
 constant OPTM_G_DRV_MODEL  : integer := 10;
@@ -422,6 +427,7 @@ constant OPTM_G_HELP_F13   : integer := 12;   -- OSM on F13 so C128 can use Help
 constant OPTM_G_HDMI_AUDIO : integer := 13;   -- HDMI audio; off selects DVI output
 constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, and which is Caps Lock
 constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/VS, 15 kHz with CSYNC
+constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -518,14 +524,19 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
-                                             OPTM_G_SUBMENU,                                      -- Expansion Port submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Expansion Port
+                                             OPTM_G_SUBMENU,                                      -- REU submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- RAM Expansion Unit
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_EXP_PORT + OPTM_G_STDSEL,                     -- Hardware
-                                             OPTM_G_EXP_PORT,                                     -- REU 512 KB
-                                             OPTM_G_EXP_PORT,                                     -- REU 2 MB
-                                             OPTM_G_EXP_PORT,                                     -- REU 4 MB
-                                             OPTM_G_EXP_PORT,                                     -- CRT file
+                                             OPTM_G_REU + OPTM_G_STDSEL,                          -- Off
+                                             OPTM_G_REU,                                          -- 512 KB
+                                             OPTM_G_REU,                                          -- 2 MB
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_SUBMENU,                                      -- Cartridge submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Cartridge
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CART + OPTM_G_STDSEL,                         -- Hardware
+                                             OPTM_G_CART,                                         -- CRT file
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_LINE,                                         -- Line

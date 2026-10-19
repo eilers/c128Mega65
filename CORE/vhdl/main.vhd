@@ -353,9 +353,16 @@ signal core_phi2            : std_logic;
 signal core_phi2_prev       : std_logic := '0';
 signal core_dma             : std_logic;   -- bus-master request from the REU or virtual cartridge
 
--- Expansion Port mode: only one source drives the C128's expansion bus at a time
-type t_exp_port_mode is (EXP_MODE_HW, EXP_MODE_REU, EXP_MODE_CRT);
-signal exp_port_mode        : t_exp_port_mode;
+-- Expansion Port: one cartridge source, plus an optional REU laid over it
+type t_cart_source is (CART_HW, CART_CRT);
+signal cart_source          : t_cart_source;
+
+-- REU
+signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB
+signal reu_io               : std_logic;                      -- $DF00-$DF1F
+signal reu_dma_req          : std_logic;
+signal reu_irq              : std_logic;
+signal reu_dout             : unsigned(7 downto 0);
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
@@ -657,12 +664,13 @@ vga_video_blue_o   <= (others => '0') when vga_switching = '1' else
 -- Nothing here is registered: the C128 bus and the pins are in the same clock domain
 -- (clk_main_i) and a cartridge expects to see address, data and the chip selects settle
 -- within the PHI2 cycle they belong to, so an extra pipeline stage is not an option.
-exp_port_mode <= EXP_MODE_REU when osm_control_i(C_MENU_EXP_PORT_REU_512K) = '1' or
-                                   osm_control_i(C_MENU_EXP_PORT_REU_2M)   = '1' or
-                                   osm_control_i(C_MENU_EXP_PORT_REU_4M)   = '1' else
-                 EXP_MODE_CRT when osm_control_i(C_MENU_EXP_PORT_CRT)      = '1' else
-                 EXP_MODE_HW;
-exp_port_hw   <= '1' when exp_port_mode = EXP_MODE_HW else '0';
+cart_source <= CART_CRT when osm_control_i(C_MENU_CART_CRT) = '1' else CART_HW;
+exp_port_hw <= '1' when cart_source = CART_HW else '0';
+
+reu_cfg <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
+           "10" when osm_control_i(C_MENU_REU_2M)   = '1' else
+           "00";
+reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0';
 
 -- Low-active chip selects as the expansion port expects them. The core reports these accesses
 -- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
@@ -788,23 +796,30 @@ begin
    end if;
 end process handle_hardware_expansion_proc;
 
--- Route the selected Expansion Port source back into the C128
+-- REU: idle until the REU drives these
+reu_dma_req <= '0';
+reu_irq     <= '0';
+reu_dout    <= x"FF";
+
+-- Route the cartridge source back into the C128, then lay the REU over it
 handle_cores_expansion_port_signals_proc : process (all)
+   variable v_irq_n : std_logic;
+   variable v_dma   : std_logic;
 begin
    core_game_n  <= '1';
    core_exrom_n <= '1';
    core_io_rom  <= '0';
    core_io_ext  <= '0';
    core_io_data <= x"FF";
-   core_irq_n   <= '1';
    core_nmi_n   <= core_nmi_n_s;    -- RESTORE key, see restore_nmi
-   core_dma     <= '0';
+   v_irq_n      := '1';
+   v_dma        := '0';
 
-   case exp_port_mode is
-      when EXP_MODE_HW =>
+   case cart_source is
+      when CART_HW =>
          core_game_n  <= cart_game_n;
          core_exrom_n <= cart_exrom_n;
-         core_irq_n   <= cart_irq_n;
+         v_irq_n      := cart_irq_n;
          core_nmi_n   <= cart_nmi_n and core_nmi_n_s;
          -- Let the cartridge win every $DExx/$DFxx read. io_rom stays '0' because that would map
          -- the I/O windows into cartridge ROM held in the core's own memory, which only applies to
@@ -812,12 +827,22 @@ begin
          core_io_ext  <= core_ioe or core_iof;
          core_io_data <= data_from_cart;
 
-      when EXP_MODE_REU =>
-         null;
-
-      when EXP_MODE_CRT =>
+      when CART_CRT =>
          null;
    end case;
+
+   -- The REU only claims $DF00-$DF1F; the rest of IO2 stays with the cartridge (C64MEGA65 #208)
+   if reu_cfg /= "00" then
+      if reu_io = '1' then
+         core_io_ext  <= '1';
+         core_io_data <= reu_dout;
+      end if;
+      v_irq_n := v_irq_n and not reu_irq;
+      v_dma   := v_dma or reu_dma_req;
+   end if;
+
+   core_irq_n <= v_irq_n;
+   core_dma   <= v_dma;
 end process handle_cores_expansion_port_signals_proc;
 
 -- Detect cartridges that need special treatment because R3/R3A/R4 boards cannot sense a

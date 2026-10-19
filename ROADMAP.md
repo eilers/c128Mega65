@@ -11,9 +11,9 @@ A `.crt` file from the SD card mounts the way a disk image does and appears to t
 
 ### REU
 
-An REU (RAM Expansion Unit) of 512 KB, 2 MB or 4 MB. At 512 KB it matches the Commodore 1750, so C128 and C64 software that expects a 1750 finds it; the larger sizes serve newer software. The MiSTer core already contains this device; the MEGA65 port still has to connect it.
+An REU (RAM Expansion Unit) of 512 KB or 2 MB. At 512 KB it matches the Commodore 1750, so C128 and C64 software that expects a 1750 finds it; 2 MB serves newer software. The MiSTer core already contains this device; the MEGA65 port still has to connect it.
 
-The REU and a virtual cartridge can't be active at the same time. [doc/hyperram-map.md](doc/hyperram-map.md) has the memory layout and the reasons.
+The REU is off by default. When switched on it works together with a cartridge in the slot or a virtual cartridge. [doc/hyperram-map.md](doc/hyperram-map.md) has the memory layout and the reasons.
 
 ## After 1.1
 
@@ -27,4 +27,4 @@ A physical 1541, 1571, or 1581 on the Commodore serial port, tested on its own a
 
 ### Larger REUs
 
-8 MB and 16 MB REUs in the SDRAM of R4, R5 and R6 boards. They don't fit in HyperRAM.
+REUs larger than 2 MB, up to 16 MB, in the SDRAM of R4, R5 and R6 boards. They don't fit in HyperRAM beside a virtual cartridge.

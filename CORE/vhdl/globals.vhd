@@ -87,11 +87,11 @@ constant C_MENU_KEYS_4080        : natural := 68;  -- real Caps Lock is the 40/8
 constant C_MENU_KEYS_ASCII       : natural := 69;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
 constant C_MENU_HELP_F13         : natural := 74;  -- OSM trigger on F13 (Help stays C128 Help)
 constant C_MENU_IEC              : natural := 78;  -- IEC: Use hardware port
-constant C_MENU_EXP_PORT_HW      : natural := 82;  -- Expansion Port: hardware slot (default)
-constant C_MENU_EXP_PORT_REU_512K: natural := 83;  -- Expansion Port: REU 512 KB
-constant C_MENU_EXP_PORT_REU_2M  : natural := 84;  -- Expansion Port: REU 2 MB
-constant C_MENU_EXP_PORT_REU_4M  : natural := 85;  -- Expansion Port: REU 4 MB
-constant C_MENU_EXP_PORT_CRT     : natural := 86;  -- Expansion Port: virtual cartridge (.crt)
+constant C_MENU_REU_OFF          : natural := 82;  -- REU: off (default)
+constant C_MENU_REU_512K         : natural := 83;  -- REU: 512 KB
+constant C_MENU_REU_2M           : natural := 84;  -- REU: 2 MB
+constant C_MENU_CART_HW          : natural := 90;  -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 91;  -- Cartridge: virtual cartridge (.crt)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -166,8 +166,8 @@ constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- dis
 
 -- 100 windows hold exactly one D81; each guard window absorbs a write one byte past the image.
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 2 MiB
-constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB, 2 MiB or 4 MiB
-constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB, inside a 4 MiB REU
+constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB or 2 MiB
+constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB
 constant C_HMAP_VD0           : std_logic_vector(15 downto 0) := x"0300";     -- Drive 8 disk image: 100 windows
 constant C_HMAP_VD0_GUARD     : std_logic_vector(15 downto 0) := x"0364";
 constant C_HMAP_VD1           : std_logic_vector(15 downto 0) := x"0365";     -- Drive 9 disk image: 100 windows
