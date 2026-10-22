@@ -94,6 +94,8 @@ port(
    ramDout     : out unsigned(7 downto 0);
    ramCE       : out std_logic;
    ramWE       : out std_logic;
+   -- MEGA65: every CPU and DMA write, I/O and $FF00 included (ramWE covers RAM only)
+   systemWe_o  : out std_logic;
 
    io_cycle    : out std_logic;
    ext_cycle   : out std_logic;
@@ -1252,6 +1254,7 @@ ramAddr <= systemAddr;
 -- cs_ram, not ramCE: Z80 latch writes assert we while ramCE is already low, but
 -- cs_ram stays 1 for those RAM cycles.
 ramWE   <= systemWe and cs_ram;
+systemWe_o <= systemWe;
 ramCE   <= cs_ram when
            sysCycle = CYCLE_VIC0 or
            (aec = '1' and sysCycle = CYCLE_CPU4) or
