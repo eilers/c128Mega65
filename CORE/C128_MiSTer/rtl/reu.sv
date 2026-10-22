@@ -22,10 +22,11 @@ module reu
 	output            dma_we,
 	
 	input             ram_cycle,
-	output reg [24:0] ram_addr,
+	output     [24:0] ram_addr, // follows addr_ram, so the memory side can prefetch
 	output reg  [7:0] ram_dout,
 	input       [7:0] ram_din,
 	output reg        ram_we,
+	output reg        ram_cs,   // high for each RAM access
 	
 	input      [15:0] cpu_addr,
 	input       [7:0] cpu_dout,
@@ -58,15 +59,16 @@ wire        op_dat = op_cur[1];   // storage
 wire  [1:0] op_act = op_cur[3:2]; // 0: read, 1: write, 2: verify, 3: end
 
 reg dma_we_r;
+reg [23:0] addr_ram, addr_ram_r;
 assign dma_we = dma_we_r & dma_cycle;
+assign ram_addr = {1'(REU_ADDR>>24), addr_ram};
 
 always @(posedge clk) begin
 	reg        old_cs;
 	reg  [1:0] state;
-	reg  [1:0] cnt;
+	reg  [3:0] cnt;
 	reg  [7:0] data[2];
 	reg [15:0] addr_c64, addr_c64_r;
-	reg [23:0] addr_ram, addr_ram_r;
 	reg [15:0] length, length_r;
 	reg  [7:0] cmd;
 	reg  [7:0] intr;
@@ -96,6 +98,7 @@ always @(posedge clk) begin
 		dma_req    <= 0;
 		dma_we_r   <= 0;
 		ram_we     <= 0;
+		ram_cs     <= 0;
 		cpu_din    <= 'hFF;
 		state      <= STATE_IDLE;
 	end
@@ -123,7 +126,7 @@ always @(posedge clk) begin
 					 3: cpu_din <= addr_c64[15:8];
 					 4: cpu_din <= addr_ram[7:0];
 					 5: cpu_din <= addr_ram[15:8];
-					 6: cpu_din <= addr_ram[23:16] | (wrap ? 8'hF8 : ~addr_mask[23:16]);
+					 6: cpu_din <= {5'b11111, addr_ram[18:16]}; // MEGA65: as the 8726, VICE and Ultimate read it
 					 7: cpu_din <= length[7:0];
 					 8: cpu_din <= length[15:8];
 					 9: cpu_din <= {intr[7:5],5'h1F};
@@ -173,7 +176,7 @@ always @(posedge clk) begin
 					end
 					else if(op_dev) begin
 						if (~ram_cycle) begin
-							ram_addr  <= {1'(REU_ADDR>>24), addr_ram};
+							ram_cs    <= 1;
 							ram_we    <= op_act[0];
 							ram_dout  <= data[op_dat];
 							state     <= STATE_PROC_RAM;
@@ -192,9 +195,10 @@ always @(posedge clk) begin
 			STATE_PROC_RAM:
 				if(ram_cycle) begin
 					cnt <= cnt + 1'd1;
-					if(&cnt) begin
+					if(&cnt[1:0]) begin
 						data[op_dat] <= ram_din;
 						ram_we       <= 0;
+						ram_cs       <= 0;
 						stage        <= stage + 1'd1;
 						state        <= STATE_EVAL;
 					end
@@ -203,7 +207,7 @@ always @(posedge clk) begin
 			STATE_PROC_C64:
 				if(dma_cycle) begin
 					cnt <= cnt + 1'd1;
-					if(&cnt) begin
+					if(&cnt[3:0]) begin   // MEGA65: the whole 16-clock DMA window, as in the C64 core
 						dma_addr     <= 0; // make sure we won't read some device's data while idling.
 						dma_we_r     <= 0;
 						data[op_dat] <= dma_din;

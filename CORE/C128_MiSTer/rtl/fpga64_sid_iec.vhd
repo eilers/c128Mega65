@@ -94,6 +94,8 @@ port(
    ramDout     : out unsigned(7 downto 0);
    ramCE       : out std_logic;
    ramWE       : out std_logic;
+   -- MEGA65: every CPU and DMA write, I/O and $FF00 included (ramWE covers RAM only)
+   systemWe_o  : out std_logic;
 
    io_cycle    : out std_logic;
    ext_cycle   : out std_logic;
@@ -264,7 +266,8 @@ signal preCycle     : sysCycleDef := sysCycleDef'low;
 signal sysEnable    : std_logic := '0'; -- POR=0; avoids U in behavioural sim (matches FPGA)
 signal rfsh_cycle   : unsigned(1 downto 0) := (others => '0');
 
-signal dma_active   : std_logic;
+signal dma_pending  : std_logic := '0';
+signal dma_active   : std_logic := '0';
 
 signal phi0_cpu     : std_logic;
 signal cpuCycle     : std_logic;
@@ -1252,19 +1255,20 @@ ramAddr <= systemAddr;
 -- cs_ram, not ramCE: Z80 latch writes assert we while ramCE is already low, but
 -- cs_ram stays 1 for those RAM cycles.
 ramWE   <= systemWe and cs_ram;
+systemWe_o <= systemWe;
 ramCE   <= cs_ram when
            sysCycle = CYCLE_VIC0 or
            (aec = '1' and sysCycle = CYCLE_CPU4) or
            cpu_cyc = '1' else '0';
 
 t65_cyc <= (not t65_cyc_s) when
-           (sysCycle = CYCLE_CPU0 and t65_turbo_m(0) = '1' and cs_ram = '1') or
+           (sysCycle = CYCLE_CPU0 and t65_turbo_m(0) = '1' and dma_pending = '0' and cs_ram = '1') or
            (sysCycle = CYCLE_CPU4 and (io_enable = '1' or cs_ram = '1')) or
-           (sysCycle = CYCLE_CPU8 and t65_turbo_m(1) = '1' and cs_ram = '1') or
-           (sysCycle = CYCLE_CPUC and t65_turbo_m(2) = '1' and ((turbo_std = '1' and aec = '0' and vicRefresh = '0') or (turbo_std = '0' and cs_ram = '1'))) else '0';
+           (sysCycle = CYCLE_CPU8 and t65_turbo_m(1) = '1' and dma_pending = '0' and cs_ram = '1') or
+           (sysCycle = CYCLE_CPUC and t65_turbo_m(2) = '1' and dma_pending = '0' and ((turbo_std = '1' and aec = '0' and vicRefresh = '0') or (turbo_std = '0' and cs_ram = '1'))) else '0';
 t80_cyc <= (not t80_cyc_s) when
            (sysCycle = CYCLE_CPU0 and (io_enable = '1' or cs_ram = '1')) or
-           (sysCycle = CYCLE_CPU8 and t80_turbo_m = '1' and cs_ram = '1') else '0';
+           (sysCycle = CYCLE_CPU8 and t80_turbo_m = '1' and dma_pending = '0' and cs_ram = '1') else '0';
 cpu_cyc <= '1' when
            (cpuactT65 = '1' and t65_cyc = '1') or
            (cpuactT65 = '0' and t80_cyc = '1') else '0';
@@ -1348,30 +1352,44 @@ begin
    end if;
 end process;
 
+-- MEGA65: DMA takes the bus at EXT1/EXT5 and spans CPU0..CPUF, as in the C64 core. Handed over
+-- at CPU3 (upstream 6decd17), its address came after the VIC and CIA latch their reads.
 process(clk32)
 begin
    if rising_edge(clk32) then
-      if sysCycle = CYCLE_CPU3 then
-         dma_active <= dma_req;
-         dma_cycle  <= dma_req and (baLoc or ba_dma);
-      end if;
+      case sysCycle is
+         when CYCLE_EXT1 | CYCLE_EXT5
+            => if cpuWe_T65 = '0' and cpuWe_T80 = '0' then
+                  dma_active <= dma_req;
+                  dma_pending <= '0';
+               end if;
 
-      if sysCycle = CYCLE_CPU7 then
-         dma_cycle <= '0';
+         when sysCycleDef'pred(CYCLE_CPU0)
+            => dma_cycle <= dma_active and (baLoc or ba_dma);
 
-         if dma_active = '1' then
-            t65_turbo_m <= turbo_state & "00";
-            t80_turbo_m <= '0';
-         elsif dma_active = '0' then
-            case turbo_mode(1 downto 0) is
-               when "00" => t65_turbo_m <= turbo_state & "00";
-               when "01" => t65_turbo_m <= "100";
-               when "10" => t65_turbo_m <= "110";
-               when "11" => t65_turbo_m <= "111";
-               when others => t65_turbo_m <= turbo_state & "00";
-            end case;
-            t80_turbo_m <= turbo_mode(2);
-         end if;
+         when CYCLE_CPU7
+            => if dma_active = '1' then
+                  t65_turbo_m <= turbo_state & "00";
+                  t80_turbo_m <= '0';
+               else
+                  case turbo_mode(1 downto 0) is
+                     when "00" => t65_turbo_m <= turbo_state & "00";
+                     when "01" => t65_turbo_m <= "100";
+                     when "10" => t65_turbo_m <= "110";
+                     when "11" => t65_turbo_m <= "111";
+                     when others => t65_turbo_m <= turbo_state & "00";
+                  end case;
+                  t80_turbo_m <= turbo_mode(2);
+               end if;
+
+         when CYCLE_CPUF
+            => dma_cycle <= '0';
+
+         when others => null;
+      end case;
+
+      if sysCycle = CYCLE_CPU3 or sysCycle = CYCLE_CPU7 or sysCycle = CYCLE_CPUB or sysCycle = CYCLE_CPUF then
+         dma_pending <= dma_req and not dma_active;
       end if;
    end if;
 end process;
@@ -1388,7 +1406,9 @@ cpuWe   <= dma_we      when dma_active = '1' else
            cpuWe_T65   when cpuActT65 = '1' else
            cpuWe_T80;
 
-ext_cycle <= '1' when (sysCycle >= CYCLE_DMA0 and sysCycle <= CYCLE_DMA3) else '0';
+-- MEGA65: the REU's RAM is in HyperRAM, not in a shared SDRAM slot, so its window sits where
+-- the C64 core has it, 8 clocks before CPU0. Right against CPU0 it halves the transfer rate.
+ext_cycle <= '1' when (sysCycle >= CYCLE_VIC0 and sysCycle <= CYCLE_VIC3) else '0';
 dma_din   <= cpuDi;
 
 c128_n <= mmu_c128_n;
