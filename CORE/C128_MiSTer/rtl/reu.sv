@@ -126,7 +126,7 @@ always @(posedge clk) begin
 					 3: cpu_din <= addr_c64[15:8];
 					 4: cpu_din <= addr_ram[7:0];
 					 5: cpu_din <= addr_ram[15:8];
-					 6: cpu_din <= addr_ram[23:16] | (wrap ? 8'hF8 : ~addr_mask[23:16]);
+					 6: cpu_din <= {5'b11111, addr_ram[18:16]}; // MEGA65: as the 8726, VICE and Ultimate read it
 					 7: cpu_din <= length[7:0];
 					 8: cpu_din <= length[15:8];
 					 9: cpu_din <= {intr[7:5],5'h1F};
