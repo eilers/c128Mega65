@@ -317,7 +317,16 @@ signal pump_hr_readdata       : std_logic_vector(15 downto 0);
 signal pump_hr_readdatavalid  : std_logic;
 signal pump_hr_waitrequest    : std_logic;
 
--- REU
+-- REU: main_reu_* on main_clk, reu_hr_* on hr_clk
+signal main_reu_write         : std_logic;
+signal main_reu_read          : std_logic;
+signal main_reu_address       : std_logic_vector(31 downto 0);
+signal main_reu_writedata     : std_logic_vector(15 downto 0);
+signal main_reu_byteenable    : std_logic_vector( 1 downto 0);
+signal main_reu_burstcount    : std_logic_vector( 7 downto 0);
+signal main_reu_readdata      : std_logic_vector(15 downto 0);
+signal main_reu_readdatavalid : std_logic;
+signal main_reu_waitrequest   : std_logic;
 signal reu_hr_write           : std_logic;
 signal reu_hr_read            : std_logic;
 signal reu_hr_address         : std_logic_vector(31 downto 0);
@@ -639,7 +648,17 @@ begin
          hr_readdatavalid_i   => pump_hr_readdatavalid,
          hr_waitrequest_i     => pump_hr_waitrequest,
          hr_base_d8_i         => C_HMAP_VD0(9 downto 0) & x"000",
-         hr_base_d9_i         => C_HMAP_VD1(9 downto 0) & x"000"
+         hr_base_d9_i         => C_HMAP_VD1(9 downto 0) & x"000",
+
+         reu_avm_write_o         => main_reu_write,
+         reu_avm_read_o          => main_reu_read,
+         reu_avm_address_o       => main_reu_address,
+         reu_avm_writedata_o     => main_reu_writedata,
+         reu_avm_byteenable_o    => main_reu_byteenable,
+         reu_avm_burstcount_o    => main_reu_burstcount,
+         reu_avm_readdata_i      => main_reu_readdata,
+         reu_avm_readdatavalid_i => main_reu_readdatavalid,
+         reu_avm_waitrequest_i   => main_reu_waitrequest
       ); -- i_main
 
    ---------------------------------------------------------------------------------------------
@@ -798,13 +817,39 @@ begin
          hr_waitrequest_i   => mount_hr_waitrequest
       ); -- i_mount_buf_wrapper
 
-   -- REU: idle until the REU drives this port
-   reu_hr_write      <= '0';
-   reu_hr_read       <= '0';
-   reu_hr_address    <= (others => '0');
-   reu_hr_writedata  <= (others => '0');
-   reu_hr_byteenable <= (others => '0');
-   reu_hr_burstcount <= (others => '0');
+   -- REU: cross its HyperRAM port from main_clk to hr_clk
+   i_reu_avm_fifo : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => main_clk_o,
+         s_rst_i               => main_reset_m2m_i,
+         s_avm_waitrequest_o   => main_reu_waitrequest,
+         s_avm_write_i         => main_reu_write,
+         s_avm_read_i          => main_reu_read,
+         s_avm_address_i       => main_reu_address,
+         s_avm_writedata_i     => main_reu_writedata,
+         s_avm_byteenable_i    => main_reu_byteenable,
+         s_avm_burstcount_i    => main_reu_burstcount,
+         s_avm_readdata_o      => main_reu_readdata,
+         s_avm_readdatavalid_o => main_reu_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => reu_hr_waitrequest,
+         m_avm_write_o         => reu_hr_write,
+         m_avm_read_o          => reu_hr_read,
+         m_avm_address_o       => reu_hr_address,
+         m_avm_writedata_o     => reu_hr_writedata,
+         m_avm_byteenable_o    => reu_hr_byteenable,
+         m_avm_burstcount_o    => reu_hr_burstcount,
+         m_avm_readdata_i      => reu_hr_readdata,
+         m_avm_readdatavalid_i => reu_hr_readdatavalid
+      ); -- i_reu_avm_fifo
 
    -- Virtual cartridge: idle until the cartridge drives this port
    crt_hr_write      <= '0';

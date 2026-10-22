@@ -196,7 +196,18 @@ entity main is
       hr_readdatavalid_i      : in  std_logic := '0';
       hr_waitrequest_i        : in  std_logic := '0';
       hr_base_d8_i            : in  std_logic_vector(21 downto 0) := (others => '0');
-      hr_base_d9_i            : in  std_logic_vector(21 downto 0) := (others => '0')
+      hr_base_d9_i            : in  std_logic_vector(21 downto 0) := (others => '0');
+
+      -- REU's HyperRAM port (clk_main_i domain; mega65.vhd crosses it to hr_clk)
+      reu_avm_write_o         : out std_logic;
+      reu_avm_read_o          : out std_logic;
+      reu_avm_address_o       : out std_logic_vector(31 downto 0);
+      reu_avm_writedata_o     : out std_logic_vector(15 downto 0);
+      reu_avm_byteenable_o    : out std_logic_vector(1 downto 0);
+      reu_avm_burstcount_o    : out std_logic_vector(7 downto 0);
+      reu_avm_readdata_i      : in  std_logic_vector(15 downto 0) := (others => '0');
+      reu_avm_readdatavalid_i : in  std_logic := '0';
+      reu_avm_waitrequest_i   : in  std_logic := '0'
    );
 end entity main;
 
@@ -205,6 +216,7 @@ architecture synthesis of main is
 -- signals for RAM
 signal ram_ce   : std_logic;
 signal ram_we   : std_logic;
+signal system_we : std_logic;   -- every CPU/DMA write, I/O and $FF00 included; ram_we is RAM only
 signal ram_data : unsigned(7 downto 0);
 signal core_ram_data_out : unsigned(7 downto 0);   -- what the CPU writes (the core's ramDout)
 signal core_ram_addr     : unsigned(17 downto 0);
@@ -362,7 +374,37 @@ signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
 signal reu_dma_req          : std_logic;
 signal reu_irq              : std_logic;
-signal reu_dout             : unsigned(7 downto 0);
+signal reu_dout             : std_logic_vector(7 downto 0);
+-- reu <-> C128 DMA
+signal reu_dma_cycle        : std_logic;
+signal reu_dma_addr         : std_logic_vector(15 downto 0);
+signal reu_dma_dout         : std_logic_vector( 7 downto 0);
+signal reu_dma_din          : unsigned(7 downto 0);
+signal reu_dma_we           : std_logic;
+-- reu <-> reu_mapper; map_* is reu_mapper <-> avm_cache
+signal core_ext_cycle       : std_logic;
+signal reu_ram_cycle        : std_logic;
+signal reu_ram_addr         : std_logic_vector(24 downto 0);
+signal reu_ram_addr_m       : std_logic_vector(24 downto 0);   -- masked to the REU's size
+signal reu_ram_dout         : std_logic_vector( 7 downto 0);
+signal reu_ram_din          : std_logic_vector( 7 downto 0);
+signal reu_ram_we           : std_logic;
+signal reu_ram_cs           : std_logic;
+signal map_write            : std_logic;
+signal map_read             : std_logic;
+signal map_address          : std_logic_vector(31 downto 0);
+signal map_writedata        : std_logic_vector(15 downto 0);
+signal map_byteenable       : std_logic_vector( 1 downto 0);
+signal map_burstcount       : std_logic_vector( 7 downto 0);
+signal map_readdata         : std_logic_vector(15 downto 0);
+signal map_readdatavalid    : std_logic;
+signal map_waitrequest      : std_logic;
+
+-- Reset the C128 when the REU or Cartridge setting changes (C64MEGA65 #225, #226)
+constant C_EXP_RESET_LEN    : natural := CORE_CLK_SPEED / 20;   -- 50 ms, like the reset button
+signal exp_cfg_d            : std_logic_vector(2 downto 0) := "001";   -- REU off, hardware slot
+signal exp_reset_pend       : std_logic := '0';
+signal exp_reset_cnt        : natural range 0 to C_EXP_RESET_LEN := 0;
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
@@ -480,7 +522,7 @@ signal hw_iec_clk_n_i   : std_logic;
 signal hw_iec_data_n_i  : std_logic;
 signal hw_iec_srq_n_i   : std_logic;
 
--- TODO: Add reu and rtc support
+-- TODO: Add rtc support
 
 begin
 
@@ -760,7 +802,7 @@ begin
       cart_romh_o     <= cart_romh_n;
       cart_io1_o      <= cart_io1_n;
       cart_io2_o      <= cart_io2_n;
-      cart_rw_o       <= not ram_we;
+      cart_rw_o       <= not system_we;
       cart_phi2_o     <= core_phi2;
       cart_dotclock_o <= vic_pixel_ce;
 
@@ -782,12 +824,12 @@ begin
 
       -- Data bus: turn it into an input while the cartridge answers a read, drive it otherwise,
       -- so that the CPU can also write to the cartridge (bank switching).
-      if ram_we = '0' and (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0') then
+      if system_we = '0' and (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0') then
          cart_data_oe_o <= '0';  -- input
          data_from_cart <= cart_d_i;
       else
          cart_data_oe_o <= '1';  -- output
-         if ram_we = '0' then
+         if system_we = '0' then
             cart_d_o    <= machine_data;
          else
             cart_d_o    <= core_ram_data_out;
@@ -796,10 +838,100 @@ begin
    end if;
 end process handle_hardware_expansion_proc;
 
--- REU: idle until the REU drives these
-reu_dma_req <= '0';
-reu_irq     <= '0';
-reu_dout    <= x"FF";
+--------------------------------------------------------------------------------------------------
+-- REU (MiSTer reu.sv) in HyperRAM
+--------------------------------------------------------------------------------------------------
+-- cpu_we must see I/O writes ($DF01-$DF0A) and $FF00, so it takes system_we, not ram_we.
+reu_inst : entity work.reu
+   generic map (
+      REU_ADDR => 0
+   )
+   port map (
+      clk       => clk_main_i,
+      reset     => not reset_core_n,
+      cfg       => reu_cfg,
+      wrap      => '0',           -- 2 MB counts straight through, see doc/hyperram-map.md
+      dma_req   => reu_dma_req,
+      dma_cycle => reu_dma_cycle,
+      dma_addr  => reu_dma_addr,
+      dma_dout  => reu_dma_dout,
+      dma_din   => std_logic_vector(reu_dma_din),
+      dma_we    => reu_dma_we,
+      ram_cycle => reu_ram_cycle,
+      ram_addr  => reu_ram_addr,
+      ram_dout  => reu_ram_dout,
+      ram_din   => reu_ram_din,
+      ram_we    => reu_ram_we,
+      ram_cs    => reu_ram_cs,
+      cpu_addr  => std_logic_vector(core_ram_addr(15 downto 0)),
+      cpu_dout  => std_logic_vector(core_ram_data_out),
+      cpu_din   => reu_dout,
+      cpu_we    => system_we,
+      cpu_cs    => reu_io,
+      irq       => reu_irq
+   ); -- reu_inst
+
+-- reu.sv masks addr_ram only when a transfer starts. Mask here too, so that reu_mapper's
+-- prefetch of a freshly written $DF04-$DF06 stays inside the REU's window.
+reu_ram_addr_m <= reu_ram_addr and ("000000" & "111" & x"FFFF") when reu_cfg = "01" else
+                  reu_ram_addr and ("0000" & "11111" & x"FFFF");
+
+-- HyperRAM path, as in C64MEGA65: reu_mapper prefetches and holds the REU's RAM cycle
+-- until the data is there, avm_cache keeps sequential reads fast, and avm_fifo in
+-- mega65.vhd crosses to hr_clk.
+reu_mapper_inst : entity work.reu_mapper
+   generic map (
+      G_BASE_ADDRESS => "0000000000" & C_HMAP_REU(9 downto 0) & x"000"
+   )
+   port map (
+      clk_i               => clk_main_i,
+      rst_i               => not reset_core_n,
+      reu_ext_cycle_i     => core_ext_cycle,
+      reu_ext_cycle_o     => reu_ram_cycle,
+      reu_addr_i          => reu_ram_addr_m,
+      reu_dout_i          => reu_ram_dout,
+      reu_din_o           => reu_ram_din,
+      reu_we_i            => reu_ram_we,
+      reu_cs_i            => reu_ram_cs,
+      avm_write_o         => map_write,
+      avm_read_o          => map_read,
+      avm_address_o       => map_address,
+      avm_writedata_o     => map_writedata,
+      avm_byteenable_o    => map_byteenable,
+      avm_burstcount_o    => map_burstcount,
+      avm_readdata_i      => map_readdata,
+      avm_readdatavalid_i => map_readdatavalid,
+      avm_waitrequest_i   => map_waitrequest
+   ); -- reu_mapper_inst
+
+reu_avm_cache_inst : entity work.avm_cache
+   generic map (
+      G_CACHE_SIZE   => 8,
+      G_ADDRESS_SIZE => 32,
+      G_DATA_SIZE    => 16
+   )
+   port map (
+      clk_i                 => clk_main_i,
+      rst_i                 => not reset_core_n,
+      s_avm_waitrequest_o   => map_waitrequest,
+      s_avm_write_i         => map_write,
+      s_avm_read_i          => map_read,
+      s_avm_address_i       => map_address,
+      s_avm_writedata_i     => map_writedata,
+      s_avm_byteenable_i    => map_byteenable,
+      s_avm_burstcount_i    => map_burstcount,
+      s_avm_readdata_o      => map_readdata,
+      s_avm_readdatavalid_o => map_readdatavalid,
+      m_avm_waitrequest_i   => reu_avm_waitrequest_i,
+      m_avm_write_o         => reu_avm_write_o,
+      m_avm_read_o          => reu_avm_read_o,
+      m_avm_address_o       => reu_avm_address_o,
+      m_avm_writedata_o     => reu_avm_writedata_o,
+      m_avm_byteenable_o    => reu_avm_byteenable_o,
+      m_avm_burstcount_o    => reu_avm_burstcount_o,
+      m_avm_readdata_i      => reu_avm_readdata_i,
+      m_avm_readdatavalid_i => reu_avm_readdatavalid_i
+   ); -- reu_avm_cache_inst
 
 -- Route the cartridge source back into the C128, then lay the REU over it
 handle_cores_expansion_port_signals_proc : process (all)
@@ -835,7 +967,7 @@ begin
    if reu_cfg /= "00" then
       if reu_io = '1' then
          core_io_ext  <= '1';
-         core_io_data <= reu_dout;
+         core_io_data <= unsigned(reu_dout);
       end if;
       v_irq_n := v_irq_n and not reu_irq;
       v_dma   := v_dma or reu_dma_req;
@@ -854,7 +986,7 @@ cartridge_heuristics_inst : entity work.cartridge_heuristics
       cart_exrom_n_i => cart_exrom_n,
       cart_game_n_i  => cart_game_n,
       cart_io1_n_i   => cart_io1_n,
-      ram_we_i       => ram_we,
+      ram_we_i       => system_we,
       ram_addr_i     => std_logic_vector(core_ram_addr(15 downto 0)),
       phi2_i         => core_phi2,
       is_an_EF3_o    => cart_is_an_EF3
@@ -889,7 +1021,7 @@ begin
          -- Mode $02 (Kernal) is deliberately not supported: in Kernal mode the EF3 manipulates
          -- A14 itself and would fight the MEGA65's address transceiver, which could damage
          -- either side.
-         if cart_is_an_EF3 = '1' and ram_we = '1' and cart_io1_n = '0' and core_ram_addr(15 downto 0) = x"DE0F" then
+         if cart_is_an_EF3 = '1' and system_we = '1' and cart_io1_n = '0' and core_ram_addr(15 downto 0) = x"DE0F" then
             if core_ram_data_out = x"00" or core_ram_data_out = x"04" or
                core_ram_data_out = x"05" or core_ram_data_out = x"07" then
                cart_reset_counter <= C_EF3_RESET_LEN;
@@ -955,10 +1087,30 @@ end process handle_hardware_iec_proc;
 -- Hard reset
 --------------------------------------------------------------------------------------------------
 
+-- A changed REU or Cartridge setting resets the C128 and a hardware cartridge, as soon as no
+-- write-back cache is dirty.
+exp_change_reset_proc : process (clk_main_i)
+   variable v_cfg : std_logic_vector(2 downto 0);
+begin
+   if rising_edge(clk_main_i) then
+      v_cfg     := reu_cfg & exp_port_hw;
+      exp_cfg_d <= v_cfg;
+      if exp_reset_cnt /= 0 then
+         exp_reset_cnt <= exp_reset_cnt - 1;
+      end if;
+      if v_cfg /= exp_cfg_d then
+         exp_reset_pend <= '1';
+      elsif exp_reset_pend = '1' and prevent_reset = '0' then
+         exp_reset_pend <= '0';
+         exp_reset_cnt  <= C_EXP_RESET_LEN;
+      end if;
+   end if;
+end process exp_change_reset_proc;
+
 hard_reset_proc: process (clk_main_i)
   begin
     if rising_edge(clk_main_i) then
-      if reset_soft_i = '1' or reset_hard_i = '1' or cart_reset_counter /= 0 then
+      if reset_soft_i = '1' or reset_hard_i = '1' or cart_reset_counter /= 0 or exp_reset_cnt /= 0 then
         -- Due to sw_cartridge_wrapper's logic, reset_soft_i stays high longer than reset_hard_i.
         -- We need to make sure that this is not interfering with hard_reset_n
         if reset_hard_i = '1' then
@@ -1263,12 +1415,13 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ramDout       => core_ram_data_out,
       ramCE         => ram_ce,
       ramWE         => ram_we,
+      systemWe_o    => system_we,
       -- Reads answered by a hardware cartridge are substituted into ramDin (see cpu_data_in_proc),
       -- so from the bus logic's point of view the data bus is never floating.
       ramDinFloat   => '0',
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
-      ext_cycle     => open, -- 1 when a DMA access is happening (REU).
+      ext_cycle     => core_ext_cycle, -- the REU's RAM slot in every C128 cycle
       refresh       => open, -- 1 when a refresh cycle is happening (Not relevant for us)
 
       cia_mode      => '1',  -- 0 - 6526 "old", 1 - 8521 "new"
@@ -1330,12 +1483,12 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       -- The expansion port's /DMA line (cart_dma_i) is deliberately ignored: asserting dma_req
       -- from a floating pin would freeze the Z80. Only the REU and virtual cartridge drive it.
       dma_req       => core_dma,
-      dma_cycle     => open,
-      dma_addr      => open,
-      dma_dout      => open,
-      dma_din       => open,
-      dma_we        => '0',
-      irq_ext_n     => '1',
+      dma_cycle     => reu_dma_cycle,
+      dma_addr      => unsigned(reu_dma_addr),
+      dma_dout      => unsigned(reu_dma_dout),
+      dma_din       => reu_dma_din,
+      dma_we        => reu_dma_we,
+      irq_ext_n     => '1',            -- the REU's IRQ goes through irq_n, see core_irq_n
 
 
       -- paddle interface

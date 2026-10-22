@@ -17,7 +17,7 @@ Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd
 
 The D81 buffers live in HyperRAM because one D81 (819,200 bytes, exactly 100 windows) is more block RAM than the design has left. Each guard window absorbs a write one byte past the end of the image.
 
-A 512 KiB REU uses `0x100–0x13F`, a 2 MiB REU `0x100–0x1FF`.
+A 512 KiB REU uses `0x100–0x13F`, a 2 MiB REU `0x100–0x1FF`. `main.vhd` masks the REU's address to its size before `reu_mapper`, so every access stays inside that range. The one exception is the read cache's look-ahead, which can read up to 8 words past the end of a 2 MiB REU, into the cartridge's region.
 
 Keep the top window (`0x3FF`) unassigned. The REU's read cache fetches up to 8 words past the address it was asked for, and on the HyperRAM chips that need the write workaround a single-word write becomes a 2-word burst. At the top of HyperRAM those extra words run past the end of the chip. C64MEGA65 hit this with its REU in the last 512 KiB (its issue #214). Elsewhere the extra read words and the masked second write word are harmless.
 
@@ -44,7 +44,14 @@ When both run:
 
 MiSTer's `reu.sv` has four size settings on its 2-bit `cfg` input: none, 512 KiB, 2 MiB and 16 MiB. We use the first three unchanged. `reu_cfg` in `CORE/vhdl/main.vhd` already uses that encoding.
 
-**Open:** `reu.sv` also has a `wrap` input. It makes a 2 MiB REU wrap its addresses at 512 KiB like a modified 1750, and its bank register then reads back like a 1750's, so software that checks the size there sees 512 KiB. MiSTer offers it as the menu item "REU wrap" and turns it on by default. VICE and the 1541 Ultimate don't wrap. We haven't decided whether to offer it.
+### No 512 KiB wrap at 2 MiB
+
+`reu.sv` also has a `wrap` input. It makes a 2 MiB REU wrap its addresses at 512 KiB like a 1750 modified to 2 MiB. MiSTer offers it as the menu item "REU wrap" and turns it on by default. Here `main.vhd` ties it to `0`, and the menu doesn't offer it:
+
+- **512 KiB** behaves like C64MEGA65's REU, which is a 1750: a transfer wraps at the end of the 512 KiB, and `$DF06` reads `$F8` with the bank in the low bits. `wrap` makes no difference at this size.
+- **2 MiB** counts straight through all 2 MiB, as the Ultimate and VICE do.
+
+At both sizes `$DF06` reads its top 5 bits as 1 and the bank in the low 3 bits, like the 8726 controller in a 1750, VICE, and (by OS128's author's account) the Ultimate II+. MiSTer's `reu.sv` reads only the bits its size lacks as 1 (`$E0` at 2 MiB) unless `wrap` is on, so `reu.sv` here is changed to match; the discussion is in MiSTer C128 issue #46.
 
 ### Virtual cartridge region: 2 MiB
 
@@ -61,14 +68,14 @@ ascal reserves 2 MiB at address 0: `RAMSIZE = 2^ceil(log2(720 × 540 × 3))` (`M
 These are the places where the REU and cartridge work meet. They are already set up for both, so each feature only edits its own blocks.
 
 - **Core HyperRAM port.** In `CORE/vhdl/mega65.vhd`, `i_core_hr_arbit` (`avm_arbit_general`, 4 ports, its maximum) shares the core's HyperRAM master between disk-image staging, the drive sector fill, the REU (`reu_hr_*`) and the virtual cartridge (`crt_hr_*`). Each feature replaces its own tie-off block above the arbiter.
-- **Expansion port.** In `CORE/vhdl/main.vhd`, `cart_source` decodes the Cartridge submenu and `reu_cfg` the REU submenu. `handle_cores_expansion_port_signals_proc` has one `case` arm per cartridge source; the virtual cartridge fills its arm, including its DMA request in `v_dma`. The REU is laid over whichever source is active. It drives `reu_dma_req`, `reu_irq` and `reu_dout`, which are tied off until it exists, and `reu_io` selects its registers.
+- **Expansion port.** In `CORE/vhdl/main.vhd`, `cart_source` decodes the Cartridge submenu and `reu_cfg` the REU submenu. `handle_cores_expansion_port_signals_proc` has one `case` arm per cartridge source; the virtual cartridge fills its arm, including its DMA request in `v_dma`. The REU is laid over whichever source is active: it drives `reu_dma_req`, `reu_irq` and `reu_dout`, and `reu_io` selects its registers.
 - **Menu.** New items go below `CRT file`, the last item with a `C_MENU_*` index, so they shift no index. The cartridge's `CRT:%s` load line goes there. `MENU_HEAP_SIZE` in `CORE/m2m-rom/m2m-rom.asm` has room for it.
 - **QNICE device IDs.** The next free ID is `0x0106` (`globals.vhd`).
+- **The CPU's write signal.** The core's `ram_we` only fires for writes to RAM (`ramWE <= systemWe and cs_ram` in `fpga64_sid_iec.vhd`, since 657f411). Writes to `$DFxx` are I/O, and in C128 mode `$FF00` is the MMU, so neither shows on `ram_we`. `fpga64_sid_iec` therefore also brings out the unfiltered `systemWe`, which is `system_we` in `main.vhd`. The REU takes it for its registers at `$DF00` and for the `$FF00` writes that BASIC 7's `STASH`, `FETCH` and `SWAP` use to start a transfer. The hardware slot takes it too, for R/W, the data bus direction and the EasyFlash 3 checks. A virtual cartridge's bank switching needs it as well.
+- **Reset on change.** `exp_change_reset_proc` in `main.vhd` resets the C128 and a hardware cartridge for 50 ms when the REU or Cartridge setting changes, as C64MEGA65 does since its issues #225 and #226. If a write-back cache is dirty, the reset waits until it is clean. C64MEGA65 resets from the ROM through `M2M$CSR_RESET`, but here that reaches `main.vhd` as `reset_hard_i` and would unmount the virtual drives.
 
 Still to do, needed by both:
 
-- **The CPU's write signal.** The core's `ram_we` only fires for writes to RAM (`ramWE <= systemWe and cs_ram` in `fpga64_sid_iec.vhd`, since 657f411). Writes to `$DFxx` are I/O, and in C128 mode `$FF00` is the MMU, so neither shows on `ram_we`. The REU needs both: its registers live at `$DF00`, and BASIC 7's `STASH`, `FETCH` and `SWAP` start transfers by writing `$FF00`. A virtual cartridge needs I/O writes for bank switching. `fpga64_sid_iec` has to bring out the unfiltered `systemWe`.
-- **Reset on change.** Changing either setting should reset the C128, as C64MEGA65 does since its issues #225 and #226.
 - **Cartridge ROM reads.** ROML/ROMH reads are routed in `cpu_data_in_proc` (`main.vhd`), outside the `case`. The virtual cartridge needs its own branch there.
 
 ## Later

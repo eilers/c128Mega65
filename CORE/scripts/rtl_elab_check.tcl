@@ -24,6 +24,9 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/mount_buf_wrapper.vhd"] \
     [file join $repo_dir "CORE/vhdl/vd_hr_pump.vhd"] \
     [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
+    [file join $repo_dir "CORE/vhdl/reu_mapper.vhd"] \
+    [file join $repo_dir "M2M/vhdl/memory/avm_cache.vhd"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_rom.sv"] \

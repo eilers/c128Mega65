@@ -13,6 +13,7 @@
   1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless
   of the menu. Raw `.G64`/`.G71` and MFM/CP-M images are not supported.
 * Real cartridges in the expansion port (C64 and C128 cartridges)
+* REU (RAM Expansion Unit) of 512 KB or 2 MB, set in the menu (off by default)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
   (default), 40 columns and 80 columns put the same picture on both ports. HDMI 40, VGA 80
@@ -60,7 +61,6 @@
   would need a framework change. Also missing: the MiSTer "Always" and "Never" drive
   enable modes (a drive is enabled exactly while an image is mounted) and the
   track-number overlay (`drv_overlay.sv`).
-* Expansion port: only real cartridges are supported. Emulated cartridges (`.crt`
-  files), a simulated 1750 REU and cartridges that want to become bus master
-  (`/DMA` is ignored) are not implemented.
+* Expansion port: emulated cartridges (`.crt` files) and cartridges that want to
+  become bus master (`/DMA` is ignored) are not implemented.
 * Supporting the internal drive as 1581.
