@@ -66,7 +66,7 @@ assign ram_addr = {1'(REU_ADDR>>24), addr_ram};
 always @(posedge clk) begin
 	reg        old_cs;
 	reg  [1:0] state;
-	reg  [1:0] cnt;
+	reg  [3:0] cnt;
 	reg  [7:0] data[2];
 	reg [15:0] addr_c64, addr_c64_r;
 	reg [15:0] length, length_r;
@@ -195,7 +195,7 @@ always @(posedge clk) begin
 			STATE_PROC_RAM:
 				if(ram_cycle) begin
 					cnt <= cnt + 1'd1;
-					if(&cnt) begin
+					if(&cnt[1:0]) begin
 						data[op_dat] <= ram_din;
 						ram_we       <= 0;
 						ram_cs       <= 0;
@@ -207,7 +207,7 @@ always @(posedge clk) begin
 			STATE_PROC_C64:
 				if(dma_cycle) begin
 					cnt <= cnt + 1'd1;
-					if(&cnt) begin
+					if(&cnt[3:0]) begin   // MEGA65: the whole 16-clock DMA window, as in the C64 core
 						dma_addr     <= 0; // make sure we won't read some device's data while idling.
 						dma_we_r     <= 0;
 						data[op_dat] <= dma_din;

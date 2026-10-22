@@ -234,7 +234,8 @@ begin
 		cs_UMAXromHLoc <= '0'; -- Ultimax flag for the VIC access - LCA
 		cs_UMAXnomapLoc <= '0';
 
-		if cpuHasBus = '1' or c128dma = '1' then
+		-- MEGA65: DMA only gets the CPU's slots, so the VIC keeps fetching the screen during it
+		if cpuHasBus = '1' then
 			-- CPU or C128 DMA
 			if c128dma = '0' then
 				currentAddr <= cpuBank & tAddr;
