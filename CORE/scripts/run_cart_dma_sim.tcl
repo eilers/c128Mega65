@@ -1,7 +1,8 @@
 # Run the cartridge DMA simulation (tb_cart_dma): main boots as in tb_c128_boot while the
 # cartridge holds RESET until it sees PHI2, then a model of the Ultimate II+ takes the bus with
 # /DMA and writes and reads RAM, VIC and CIA, and the 8502 uses its command interface.
-# Last, /ROML-/ROMH must stay out of PHI1.
+# Then /ROML-/ROMH must stay out of PHI1, and last the VIC's Ultimax fetches must reach a slave
+# that samples the address early in PHI1, as the Ultimate does.
 # Usage:
 #   vivado -mode batch -source CORE/scripts/run_cart_dma_sim.tcl -tclargs CORE/CORE-R6-vivado2022.xpr
 

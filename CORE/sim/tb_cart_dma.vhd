@@ -11,8 +11,9 @@
 -- in a row with BA low to the VIC. The connector lines are resolved with pull-ups, so
 -- both sides driving a line shows up as 'X'. Before the boot it holds RESET until it
 -- has seen PHI2 run, as a Kung Fu Flash 2 does. It also answers the Ultimate's command
--- interface at $DF1C-$DF1F, which the 8502 reads and writes from /NMI code. Last, the 8502
--- reads external function ROM, and /ROML-/ROMH must stay out of PHI1.
+-- interface at $DF1C-$DF1F, which the 8502 reads and writes from /NMI code. Then the 8502
+-- reads external function ROM, and /ROML-/ROMH must stay out of PHI1. Last, with GAME low the
+-- VIC fetches $3000-$3FFF from ROMH, which a slave timed as the Ultimate's must serve.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -37,7 +38,8 @@ architecture sim of tb_cart_dma is
    constant C_MAIN_PERIOD  : time    := 1 sec / CORE_CLK_SPEED;
    constant C_QNICE_PERIOD : time    := 20 ns;
    constant C_CART_PERIOD  : time    := 20 ns;   -- the U2+L's 50 MHz
-   constant C_ADDR_VALID   : natural := 4;       -- the Ultimate's "CPU Addr valid after PHI2" default
+   constant C_ADDR_VALID   : natural := 4;       -- the Ultimate's "CPU Addr valid after PHI2/PHI1" default
+   constant C_MEM_LAT      : natural := 8;       -- Ultimax slave: address sample to data
    constant C_BURST        : natural := 2048;
    constant C_BURST_BASE   : natural := 16#2000#;
 
@@ -86,6 +88,7 @@ architecture sim of tb_cart_dma is
    signal cart_roml        : std_logic;
    signal cart_romh        : std_logic;
    signal tb_nmi_n         : std_logic := '1';
+   signal tb_game_n        : std_logic := '1';
 
    -- Cartridge model
    type t_cart is (C_IDLE, C_STOPPED, C_CHECK, C_DO);
@@ -132,6 +135,14 @@ architecture sim of tb_cart_dma is
    signal uci_ctl          : std_logic_vector(7 downto 0) := x"00";
    signal n_uci_wr         : natural := 0;
 
+   -- Ultimax ROMH slave, timed as the Ultimate's slot_slave.vhd
+   signal u_addr           : std_logic_vector(15 downto 0) := x"FFFF";
+   signal u_wait           : natural range 0 to 63 := 0;
+   signal u_dav            : boolean := false;
+   signal c_d_umax         : std_logic_vector(7 downto 0);
+   signal n_umax           : natural := 0;    -- VIC phases that fetched from ROMH
+   signal n_umax_bad       : natural := 0;    -- ... and latched a byte that isn't the slave's for that address
+
    -- Test process <-> cartridge model (four-phase handshake on cart_clk)
    signal want_dma         : boolean := false;
    signal stopped          : boolean := false;
@@ -160,6 +171,12 @@ architecture sim of tb_cart_dma is
    signal rd_settle_ram    : time := 1 us;    -- the same for RAM, not $Dxxx
    signal n_rom_sel        : natural := 0;    -- /ROML or /ROMH accesses
    signal n_rom_phi1       : natural := 0;    -- main clocks with /ROML or /ROMH low well into PHI1
+
+   -- What the Ultimax slave serves for an address
+   function umax_byte(a : std_logic_vector(15 downto 0)) return std_logic_vector is
+   begin
+      return a(7 downto 0) xor a(15 downto 8) xor x"5A";
+   end function;
 
 begin
 
@@ -272,7 +289,7 @@ begin
          cart_reset_i         => cart_rst_n,
          cart_reset_o         => open,
          cart_game_oe_o       => open,
-         cart_game_i          => '1',
+         cart_game_i          => tb_game_n,
          cart_game_o          => open,
          cart_exrom_oe_o      => open,
          cart_exrom_i         => '1',
@@ -351,6 +368,7 @@ begin
    x_d   <= std_logic_vector(cart_d_o) when cart_data_oe = '1' else (others => 'Z');
    x_d   <= c_d;
    x_d   <= c_d_io;
+   x_d   <= c_d_umax;
    x_d   <= (others => 'H');
    x_io2 <= cart_io2_o when cart_ctrl_oe = '1' else 'Z';
    x_io2 <= 'H';
@@ -489,6 +507,31 @@ begin
       end if;
    end process p_io;
 
+   -- The Ultimax slave samples the address once, C_ADDR_VALID ticks after it sees PHI2 fall ("CPU
+   -- Addr valid after PHI1"), and drives the byte C_MEM_LAT ticks later while /ROMH is low, until
+   -- it sees PHI2 rise.
+   c_d_umax <= umax_byte(u_addr) when u_dav and cart_romh = '0' else (others => 'Z');
+
+   p_umax : process (cart_clk)
+   begin
+      if rising_edge(cart_clk) then
+         if phi2_s(1) = '1' and phi2_d = '0' then
+            u_dav  <= false;
+            u_wait <= 0;
+         elsif phase_l = C_ADDR_VALID + 1 and phi2_rec = '0' then
+            if tb_game_n = '0' and s_addr(15 downto 13) = "111" then
+               u_addr <= s_addr;
+               u_wait <= C_MEM_LAT;
+            end if;
+         elsif u_wait = 1 then
+            u_dav  <= true;
+            u_wait <= 0;
+         elsif u_wait /= 0 then
+            u_wait <= u_wait - 1;
+         end if;
+      end if;
+   end process p_umax;
+
    --------------------------------------------------------------------------------
    -- Boot, as in tb_c128_boot
    --------------------------------------------------------------------------------
@@ -535,7 +578,8 @@ begin
    -- share a level shifter, so main holds R/W high while it shows the cart BA.
    rw_fight  <= cart_ctrl_oe = '1' and c_rw /= 'Z' and c_rw /= cart_rw_o;
    bus_fight <= (cart_addr_oe = '1' and c_a(0) /= 'Z') or (cart_data_oe = '1' and c_d(0) /= 'Z') or
-                (cart_data_oe = '1' and c_d_io(0) /= 'Z') or (c_d(0) /= 'Z' and c_d_io(0) /= 'Z');
+                (cart_data_oe = '1' and c_d_io(0) /= 'Z') or (c_d(0) /= 'Z' and c_d_io(0) /= 'Z') or
+                (cart_data_oe = '1' and c_d_umax(0) /= 'Z');
 
    -- A Kung Fu Flash 2 holds RESET until it has timed 100 PHI2 periods in a row (c64_wait_valid_clock),
    -- so PHI2 must run while the core is in reset. If it stops, the boot below never comes.
@@ -604,13 +648,41 @@ begin
             if sel and not sel_d then
                n_rom_sel <= n_rom_sel + 1;
             end if;
-            if sel and n_lo > 1 then
+            if sel and n_lo > 1 and tb_game_n = '1' then   -- not the VIC's Ultimax fetch
                n_rom_phi1 <= n_rom_phi1 + 1;
             end if;
          end if;
          sel_d := sel;
       end if;
    end process p_rom_phase;
+
+   -- The VIC latches its byte at the end of VIC3, a main clock after PHI2 rises at the slot. In
+   -- that clock and the one before, the bus must hold the Ultimax slave's byte for the address on it.
+   p_umax_chk : process (clk_main)
+      variable phi2_q : std_logic := '0';
+      variable ok     : boolean;
+      variable ok_1   : boolean := false;
+      variable l      : line;
+   begin
+      if rising_edge(clk_main) then
+         ok := cart_romh = '0' and in_a(15 downto 12) = x"F" and
+               std_logic_vector(in_d) = umax_byte(std_logic_vector(in_a));
+         if cart_phi2 = '1' and phi2_q = '0' and tb_game_n = '0' and cart_romh = '0' then
+            n_umax <= n_umax + 1;
+            if not (ok and ok_1) then
+               n_umax_bad <= n_umax_bad + 1;
+               if n_umax_bad < 8 then
+                  write(l, string'("Ultimax VIC fetch: $") & to_hstring(std_logic_vector(in_a)) & " has $" &
+                           to_hstring(std_logic_vector(in_d)) & " on the bus, the slave sampled $" &
+                           to_hstring(u_addr));
+                  writeline(output, l);
+               end if;
+            end if;
+         end if;
+         ok_1   := ok;
+         phi2_q := cart_phi2;
+      end if;
+   end process p_umax_chk;
 
    p_contention : process (rw_fight, bus_fight)
       variable rw_start : time := 0 ns;
@@ -916,6 +988,16 @@ begin
             integer'image(n_rom_sel - n) & " /ROML-/ROMH accesses, not 2");
       check(n_rom_phi1 = 0, "/ROML or /ROMH was low in PHI1 for " & integer'image(n_rom_phi1) & " clocks");
 
+      -- Ultimax: GAME low. In C128 mode the 8502's map ignores it, but the VIC's idle and refresh
+      -- fetches at $3Fxx go to ROMH, and the slave samples their address early in PHI1.
+      n := n_umax;
+      tb_game_n <= '0';
+      wait for 300 us;
+      tb_game_n <= '1';
+      check(n_umax > n + 50, "the VIC fetched from ROMH in only " & integer'image(n_umax - n) & " phases");
+      check(n_umax_bad = 0, "the VIC latched the wrong byte in " & integer'image(n_umax_bad) & " of " &
+            integer'image(n_umax - n) & " Ultimax fetches");
+
       check(n_bus_x = 0, integer'image(n_bus_x) & " address/data contentions");
       -- The Ultimate takes PHI2 low as a read (slot_slave.vhd), so it drives while it still sees
       -- /IO2, which outlasts the fall by a main clock, as a PLA's does, plus its own sync.
@@ -928,7 +1010,8 @@ begin
                integer'image(n_rw_x) & "x up to " & time'image(rw_x_max) & ", I/O write tails " &
                integer'image(n_tail) & "x up to " & time'image(tail_max) & ", read data settled " &
                time'image(rd_settle_min) & " before PHI2 fell (RAM " & time'image(rd_settle_ram) & "), " &
-               integer'image(n_rom_sel) & " /ROML-/ROMH accesses");
+               integer'image(n_rom_sel) & " /ROML-/ROMH accesses, " & integer'image(n_umax) &
+               " Ultimax VIC fetches");
       writeline(output, l);
       if errors = 0 then
          write(l, string'("ALL CHECKS PASSED"));

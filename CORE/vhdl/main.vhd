@@ -367,6 +367,8 @@ signal core_phi2            : std_logic;
 signal core_phi2_prev       : std_logic := '0';
 signal core_ba              : std_logic;
 signal core_aec             : std_logic;   -- the VIC's AEC: '1' while the CPU or DMA may use the bus
+signal core_vic_addr        : unsigned(13 downto 0);   -- the VIC's address while core_aec = '0'
+signal cart_umax_vic        : std_logic;   -- Ultimax: the VIC is fetching $3000-$3FFF, i.e. ROMH
 signal core_dma             : std_logic;   -- bus-master request from the REU or a hardware cartridge
 -- The core's DMA port, shared by the REU and a hardware cartridge
 signal core_dma_cycle       : std_logic;
@@ -765,8 +767,12 @@ reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0
 -- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
 -- Ultimax character fetch, which a cartridge cannot tell apart.
 -- The core decodes the CPU's next address in PHI1 too; a PLA selects ROML/ROMH only with AEC.
+-- The VIC's Ultimax ROMH and address last its whole phase, as on a C64, not just the core's
+-- VIC0-3 slot: the Ultimate samples the address ~100 ns into PHI1.
+cart_umax_vic <= '1' when core_aec = '0' and core_exrom_n = '1' and core_game_n = '0' and
+                          core_vic_addr(13 downto 12) = "11" else '0';
 cart_roml_n <= not (core_roml and core_aec);
-cart_romh_n <= not (core_romh and core_aec) and (not core_umax_romh);
+cart_romh_n <= not (core_romh and core_aec) and (not cart_umax_vic);
 
 -- /IO1 and /IO2 span the CPU's PHI2 phase as on a C64, not the core's CPU4-7 strobe: the Ultimate
 -- latches them ~350 ns into PHI2. Registered against the CPU/VIC address handover; low EXT5..CPU7,
@@ -790,8 +796,9 @@ begin
    end if;
 end process cart_io_proc;
 
-cart_rd_now <= '1' when system_we = '0' and (cart_roml_n = '0' or cart_romh_n = '0' or
-                                             cart_io1_n = '0' or cart_io2_n = '0') else '0';
+-- While the VIC has the bus, a select is always a read; system_we may still be the CPU's.
+cart_rd_now <= '1' when (system_we = '0' or core_aec = '0') and
+                        (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0') else '0';
 
 -- What the cartridge tells the C128. Forced to the inactive level while the slot is unused so
 -- that an empty slot can never inject an interrupt or map a phantom cartridge into the address
@@ -999,12 +1006,12 @@ begin
          -- Address bus. Only the low 16 bits of the core's address are a CPU/VIC address; bits
          -- 17..16 are the C128's RAM bank select and must not leave the machine.
          cart_addr_oe_o  <= '1';
-         if core_umax_romh = '0' then
+         if cart_umax_vic = '0' then
             cart_a_o     <= core_ram_addr(15 downto 0);
          else
             -- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up
             -- by RP4 whenever the VIC has the bus, so a cartridge sees them as %1111.
-            cart_a_o     <= "11" & core_ram_addr(13 downto 0);
+            cart_a_o     <= "11" & core_vic_addr;
          end if;
 
          -- Data bus: turn it into an input while the cartridge answers a read, drive it otherwise,
@@ -1418,8 +1425,10 @@ cpu_data_in_proc: process (all)
       ram_data <= x"00";
     -- A cartridge in the slot answers the read instead of RAM/ROM. The C128's bus logic routes
     -- ROML/ROMH reads (both the C64 cartridge windows and the C128's External Function ROM)
-    -- through ramDin, which is exactly this signal.
-    elsif exp_port_hw = '1' and (cart_roml_n = '0' or cart_romh_n = '0') then
+    -- through ramDin, which is exactly this signal. The VIC's Ultimax fetch counts only in the
+    -- core's VIC slot, so the Z80's PHI1 slots still read RAM.
+    elsif exp_port_hw = '1' and (cart_roml_n = '0' or (core_romh = '1' and core_aec = '1') or
+                                 core_umax_romh = '1') then
       ram_data <= data_from_cart;
     else
       ram_data <= machine_data;
@@ -1628,6 +1637,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       phi2_o        => core_phi2,      -- output. Expansion Port PHI2
       ba_o          => core_ba,        -- output. Expansion Port BA
       aec_o         => core_aec,       -- output. The VIC's AEC
+      vic_addr_o    => core_vic_addr,  -- output. The VIC's address
       vicG          => vic_g,
       vicB          => vic_b,
 
