@@ -105,6 +105,14 @@ fi
 
 check_core_version
 
+# The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
+# on the SD card, so the release has to carry it next to the .cor files.
+SETTINGS_FILE="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}.cfg"
+[[ -f "$SETTINGS_FILE" ]] || die "Settings file missing: $SETTINGS_FILE
+     Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE\" auto"
+cp -f "$SETTINGS_FILE" "$STAGING_DIR/"
+echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE")"
+
 ask_run_testbenches() {
   local answer="${RUN_TESTBENCHES:-}"
   if [[ -z "$answer" ]]; then
@@ -123,14 +131,6 @@ if ask_run_testbenches; then
 else
   echo "Skipping simulation testbenches."
 fi
-
-# The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
-# on the SD card, so the release has to carry it next to the .cor files.
-SETTINGS_FILE="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}.cfg"
-[[ -f "$SETTINGS_FILE" ]] || die "Settings file missing: $SETTINGS_FILE
-     Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE\" auto"
-cp -f "$SETTINGS_FILE" "$STAGING_DIR/"
-echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE")"
 
 echo "Building M2M shell ROM..."
 (
