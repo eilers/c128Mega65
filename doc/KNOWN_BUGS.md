@@ -12,7 +12,8 @@
   `.D64`, `.D71`, and `.D81` images have FPGA-side sector paths. The menu picks 1541 or
   1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless
   of the menu. Raw `.G64`/`.G71` and MFM/CP-M images are not supported.
-* Real cartridges in the expansion port (C64 and C128 cartridges)
+* Real cartridges in the expansion port (C64 and C128 cartridges), including ones that
+  take the bus with `/DMA`, such as the Ultimate II+ (menu, REU and command interface)
 * REU (RAM Expansion Unit) of 512 KB or 2 MB, set in the menu (off by default)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
@@ -34,6 +35,13 @@
   EasyFlash, and C64 modes — Kernal mode is refused on purpose, because the EF3
   drives A14 itself and would fight the MEGA65's address transceiver. R5/R6 sense
   the real RESET and need none of this.
+* During a cartridge DMA, BA and R/W share a level shifter, so the core drives R/W
+  high while it shows the cartridge BA: in PHI1, and while BA is low, until ~190 ns
+  into PHI2. An Ultimate II+ DMA write while BA is low fights it for ~130 ns, and a
+  cartridge that drives R/W low in PHI1 fights it there.
+* A DMA cartridge gets only the first two cycles after BA falls, as the Ultimate II+
+  uses them. A VIC-II leaves the CPU three, but the core ignores a cartridge's access
+  in the third and drives R/W high through it.
 
 # Planned
 
@@ -61,6 +69,10 @@
   would need a framework change. Also missing: the MiSTer "Always" and "Never" drive
   enable modes (a drive is enabled exactly while an image is mounted) and the
   track-number overlay (`drv_overlay.sv`).
-* Expansion port: emulated cartridges (`.crt` files) and cartridges that want to
-  become bus master (`/DMA` is ignored) are not implemented.
+* Expansion port: emulated cartridges (`.crt` files) are not implemented. A
+  cartridge can take the bus with `/DMA` (for example the Ultimate II+ menu) only
+  while the 8502 runs. A real C128 stops its Z80 (CP/M mode) for `/DMA` too (PRG
+  p. 636), but the core's Z80 keeps running and the cartridge's accesses are ignored.
+  DMA to another cartridge's I/O area ($DE00-$DFFF) does not reach it, because
+  IO1/IO2 share a level shifter with R/W, which the cartridge drives.
 * Supporting the internal drive as 1581.

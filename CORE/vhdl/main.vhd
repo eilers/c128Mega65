@@ -317,7 +317,7 @@ signal core_nmi_n_s      : std_logic := '1';
 -- trigger reset_soft_i: The M2M reset manager and sw_cartridge_wrapper. Both are ensuring that
 -- the rest pulse is at least 32 clock cycles long.
 --
--- A reset that is coming from a hardware cartridge via cart_reset_i (which is low active) is treated
+-- A reset that is coming from a hardware cartridge via cart_reset_n_q (which is low active) is treated
 -- just like reset_soft_i. We can assume that the pulse will be long enough because cartridges are
 -- aware of minimum reset durations. (Example: The EF3 pulses the reset for 7xphi2, which is way longer
 -- then 32 cycles.)
@@ -352,6 +352,8 @@ signal core_roml            : std_logic;
 signal core_romh            : std_logic;
 signal core_ioe             : std_logic;
 signal core_iof             : std_logic;
+signal core_ioe_bus         : std_logic;
+signal core_iof_bus         : std_logic;
 signal core_nmi_ack         : std_logic;
 signal core_umax_romh       : std_logic;
 signal core_io_rom          : std_logic;
@@ -363,7 +365,14 @@ signal core_irq_n           : std_logic;
 signal core_nmi_n           : std_logic;
 signal core_phi2            : std_logic;
 signal core_phi2_prev       : std_logic := '0';
-signal core_dma             : std_logic;   -- bus-master request from the REU or virtual cartridge
+signal core_ba              : std_logic;
+signal core_dma             : std_logic;   -- bus-master request from the REU or a hardware cartridge
+-- The core's DMA port, shared by the REU and a hardware cartridge
+signal core_dma_cycle       : std_logic;
+signal core_dma_addr        : unsigned(15 downto 0);
+signal core_dma_dout        : unsigned( 7 downto 0);
+signal core_dma_din         : unsigned( 7 downto 0);
+signal core_dma_we          : std_logic;
 
 -- Expansion Port: one cartridge source, plus an optional REU laid over it
 type t_cart_source is (CART_HW, CART_CRT);
@@ -410,18 +419,54 @@ signal exp_reset_cnt        : natural range 0 to C_EXP_RESET_LEN := 0;
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
 signal cart_roml_n          : std_logic;
 signal cart_romh_n          : std_logic;
-signal cart_io1_n           : std_logic;
-signal cart_io2_n           : std_logic;
+signal cart_io1_n           : std_logic := '1';
+signal cart_io2_n           : std_logic := '1';
+constant C_RD_RELEASE       : natural := 2;
+signal cart_rd_now          : std_logic;   -- the cartridge is answering a read
+signal cart_rd_hold         : natural range 0 to C_RD_RELEASE := 0;
 signal cart_nmi_n           : std_logic;
 signal cart_irq_n           : std_logic;
 signal cart_exrom_n         : std_logic;
 signal cart_game_n          : std_logic;
+signal cart_reset_n_q       : std_logic := '1';
+signal cart_game_n_q        : std_logic := '1';
+signal cart_exrom_n_q       : std_logic := '1';
+signal cart_irq_n_q         : std_logic := '1';
+signal cart_nmi_n_q         : std_logic := '1';
 signal data_from_cart       : unsigned(7 downto 0);
 -- What the C128 itself puts on the data bus. Kept separate from ram_data (which may carry
 -- data_from_cart) so that driving the cartridge's data bus cannot create a combinational loop.
 signal machine_data         : unsigned(7 downto 0);
 -- Low active reset request towards the cartridge, from the core's point of view
 signal cart_reset_n_int     : std_logic;
+
+-- Hardware Expansion Port: a cartridge as bus master (/DMA), e.g. the Ultimate II+ menu.
+-- Counts are clk_main_i clocks into the current PHI2 phase; PHI2 rises at VIC3 and falls at CPU7.
+constant C_DMA_ADDR         : natural := 5;   -- PHI2 high: latch address and R/W, ahead of the VIC's read latch (DMA3)
+constant C_DMA_DATA         : natural := 8;   -- PHI2 high: latch write data, ahead of the CIA (CPU1)
+constant C_BA_HOLD          : natural := 1;   -- PHI2 high: keep driving BA while the cart samples it at the rise
+constant C_BA_HOLD_W        : natural := 6;   -- same while BA is low, past the Ultimate's read gate
+constant C_DATA_HOLD        : natural := 4;   -- PHI2 low: keep read data on the bus
+constant C_CTRL_TURN        : natural := 3;   -- PHI2 low: let the cart release R/W before we drive BA
+signal cart_dma_n_q         : std_logic := '1';
+signal cart_rw_q            : std_logic := '1';
+signal cart_a_q             : unsigned(15 downto 0) := (others => '1');
+signal cart_d_q             : unsigned( 7 downto 0) := (others => '1');
+signal cart_dma_req         : std_logic;
+signal cart_dma             : std_logic := '0';   -- the cartridge, not the REU, owns the core's DMA port
+signal cart_dma_addr        : unsigned(15 downto 0) := (others => '1');
+signal cart_dma_dout        : unsigned( 7 downto 0) := (others => '0');
+signal cart_dma_rd          : std_logic := '1';
+signal cart_dma_live        : std_logic := '0';   -- the latched access came from the pins, not the idle default
+signal cart_dma_din_q       : unsigned( 7 downto 0) := (others => '0');
+signal cart_dma_ctrl_oe     : std_logic := '1';   -- registered, so the level shifters cannot glitch
+signal cart_dma_data_oe     : std_logic := '0';
+signal phi2_d               : std_logic := '0';
+signal phi2_cnt             : natural range 0 to 31 := 31;
+signal phi2_ph              : natural range 0 to 31;
+signal ba_lo_cnt            : natural range 0 to 3 := 0;   -- PHI2 rises in a row with BA low
+signal ba_warn              : std_logic;                   -- BA low, but the cart may still write
+signal ba_idle              : std_logic;                   -- BA low, and the cart leaves the bus alone
 
 -- Hardware Expansion Port: Handle specifics of certain cartridges
 constant C_EF3_RESET_LEN : natural := 7; -- measured in phi2 cycles
@@ -703,9 +748,10 @@ vga_video_blue_o   <= (others => '0') when vga_switching = '1' else
 -- cartridges (which leave both released and are found by the C128 boot ROM as External Function
 -- ROM at $8000, i.e. through the same ROML line).
 --
--- Nothing here is registered: the C128 bus and the pins are in the same clock domain
--- (clk_main_i) and a cartridge expects to see address, data and the chip selects settle
--- within the PHI2 cycle they belong to, so an extra pipeline stage is not an option.
+-- Address, data and /ROML-/ROMH are not registered: the C128 bus and the pins are in the same
+-- clock domain (clk_main_i) and a cartridge expects them to settle within the PHI2 cycle they
+-- belong to. /IO1-/IO2 are (cart_io_proc), and so are the inputs (cart_input_proc), except read
+-- data, which the CPU latches late.
 cart_source <= CART_CRT when osm_control_i(C_MENU_CART_CRT) = '1' else CART_HW;
 exp_port_hw <= '1' when cart_source = CART_HW else '0';
 
@@ -719,16 +765,56 @@ reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0
 -- Ultimax character fetch, which a cartridge cannot tell apart.
 cart_roml_n <= not core_roml;
 cart_romh_n <= (not core_romh) and (not core_umax_romh);
-cart_io1_n  <= not core_ioe;
-cart_io2_n  <= not core_iof;
+
+-- /IO1 and /IO2 span the CPU's PHI2 phase as on a C64, not the core's CPU4-7 strobe: the Ultimate
+-- latches them ~350 ns into PHI2. Registered against the CPU/VIC address handover; low EXT5..CPU7,
+-- one clock past the PHI2 fall, where the 8502 takes read data and a cart latches a write.
+-- A cart read leaves the data bus to the cart for C_RD_RELEASE clocks more, while it lets go.
+cart_io_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      cart_io1_n <= '1';
+      cart_io2_n <= '1';
+      if core_phi2 = '1' and phi2_d = '1' then
+         cart_io1_n <= not core_ioe_bus;
+         cart_io2_n <= not core_iof_bus;
+      end if;
+
+      if cart_rd_now = '1' then
+         cart_rd_hold <= C_RD_RELEASE;
+      elsif cart_rd_hold /= 0 then
+         cart_rd_hold <= cart_rd_hold - 1;
+      end if;
+   end if;
+end process cart_io_proc;
+
+cart_rd_now <= '1' when system_we = '0' and (cart_roml_n = '0' or cart_romh_n = '0' or
+                                             cart_io1_n = '0' or cart_io2_n = '0') else '0';
 
 -- What the cartridge tells the C128. Forced to the inactive level while the slot is unused so
 -- that an empty slot can never inject an interrupt or map a phantom cartridge into the address
 -- space.
-cart_game_n  <= cart_game_i  when exp_port_hw = '1' else '1';
-cart_exrom_n <= cart_exrom_i when exp_port_hw = '1' else '1';
-cart_irq_n   <= cart_irq_i   when exp_port_hw = '1' else '1';
-cart_nmi_n   <= cart_nmi_i   when exp_port_hw = '1' else '1';
+cart_game_n  <= cart_game_n_q  when exp_port_hw = '1' else '1';
+cart_exrom_n <= cart_exrom_n_q when exp_port_hw = '1' else '1';
+cart_irq_n   <= cart_irq_n_q   when exp_port_hw = '1' else '1';
+cart_nmi_n   <= cart_nmi_n_q   when exp_port_hw = '1' else '1';
+
+-- The pins are asynchronous to clk_main_i: unregistered, they corrupt BRAM (C64MEGA65 c556cdc),
+-- and RESET would let parts of the core leave reset a clock apart.
+cart_input_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      cart_reset_n_q <= cart_reset_i;
+      cart_game_n_q  <= cart_game_i;
+      cart_exrom_n_q <= cart_exrom_i;
+      cart_irq_n_q   <= cart_irq_i;
+      cart_nmi_n_q   <= cart_nmi_i;
+      cart_dma_n_q   <= cart_dma_i;
+      cart_rw_q      <= cart_rw_i;
+      cart_a_q       <= cart_a_i;
+      cart_d_q       <= cart_d_i;
+   end if;
+end process cart_input_proc;
 
 -- Low-active reset request towards the cartridge. This tracks the INTERNAL reset request only,
 -- never reset_core_n: a cartridge that pulls RESET wants to reset the C128, not itself, and
@@ -737,10 +823,99 @@ cart_nmi_n   <= cart_nmi_i   when exp_port_hw = '1' else '1';
 -- reset release depends on routing delay, i.e. a placement-dependent, STA-invisible boot lottery.
 cart_reset_n_int <= '0' when (pwrup_reset_cnt /= 0 or reset_core_int_n = '0') else '1';
 
+-- A cartridge takes the bus with /DMA (C64MEGA65 #199), but its address, R/W and data are only
+-- certain while PHI2 is high. So its access is latched once per cycle and held: ramWE is not
+-- cycle-gated and FAST mode adds a CPUC slot. The 8502 must own the bus, as the core's Z80 does
+-- not stop for DMA (a real C128's does, PRG p. 636).
+phi2_ph        <= 0 when core_phi2 /= phi2_d else phi2_cnt;
+ba_warn        <= '1' when core_ba = '0' and ba_lo_cnt /= 3 else '0';
+ba_idle        <= '1' when core_ba = '0' and ba_lo_cnt = 3 else '0';
+cart_dma_req   <= exp_port_hw and not cart_dma_n_q and core_z80_n;
+
+cart_dma_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      cart_dma_din_q <= core_dma_din;
+
+      phi2_d <= core_phi2;
+      if core_phi2 /= phi2_d then
+         phi2_cnt <= 1;
+      elsif phi2_cnt /= 31 then
+         phi2_cnt <= phi2_cnt + 1;
+      end if;
+
+      -- BA as the cart samples it at each PHI2 rise. A VIC-II, like the core's, takes the bus in the
+      -- fourth cycle with BA low, but the Ultimate already leaves the third alone and floats R/W
+      -- there ("Patch: 2 cycles only" in its slot_timing.vhd), so the third is ba_idle too.
+      if core_phi2 = '1' and phi2_d = '0' then
+         if core_ba = '1' then
+            ba_lo_cnt <= 0;
+         elsif ba_lo_cnt /= 3 then
+            ba_lo_cnt <= ba_lo_cnt + 1;
+         end if;
+      end if;
+
+      -- While BA is low we hold the R/W line ourselves, so the access is latched later then.
+      -- Any cycle without a cart access reads $FFFF, as the Ultimate does when idle.
+      if core_phi2 = '1' and phi2_ph = C_DMA_ADDR then
+         cart_dma_addr <= x"FFFF";
+         cart_dma_rd   <= '1';
+         cart_dma_live <= '0';
+         if cart_dma_req = '1' and core_ba = '1' then
+            cart_dma_addr <= cart_a_q;
+            cart_dma_rd   <= cart_rw_q;
+            cart_dma_live <= '1';
+         end if;
+      end if;
+      if core_phi2 = '1' and phi2_ph = C_DMA_DATA then
+         cart_dma_dout <= cart_d_q;
+         if cart_dma_req = '1' and ba_warn = '1' then
+            cart_dma_addr <= cart_a_q;
+            cart_dma_rd   <= cart_rw_q;
+            cart_dma_live <= '1';
+         end if;
+      end if;
+
+      -- Hand the DMA port back to the REU at the next PHI2 rise, after the core has dropped DMA
+      if cart_dma_req = '1' then
+         cart_dma <= '1';
+      elsif core_phi2 = '1' and phi2_d = '0' then
+         cart_dma <= '0';
+      end if;
+
+      -- Level shifter directions while the cart has the bus, for the next clock. BA shares one
+      -- with R/W, so we drive BA (and R/W high) only in PHI1, at the PHI2 rise when the cart
+      -- samples it, past the Ultimate's read gate while BA is low, and in ba_idle cycles.
+      -- While BA is low, that overlaps an Ultimate write's R/W by ~130 ns.
+      cart_dma_ctrl_oe <= '0';
+      if ba_idle = '1' or
+         (core_phi2 = '0' and phi2_ph >= C_CTRL_TURN - 1) or
+         (core_phi2 = '1' and phi2_ph < C_BA_HOLD - 1) or
+         (core_phi2 = '1' and ba_warn = '1' and phi2_ph < C_BA_HOLD_W - 1) then
+         cart_dma_ctrl_oe <= '1';
+      end if;
+
+      -- Read data from the latch until just past the PHI2 fall. ROML/ROMH reads are a cart's.
+      cart_dma_data_oe <= '0';
+      if cart_dma = '1' and cart_dma_live = '1' and cart_dma_rd = '1' and
+         cart_roml_n = '1' and cart_romh_n = '1' and
+         ((core_phi2 = '1' and phi2_ph > C_DMA_ADDR) or (core_phi2 = '0' and phi2_ph < C_DATA_HOLD - 1)) then
+         cart_dma_data_oe <= '1';
+      end if;
+   end if;
+end process cart_dma_proc;
+
+-- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits
+core_dma_addr <= cart_dma_addr   when cart_dma = '1' else unsigned(reu_dma_addr);
+core_dma_dout <= cart_dma_dout   when cart_dma = '1' else unsigned(reu_dma_dout);
+core_dma_we   <= not cart_dma_rd when cart_dma = '1' else reu_dma_we;
+reu_dma_cycle <= core_dma_cycle and not cart_dma;
+reu_dma_din   <= core_dma_din;
+
 handle_hardware_expansion_proc : process (all)
 begin
-   -- Tri-state everything we can directly control. As long as we do not support cartridges
-   -- that can become bus master, the C128 owns address, data and the control lines.
+   -- Tri-state everything we can directly control. The C128 owns address, data and the control
+   -- lines, unless a cartridge has taken the bus with /DMA.
    cart_ctrl_oe_o  <= '0';
    cart_addr_oe_o  <= '0';
    cart_data_oe_o  <= '0';
@@ -805,34 +980,42 @@ begin
       cart_rw_o       <= not system_we;
       cart_phi2_o     <= core_phi2;
       cart_dotclock_o <= vic_pixel_ce;
+      -- The VIC's BA, as C64MEGA65 V6 does
+      cart_ba_o       <= core_ba;
 
-      -- BA is held high. Handing the cartridge the core's real bus arbitration state was tried
-      -- in the C64 core and reduced compatibility rather than improving it (the Kung Fu Flash
-      -- stopped working altogether).
-      cart_ba_o       <= '1';
-
-      -- Address bus. Only the low 16 bits of the core's address are a CPU/VIC address; bits
-      -- 17..16 are the C128's RAM bank select and must not leave the machine.
-      cart_addr_oe_o  <= '1';
-      if core_umax_romh = '0' then
-         cart_a_o     <= core_ram_addr(15 downto 0);
+      if cart_dma_n_q = '0' then
+         -- The cartridge is bus master, see cart_dma_proc
+         cart_addr_oe_o <= '0';
+         cart_ctrl_oe_o <= cart_dma_ctrl_oe;
+         cart_rw_o      <= '1';
+         cart_io1_o     <= '1';
+         cart_io2_o     <= '1';
+         cart_data_oe_o <= cart_dma_data_oe;
+         cart_d_o       <= cart_dma_din_q;
       else
-         -- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up
-         -- by RP4 whenever the VIC has the bus, so a cartridge sees them as %1111.
-         cart_a_o     <= "11" & core_ram_addr(13 downto 0);
-      end if;
-
-      -- Data bus: turn it into an input while the cartridge answers a read, drive it otherwise,
-      -- so that the CPU can also write to the cartridge (bank switching).
-      if system_we = '0' and (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0') then
-         cart_data_oe_o <= '0';  -- input
-         data_from_cart <= cart_d_i;
-      else
-         cart_data_oe_o <= '1';  -- output
-         if system_we = '0' then
-            cart_d_o    <= machine_data;
+         -- Address bus. Only the low 16 bits of the core's address are a CPU/VIC address; bits
+         -- 17..16 are the C128's RAM bank select and must not leave the machine.
+         cart_addr_oe_o  <= '1';
+         if core_umax_romh = '0' then
+            cart_a_o     <= core_ram_addr(15 downto 0);
          else
-            cart_d_o    <= core_ram_data_out;
+            -- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up
+            -- by RP4 whenever the VIC has the bus, so a cartridge sees them as %1111.
+            cart_a_o     <= "11" & core_ram_addr(13 downto 0);
+         end if;
+
+         -- Data bus: turn it into an input while the cartridge answers a read, drive it otherwise,
+         -- so that the CPU can also write to the cartridge (bank switching).
+         if cart_rd_now = '1' or cart_rd_hold /= 0 then
+            cart_data_oe_o <= '0';  -- input
+            data_from_cart <= cart_d_i;
+         else
+            cart_data_oe_o <= '1';  -- output
+            if system_we = '0' then
+               cart_d_o    <= machine_data;
+            else
+               cart_d_o    <= core_ram_data_out;
+            end if;
          end if;
       end if;
    end if;
@@ -958,6 +1141,7 @@ begin
          -- emulated cartridges.
          core_io_ext  <= core_ioe or core_iof;
          core_io_data <= data_from_cart;
+         v_dma        := cart_dma_req;
 
       when CART_CRT =>
          null;
@@ -1148,7 +1332,7 @@ combined_reset_proc: process (all)
       reset_core_n <= '0';
     elsif reset_core_int_n = '0' then
       reset_core_n <= '0';
-    elsif cart_reset_i = '0' and prevent_reset = '0' and exp_port_hw = '1' then
+    elsif cart_reset_n_q = '0' and prevent_reset = '0' and exp_port_hw = '1' then
       -- A cartridge (or its reset button) pulls RESET low. Only honoured while the slot is in
       -- use, because otherwise we drive cart_reset_o permanently and would read back our own level.
       reset_core_n <= '0';
@@ -1439,6 +1623,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vicR          => vic_r,
       vic_pixel_ce_o => vic_pixel_ce,
       phi2_o        => core_phi2,      -- output. Expansion Port PHI2
+      ba_o          => core_ba,        -- output. Expansion Port BA
       vicG          => vic_g,
       vicB          => vic_b,
 
@@ -1476,18 +1661,19 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       UMAXromH      => core_umax_romh, -- output
       IOE           => core_ioe,       -- output. aka IO1. CPU access to 0xDExx
       IOF           => core_iof,       -- output. aka IO2. CPU access to 0xDFxx
+      IOE_bus       => core_ioe_bus,   -- output. IO1 for the Expansion Port
+      IOF_bus       => core_iof_bus,   -- output. IO2 for the Expansion Port
       freeze_key  => open,
       mod_key     => open,
       tape_play   => open,
       
-      -- The expansion port's /DMA line (cart_dma_i) is deliberately ignored: asserting dma_req
-      -- from a floating pin would freeze the Z80. Only the REU and virtual cartridge drive it.
+      -- The REU or a hardware cartridge, see cart_dma_proc
       dma_req       => core_dma,
-      dma_cycle     => reu_dma_cycle,
-      dma_addr      => unsigned(reu_dma_addr),
-      dma_dout      => unsigned(reu_dma_dout),
-      dma_din       => reu_dma_din,
-      dma_we        => reu_dma_we,
+      dma_cycle     => core_dma_cycle,
+      dma_addr      => core_dma_addr,
+      dma_dout      => core_dma_dout,
+      dma_din       => core_dma_din,
+      dma_we        => core_dma_we,
       irq_ext_n     => '1',            -- the REU's IRQ goes through irq_n, see core_irq_n
 
 
