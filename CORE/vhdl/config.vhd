@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 97;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 98;  -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -400,6 +400,7 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
    " Hardware\n"            &    -- default: the physical cartridge slot
    " CRT file\n"            &    -- virtual cartridge
+   " CRT:%s\n"              &    -- the .crt file; loading one selects CRT file
    "\n"                     &
    " Back to main menu\n"   &
    "\n"                     &
@@ -428,6 +429,7 @@ constant OPTM_G_HDMI_AUDIO : integer := 13;   -- HDMI audio; off selects DVI out
 constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, and which is Caps Lock
 constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/VS, 15 kHz with CSYNC
 constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB
+constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartridge's .crt file
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -537,6 +539,7 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CART + OPTM_G_STDSEL,                         -- Hardware
                                              OPTM_G_CART,                                         -- CRT file
+                                             OPTM_G_MOUNT_CRT + OPTM_G_LOAD_ROM,                  -- CRT:%s
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_LINE,                                         -- Line

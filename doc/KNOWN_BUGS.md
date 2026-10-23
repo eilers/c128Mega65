@@ -14,6 +14,14 @@
   of the menu. Raw `.G64`/`.G71` and MFM/CP-M images are not supported.
 * Real cartridges in the expansion port (C64 and C128 cartridges), including ones that
   take the bus with `/DMA`, such as the Ultimate II+ (menu, REU and command interface)
+* Virtual cartridges: a `.crt` file of up to 2 MB, loaded with **Cartridge > CRT:** in
+  the menu, runs as a cartridge in the expansion port. C128 function ROMs (generic) and
+  these C64 types: generic 8K/16K/Ultimax, Action Replay, Final Cartridge III, Simons'
+  BASIC, Ocean, Fun Play, Super Games, C64 Game System, Dinamic, Magic Desk (8K and 16K),
+  Super Snapshot 5, COMAL 80, Structured BASIC, Mikro Assembler, EasyFlash, GMod2 and
+  Turbo 2000. Other types are refused with "Unsupported type". Action Replay, Final
+  Cartridge III, Super Games, Mikro Assembler and EasyFlash use the REU's registers at
+  $DF00-$DF1F, so the REU is off while one of them runs, as on an Ultimate.
 * REU (RAM Expansion Unit) of 512 KB or 2 MB, set in the menu (off by default)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
@@ -69,10 +77,14 @@
   would need a framework change. Also missing: the MiSTer "Always" and "Never" drive
   enable modes (a drive is enabled exactly while an image is mounted) and the
   track-number overlay (`drv_overlay.sv`).
-* Expansion port: emulated cartridges (`.crt` files) are not implemented. A
-  cartridge can take the bus with `/DMA` (for example the Ultimate II+ menu) only
-  while the 8502 runs. A real C128 stops its Z80 (CP/M mode) for `/DMA` too (PRG
-  p. 636), but the core's Z80 keeps running and the cartridge's accesses are ignored.
+* Virtual cartridges: freezers (Action Replay, Final Cartridge III, Super Snapshot 5)
+  run, but there is no freeze button yet. EasyFlash writes to its flash are lost, so
+  games that save there don't keep their saves. The banked C128 types (Warp Speed 128,
+  COMAL 80 128, Magic Desk 128, GMod2-C128) are not supported.
+* Expansion port: a cartridge can take the bus with `/DMA` (for example the Ultimate
+  II+ menu) only while the 8502 runs. A real C128 stops its Z80 (CP/M mode) for `/DMA`
+  too (PRG p. 636), but the core's Z80 keeps running and the cartridge's accesses are
+  ignored.
   DMA to another cartridge's I/O area ($DE00-$DFFF) does not reach it, because
   IO1/IO2 share a level shifter with R/W, which the cartridge drives.
 * Supporting the internal drive as 1581.

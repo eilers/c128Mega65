@@ -26,6 +26,13 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
     [file join $repo_dir "CORE/vhdl/reu_mapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/memory/avm_cache.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cartridge.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_parser.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_cacher.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_loader.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
+    [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \

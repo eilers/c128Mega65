@@ -88,13 +88,15 @@ FILTER_FILES    INCRB
                 CMP     1, R9                   ; directories are always shown
                 RBRA    _FFILES_SHOW, Z
 
-                ; Mounting a disk image is the only context this core browses for, but be
-                ; explicit about it so that adding a second context later cannot silently
-                ; inherit the disk-image extension list.
+                ; Disk images for the drives, .crt files for the cartridge. Be explicit about
+                ; both, so that a new context cannot silently inherit either list.
+                MOVE    DISKIMG_EXT, R1         ; R1: 0-terminated table of ext. pointers
                 CMP     CTX_MOUNT_DISKIMG, R10
+                RBRA    _FFILES_EXT, Z
+                MOVE    CRTFILE_EXT, R1
+                CMP     CTX_LOAD_ROM, R10
                 RBRA    _FFILES_SHOW, !Z
 
-                MOVE    DISKIMG_EXT, R1         ; R1: 0-terminated table of ext. pointers
 _FFILES_EXT     MOVE    @R1++, R9               ; R9: next extension (0 = end of table)
                 RBRA    _FFILES_HIDE, Z         ; end of table: no extension matched
                 RSUB    M2M$CHK_EXT, 1          ; leaves R8/R9/R10 and our R1 alone
@@ -134,15 +136,28 @@ _FFILES_RET     MOVE    R0, R9
 ; therefore stays at 0: the whole file is payload.
 PREP_LOAD_IMAGE INCRB
 
-                CMP     CTX_MOUNT_DISKIMG, R9   ; other contexts pass through unchecked
-                RBRA    _PREP_LI_OTHER, !Z
-
                 MOVE    R8, R0
                 MOVE    R8, R1
                 ADD     FAT32$FDH_SIZE_LO, R0
                 MOVE    @R0, R0                 ; R0: low word of the file size
                 ADD     FAT32$FDH_SIZE_HI, R1
                 MOVE    @R1, R1                 ; R1: high word of the file size
+
+                ; A .crt file must fit its 2 MiB in HyperRAM (doc/hyperram-map.md); the parser
+                ; in crt_parser.vhd checks the rest once it is loaded
+                CMP     CTX_LOAD_ROM, R9
+                RBRA    _PREP_LI_DISK, !Z
+                CMP     CRT_MAX_HI, R1          ; CMP X,Y: N <=> Y<X, Z <=> Y==X
+                RBRA    _PREP_LI_OTHER, N       ; well under the limit
+                RBRA    _PREP_LI_BIG, !Z        ; over it
+                CMP     0, R0
+                RBRA    _PREP_LI_OTHER, Z       ; exactly 2 MiB
+_PREP_LI_BIG    MOVE    1, R8
+                MOVE    WRN_CRT_TOO_BIG, R9
+                RBRA    _PREP_LI_RET, 1
+
+_PREP_LI_DISK   CMP     CTX_MOUNT_DISKIMG, R9   ; other contexts pass through unchecked
+                RBRA    _PREP_LI_OTHER, !Z
 
                 MOVE    IMGSIZE_TBL, R2         ; R2: table of (lo, hi, image type)
 _PREP_LI_CMP    MOVE    @R2++, R3               ; R3: expected low word
@@ -223,7 +238,19 @@ OSM_SEL_POST    INCRB
 ; called before the functionality and semantics associated with a certain
 ; menu item has been handled by the framework.
 OSM_SEL_PRE     INCRB
-                XOR     R8, R8
+
+                ; Loading a .crt file selects the virtual cartridge. main.vhd resets the C128
+                ; when the source changes, and again once the file is loaded.
+                CMP     OPTM_G_MOUNT_CRT, R8
+                RBRA    _OSM_PRE_RET, !Z
+                MOVE    CART_CRT_MENU, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     1, R9                   ; already selected?
+                RBRA    _OSM_PRE_RET, Z
+                MOVE    1, R9
+                RSUB    M2M$FORCE_MENU, 1
+
+_OSM_PRE_RET    XOR     R8, R8
                 XOR     R9, R9
                 DECRB
                 RET
@@ -249,6 +276,10 @@ CUSTOM_MSG      INCRB
 
                 CMP     CMSG_BROWSENOTHING, R0  ; "the folder has nothing to show"?
                 RBRA    _CUSTOM_MSG_RET, !Z
+                MOVE    WRN_NO_CRT, R8          ; while browsing for a .crt file?
+                CMP     CTX_LOAD_ROM, R9
+                RBRA    _CUSTOM_MSG_RET, Z
+                XOR     R8, R8
                 CMP     CTX_MOUNT_DISKIMG, R9   ; while browsing for a disk image?
                 RBRA    _CUSTOM_MSG_RET, !Z
                 MOVE    WRN_NO_DISKIMG, R8      ; yes: name the formats we accept
@@ -266,6 +297,11 @@ IMGEXT_D64      .ASCII_W ".D64"
 IMGEXT_D71      .ASCII_W ".D71"
 IMGEXT_D81      .ASCII_W ".D81"
 DISKIMG_EXT     .DW      IMGEXT_D64, IMGEXT_D71, IMGEXT_D81, 0
+
+; Virtual cartridge files, and the largest one its HyperRAM region holds: 2 MiB = 0x0020:0000
+IMGEXT_CRT      .ASCII_W ".CRT"
+CRTFILE_EXT     .DW      IMGEXT_CRT, 0
+CRT_MAX_HI      .EQU    0x0020
 
 ; Image types as expected by the 2-bit img_type of vdrives.vhd, which main.vhd expands
 ; into the {img_hd, img_mfm, img_gcr, img_ds} vector of iec_drive. Raw GCR images (G64,
@@ -304,6 +340,18 @@ WRN_NO_DISKIMG  .ASCII_P "This core uses D64, D71 and D81 disk\n"
                 .ASCII_P "also use nested sub-directories to nicely\n"
                 .ASCII_P "order your collection of disk images.\n\n"
                 .ASCII_P "Nothing to browse.\n\n"
+                .ASCII_W "Press Space to continue."
+
+; Warning: the selected .crt file is too large for the HyperRAM region of the cartridge
+WRN_CRT_TOO_BIG .ASCII_P "\n\nThis .crt file is too large. A virtual\n"
+                .ASCII_P "cartridge can be up to 2 MB.\n"
+                .ASCII_W "\nPress SPACE to continue.\n"
+
+; Warning: the folder the user browsed into holds no .crt file
+WRN_NO_CRT      .ASCII_P "No .crt cartridge files here.\n\n"
+                .ASCII_P "Copy C64 or C128 .crt files to any\n"
+                .ASCII_P "folder of this SD card, for example\n"
+                .ASCII_P "/c128.\n\n"
                 .ASCII_W "Press Space to continue."
 
 ; This needs to be the last thing before the "Variables" sections starts

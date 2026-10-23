@@ -20,7 +20,8 @@ use work.vdrives_pkg.all;
 entity main is
    generic (
       G_BOARD                 : string;                     -- Which MEGA65 revision are we running on
-      G_VDNUM                 : natural                     -- amount of virtual drives
+      G_VDNUM                 : natural;                    -- amount of virtual drives
+      G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20   -- reset on a cartridge change: 50 ms
    );
    port (
       clk_main_i              : in  std_logic;  -- Main core clock (~31.53 MHz PAL)
@@ -207,7 +208,30 @@ entity main is
       reu_avm_burstcount_o    : out std_logic_vector(7 downto 0);
       reu_avm_readdata_i      : in  std_logic_vector(15 downto 0) := (others => '0');
       reu_avm_readdatavalid_i : in  std_logic := '0';
-      reu_avm_waitrequest_i   : in  std_logic := '0'
+      reu_avm_waitrequest_i   : in  std_logic := '0';
+
+      -- Virtual cartridge: the .crt file and its bank cache (sw_cartridge_wrapper in mega65.vhd)
+      crt_loaded_i            : in  std_logic := '0';
+      crt_loading_i           : in  std_logic := '0';
+      crt_id_i                : in  std_logic_vector(15 downto 0) := (others => '0');
+      crt_exrom_i             : in  std_logic_vector( 7 downto 0) := (others => '1');
+      crt_game_i              : in  std_logic_vector( 7 downto 0) := (others => '1');
+      crt_size_i              : in  std_logic_vector(22 downto 0) := (others => '0');
+      crt_c128_i              : in  std_logic := '0';
+      crt_subtype_i           : in  std_logic_vector( 7 downto 0) := (others => '0');
+      crt_bank_lo_o           : out std_logic_vector( 6 downto 0);
+      crt_bank_hi_o           : out std_logic_vector( 6 downto 0);
+      crt_wait_i              : in  std_logic := '0';
+      crt_addr_o              : out std_logic_vector(15 downto 0);
+      crt_data_o              : out std_logic_vector( 7 downto 0);
+      crt_lo_data_i           : in  std_logic_vector( 7 downto 0) := (others => '1');
+      crt_hi_data_i           : in  std_logic_vector( 7 downto 0) := (others => '1');
+      crt_ioe_we_o            : out std_logic;
+      crt_iof_we_o            : out std_logic;
+      crt_ram_we_o            : out std_logic;
+      crt_ioe_data_i          : in  std_logic_vector( 7 downto 0) := (others => '1');
+      crt_iof_data_i          : in  std_logic_vector( 7 downto 0) := (others => '1');
+      crt_ram_data_i          : in  std_logic_vector( 7 downto 0) := (others => '1')
    );
 end entity main;
 
@@ -313,9 +337,8 @@ signal core_nmi_n_s      : std_logic := '1';
 -- also exit from simulated cartridges using a hard reset.
 --
 -- When pulsing reset_soft_i from the outside (mega65.vhd), then you need to ensure that this
--- pulse is at least 32 clock cycles long. Currently (see mega65.vhd) there are two sources that
--- trigger reset_soft_i: The M2M reset manager and sw_cartridge_wrapper. Both are ensuring that
--- the rest pulse is at least 32 clock cycles long.
+-- pulse is at least 32 clock cycles long. The M2M reset manager is its only source; a loaded
+-- .crt file resets the core through exp_change_reset_proc instead.
 --
 -- A reset that is coming from a hardware cartridge via cart_reset_n_q (which is low active) is treated
 -- just like reset_soft_i. We can assume that the pulse will be long enough because cartridges are
@@ -382,6 +405,7 @@ type t_cart_source is (CART_HW, CART_CRT);
 signal cart_source          : t_cart_source;
 
 -- REU
+signal reu_menu             : std_logic_vector(1 downto 0);   -- the menu's choice, as reu.sv's cfg
 signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
 signal reu_dma_req          : std_logic;
@@ -412,11 +436,29 @@ signal map_readdata         : std_logic_vector(15 downto 0);
 signal map_readdatavalid    : std_logic;
 signal map_waitrequest      : std_logic;
 
--- Reset the C128 when the REU or Cartridge setting changes (C64MEGA65 #225, #226)
-constant C_EXP_RESET_LEN    : natural := CORE_CLK_SPEED / 20;   -- 50 ms, like the reset button
-signal exp_cfg_d            : std_logic_vector(2 downto 0) := "001";   -- REU off, hardware slot
+-- Reset the C128 when the REU or Cartridge setting changes (C64MEGA65 #225, #226), and when a
+-- .crt file is loaded
+signal exp_cfg_d            : std_logic_vector(3 downto 0) := "0010";   -- REU off, hardware slot, no .crt
 signal exp_reset_pend       : std_logic := '0';
-signal exp_reset_cnt        : natural range 0 to C_EXP_RESET_LEN := 0;
+signal exp_reset_cnt        : natural range 0 to G_EXP_RESET_LEN := 0;
+
+-- Virtual cartridge (cartridge.vhd)
+signal crt_off              : std_logic := '1';   -- a hard reset turned it off, until the next reset
+signal crt_active           : std_logic;          -- a .crt file is loaded, selected and on
+signal crt_hold             : std_logic;          -- keep the C128 in reset until the cache has the banks
+signal crt_io2              : std_logic;          -- it uses $DFxx, so the REU stays off
+signal crt_game_n           : std_logic;
+signal crt_exrom_n          : std_logic;
+signal crt_io_rom           : std_logic;
+signal crt_io_ext           : std_logic;
+signal crt_io_data          : std_logic_vector(7 downto 0);
+signal crt_nmi              : std_logic;
+signal crt_roml_we          : std_logic;          -- ROML reads come from the cartridge's RAM
+signal crt_ioe_wr_ena       : std_logic;          -- $DExx reads come from its RAM, else they mirror $9Exx
+signal crt_iof_wr_ena       : std_logic;
+signal crt_bank_lo          : std_logic_vector(6 downto 0);
+signal crt_addr_9exx        : std_logic;
+signal crt_addr_9fxx        : std_logic;
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
@@ -758,9 +800,10 @@ vga_video_blue_o   <= (others => '0') when vga_switching = '1' else
 cart_source <= CART_CRT when osm_control_i(C_MENU_CART_CRT) = '1' else CART_HW;
 exp_port_hw <= '1' when cart_source = CART_HW else '0';
 
-reu_cfg <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
-           "10" when osm_control_i(C_MENU_REU_2M)   = '1' else
-           "00";
+reu_menu <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
+            "10" when osm_control_i(C_MENU_REU_2M)   = '1' else
+            "00";
+reu_cfg  <= "00" when crt_io2 = '1' else reu_menu;
 reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0';
 
 -- Low-active chip selects as the expansion port expects them. The core reports these accesses
@@ -915,8 +958,11 @@ begin
    end if;
 end process cart_dma_proc;
 
--- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits
-core_dma_addr <= cart_dma_addr   when cart_dma = '1' else unsigned(reu_dma_addr);
+-- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits. When only the
+-- virtual cartridge's cache stalls the CPU, the DMA cycles read RAM at $0000.
+core_dma_addr <= cart_dma_addr   when cart_dma = '1' else
+                 unsigned(reu_dma_addr) when reu_dma_req = '1' else
+                 x"0000";
 core_dma_dout <= cart_dma_dout   when cart_dma = '1' else unsigned(reu_dma_dout);
 core_dma_we   <= not cart_dma_rd when cart_dma = '1' else reu_dma_we;
 reu_dma_cycle <= core_dma_cycle and not cart_dma;
@@ -1126,6 +1172,75 @@ reu_avm_cache_inst : entity work.avm_cache
       m_avm_readdatavalid_i => reu_avm_readdatavalid_i
    ); -- reu_avm_cache_inst
 
+--------------------------------------------------------------------------------------------------
+-- Virtual cartridge: a .crt file in HyperRAM, its active banks cached in block RAM
+--------------------------------------------------------------------------------------------------
+-- A long reset press turns the cartridge off, so the C128 starts without it; the next reset or
+-- a newly loaded file turns it back on.
+crt_off_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      if crt_loading_i = '1' or (reset_core_n = '0' and hard_reset_n = '1') then
+         crt_off <= '0';
+      elsif hard_reset_n = '0' and hard_reset_n_d = '1' then
+         crt_off <= '1';
+      end if;
+   end if;
+end process crt_off_proc;
+
+crt_active <= '1' when cart_source = CART_CRT and crt_loaded_i = '1' and crt_off = '0' else '0';
+crt_hold   <= crt_active and crt_wait_i;
+
+-- These types use $DF00-$DF1F, where the REU's registers are, so the REU is off while one runs, as
+-- the Ultimate turns its own off for them (c64_crt.cc). Subtype 1 of FC3 and EasyFlash shares IO2.
+crt_io2 <= '1' when crt_active = '1' and crt_c128_i = '0' and
+                    (crt_id_i = x"0001" or crt_id_i = x"0008" or crt_id_i = x"001C" or
+                     ((crt_id_i = x"0003" or crt_id_i = x"0020") and crt_subtype_i /= x"01")) else '0';
+
+-- Each reset starts the cartridge again from its power-up state
+cartridge_inst : entity work.cartridge
+   port map (
+      clk_i             => clk_main_i,
+      rst_i             => crt_off,
+      cart_loading_i    => crt_loading_i or not reset_core_n,
+      cart_id_i         => crt_id_i,
+      cart_exrom_i      => crt_exrom_i,
+      cart_game_i       => crt_game_i,
+      cart_size_i       => crt_size_i,
+      cart_c128_i       => crt_c128_i,
+      ioe_i             => core_ioe,
+      iof_i             => core_iof,
+      wr_en_i           => system_we,
+      wr_data_i         => std_logic_vector(core_ram_data_out),
+      addr_i            => std_logic_vector(core_ram_addr(15 downto 0)),
+      bank_lo_o         => crt_bank_lo,
+      bank_hi_o         => crt_bank_hi_o,
+      ioe_wr_ena_o      => crt_ioe_wr_ena,
+      iof_wr_ena_o      => crt_iof_wr_ena,
+      io_rom_o          => crt_io_rom,
+      io_ext_o          => crt_io_ext,
+      io_data_o         => crt_io_data,
+      exrom_o           => crt_exrom_n,
+      game_o            => crt_game_n,
+      roml_we_o         => crt_roml_we,
+      freeze_key_i      => '0',
+      suppress_freeze_i => '0',
+      nmi_o             => crt_nmi,
+      nmi_ack_i         => core_nmi_ack
+   ); -- cartridge_inst
+
+crt_bank_lo_o <= crt_bank_lo;
+crt_addr_o    <= std_logic_vector(core_ram_addr(15 downto 0));
+crt_data_o    <= std_logic_vector(core_ram_data_out);
+
+-- The cartridge's RAMs. Writes to $9Exx/$9Fxx also reach $DExx/$DFxx RAM when that is mapped
+-- (Action Replay, see C64MEGA65's main.vhd).
+crt_addr_9exx <= '1' when core_ram_addr(12 downto 8) = "11110" else '0';
+crt_addr_9fxx <= '1' when core_ram_addr(12 downto 8) = "11111" else '0';
+crt_ioe_we_o  <= crt_active and system_we and (core_ioe or (core_roml and crt_ioe_wr_ena and crt_addr_9exx));
+crt_iof_we_o  <= crt_active and system_we and (core_iof or (core_roml and crt_iof_wr_ena and crt_addr_9fxx));
+crt_ram_we_o  <= crt_active and system_we and core_roml and crt_roml_we;
+
 -- Route the cartridge source back into the C128, then lay the REU over it
 handle_cores_expansion_port_signals_proc : process (all)
    variable v_irq_n : std_logic;
@@ -1154,12 +1269,23 @@ begin
          v_dma        := cart_dma_req;
 
       when CART_CRT =>
-         null;
+         -- Its ROM reads come through ramDin (cpu_data_in_proc). While the cache fetches a bank
+         -- the CPU waits, as for DMA.
+         if crt_active = '1' then
+            core_game_n  <= crt_game_n;
+            core_exrom_n <= crt_exrom_n;
+            core_io_rom  <= crt_io_rom;
+            core_io_ext  <= crt_io_ext;
+            core_io_data <= unsigned(crt_io_data);
+            core_nmi_n   <= core_nmi_n_s and not crt_nmi;
+            v_dma        := crt_wait_i;
+         end if;
    end case;
 
    -- The REU only claims $DF00-$DF1F; the rest of IO2 stays with the cartridge (C64MEGA65 #208)
    if reu_cfg /= "00" then
       if reu_io = '1' then
+         core_io_rom  <= '0';
          core_io_ext  <= '1';
          core_io_data <= unsigned(reu_dout);
       end if;
@@ -1281,22 +1407,23 @@ end process handle_hardware_iec_proc;
 -- Hard reset
 --------------------------------------------------------------------------------------------------
 
--- A changed REU or Cartridge setting resets the C128 and a hardware cartridge, as soon as no
--- write-back cache is dirty.
+-- A changed REU or Cartridge setting, or a .crt file being loaded, resets the C128 and a hardware
+-- cartridge, as soon as no write-back cache is dirty. A virtual cartridge's reset lasts until
+-- the cache holds the banks it starts in.
 exp_change_reset_proc : process (clk_main_i)
-   variable v_cfg : std_logic_vector(2 downto 0);
+   variable v_cfg : std_logic_vector(3 downto 0);
 begin
    if rising_edge(clk_main_i) then
-      v_cfg     := reu_cfg & exp_port_hw;
+      v_cfg     := reu_menu & exp_port_hw & crt_loaded_i;
       exp_cfg_d <= v_cfg;
-      if exp_reset_cnt /= 0 then
+      if exp_reset_cnt > 1 or (exp_reset_cnt = 1 and crt_hold = '0') then
          exp_reset_cnt <= exp_reset_cnt - 1;
       end if;
       if v_cfg /= exp_cfg_d then
          exp_reset_pend <= '1';
       elsif exp_reset_pend = '1' and prevent_reset = '0' then
          exp_reset_pend <= '0';
-         exp_reset_cnt  <= C_EXP_RESET_LEN;
+         exp_reset_cnt  <= G_EXP_RESET_LEN;
       end if;
    end if;
 end process exp_change_reset_proc;
@@ -1430,6 +1557,16 @@ cpu_data_in_proc: process (all)
     elsif exp_port_hw = '1' and (cart_roml_n = '0' or (core_romh = '1' and core_aec = '1') or
                                  core_umax_romh = '1') then
       ram_data <= data_from_cart;
+    -- A virtual cartridge's ROM, or its RAM where the cartridge maps it. $DExx/$DFxx only reach
+    -- the CPU from here while the cartridge sets io_rom.
+    elsif crt_active = '1' and core_roml = '1' then
+      ram_data <= unsigned(crt_ram_data_i) when crt_roml_we = '1' else unsigned(crt_lo_data_i);
+    elsif crt_active = '1' and (core_romh = '1' or core_umax_romh = '1') then
+      ram_data <= unsigned(crt_hi_data_i);
+    elsif crt_active = '1' and core_ioe = '1' then
+      ram_data <= unsigned(crt_ioe_data_i) when crt_ioe_wr_ena = '1' else unsigned(crt_lo_data_i);
+    elsif crt_active = '1' and core_iof = '1' then
+      ram_data <= unsigned(crt_iof_data_i) when crt_iof_wr_ena = '1' else unsigned(crt_lo_data_i);
     else
       ram_data <= machine_data;
     end if;

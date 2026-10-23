@@ -337,7 +337,32 @@ signal reu_hr_readdata        : std_logic_vector(15 downto 0);
 signal reu_hr_readdatavalid   : std_logic;
 signal reu_hr_waitrequest     : std_logic;
 
--- Virtual cartridge
+-- Virtual cartridge: the QNICE device that loads the .crt file, and its link to main.vhd
+signal qnice_crt_ce           : std_logic;
+signal qnice_crt_we           : std_logic;
+signal qnice_crt_data         : std_logic_vector(15 downto 0);
+signal qnice_crt_wait         : std_logic;
+signal main_crt_loaded        : std_logic;
+signal main_crt_loading       : std_logic;
+signal main_crt_id            : std_logic_vector(15 downto 0);
+signal main_crt_exrom         : std_logic_vector( 7 downto 0);
+signal main_crt_game          : std_logic_vector( 7 downto 0);
+signal main_crt_size          : std_logic_vector(22 downto 0);
+signal main_crt_c128          : std_logic;
+signal main_crt_subtype       : std_logic_vector( 7 downto 0);
+signal main_crt_bank_lo       : std_logic_vector( 6 downto 0);
+signal main_crt_bank_hi       : std_logic_vector( 6 downto 0);
+signal main_crt_wait          : std_logic;
+signal main_crt_addr          : std_logic_vector(15 downto 0);
+signal main_crt_data          : std_logic_vector( 7 downto 0);
+signal main_crt_lo_data       : std_logic_vector( 7 downto 0);
+signal main_crt_hi_data       : std_logic_vector( 7 downto 0);
+signal main_crt_ioe_we        : std_logic;
+signal main_crt_iof_we        : std_logic;
+signal main_crt_ram_we        : std_logic;
+signal main_crt_ioe_data      : std_logic_vector( 7 downto 0);
+signal main_crt_iof_data      : std_logic_vector( 7 downto 0);
+signal main_crt_ram_data      : std_logic_vector( 7 downto 0);
 signal crt_hr_write           : std_logic;
 signal crt_hr_read            : std_logic;
 signal crt_hr_address         : std_logic_vector(31 downto 0);
@@ -658,7 +683,29 @@ begin
          reu_avm_burstcount_o    => main_reu_burstcount,
          reu_avm_readdata_i      => main_reu_readdata,
          reu_avm_readdatavalid_i => main_reu_readdatavalid,
-         reu_avm_waitrequest_i   => main_reu_waitrequest
+         reu_avm_waitrequest_i   => main_reu_waitrequest,
+
+         crt_loaded_i         => main_crt_loaded,
+         crt_loading_i        => main_crt_loading,
+         crt_id_i             => main_crt_id,
+         crt_exrom_i          => main_crt_exrom,
+         crt_game_i           => main_crt_game,
+         crt_size_i           => main_crt_size,
+         crt_c128_i           => main_crt_c128,
+         crt_subtype_i        => main_crt_subtype,
+         crt_bank_lo_o        => main_crt_bank_lo,
+         crt_bank_hi_o        => main_crt_bank_hi,
+         crt_wait_i           => main_crt_wait,
+         crt_addr_o           => main_crt_addr,
+         crt_data_o           => main_crt_data,
+         crt_lo_data_i        => main_crt_lo_data,
+         crt_hi_data_i        => main_crt_hi_data,
+         crt_ioe_we_o         => main_crt_ioe_we,
+         crt_iof_we_o         => main_crt_iof_we,
+         crt_ram_we_o         => main_crt_ram_we,
+         crt_ioe_data_i       => main_crt_ioe_data,
+         crt_iof_data_i       => main_crt_iof_data,
+         crt_ram_data_i       => main_crt_ram_data
       ); -- i_main
 
    ---------------------------------------------------------------------------------------------
@@ -751,6 +798,8 @@ begin
       qnice_vd_we          <= '0';
       qnice_mount_ce       <= '0';
       qnice_mount_we       <= '0';
+      qnice_crt_ce         <= '0';
+      qnice_crt_we         <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -783,6 +832,13 @@ begin
             qnice_mount_we    <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_mount_data;
             qnice_dev_wait_o  <= qnice_mount_wait;
+
+        -- Virtual cartridge: the .crt file goes to HyperRAM, the CSRs start the parser
+        when C_DEV_CRT =>
+            qnice_crt_ce      <= qnice_dev_ce_i;
+            qnice_crt_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_crt_data;
+            qnice_dev_wait_o  <= qnice_crt_wait;
 
          when others => null;
       end case;
@@ -851,13 +907,54 @@ begin
          m_avm_readdatavalid_i => reu_hr_readdatavalid
       ); -- i_reu_avm_fifo
 
-   -- Virtual cartridge: idle until the cartridge drives this port
-   crt_hr_write      <= '0';
-   crt_hr_read       <= '0';
-   crt_hr_address    <= (others => '0');
-   crt_hr_writedata  <= (others => '0');
-   crt_hr_byteenable <= (others => '0');
-   crt_hr_burstcount <= (others => '0');
+   -- Virtual cartridge: the .crt file in its HyperRAM region, its banks cached in block RAM
+   i_sw_cartridge_wrapper : entity work.sw_cartridge_wrapper
+      generic map (
+         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000"
+      )
+      port map (
+         qnice_clk_i        => qnice_clk_i,
+         qnice_rst_i        => qnice_rst_i,
+         qnice_addr_i       => qnice_dev_addr_i,
+         qnice_data_i       => qnice_dev_data_i,
+         qnice_ce_i         => qnice_crt_ce,
+         qnice_we_i         => qnice_crt_we,
+         qnice_data_o       => qnice_crt_data,
+         qnice_wait_o       => qnice_crt_wait,
+         main_clk_i         => main_clk_o,
+         main_loaded_o      => main_crt_loaded,
+         main_loading_o     => main_crt_loading,
+         main_id_o          => main_crt_id,
+         main_exrom_o       => main_crt_exrom,
+         main_game_o        => main_crt_game,
+         main_size_o        => main_crt_size,
+         main_c128_o        => main_crt_c128,
+         main_subtype_o     => main_crt_subtype,
+         main_bank_lo_i     => main_crt_bank_lo,
+         main_bank_hi_i     => main_crt_bank_hi,
+         main_wait_o        => main_crt_wait,
+         main_addr_i        => main_crt_addr,
+         main_data_i        => main_crt_data,
+         main_lo_data_o     => main_crt_lo_data,
+         main_hi_data_o     => main_crt_hi_data,
+         main_ioe_we_i      => main_crt_ioe_we,
+         main_iof_we_i      => main_crt_iof_we,
+         main_ram_we_i      => main_crt_ram_we,
+         main_ioe_data_o    => main_crt_ioe_data,
+         main_iof_data_o    => main_crt_iof_data,
+         main_ram_data_o    => main_crt_ram_data,
+         hr_clk_i           => hr_clk_i,
+         hr_rst_i           => hr_rst_i,
+         hr_write_o         => crt_hr_write,
+         hr_read_o          => crt_hr_read,
+         hr_address_o       => crt_hr_address,
+         hr_writedata_o     => crt_hr_writedata,
+         hr_byteenable_o    => crt_hr_byteenable,
+         hr_burstcount_o    => crt_hr_burstcount,
+         hr_readdata_i      => crt_hr_readdata,
+         hr_readdatavalid_i => crt_hr_readdatavalid,
+         hr_waitrequest_i   => crt_hr_waitrequest
+      ); -- i_sw_cartridge_wrapper
 
    -- s0 = QNICE mount (image staging, including writes). s1 = hardware fill of
    -- the drive's sector buffer. s2 = REU, s3 = virtual cartridge. Round-robin;
