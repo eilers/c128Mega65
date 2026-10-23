@@ -5,7 +5,7 @@
 -- and the HyperRAM device of the MEGA65.
 --
 -- done by MJoergen in 2023 and licensed under GPL v3
--- Copied unchanged from C64MEGA65 V5.2 (CORE/vhdl/reu_mapper.vhd).
+-- From C64MEGA65 V5.2 (CORE/vhdl/reu_mapper.vhd); C128 MEGA65 clears the prefetch block on reset.
 ----------------------------------------------------------------------------------
 
 library ieee;
@@ -88,6 +88,12 @@ begin
             avm_preemptive_block <= '1';
          end if;
          if avm_readdatavalid_i = '1' then
+            avm_preemptive_block <= '0';
+         end if;
+         -- MEGA65 C128: a reset moves the REU's address, but the prefetch that starts never gets
+         -- an answer (avm_cache is in reset too), so the block would swallow the next real read
+         if rst_i = '1' then
+            avm_preemptive_r     <= '0';
             avm_preemptive_block <= '0';
          end if;
       end if;

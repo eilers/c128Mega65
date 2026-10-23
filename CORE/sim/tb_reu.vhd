@@ -704,6 +704,15 @@ begin
       transfer(x"91", "FETCH at the top", 16);
       compare(16#1000#, 16#7000#, 16, "top of the window");
 
+      -- A reset moves the address back to 0. The first FETCH from 0 after it starts no prefetch
+      -- and must still get its data (ZBF OS's loader hung every other boot).
+      setup(16#9000#, 16#000000#, 16);
+      transfer(x"91", "FETCH before a reset", 16);
+      reset_reu("10");
+      setup(16#9100#, 16#000000#, 16);
+      transfer(x"91", "first FETCH after the reset", 16);
+      compare(16#9000#, 16#9100#, 16, "first FETCH after the reset");
+
       ------------------------------------------------------------------------
       -- 512 KB: bank bits, and a transfer that wraps at the end
       ------------------------------------------------------------------------
