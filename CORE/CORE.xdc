@@ -23,6 +23,7 @@
 ## timing quietly starts analysing both core clocks again.
 set_case_analysis 0 [get_pins CORE/hr_core_speed_reg[0]/Q]
 create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_c64_orig/CLKOUT0]
+create_generated_clock -name vdc_clk  [get_pins CORE/clk_vdc_gen/mmcm_adv_inst/CLKOUT0]
 
 ## video_clk is a BUFGMUX of main_clk_raw (which is itself a BUFGMUX_CTRL output) and
 ## vdc_clk_raw, so it sits one buffer cascade deep - the same depth the main_clk BUFG
@@ -32,7 +33,7 @@ create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_c64_orig/CLKO
 # set_property CLOCK_DEDICATED_ROUTE ANY_CMT_COLUMN [get_nets -quiet CORE/main_clk_raw]
 
 ## The mux above outputs one clock at a time, but static timing follows both inputs unless
-## the select is pinned. main_clk is 31.528 MHz and vdc_clk_raw is 32.000 MHz, both derived
+## the select is pinned. main_clk is 31.528 MHz and vdc_clk is 32.000 MHz, both derived
 ## from the 100 MHz board clock, so Vivado treats them as related and the worst alignment
 ## it has to close is 0.027 ns. That requirement landed on every flip-flop and line-buffer
 ## port downstream of the mux (ascal, the overlay, the HQ2x mixer): about 15,000 endpoints,
@@ -42,15 +43,15 @@ create_generated_clock -name main_clk [get_pins CORE/clk_gen/i_clk_c64_orig/CLKO
 ##
 ## Pin the select to I0 (main_clk_raw). That is the VIC/HDMI clock and the slower of the
 ## two only by 0.47 ns/period; the intra-clock slack on both clocks is about 10 ns, so
-## timing closed here still covers 80-column mode. Do NOT replace this with
-## set_clock_groups -asynchronous or a blanket set_max_delay between main_clk and
-## vdc_clk_raw: that also cuts the VDC register bus, and it broke the boot when tried.
+## timing closed here still covers 80-column mode. The main_clk <-> vdc_clk max delay
+## further down does not replace this: without the pin, every path inside the video
+## pipeline would become a main/VDC crossing too.
 ##
 ## The global clock multiplexer BUFGMUX_CTRL lowers to the primitive clock-control
 ## buffer BUFGCTRL. Both select pins sit on the same net (main_video_sel_vdc); S0 is
 ## inverted inside the cell and S1 is not. A logical 0 on both pins is "select I0".
 ## Pinning only one pin leaves the other select free, and static timing still follows
-## vdc_clk_raw. The constraint parser in this file rejects Tcl control flow, so the
+## vdc_clk. The constraint parser in this file rejects Tcl control flow, so the
 ## pins are pinned directly. A "no pins matched" warning on the next line means the
 ## select was renamed and the phantom crossing is back.
 set_case_analysis 0 [get_pins {CORE/i_video_clk_mux/S0 CORE/i_video_clk_mux/S1}]
@@ -67,9 +68,25 @@ set_property LOC MMCME2_ADV_X0Y0 [get_cells CORE/clk_gen/i_clk_c64_orig]
 set_property LOC MMCME2_ADV_X0Y2 [get_cells CORE/clk_gen/i_clk_c64_slow]
 set_property LOC MMCME2_ADV_X0Y1 [get_cells CORE/clk_vdc_gen/mmcm_adv_inst]
 
-## NOTE (investigation): the VDC<->main bus crossing is intentionally left UNCONSTRAINED.
-## Constraining it (set_clock_groups -asynchronous OR bounded set_max_delay) was tried on HW
-## and BROKE the boot, so the unconstrained crossing is kept.
+## ---------------------------------------------------------------------------
+## main_clk <-> vdc_clk: bounded, every crossing safe by design
+## ---------------------------------------------------------------------------
+## Both clocks come from the board clock, so STA asks these paths for 0.027 ns, the closest
+## the two clocks' edges ever get. Nothing can meet that. What crosses:
+##
+##   VDC register bus  Address, data and R/W are stable from before CYCLE_CPU0 to the end
+##                     of the CPU cycle. The VDC takes them 1-2 vdc_clk after enableVdc
+##                     crosses, and the CPUs latch db_out at CPU3 at the earliest.
+##                     Both directions have over 100 ns to spare.
+##   Resets, light pen Two-flop synchronizers (fpga64_sid_iec.vhd, main.vhd).
+##   VDC video out     Same-clock in 80-column mode, where the video mux selects vdc_clk.
+##                     The case analysis above makes STA time it against main_clk instead.
+##
+## 15 ns is far inside the bus margin and leaves the video paths room for clock skew.
+## vdc_clk -> main_clk keeps clock skew and the hold check: the video paths need hold, and
+## main_clk reaches the video mux later than vdc_clk, so this hold check is the stricter one.
+set_max_delay -datapath_only 15 -from [get_clocks main_clk] -to [get_clocks vdc_clk]
+set_max_delay 15 -from [get_clocks vdc_clk] -to [get_clocks main_clk]
 
 # VDC MMCM uses integer M/D now; keep AVAL demotion for any residual fractional MMCMs.
 set_property SEVERITY Warning [get_drc_checks AVAL-139]
