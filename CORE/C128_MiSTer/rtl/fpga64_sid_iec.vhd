@@ -125,6 +125,8 @@ port(
    phi2_o      : out std_logic;
    -- MEGA65: the VIC's BA for the Expansion Port, which DMA cartridges use to avoid badlines
    ba_o        : out std_logic;
+   -- MEGA65: the VIC's AEC, high while the CPU or DMA may use the bus (as the pin, not aec)
+   aec_o       : out std_logic;
 
    vdcHsync    : out std_logic;
    vdcVsync    : out std_logic;
@@ -657,6 +659,7 @@ end process;
 
 phi2_o <= phi2;
 ba_o   <= baLoc;
+aec_o  <= not aec;
 
 -- -----------------------------------------------------------------------
 -- Color RAM
