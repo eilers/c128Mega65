@@ -123,6 +123,8 @@ port(
    -- 50% duty at clk32/32 (985.243 kHz), high during the CPU phase, one clk32 ahead of
    -- phi0_cpu (see the generating process for why).
    phi2_o      : out std_logic;
+   -- MEGA65: the VIC's BA for the Expansion Port, which DMA cartridges use to avoid badlines
+   ba_o        : out std_logic;
 
    vdcHsync    : out std_logic;
    vdcVsync    : out std_logic;
@@ -148,6 +150,10 @@ port(
    UMAXromH 	: out std_logic;
    IOE			: out std_logic;
    IOF			: out std_logic;
+   -- MEGA65: IOE/IOF's decode without their CPU4-7 gate, for the Expansion Port. Also high in
+   -- PHI1 for the CPU's next address, so gate it with PHI2 (main.vhd does)
+   IOE_bus     : out std_logic;
+   IOF_bus     : out std_logic;
    freeze_key  : out std_logic;
    mod_key     : out std_logic;
    tape_play   : out std_logic;
@@ -557,26 +563,25 @@ io_cycle <= '1' when
 sysCycle <= preCycle when sysEnable = '1' else CYCLE_EXT4;
 pause_out <= not sysEnable;
 
+-- MEGA65: preCycle runs through reset, as upstream, so PHI2 does too; reset only holds sysEnable
 process(clk32)
 begin
    if rising_edge(clk32) then
+      preCycle <= sysCycleDef'succ(preCycle);
+      if preCycle = sysCycleDef'high then
+         preCycle <= sysCycleDef'low;
+         if sysEnable = '1' then
+            rfsh_cycle <= rfsh_cycle + 1;
+         end if;
+      end if;
+
+      refresh <= '0';
       if reset_n = '0' then
          sysEnable  <= '0';
          rfsh_cycle <= (others => '0');
-      else
-         preCycle <= sysCycleDef'succ(preCycle);
-         if preCycle = sysCycleDef'high then
-            preCycle <= sysCycleDef'low;
-            if sysEnable = '1' then
-               rfsh_cycle <= rfsh_cycle + 1;
-            end if;
-         end if;
-
-         refresh <= '0';
-         if preCycle = sysCycleDef'pred(CYCLE_EXT4) and rfsh_cycle = "00" then
-            sysEnable <= not pause;
-            refresh <= '1';
-         end if;
+      elsif preCycle = sysCycleDef'pred(CYCLE_EXT4) and rfsh_cycle = "00" then
+         sysEnable <= not pause;
+         refresh <= '1';
       end if;
    end if;
 end process;
@@ -584,11 +589,8 @@ end process;
 process(clk32)
 begin
    if rising_edge(clk32) then
-      -- ASSERT unconditionally, DE-ASSERT cycle-aligned. The process above freezes
-      -- preCycle while reset_n = '0', so gating the assertion on preCycle would only
-      -- catch a reset whose falling edge happens to freeze preCycle exactly at
-      -- sysCycleDef'high - 1 phase in 32. Cold start survived that because `reset`
-      -- powers up as '1'; a warm reset silently did nothing at all.
+      -- ASSERT unconditionally, DE-ASSERT cycle-aligned. An assertion gated on preCycle
+      -- once missed warm resets entirely, while preCycle still froze in reset.
       if reset_n = '0' then
          reset <= '1';
          -- Hold Z80 in reset for the whole core-reset pulse so cpu_z80 can prime $0000
@@ -627,15 +629,23 @@ begin
       -- combinational phi0_cpu (EXT4..CPU7) that drives the VIC and the CPU cycle machine.
       -- C64MEGA65 arrived at the same one-cycle lead for the C64 core after measuring real
       -- cartridges; anything later makes address and data arrive too late in the cycle.
+      -- It follows preCycle, which sysCycle equals once enabled, so it runs through reset as a
+      -- real C128's does (a Kung Fu Flash 2 holds RESET until it sees PHI2); a pause stops it.
+      if sysEnable = '1' or pause = '0' then
+         if preCycle = CYCLE_VIC2 then
+            phi2 <= '1';
+         elsif preCycle = CYCLE_CPU6 then
+            phi2 <= '0';
+         end if;
+      end if;
+
       case sysCycle is
       when CYCLE_VIC2 =>
          enableVic <= '1';
-         phi2 <= '1';
       when CYCLE_CPU0 =>
          enableCia_n <= '1';
       when CYCLE_CPU6 =>
          enableVic <= '1';
-         phi2 <= '0';
       when CYCLE_CPU7 =>
          enableCia_p <= '1';
          enableSid <= '1';
@@ -646,6 +656,7 @@ begin
 end process;
 
 phi2_o <= phi2;
+ba_o   <= baLoc;
 
 -- -----------------------------------------------------------------------
 -- Color RAM
@@ -787,6 +798,8 @@ port map (
 
 IOE <= ioe_i and cs_enable and vicCycle;
 IOF <= iof_i and cs_enable and vicCycle;
+IOE_bus <= ioe_i and cs_enable;
+IOF_bus <= iof_i and cs_enable;
 cs_io <= cs_vic or cs_sid or cs_mmuL or cs_vdc or io7_i or cs_color or cs_cia1 or cs_cia2 or ioe_i or iof_i;
 cs_enable <= io_enable and (baLoc or cpuWe or not cpuActT65);
 
