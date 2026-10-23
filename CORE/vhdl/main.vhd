@@ -366,6 +366,7 @@ signal core_nmi_n           : std_logic;
 signal core_phi2            : std_logic;
 signal core_phi2_prev       : std_logic := '0';
 signal core_ba              : std_logic;
+signal core_aec             : std_logic;   -- the VIC's AEC: '1' while the CPU or DMA may use the bus
 signal core_dma             : std_logic;   -- bus-master request from the REU or a hardware cartridge
 -- The core's DMA port, shared by the REU and a hardware cartridge
 signal core_dma_cycle       : std_logic;
@@ -763,8 +764,9 @@ reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0
 -- Low-active chip selects as the expansion port expects them. The core reports these accesses
 -- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
 -- Ultimax character fetch, which a cartridge cannot tell apart.
-cart_roml_n <= not core_roml;
-cart_romh_n <= (not core_romh) and (not core_umax_romh);
+-- The core decodes the CPU's next address in PHI1 too; a PLA selects ROML/ROMH only with AEC.
+cart_roml_n <= not (core_roml and core_aec);
+cart_romh_n <= not (core_romh and core_aec) and (not core_umax_romh);
 
 -- /IO1 and /IO2 span the CPU's PHI2 phase as on a C64, not the core's CPU4-7 strobe: the Ultimate
 -- latches them ~350 ns into PHI2. Registered against the CPU/VIC address handover; low EXT5..CPU7,
@@ -895,10 +897,11 @@ begin
          cart_dma_ctrl_oe <= '1';
       end if;
 
-      -- Read data from the latch until just past the PHI2 fall. ROML/ROMH reads are a cart's.
+      -- Read data from the latch until just past the PHI2 fall. ROML/ROMH reads are a cart's: by
+      -- the core's decode, which outlasts the AEC-gated selects while the cart lets go.
       cart_dma_data_oe <= '0';
       if cart_dma = '1' and cart_dma_live = '1' and cart_dma_rd = '1' and
-         cart_roml_n = '1' and cart_romh_n = '1' and
+         core_roml = '0' and core_romh = '0' and core_umax_romh = '0' and
          ((core_phi2 = '1' and phi2_ph > C_DMA_ADDR) or (core_phi2 = '0' and phi2_ph < C_DATA_HOLD - 1)) then
          cart_dma_data_oe <= '1';
       end if;
@@ -1624,6 +1627,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vic_pixel_ce_o => vic_pixel_ce,
       phi2_o        => core_phi2,      -- output. Expansion Port PHI2
       ba_o          => core_ba,        -- output. Expansion Port BA
+      aec_o         => core_aec,       -- output. The VIC's AEC
       vicG          => vic_g,
       vicB          => vic_b,
 

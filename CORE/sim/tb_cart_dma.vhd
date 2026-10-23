@@ -11,7 +11,8 @@
 -- in a row with BA low to the VIC. The connector lines are resolved with pull-ups, so
 -- both sides driving a line shows up as 'X'. Before the boot it holds RESET until it
 -- has seen PHI2 run, as a Kung Fu Flash 2 does. It also answers the Ultimate's command
--- interface at $DF1C-$DF1F, which the 8502 reads and writes from /NMI code.
+-- interface at $DF1C-$DF1F, which the 8502 reads and writes from /NMI code. Last, the 8502
+-- reads external function ROM, and /ROML-/ROMH must stay out of PHI1.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -82,6 +83,8 @@ architecture sim of tb_cart_dma is
    signal x_d              : std_logic_vector(7 downto 0);
    signal x_io2            : std_logic;
    signal cart_io2_o       : std_logic;
+   signal cart_roml        : std_logic;
+   signal cart_romh        : std_logic;
    signal tb_nmi_n         : std_logic := '1';
 
    -- Cartridge model
@@ -155,6 +158,8 @@ architecture sim of tb_cart_dma is
    signal phi2_rise_t      : time := 0 ns;
    signal rd_settle_min    : time := 1 us;    -- how long DMA read data was on the connector as PHI2 fell
    signal rd_settle_ram    : time := 1 us;    -- the same for RAM, not $Dxxx
+   signal n_rom_sel        : natural := 0;    -- /ROML or /ROMH accesses
+   signal n_rom_phi1       : natural := 0;    -- main clocks with /ROML or /ROMH low well into PHI1
 
 begin
 
@@ -280,10 +285,10 @@ begin
          cart_irq_o           => open,
          cart_roml_oe_o       => open,
          cart_roml_i          => '1',
-         cart_roml_o          => open,
+         cart_roml_o          => cart_roml,
          cart_romh_oe_o       => open,
          cart_romh_i          => '1',
-         cart_romh_o          => open,
+         cart_romh_o          => cart_romh,
          cart_ctrl_oe_o       => cart_ctrl_oe,
          cart_ba_i            => '1',
          cart_rw_i            => in_rw,
@@ -581,6 +586,32 @@ begin
       end if;
    end process p_phi2_t;
 
+   -- At 1 MHz a PLA selects ROML/ROMH only with AEC, so they may outlast the PHI2 fall by a clock
+   -- at most, as /IO does. The boot reads neither, so p_test reads both from /NMI code.
+   p_rom_phase : process (clk_main)
+      variable n_lo  : natural := 0;   -- main clocks since PHI2 fell
+      variable sel_d : boolean := false;
+      variable sel   : boolean;
+   begin
+      if rising_edge(clk_main) then
+         if cart_phi2 = '1' then
+            n_lo := 0;
+         elsif n_lo < 63 then
+            n_lo := n_lo + 1;
+         end if;
+         sel := cart_roml = '0' or cart_romh = '0';
+         if core_released then
+            if sel and not sel_d then
+               n_rom_sel <= n_rom_sel + 1;
+            end if;
+            if sel and n_lo > 1 then
+               n_rom_phi1 <= n_rom_phi1 + 1;
+            end if;
+         end if;
+         sel_d := sel;
+      end if;
+   end process p_rom_phase;
+
    p_contention : process (rw_fight, bus_fight)
       variable rw_start : time := 0 ns;
       variable b_start  : time := 0 ns;
@@ -693,6 +724,16 @@ begin
          x"8D", x"1C", x"DF",    -- sta $df1c
          x"EE", x"81", x"0C",    -- inc $0c81
          x"4C", x"33", x"FF");   -- jmp $ff33
+
+      -- From /NMI: read external function ROM at $8000 and $C000, for /ROML and /ROMH. Bank 15
+      -- again before $FF33, which the external ROM would hide.
+      type t_rom is array (0 to 18) of std_logic_vector(7 downto 0);
+      constant rom_code : t_rom := (
+         x"A9", x"28", x"8D", x"00", x"FF",    -- lda #$28 / sta $ff00
+         x"AD", x"00", x"80",                  -- lda $8000
+         x"AD", x"00", x"C0",                  -- lda $c000
+         x"A9", x"00", x"8D", x"00", x"FF",    -- lda #$00 / sta $ff00
+         x"4C", x"33", x"FF");                 -- jmp $ff33
 
       function pat(i : natural) return std_logic_vector is
       begin
@@ -858,6 +899,23 @@ begin
       check(n_uci_wr = 1 and uci_ctl = x"5A", "the cart took " & integer'image(n_uci_wr) &
             " writes to $DF1C, last $" & to_hstring(uci_ctl) & ", not one of $5A");
 
+      -- At 1 MHz /ROML and /ROMH must stay out of PHI1 (p_rom_phase), so read both from /NMI code
+      freeze;
+      for i in rom_code'range loop
+         dma_wr(std_logic_vector(to_unsigned(16#0C40# + i, 16)), rom_code(i));
+      end loop;
+      dma_wr(x"0318", x"40");
+      dma_wr(x"0319", x"0C");
+      n := n_rom_sel;
+      unfreeze;
+      tb_nmi_n <= '0';
+      wait for 3 us;
+      tb_nmi_n <= '1';
+      wait for 200 us;
+      check(n_rom_sel >= n + 2, "the 8502 read external function ROM with " &
+            integer'image(n_rom_sel - n) & " /ROML-/ROMH accesses, not 2");
+      check(n_rom_phi1 = 0, "/ROML or /ROMH was low in PHI1 for " & integer'image(n_rom_phi1) & " clocks");
+
       check(n_bus_x = 0, integer'image(n_bus_x) & " address/data contentions");
       -- The Ultimate takes PHI2 low as a read (slot_slave.vhd), so it drives while it still sees
       -- /IO2, which outlasts the fall by a main clock, as a PLA's does, plus its own sync.
@@ -869,7 +927,8 @@ begin
                integer'image(n_ba_wait) & " cycles a read waited for BA, R/W contention " &
                integer'image(n_rw_x) & "x up to " & time'image(rw_x_max) & ", I/O write tails " &
                integer'image(n_tail) & "x up to " & time'image(tail_max) & ", read data settled " &
-               time'image(rd_settle_min) & " before PHI2 fell (RAM " & time'image(rd_settle_ram) & ")");
+               time'image(rd_settle_min) & " before PHI2 fell (RAM " & time'image(rd_settle_ram) & "), " &
+               integer'image(n_rom_sel) & " /ROML-/ROMH accesses");
       writeline(output, l);
       if errors = 0 then
          write(l, string'("ALL CHECKS PASSED"));
