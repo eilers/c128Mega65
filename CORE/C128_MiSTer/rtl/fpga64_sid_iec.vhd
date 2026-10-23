@@ -127,6 +127,8 @@ port(
    ba_o        : out std_logic;
    -- MEGA65: the VIC's AEC, high while the CPU or DMA may use the bus (as the pin, not aec)
    aec_o       : out std_logic;
+   -- MEGA65: the VIC's address, valid all through the phases it has the bus (aec_o low)
+   vic_addr_o  : out unsigned(13 downto 0);
 
    vdcHsync    : out std_logic;
    vdcVsync    : out std_logic;
@@ -660,6 +662,7 @@ end process;
 phi2_o <= phi2;
 ba_o   <= baLoc;
 aec_o  <= not aec;
+vic_addr_o <= vicAddr(13 downto 0);
 
 -- -----------------------------------------------------------------------
 -- Color RAM
