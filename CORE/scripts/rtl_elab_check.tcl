@@ -83,6 +83,10 @@ foreach required_file $required_source_files {
     }
 }
 
+# The SwiftLink modem: NEORV32 goes in its own library
+source [file join [file dirname [info script]] add_modem_sources.tcl]
+add_modem_sources $repo_dir
+
 set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]
 foreach sv_file $sv_files {
     set_property file_type {SystemVerilog} $sv_file

@@ -30,3 +30,7 @@ Place the following files on the active SD card:
 - `/c128/boot1.rom` (drive ROM bundle, 512 KiB)
 
 Without these files, the core cannot boot correctly.
+
+Optional:
+
+- `/c128/modem.bin` (firmware of the SwiftLink modem, see [doc/swiftlink-modem.md](doc/swiftlink-modem.md))

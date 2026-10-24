@@ -99,6 +99,10 @@ foreach required_file $required_source_files {
     }
 }
 
+# The SwiftLink modem: NEORV32 goes in its own library
+source [file join [file dirname [info script]] add_modem_sources.tcl]
+add_modem_sources $repo_dir
+
 # Board-specific sources not present in the shared R6-derived project template.
 set project_base [file rootname [file tail $project_file]]
 if {[regexp {CORE-R3} $project_base]} {

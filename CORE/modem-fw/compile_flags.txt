@@ -1,0 +1,3 @@
+-Isrc
+-Ilwip/include
+-std=gnu11

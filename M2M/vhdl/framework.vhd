@@ -191,6 +191,10 @@ port (
    main_rtc_o              : out   std_logic_vector(64 downto 0);
 
 
+   -- C128 core: the modem's 50 MHz clock (CPU and Ethernet)
+   modem_clk_o             : out   std_logic;
+   modem_rst_o             : out   std_logic;
+
    -- Audio
    audio_clk_o             : out   std_logic;
    audio_reset_o           : out   std_logic;
@@ -502,6 +506,8 @@ begin
          hr_rst_o          => hr_rst,
          audio_clk_o       => audio_clk,
          audio_rst_o       => audio_rst,
+         modem_clk_o       => modem_clk_o,
+         modem_rst_o       => modem_rst_o,
          sys_pps_o         => sys_pps
       ); -- i_clk_m2m
 

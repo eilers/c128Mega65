@@ -232,6 +232,16 @@ entity main is
       reu_avm_readdatavalid_i : in  std_logic := '0';
       reu_avm_waitrequest_i   : in  std_logic := '0';
 
+      -- SwiftLink modem: the bus of its 6551 (clk_main_i domain); the modem is in mega65.vhd
+      modem_en_o              : out std_logic;                    -- switched on in the menu
+      modem_rst_o             : out std_logic;                    -- C128 reset
+      modem_cs_o              : out std_logic;                    -- select strobe, CPU4-7
+      modem_we_o              : out std_logic;
+      modem_addr_o            : out std_logic_vector(2 downto 0);
+      modem_data_o            : out std_logic_vector(7 downto 0);
+      modem_data_i            : in  std_logic_vector(7 downto 0) := x"FF";
+      modem_irq_i             : in  std_logic := '0';             -- to NMI, as on a SwiftLink
+
       -- Virtual cartridge: the .crt file and its bank cache (sw_cartridge_wrapper in mega65.vhd)
       crt_loaded_i            : in  std_logic := '0';
       crt_loading_i           : in  std_logic := '0';
@@ -406,6 +416,7 @@ signal core_roml            : std_logic;
 signal core_romh            : std_logic;
 signal core_ioe             : std_logic;
 signal core_iof             : std_logic;
+signal core_io7             : std_logic;                      -- $D7xx, CPU4-7
 signal core_ioe_bus         : std_logic;
 signal core_iof_bus         : std_logic;
 signal core_nmi_ack         : std_logic;
@@ -439,6 +450,8 @@ signal cart_source          : t_cart_source;
 signal reu_menu             : std_logic_vector(1 downto 0);   -- the menu's choice, as reu.sv's cfg
 signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
+signal modem_base           : std_logic_vector(1 downto 0);   -- "00" off, "01" $DE00, "10" $DF00, "11" $D700
+signal modem_sel            : std_logic;                      -- the 6551's 8 bytes at its base
 signal reu_dma_req          : std_logic;
 signal reu_irq              : std_logic;
 signal reu_dout             : std_logic_vector(7 downto 0);
@@ -833,8 +846,26 @@ exp_port_hw <= '1' when cart_source = CART_HW else '0';
 reu_menu <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
             "10" when osm_control_i(C_MENU_REU_2M)   = '1' else
             "00";
-reu_cfg  <= "00" when crt_io2 = '1' else reu_menu;
+reu_cfg  <= "00" when crt_io2 = '1' or modem_base = "10" else reu_menu;
 reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0';
+
+-- SwiftLink modem: the 6551 and the Turbo232 register take 8 bytes at the chosen base. At $DF00
+-- it shares IO2 with the REU's registers, so the REU is off then.
+modem_base <= "01" when osm_control_i(C_MENU_MODEM_DE00) = '1' else
+              "10" when osm_control_i(C_MENU_MODEM_DF00) = '1' else
+              "11" when osm_control_i(C_MENU_MODEM_D700) = '1' else
+              "00";
+modem_sel  <= '1' when core_ram_addr(7 downto 3) = "00000" and
+                       ((modem_base = "01" and core_ioe = '1') or
+                        (modem_base = "10" and core_iof = '1') or
+                        (modem_base = "11" and core_io7 = '1')) else '0';
+
+modem_en_o   <= '0' when modem_base = "00" else '1';
+modem_rst_o  <= not reset_core_n;
+modem_cs_o   <= modem_sel;
+modem_we_o   <= system_we;
+modem_addr_o <= std_logic_vector(core_ram_addr(2 downto 0));
+modem_data_o <= std_logic_vector(core_ram_data_out);
 
 -- Low-active chip selects as the expansion port expects them. The core reports these accesses
 -- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
@@ -1344,6 +1375,16 @@ begin
       end if;
       v_irq_n := v_irq_n and not reu_irq;
       v_dma   := v_dma or reu_dma_req;
+   end if;
+
+   -- The SwiftLink answers its registers ahead of a cartridge, and its 6551 pulls NMI
+   if modem_sel = '1' then
+      core_io_rom  <= '0';
+      core_io_ext  <= '1';
+      core_io_data <= unsigned(modem_data_i);
+   end if;
+   if modem_irq_i = '1' then
+      core_nmi_n <= '0';
    end if;
 
    core_irq_n <= v_irq_n;
@@ -1867,6 +1908,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       UMAXromH      => core_umax_romh, -- output
       IOE           => core_ioe,       -- output. aka IO1. CPU access to 0xDExx
       IOF           => core_iof,       -- output. aka IO2. CPU access to 0xDFxx
+      IO7           => core_io7,       -- output. CPU access to 0xD7xx
       IOE_bus       => core_ioe_bus,   -- output. IO1 for the Expansion Port
       IOF_bus       => core_iof_bus,   -- output. IO2 for the Expansion Port
       freeze_key  => open,
