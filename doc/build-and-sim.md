@@ -275,6 +275,7 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 | Drive index bridge       | `CORE/sim/tb_vdrive_index.vhd`     | drive 0/1 across ascending SystemVerilog and descending VHDL arrays                                        |
 | Authentic drive LED      | `CORE/sim/tb_drive_led_policy.vhd` | green access/error pulses and delayed yellow dirty-cache indication                                        |
 | VGA scandoubler          | `CORE/sim/tb_vga_scandoubler.sv`   | M2M `video_mixer` at the VIC-II and VDC dot rates: every dot once per line, every line twice when scandoubled |
+| HDMI CRT emulation fit   | `CORE/sim/tb_scanline_fit.vhd`     | M2M `scanline_fit` in every HDMI mode: whole HDMI rows per line, lines and sides cropped, ascal's output rectangle |
 | 1541/1571 bring-up       | `CORE/sim/tb_c157x_boot.sv`        | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
 
 ### 1541/1571 bring-up simulation
