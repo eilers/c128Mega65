@@ -105,9 +105,11 @@ cd M2M/tools
 Disk images are mounted from `/c128` on the SD card. The core accepts `.D64`
 (1541), `.D71` (1571) and `.D81` (1581) for both drive 8 and drive 9; the
 mounted image decides whether that drive behaves as a 1581, while the menu
-chooses between 1541 and 1571 for the 5.25" formats.
+chooses between 1541 and 1571 for the 5.25" formats. The MEGA65's internal
+3.5" drive can stand in for either drive as a 1581; see
+[internal-floppy.md](internal-floppy.md).
 
-Hardware qualification images are in `test/157x-rw/` and `test/1581-rw`. 
+Hardware qualification images are in `test/157x-rw/` and `test/1581-rw`.
 
 The physical six-pin IEC connector is disconnected by default. Enable
 `IEC: Use hardware port` in the on-screen menu to use real drives, printers,
@@ -269,6 +271,8 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 | Drive DOS ROM handover   | `CORE/sim/tb_drive_rom.vhd`        | `drive_rom_server.vhd` feeding the real `iecdrv_rom.sv`, byte for byte, across a bank switch               |
 | Drive RAM                | `CORE/sim/tb_iecdrv_mem.vhd`       | `iecdrv_mem` and `iecdrv_trackmem` storing what the drive CPU and the head actually wrote                  |
 | 1581 drive ready         | `CORE/sim/tb_c1581_ready.sv`       | `c1581_fdc1772.v` plus `floppy.v` from mounting a D81 through spin-up to the first `sd_rd`                 |
+| Internal floppy WD side  | `CORE/sim/tb_c1581_physical.sv`    | `c1581_fdc1772.v` in physical mode against a mock controller: seek, read/write sector, read address, write track, force interrupt, CRC errors, lost data, write protect |
+| Internal floppy track    | `CORE/sim/tb_c1581_track.vhd`      | our WD with the real `physical_1581` controller and a spinning disk model: a DOS-style track read, byte-exact, in one revolution |
 | GCR codec                | `CORE/sim/tb_c1541_gcr_codec.sv`   | all valid/invalid 5-bit codes, exhaustive byte round-trip, checksums and D64/D71 geometry                  |
 | D64/D71 request contract | `CORE/sim/tb_c157x_track.sv`       | all density zones, D71 side offset, read and write LBA/block-count handshakes                              |
 | 1541/1571 GCR path       | `CORE/sim/tb_c157x_gcr_path.sv`    | sector-buffer load, sync/data generation and valid write decode on tracks 18 and 53                        |
@@ -421,6 +425,24 @@ between a 15 second gate and a 30 minute one.
 
 Exit code `0` means the drive reached ready and read a complete, correct sector.
 
+### Internal floppy simulations
+
+```bash
+CORE/scripts/vivado.sh -mode batch \
+  -source CORE/scripts/run_c1581_physical_sim.tcl \
+  -tclargs CORE/CORE-R6-vivado2022.xpr
+CORE/scripts/vivado.sh -mode batch \
+  -source CORE/scripts/run_c1581_track_sim.tcl \
+  -tclargs CORE/CORE-R6-vivado2022.xpr
+```
+
+Run these after touching the physical-mode side of `c1581_fdc1772.v` or anything in
+`CORE/vhdl/physical_1581/`. `tb_c1581_physical` is C64MEGA65's bench for the WD side
+and runs in seconds. `tb_c1581_track` uses C64MEGA65's disk model from
+`CORE/sim/physical_1581/` and takes about 3 minutes: it fails if a track side takes
+much longer than one revolution, which is how a slowdown to one sector per revolution
+would show up. [internal-floppy.md](internal-floppy.md) has the details.
+
 ### Regression wrapper
 
 ```bash
@@ -527,6 +549,7 @@ automatically when needed.
 ## Related documentation
 
 - [README.md](../README.md) — project overview and SD card layout
+- [doc/internal-floppy.md](internal-floppy.md) — the internal drive as a 1581
 - [doc/r6-boot-validation-checklist.md](r6-boot-validation-checklist.md) — hardware validation
 - [doc/r6-constraints-rationale.md](r6-constraints-rationale.md) — timing constraints
 - [doc/z80-first-fetch-boot-hang.md](z80-first-fetch-boot-hang.md) — boot hang post-mortem

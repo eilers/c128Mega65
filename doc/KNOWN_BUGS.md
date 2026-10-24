@@ -12,6 +12,9 @@
   `.D64`, `.D71`, and `.D81` images have FPGA-side sector paths. The menu picks 1541 or
   1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless
   of the menu. Raw `.G64`/`.G71` and MFM/CP-M images are not supported.
+* The MEGA65's internal 3.5" drive as a 1581 on device 8 or 9 (**Internal 1581** in
+  the menu): reads, writes and formats DD disks at the speed of a real 1581. See
+  [internal-floppy.md](internal-floppy.md).
 * Real cartridges in the expansion port (C64 and C128 cartridges), including ones that
   take the bus with `/DMA`, such as the Ultimate II+ (menu, REU and command interface)
 * Virtual cartridges: a `.crt` file of up to 2 MB, loaded with **Cartridge > CRT:** in
@@ -87,4 +90,3 @@
   ignored.
   DMA to another cartridge's I/O area ($DE00-$DFFF) does not reach it, because
   IO1/IO2 share a level shifter with R/W, which the cartridge drives.
-* Supporting the internal drive as 1581.

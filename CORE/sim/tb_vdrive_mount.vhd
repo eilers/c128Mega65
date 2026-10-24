@@ -283,7 +283,31 @@ begin
          rom_req      => rom_req,
          rom_addr     => rom_addr,
          rom_data     => x"00",
-         rom_wr       => '0'           -- never completes, so rom_req stays asserted
+         rom_wr       => '0',          -- never completes, so rom_req stays asserted
+
+         -- no internal floppy: phys_mode off, the controller's side idle
+         phys_mode          => (others => '0'),
+         phys_step_ack_tgl  => '0',
+         phys_rd_done_tgl   => '0',
+         phys_rd_done_seq   => "00",
+         phys_rd_result     => "00000",
+         phys_rd_crc_err    => '0',
+         phys_rd_rnf        => '0',
+         phys_rd_deleted    => '0',
+         phys_rd_c          => x"00",
+         phys_byte_data     => x"00",
+         phys_byte_empty    => '1',
+         phys_media_ready   => '0',
+         phys_index         => '0',
+         phys_track0        => '0',
+         phys_wprot         => '0',
+         phys_change        => '0',
+         phys_motor_on      => '0',
+         phys_head_settled  => '0',
+         phys_wr_fifo_full  => '0',
+         phys_wr_feed       => '0',
+         phys_wr_lost       => '0',
+         phys_wr_busy       => '0'
       );
    end generate drive_gen;
 

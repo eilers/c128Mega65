@@ -49,6 +49,8 @@ run_tcl "HDMI CRT emulation fit (tb_scanline_fit)" CORE/scripts/run_scanline_fit
 run_tcl "Drive RAM (tb_iecdrv_mem)" CORE/scripts/run_drive_mem_sim.tcl
 run_tcl "Drive DOS ROM handover (tb_drive_rom)" CORE/scripts/run_drive_rom_sim.tcl
 run_tcl "1581 ready / sector path (tb_c1581_ready)" CORE/scripts/run_c1581_ready_sim.tcl
+run_tcl "Internal floppy WD1772 front end (tb_c1581_physical)" CORE/scripts/run_c1581_physical_sim.tcl
+run_tcl "Internal floppy track read at disk speed (tb_c1581_track)" CORE/scripts/run_c1581_track_sim.tcl
 run_tcl "D81 mount / 1581 selection (tb_vdrive_mount)" CORE/scripts/run_vdrive_mount_sim.tcl
 run_tcl "157x GCR stream (tb_c157x_stream)" CORE/scripts/run_c157x_stream_sim.tcl
 run_tcl "157x DOS job queue (tb_c157x_job)" CORE/scripts/run_c157x_job_sim.tcl

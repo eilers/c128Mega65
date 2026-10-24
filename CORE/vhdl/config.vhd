@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 98;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 108; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -289,13 +289,13 @@ constant OPTM_SIZE         : natural := 98;  -- amount of items including empty 
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 26 rows. The Video submenu is
+-- tallest page. The main menu is the tallest at 27 rows. The Video submenu is
 -- 20 rows and the HDMI submenu 14 (headline through Back to main menu; the "%s"
 -- opener is hidden inside the submenu); both leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 26;
+constant OPTM_DY           : natural := 27;
 
 constant OPTM_ITEMS        : string :=
 
@@ -308,6 +308,16 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
    " 1541\n"                &    -- ignored while a .D71 is mounted (always 1571)
    " 1571\n"                &
+   "\n"                     &
+   " Back to main menu\n"   &
+   " Internal 1581: %s\n"   &    -- internal floppy submenu; longest summary " Internal 1581: Drive 8" is exactly OPTM_DX
+   " Internal 1581\n"       &
+   "\n"                     &
+   " Off\n"                 &    -- default
+   " Drive 8\n"             &
+   " Drive 9\n"             &
+   "\n"                     &
+   " MEGA65 floppy as 1581\n" &
    "\n"                     &
    " Back to main menu\n"   &
    "\n"                     &
@@ -430,6 +440,7 @@ constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, an
 constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/VS, 15 kHz with CSYNC
 constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB
 constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartridge's .crt file
+constant OPTM_G_INT1581    : integer := 18;   -- Internal 1581: Off, Drive 8, Drive 9
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -447,6 +458,17 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_DRV_MODEL,                                    -- 1541
                                              OPTM_G_DRV_MODEL + OPTM_G_STDSEL,                    -- 1571
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_SUBMENU,                                      -- Internal 1581 submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Internal 1581
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_INT1581 + OPTM_G_STDSEL,                      -- Off
+                                             OPTM_G_INT1581,                                      -- Drive 8
+                                             OPTM_G_INT1581,                                      -- Drive 9
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- MEGA65 floppy as 1581
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 

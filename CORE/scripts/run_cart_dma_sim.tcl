@@ -38,6 +38,20 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_eng_arb.vhd"] \
     [file join $repo_dir "CORE/vhdl/vd_sd.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_crc.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_inputs.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_gaps.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_quantise.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_gaps_to_bits.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_bits_to_bytes.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_decoder.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_encoder.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_writer.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_wfifo.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_rdfifo.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_controller.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_diag.vhd"] \
     [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
     [file join $repo_dir "CORE/vhdl/reu_mapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/memory/avm_cache.vhd"] \
