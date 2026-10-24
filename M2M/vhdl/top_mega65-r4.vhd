@@ -554,16 +554,10 @@ begin
    eth_reset_o           <= '1';
    eth_txd_o             <= (others => '0');
    eth_txen_o            <= '0';
-   f_density_o           <= '1';
-   f_motora_o            <= '1';
+   -- Drive A of the internal floppy connector goes to the core (the
+   -- internal drive as a 1581); drive B stays inactive.
    f_motorb_o            <= '1';
-   f_selecta_o           <= '1';
    f_selectb_o           <= '1';
-   f_side1_o             <= '1';
-   f_stepdir_o           <= '1';
-   f_step_o              <= '1';
-   f_wdata_o             <= '1';
-   f_wgate_o             <= '1';
    joystick_5v_disable_o <= '0'; -- Enable 5V power supply to joysticks
    led_g_n_o             <= '1'; -- Off
    led_r_n_o             <= '1'; -- Off
@@ -988,6 +982,21 @@ begin
          iec_srq_en_o      => iec_srq_en,
          iec_srq_n_i       => iec_srq_n_i,
          iec_srq_n_o       => iec_srq_n_o,
+
+         -- MEGA65 internal floppy drive (drive A)
+         f_rdata_i         => f_rdata_i,
+         f_index_i         => f_index_i,
+         f_track0_i        => f_track0_i,
+         f_writeprotect_i  => f_writeprotect_i,
+         f_diskchanged_i   => f_diskchanged_i,
+         f_motora_o        => f_motora_o,
+         f_selecta_o       => f_selecta_o,
+         f_side1_o         => f_side1_o,
+         f_stepdir_o       => f_stepdir_o,
+         f_step_o          => f_step_o,
+         f_density_o       => f_density_o,
+         f_wgate_o         => f_wgate_o,
+         f_wdata_o         => f_wdata_o,
 
          -- C64 Expansion Port (aka Cartridge Port)
          cart_en_o         => cart_en, -- Enable port, active high

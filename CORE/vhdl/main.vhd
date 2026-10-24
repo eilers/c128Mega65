@@ -198,6 +198,29 @@ entity main is
       qnice_sd_eng_o          : out t_sd_c2q;
       qnice_sd_eng_i          : in  t_sd_q2c := (others => '0');
 
+      -- The MEGA65's internal 3.5" drive as a 1581 (physical_1581_controller, clk_sd_i
+      -- domain). Only drive A of the floppy connector is used. All active low.
+      f_rdata_i               : in  std_logic := '1';
+      f_index_i               : in  std_logic := '1';
+      f_track0_i              : in  std_logic := '1';
+      f_writeprotect_i        : in  std_logic := '1';
+      f_diskchanged_i         : in  std_logic := '1';
+      f_motora_o              : out std_logic;
+      f_selecta_o             : out std_logic;
+      f_side1_o               : out std_logic;
+      f_stepdir_o             : out std_logic;
+      f_step_o                : out std_logic;
+      f_density_o             : out std_logic;
+      f_wgate_o               : out std_logic;
+      f_wdata_o               : out std_logic;
+
+      -- Its QNICE diagnostic device (physical_1581_diag, C_DEV_PHYS1581, clk_sd_i domain)
+      qnice_p1581_ce_i        : in  std_logic := '0';
+      qnice_p1581_we_i        : in  std_logic := '0';
+      qnice_p1581_addr_i      : in  std_logic_vector(7 downto 0) := (others => '0');
+      qnice_p1581_data_i      : in  std_logic_vector(15 downto 0) := (others => '0');
+      qnice_p1581_data_o      : out std_logic_vector(15 downto 0);
+
       -- REU's HyperRAM port (clk_main_i domain; mega65.vhd crosses it to hr_clk)
       reu_avm_write_o         : out std_logic;
       reu_avm_read_o          : out std_logic;
@@ -1951,6 +1974,158 @@ drives_gen : if G_VDNUM > 0 generate
 -- signals the mounts (image size and type) and sees no requests.
 signal vd_sd_off          : vd_std_array(G_VDNUM - 1 downto 0) := (others => '0');
 
+-- The internal floppy as a 1581 (ported from C64MEGA65 issues #90, #93 and #244).
+-- phys_en is the menu's choice. iec_drive gets phys_en_q, which goes through an
+-- all-zero gap whenever the choice changes, so the controller sees its enable drop
+-- on every switch and the drive select inside c1581_multi never moves while live.
+-- A drive whose mode changes is held in reset during the gap, like a remount.
+constant C_PHYS_SWITCH_GAP : natural := 255;
+signal phys_switch_cnt    : natural range 0 to C_PHYS_SWITCH_GAP := 0;
+signal phys_en            : std_logic_vector(G_VDNUM - 1 downto 0);
+signal phys_en_d          : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+signal phys_en_q          : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+signal phys_changed       : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+
+-- Both sides of each floppy FIFO reset from the QNICE reset, never from the core
+-- reset: a one-sided reset would desynchronize the pointers. fdc1772 and the
+-- controller drain leftover bytes instead.
+signal p1581_fiforst_m    : std_logic := '1';
+signal p1581_fiforst_s    : std_logic := '1';
+
+-- image drive busy or dirty, for the diag device (clk_main_i, then clk_sd_i)
+signal img_drive_busy     : std_logic_vector(1 downto 0);
+signal img_busy_sd_m      : std_logic_vector(1 downto 0) := (others => '0');
+signal img_busy_sd_s      : std_logic_vector(1 downto 0) := (others => '0');
+
+-- iec_drive <-> controller
+signal p1581_active        : std_logic;
+signal p1581_cia_motor_on  : std_logic;
+signal p1581_cia_side      : std_logic;
+signal p1581_step_req_tgl  : std_logic;
+signal p1581_step_outward  : std_logic;
+signal p1581_rd_req_tgl    : std_logic;
+signal p1581_rd_op         : std_logic_vector(2 downto 0);
+signal p1581_rd_track      : std_logic_vector(7 downto 0);
+signal p1581_rd_side       : std_logic;
+signal p1581_rd_sector     : std_logic_vector(7 downto 0);
+signal p1581_rd_cancel_tgl : std_logic;
+signal p1581_rd_seq        : std_logic_vector(1 downto 0);
+signal p1581_step_ack_tgl  : std_logic;
+signal p1581_rd_done_tgl   : std_logic;
+signal p1581_rd_done_seq   : std_logic_vector(1 downto 0);
+signal p1581_rd_result     : std_logic_vector(4 downto 0);
+signal p1581_rd_crc_err    : std_logic;
+signal p1581_rd_rnf        : std_logic;
+signal p1581_rd_deleted    : std_logic;
+signal p1581_rd_c          : unsigned(7 downto 0);
+signal p1581_rd_h          : unsigned(7 downto 0);
+signal p1581_rd_r          : unsigned(7 downto 0);
+signal p1581_rd_n          : unsigned(7 downto 0);
+signal p1581_media_ready   : std_logic;
+signal p1581_index         : std_logic;
+signal p1581_track0        : std_logic;
+signal p1581_wprot         : std_logic;
+signal p1581_change        : std_logic;
+signal p1581_motor_on      : std_logic;
+signal p1581_head_settled  : std_logic;
+signal p1581_head_cyl      : unsigned(7 downto 0);
+signal p1581_locked        : std_logic;
+
+-- read FIFO: controller (clk_sd_i) -> drive (clk_main_i)
+signal p1581_fifo_wr_data  : unsigned(7 downto 0);
+signal p1581_fifo_wr_en    : std_logic;
+signal p1581_fifo_wr_full  : std_logic;
+signal p1581_fifo_level    : unsigned(9 downto 0);
+signal p1581_byte_rd_en    : std_logic;
+signal p1581_byte_data     : unsigned(7 downto 0);
+signal p1581_byte_empty    : std_logic;
+
+-- write FIFO: drive (clk_main_i) -> controller (clk_sd_i), and the write path levels
+signal p1581_wr_deleted      : std_logic;
+signal p1581_wr_precomp      : std_logic;
+signal p1581_wr_byte_wr      : std_logic;
+signal p1581_wr_byte_data    : std_logic_vector(7 downto 0);
+signal p1581_wr_fifo_full    : std_logic;
+signal p1581_wbyte_data      : std_logic_vector(7 downto 0);
+signal p1581_wbyte_empty     : std_logic;
+signal p1581_wbyte_rd        : std_logic;
+signal p1581_wfifo_rd_level  : unsigned(2 downto 0);
+signal p1581_wr_feed         : std_logic;
+signal p1581_wr_lost         : std_logic;
+signal p1581_wr_busy         : std_logic;
+signal p1581_wr_ok           : std_logic;
+signal p1581_wr_precomp_mode : std_logic_vector(1 downto 0);
+signal p1581_f_wgate         : std_logic;
+signal p1581_f_wdata         : std_logic;
+
+-- fdc1772 event toggles (clk_main_i), 2-FF synced into clk_sd_i for the diag device
+signal p1581_dbg_tgl       : std_logic_vector(7 downto 0);
+signal p1581_dbg_sd_m      : std_logic_vector(7 downto 0) := (others => '0');
+signal p1581_dbg_sd_s      : std_logic_vector(7 downto 0) := (others => '0');
+signal p1581_dbg_pres_cnt  : std_logic_vector(10 downto 0);
+
+-- controller observation taps for the diag device (all clk_sd_i)
+signal p1581_diag_in_bits      : std_logic_vector(15 downto 0);
+signal p1581_diag_out_bits     : std_logic_vector(15 downto 0);
+signal p1581_diag_idx_period   : unsigned(31 downto 0);
+signal p1581_diag_idx_width    : unsigned(31 downto 0);
+signal p1581_diag_last_gap     : unsigned(15 downto 0);
+signal p1581_diag_calc_crc     : unsigned(15 downto 0);
+signal p1581_diag_stored_crc   : unsigned(15 downto 0);
+signal p1581_diag_index_edge   : std_logic;
+signal p1581_diag_index_qual   : std_logic;
+signal p1581_diag_id_valid     : std_logic;
+signal p1581_diag_id_crc_ok    : std_logic;
+signal p1581_diag_data_end     : std_logic;
+signal p1581_diag_data_crc_ok  : std_logic;
+signal p1581_diag_gap_error    : std_logic;
+signal p1581_diag_runt         : std_logic;
+signal p1581_diag_est          : unsigned(11 downto 0);
+signal p1581_diag_a1_candidate : std_logic;
+signal p1581_diag_a1_reject    : std_logic;
+signal p1581_diag_a1_train     : std_logic;
+signal p1581_diag_mark_fe      : std_logic;
+signal p1581_diag_mark_dam     : std_logic;
+signal p1581_diag_dam_unarmed  : std_logic;
+signal p1581_diag_match_id     : std_logic;
+signal p1581_diag_dam_miss     : std_logic;
+signal p1581_diag_rd_phase     : std_logic_vector(3 downto 0);
+signal p1581_diag_step_phase   : std_logic_vector(1 downto 0);
+signal p1581_diag_head_valid   : std_logic;
+signal p1581_diag_head_dir     : std_logic;
+signal p1581_diag_rd_req       : std_logic;
+signal p1581_diag_rd_req_op    : std_logic_vector(2 downto 0);
+signal p1581_diag_rd_req_trk   : unsigned(7 downto 0);
+signal p1581_diag_rd_req_sec   : unsigned(7 downto 0);
+signal p1581_diag_rd_req_side  : std_logic;
+signal p1581_diag_wr_phase        : std_logic_vector(3 downto 0);
+signal p1581_diag_wr_session      : std_logic;
+signal p1581_diag_wr_feed         : std_logic;
+signal p1581_diag_wr_abort        : std_logic;
+signal p1581_diag_wr_prec         : std_logic;
+signal p1581_diag_wr_done         : std_logic;
+signal p1581_diag_wr_last         : std_logic_vector(7 downto 0);
+signal p1581_diag_wr_bytes        : unsigned(15 downto 0);
+signal p1581_diag_wr_first_margin : unsigned(7 downto 0);
+signal p1581_diag_wr_trk_cyc      : unsigned(31 downto 0);
+signal p1581_diag_wr_gate         : std_logic;
+signal p1581_diag_wr_gate_cyc     : unsigned(31 downto 0);
+signal p1581_diag_wr_underrun     : unsigned(15 downto 0);
+signal p1581_diag_wr_discard      : unsigned(15 downto 0);
+signal p1581_diag_wr_precnt       : unsigned(15 downto 0);
+signal p1581_diag_wr_pushfull     : unsigned(15 downto 0);
+signal p1581_diag_wr_reason       : std_logic_vector(7 downto 0);
+signal p1581_diag_wr_reason_acc   : std_logic_vector(7 downto 0);
+signal p1581_diag_wr_wflags       : std_logic_vector(4 downto 0);
+
+attribute async_reg : string;
+attribute async_reg of p1581_fiforst_m : signal is "true";
+attribute async_reg of p1581_fiforst_s : signal is "true";
+attribute async_reg of img_busy_sd_m   : signal is "true";
+attribute async_reg of img_busy_sd_s   : signal is "true";
+attribute async_reg of p1581_dbg_sd_m  : signal is "true";
+attribute async_reg of p1581_dbg_sd_s  : signal is "true";
+
 begin
 
 -- 16 MHz chip enable for the IEC drives, so that ph2_r and ph2_f can be 1 MHz (the 1541's CPU
@@ -1980,10 +2155,39 @@ begin
   end if;
 end process iec_drive_ce_proc;
 
+-- The internal floppy is drive 8 or drive 9 or off (one menu group). Should a bad
+-- config file set both, drive 8 wins.
+phys_en_gen : for i in 0 to G_VDNUM - 1 generate
+  phys_en(i) <= osm_control_i(C_MENU_INT1581_D8) when i = 0 else
+                osm_control_i(C_MENU_INT1581_D9) and not osm_control_i(C_MENU_INT1581_D8) when i = 1 else
+                '0';
+end generate phys_en_gen;
+
+phys_switch_proc : process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    if phys_en /= phys_en_d then
+      phys_changed    <= phys_changed or (phys_en xor phys_en_d);
+      phys_en_d       <= phys_en;
+      phys_switch_cnt <= C_PHYS_SWITCH_GAP;
+      phys_en_q       <= (others => '0');
+    elsif phys_switch_cnt /= 0 then
+      phys_switch_cnt <= phys_switch_cnt - 1;
+      phys_en_q       <= (others => '0');
+    else
+      phys_changed    <= (others => '0');
+      phys_en_q       <= phys_en_d;
+    end if;
+  end if;
+end process phys_switch_proc;
+
 -- Drive enable is "If Mounted": a drive without a disk image stays in reset and is therefore
 -- electrically silent on the IEC bus. MiSTer additionally offers "Always" and "Never".
+-- The internal floppy runs without an image, and a drive is reset when it switches
+-- between image and internal floppy.
 iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
-  iec_drives_reset(i) <= (not reset_core_n) or (not vdrives_mounted(i));
+  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or
+                         (not vdrives_mounted(i) and not phys_en_q(i));
 
   -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
   -- overrides this inside iec_drive (img_hd). A long reset drops the volume
@@ -2079,8 +2283,374 @@ iec_drive_inst : entity work.iec_drive
     rom_req      => drv_rom_req_o,
     rom_addr     => drv_rom_addr_o,
     rom_data     => drv_rom_data_i,
-    rom_wr       => drv_rom_wr_i
+    rom_wr       => drv_rom_wr_i,
+
+    -- the internal floppy as a 1581, see i_physical_1581_controller below
+    phys_mode              => phys_en_q,
+    phys_active            => p1581_active,
+    phys_cia_motor_on      => p1581_cia_motor_on,
+    phys_cia_side          => p1581_cia_side,
+    phys_step_req_tgl      => p1581_step_req_tgl,
+    phys_step_outward      => p1581_step_outward,
+    phys_rd_req_tgl        => p1581_rd_req_tgl,
+    phys_rd_op             => p1581_rd_op,
+    phys_rd_track          => p1581_rd_track,
+    phys_rd_side           => p1581_rd_side,
+    phys_rd_sector         => p1581_rd_sector,
+    phys_rd_cancel_tgl     => p1581_rd_cancel_tgl,
+    phys_rd_seq            => p1581_rd_seq,
+    phys_step_ack_tgl      => p1581_step_ack_tgl,
+    phys_rd_done_tgl       => p1581_rd_done_tgl,
+    phys_rd_done_seq       => p1581_rd_done_seq,
+    phys_rd_result         => p1581_rd_result,
+    phys_rd_crc_err        => p1581_rd_crc_err,
+    phys_rd_rnf            => p1581_rd_rnf,
+    phys_rd_deleted        => p1581_rd_deleted,
+    phys_rd_c              => std_logic_vector(p1581_rd_c),
+    phys_byte_rd_en        => p1581_byte_rd_en,
+    phys_byte_data         => std_logic_vector(p1581_byte_data),
+    phys_byte_empty        => p1581_byte_empty,
+    phys_media_ready       => p1581_media_ready,
+    phys_index             => p1581_index,
+    phys_track0            => p1581_track0,
+    phys_wprot             => p1581_wprot,
+    phys_change            => p1581_change,
+    phys_motor_on          => p1581_motor_on,
+    phys_head_settled      => p1581_head_settled,
+    phys_wr_deleted        => p1581_wr_deleted,
+    phys_wr_precomp        => p1581_wr_precomp,
+    phys_wr_byte_wr        => p1581_wr_byte_wr,
+    phys_wr_byte_data      => p1581_wr_byte_data,
+    phys_wr_fifo_full      => p1581_wr_fifo_full,
+    phys_wr_feed           => p1581_wr_feed,
+    phys_wr_lost           => p1581_wr_lost,
+    phys_wr_busy           => p1581_wr_busy,
+    phys_dbg_lost_tgl      => p1581_dbg_tgl(0),
+    phys_dbg_drain_tgl     => p1581_dbg_tgl(1),
+    phys_dbg_staledone_tgl => p1581_dbg_tgl(2),
+    phys_dbg_busycmd_tgl   => p1581_dbg_tgl(3),
+    phys_dbg_fin_tgl       => p1581_dbg_tgl(4),
+    phys_dbg_pres_cnt      => p1581_dbg_pres_cnt,
+    phys_dbg_wr_fin_tgl    => p1581_dbg_tgl(5),
+    phys_dbg_wr_wp_tgl     => p1581_dbg_tgl(6),
+    phys_dbg_wr_drop_tgl   => p1581_dbg_tgl(7)
   ); -- iec_drive_inst
+
+--------------------------------------------------------------------------------------------------
+-- The MEGA65's internal 3.5" drive as a 1581 (CORE/vhdl/physical_1581, from C64MEGA65)
+--------------------------------------------------------------------------------------------------
+-- The controller runs on the QNICE clock and owns the floppy pins; it decodes and
+-- encodes MFM and runs the mechanism. Read bytes cross to the drive clock through the
+-- read FIFO, which holds a whole sector until its CRC is checked; write bytes come in
+-- through the write FIFO. WGATE opens only while, among other things, the disk's
+-- write-protect tab reads writable.
+i_physical_1581_controller : entity work.physical_1581_controller
+  generic map (
+    G_CAPABLE => true
+  )
+  port map (
+    clk_i            => clk_sd_i,
+    rst_i            => rst_sd_i,
+
+    f_rdata_i        => f_rdata_i,
+    f_index_i        => f_index_i,
+    f_track0_i       => f_track0_i,
+    f_writeprotect_i => f_writeprotect_i,
+    f_diskchanged_i  => f_diskchanged_i,
+    f_motora_o       => f_motora_o,
+    f_selecta_o      => f_selecta_o,
+    f_side1_o        => f_side1_o,
+    f_stepdir_o      => f_stepdir_o,
+    f_step_o         => f_step_o,
+    f_density_o      => f_density_o,
+    f_wgate_o        => p1581_f_wgate,
+    f_wdata_o        => p1581_f_wdata,
+
+    phys_active_i    => p1581_active,
+    cia_motor_on_i   => p1581_cia_motor_on,
+    cia_side_i       => p1581_cia_side,
+
+    step_req_tgl_i   => p1581_step_req_tgl,
+    step_outward_i   => p1581_step_outward,
+    step_ack_tgl_o   => p1581_step_ack_tgl,
+
+    rd_req_tgl_i     => p1581_rd_req_tgl,
+    rd_op_i          => p1581_rd_op,
+    rd_track_i       => unsigned(p1581_rd_track),
+    rd_side_i        => p1581_rd_side,
+    rd_sector_i      => unsigned(p1581_rd_sector),
+    rd_seq_i         => p1581_rd_seq,
+    rd_cancel_tgl_i  => p1581_rd_cancel_tgl,
+    rd_done_tgl_o    => p1581_rd_done_tgl,
+    rd_done_seq_o    => p1581_rd_done_seq,
+    rd_result_o      => p1581_rd_result,
+    rd_crc_err_o     => p1581_rd_crc_err,
+    rd_rnf_o         => p1581_rd_rnf,
+    rd_deleted_o     => p1581_rd_deleted,
+    rd_c_o           => p1581_rd_c,
+    rd_h_o           => p1581_rd_h,
+    rd_r_o           => p1581_rd_r,
+    rd_n_o           => p1581_rd_n,
+
+    byte_data_o      => p1581_fifo_wr_data,
+    byte_wr_o        => p1581_fifo_wr_en,
+    byte_ovf_i       => p1581_fifo_wr_full,
+
+    wr_deleted_i     => p1581_wr_deleted,
+    wr_precomp_i     => p1581_wr_precomp,
+    wr_precomp_mode_i=> p1581_wr_precomp_mode,
+    wbyte_data_i     => p1581_wbyte_data,
+    wbyte_empty_i    => p1581_wbyte_empty,
+    wbyte_rd_o       => p1581_wbyte_rd,
+    wr_feed_o        => p1581_wr_feed,
+    wr_lost_o        => p1581_wr_lost,
+    wr_busy_o        => p1581_wr_busy,
+    wr_ok_o          => p1581_wr_ok,
+
+    st_media_ready_o => p1581_media_ready,
+    st_index_o       => p1581_index,
+    st_track0_o      => p1581_track0,
+    st_wprot_o       => p1581_wprot,
+    st_change_o      => p1581_change,
+    st_motor_on_o    => p1581_motor_on,
+    st_head_settled_o=> p1581_head_settled,
+    st_head_cyl_o    => p1581_head_cyl,
+    st_locked_o      => p1581_locked,
+
+    diag_index_period_o => p1581_diag_idx_period,
+    diag_index_width_o  => p1581_diag_idx_width,
+    diag_index_edge_o   => p1581_diag_index_edge,
+    diag_index_qual_o   => p1581_diag_index_qual,
+    diag_last_gap_o     => p1581_diag_last_gap,
+    diag_calc_crc_o     => p1581_diag_calc_crc,
+    diag_stored_crc_o   => p1581_diag_stored_crc,
+    diag_id_valid_o     => p1581_diag_id_valid,
+    diag_id_crc_ok_o    => p1581_diag_id_crc_ok,
+    diag_data_end_o     => p1581_diag_data_end,
+    diag_data_crc_ok_o  => p1581_diag_data_crc_ok,
+    diag_gap_error_o    => p1581_diag_gap_error,
+    diag_runt_o         => p1581_diag_runt,
+    diag_a1_candidate_o => p1581_diag_a1_candidate,
+    diag_a1_reject_o    => p1581_diag_a1_reject,
+    diag_a1_train_o     => p1581_diag_a1_train,
+    diag_mark_fe_o      => p1581_diag_mark_fe,
+    diag_mark_dam_o     => p1581_diag_mark_dam,
+    diag_dam_unarmed_o  => p1581_diag_dam_unarmed,
+    diag_match_id_o     => p1581_diag_match_id,
+    diag_dam_miss_o     => p1581_diag_dam_miss,
+    diag_est_o          => p1581_diag_est,
+    diag_rd_phase_o     => p1581_diag_rd_phase,
+    diag_step_phase_o   => p1581_diag_step_phase,
+    diag_head_valid_o   => p1581_diag_head_valid,
+    diag_head_dir_out_o => p1581_diag_head_dir,
+    diag_rd_req_o        => p1581_diag_rd_req,
+    diag_rd_req_op_o     => p1581_diag_rd_req_op,
+    diag_rd_req_track_o  => p1581_diag_rd_req_trk,
+    diag_rd_req_sector_o => p1581_diag_rd_req_sec,
+    diag_rd_req_side_o   => p1581_diag_rd_req_side,
+    diag_in_bits_o      => p1581_diag_in_bits,
+    diag_out_bits_o     => p1581_diag_out_bits,
+
+    diag_wr_phase_o        => p1581_diag_wr_phase,
+    diag_wr_session_o      => p1581_diag_wr_session,
+    diag_wr_feed_o         => p1581_diag_wr_feed,
+    diag_wr_abort_o        => p1581_diag_wr_abort,
+    diag_wr_prec_o         => p1581_diag_wr_prec,
+    diag_wr_done_o         => p1581_diag_wr_done,
+    diag_wr_last_o         => p1581_diag_wr_last,
+    diag_wr_bytes_o        => p1581_diag_wr_bytes,
+    diag_wr_first_margin_o => p1581_diag_wr_first_margin,
+    diag_wr_trk_cyc_o      => p1581_diag_wr_trk_cyc,
+    diag_wr_gate_o         => p1581_diag_wr_gate,
+    diag_wr_gate_cyc_o     => p1581_diag_wr_gate_cyc,
+    diag_wr_words_last_o   => open,
+    diag_wr_underrun_o     => p1581_diag_wr_underrun,
+    diag_wr_discard_o      => p1581_diag_wr_discard,
+    diag_wr_gateopen_o     => open,
+    diag_wr_wabort_o       => open,
+    diag_wr_precnt_o       => p1581_diag_wr_precnt,
+    diag_wr_pushfull_o     => p1581_diag_wr_pushfull,
+    diag_wr_reason_o       => p1581_diag_wr_reason,
+    diag_wr_reason_acc_o   => p1581_diag_wr_reason_acc,
+    diag_wr_wflags_o       => p1581_diag_wr_wflags
+  ); -- i_physical_1581_controller
+
+f_wgate_o <= p1581_f_wgate;
+f_wdata_o <= p1581_f_wdata;
+
+p1581_fiforst_proc : process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    p1581_fiforst_m <= rst_sd_i;
+    p1581_fiforst_s <= p1581_fiforst_m;
+  end if;
+end process p1581_fiforst_proc;
+
+-- One sector deep: the controller can capture a whole field before fdc1772 may
+-- present any of it, and an error result drains it unseen.
+i_physical_1581_rdfifo : entity work.physical_1581_rdfifo
+  generic map (
+    G_AW => 9
+  )
+  port map (
+    wr_clk_i   => clk_sd_i,
+    wr_rst_i   => rst_sd_i,
+    wr_en_i    => p1581_fifo_wr_en,
+    wr_data_i  => p1581_fifo_wr_data,
+    wr_full_o  => p1581_fifo_wr_full,
+    wr_level_o => p1581_fifo_level,
+    rd_clk_i   => clk_main_i,
+    rd_rst_i   => p1581_fiforst_s,
+    rd_en_i    => p1581_byte_rd_en,
+    rd_data_o  => p1581_byte_data,
+    rd_empty_o => p1581_byte_empty
+  ); -- i_physical_1581_rdfifo
+
+-- Four entries: fdc1772 pushes a byte per data-register write, the controller
+-- pops them at disk pace. DRQ is "not full".
+i_physical_1581_wfifo : entity work.physical_1581_wfifo
+  generic map (
+    G_DW => 8,
+    G_AW => 2
+  )
+  port map (
+    wr_clk_i   => clk_main_i,
+    wr_rst_i   => p1581_fiforst_s,
+    wr_en_i    => p1581_wr_byte_wr,
+    wr_data_i  => p1581_wr_byte_data,
+    wr_full_o  => p1581_wr_fifo_full,
+    wr_level_o => open,
+    rd_clk_i   => clk_sd_i,
+    rd_rst_i   => rst_sd_i,
+    rd_en_i    => p1581_wbyte_rd,
+    rd_data_o  => p1581_wbyte_data,
+    rd_empty_o => p1581_wbyte_empty,
+    rd_level_o => p1581_wfifo_rd_level
+  ); -- i_physical_1581_wfifo
+
+-- The drive LED of a drive on the internal floppy shows physical activity, which
+-- the diag device sees on its own.
+img_drive_busy <= std_logic_vector(resize(unsigned((iec_drive_led and not phys_en_q) or cache_dirty), 2));
+
+p1581_sync_proc : process (clk_sd_i)
+begin
+  if rising_edge(clk_sd_i) then
+    img_busy_sd_m  <= img_drive_busy;
+    img_busy_sd_s  <= img_busy_sd_m;
+    p1581_dbg_sd_m <= p1581_dbg_tgl;
+    p1581_dbg_sd_s <= p1581_dbg_sd_m;
+  end if;
+end process p1581_sync_proc;
+
+-- Observational QNICE register bank (doc/1581_dd_debug_device.md in C64MEGA65).
+-- The one writable word, WR_CTRL, overrides write precompensation.
+i_physical_1581_diag : entity work.physical_1581_diag
+  port map (
+    clk_i             => clk_sd_i,
+    rst_i             => rst_sd_i,
+
+    st_media_ready_i  => p1581_media_ready,
+    st_index_i        => p1581_index,
+    st_track0_i       => p1581_track0,
+    st_wprot_i        => p1581_wprot,
+    st_change_i       => p1581_change,
+    st_motor_on_i     => p1581_motor_on,
+    st_head_settled_i => p1581_head_settled,
+    st_locked_i       => p1581_locked,
+    st_head_cyl_i     => p1581_head_cyl,
+
+    rd_done_tgl_i     => p1581_rd_done_tgl,
+    rd_result_i       => p1581_rd_result,
+    rd_crc_err_i      => p1581_rd_crc_err,
+    rd_rnf_i          => p1581_rd_rnf,
+    rd_deleted_i      => p1581_rd_deleted,
+    rd_c_i            => p1581_rd_c,
+    rd_h_i            => p1581_rd_h,
+    rd_r_i            => p1581_rd_r,
+    rd_n_i            => p1581_rd_n,
+    step_ack_tgl_i    => p1581_step_ack_tgl,
+
+    diag_in_bits_i      => p1581_diag_in_bits,
+    diag_out_bits_i     => p1581_diag_out_bits,
+    diag_index_period_i => p1581_diag_idx_period,
+    diag_index_width_i  => p1581_diag_idx_width,
+    diag_last_gap_i     => p1581_diag_last_gap,
+    diag_calc_crc_i     => p1581_diag_calc_crc,
+    diag_stored_crc_i   => p1581_diag_stored_crc,
+    diag_index_edge_i   => p1581_diag_index_edge,
+    diag_index_qual_i   => p1581_diag_index_qual,
+    diag_id_valid_i     => p1581_diag_id_valid,
+    diag_id_crc_ok_i    => p1581_diag_id_crc_ok,
+    diag_data_end_i     => p1581_diag_data_end,
+    diag_data_crc_ok_i  => p1581_diag_data_crc_ok,
+    diag_gap_error_i    => p1581_diag_gap_error,
+    diag_est_i          => p1581_diag_est,
+    diag_rd_phase_i     => p1581_diag_rd_phase,
+    diag_step_phase_i   => p1581_diag_step_phase,
+    diag_head_valid_i   => p1581_diag_head_valid,
+    diag_head_dir_out_i => p1581_diag_head_dir,
+
+    img_drive_busy_i    => img_busy_sd_s,
+
+    rd_req_evt_i        => p1581_diag_rd_req,
+    rd_req_op_i         => p1581_diag_rd_req_op,
+    rd_req_track_i      => p1581_diag_rd_req_trk,
+    rd_req_sector_i     => p1581_diag_rd_req_sec,
+    rd_req_side_i       => p1581_diag_rd_req_side,
+
+    dbg_lost_i          => p1581_dbg_sd_s(0),
+    dbg_drain_i         => p1581_dbg_sd_s(1),
+    dbg_staledone_i     => p1581_dbg_sd_s(2),
+    dbg_busycmd_i       => p1581_dbg_sd_s(3),
+    dbg_fin_i           => p1581_dbg_sd_s(4),
+    dbg_pres_cnt_i      => unsigned(p1581_dbg_pres_cnt),
+    fifo_level_i        => p1581_fifo_level,
+    runt_i              => p1581_diag_runt,
+    a1_candidate_i      => p1581_diag_a1_candidate,
+    a1_span_reject_i    => p1581_diag_a1_reject,
+    a1_train_i          => p1581_diag_a1_train,
+    mark_fe_i           => p1581_diag_mark_fe,
+    mark_dam_i          => p1581_diag_mark_dam,
+    dam_unarmed_i       => p1581_diag_dam_unarmed,
+    match_id_i          => p1581_diag_match_id,
+    dam_miss_i          => p1581_diag_dam_miss,
+
+    diag_wr_phase_i        => p1581_diag_wr_phase,
+    diag_wr_session_i      => p1581_diag_wr_session,
+    diag_wr_feed_i         => p1581_diag_wr_feed,
+    diag_wr_abort_i        => p1581_diag_wr_abort,
+    diag_wr_prec_i         => p1581_diag_wr_prec,
+    diag_wr_done_i         => p1581_diag_wr_done,
+    diag_wr_last_i         => p1581_diag_wr_last,
+    diag_wr_bytes_i        => p1581_diag_wr_bytes,
+    diag_wr_first_margin_i => p1581_diag_wr_first_margin,
+    diag_wr_trk_cyc_i      => p1581_diag_wr_trk_cyc,
+    diag_wr_gate_i         => p1581_diag_wr_gate,
+    diag_wr_gate_cyc_i     => p1581_diag_wr_gate_cyc,
+    diag_wr_underrun_i     => p1581_diag_wr_underrun,
+    diag_wr_discard_i      => p1581_diag_wr_discard,
+    diag_wr_precnt_i       => p1581_diag_wr_precnt,
+    diag_wr_pushfull_i     => p1581_diag_wr_pushfull,
+    diag_wr_reason_i       => p1581_diag_wr_reason,
+    diag_wr_reason_acc_i   => p1581_diag_wr_reason_acc,
+    diag_wr_wflags_i       => p1581_diag_wr_wflags,
+    wr_busy_i              => p1581_wr_busy,
+    wr_ok_i                => p1581_wr_ok,
+    f_wgate_i              => p1581_f_wgate,
+    f_wdata_i              => p1581_f_wdata,
+    wr_pop_i               => p1581_wbyte_rd,
+    wr_fifo_level_i        => p1581_wfifo_rd_level,
+    dbg_wr_fin_i           => p1581_dbg_sd_s(5),
+    dbg_wr_wp_i            => p1581_dbg_sd_s(6),
+    dbg_wr_drop_i          => p1581_dbg_sd_s(7),
+    wr_precomp_mode_o      => p1581_wr_precomp_mode,
+
+    qnice_ce_i        => qnice_p1581_ce_i,
+    qnice_we_i        => qnice_p1581_we_i,
+    qnice_addr_i      => qnice_p1581_addr_i,
+    qnice_data_i      => qnice_p1581_data_i,
+    qnice_data_o      => qnice_p1581_data_o
+  ); -- i_physical_1581_diag
 
 vdrives_inst : entity work.vdrives
   generic map (
@@ -2218,6 +2788,17 @@ begin
   qnice_sd_eng_o    <= (others => '0');
   drv_rom_req_o     <= '0';
   drv_rom_addr_o    <= (others => '0');
+
+  -- internal floppy idle
+  f_motora_o         <= '1';
+  f_selecta_o        <= '1';
+  f_side1_o          <= '1';
+  f_stepdir_o        <= '1';
+  f_step_o           <= '1';
+  f_density_o        <= '1';
+  f_wgate_o          <= '1';
+  f_wdata_o          <= '1';
+  qnice_p1581_data_o <= (others => '0');
 
 end generate drives_gen;
 

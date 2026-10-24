@@ -65,6 +65,35 @@ START_FIRMWARE  RBRA    START_SHELL, 1
 SUBMENU_SUMMARY XOR     R8, R8                  ; R8 = 0 = no custom string
                 RET
 
+; MOUNT_LABEL callback function:
+;
+; Called when the main menu shows the line of a virtual drive. Return a text
+; to show in place of the name of the disk image or OPTM_S_MOUNT. The framework
+; builds the line in MOUNT_LABEL_BUF (OSM_O_DX + 2 words, see the variables).
+;
+; Input:
+;   R8: virtual drive number
+; Output:
+;   R8: 0 = standard semantics, else pointer to the text that replaces "%s"
+;   R9: changed
+
+MOUNT_LABEL     INCRB
+                MOVE    R8, R0
+                XOR     R8, R8
+                CMP     R0, 1                   ; only drives 8 and 9
+                RBRA    _MNTLBL_RET, N          ; R0 > 1
+                MOVE    INT1581_D8_MENU, R8
+                CMP     0, R0
+                RBRA    _MNTLBL_1, Z
+                MOVE    INT1581_D9_MENU, R8
+_MNTLBL_1       RSUB    M2M$GET_SETTING, 1
+                XOR     R8, R8
+                CMP     1, R9                   ; drive is the internal floppy?
+                RBRA    _MNTLBL_RET, !Z
+                MOVE    STR_INT1581, R8
+_MNTLBL_RET     DECRB
+                RET
+
 ; ----------------------------------------------------------------------------
 ; Core specific callback functions: File browsing and disk image mounting
 ; ----------------------------------------------------------------------------
@@ -246,9 +275,26 @@ OSM_SEL_POST    INCRB
 ; menu item has been handled by the framework.
 OSM_SEL_PRE     INCRB
 
+                ; Choosing an image for the drive that is the internal floppy
+                ; gives the drive back to images first.
+                MOVE    INT1581_D8_MENU, R0
+                CMP     OPTM_G_MOUNT_D8, R8
+                RBRA    _OSM_PRE_INT, Z
+                MOVE    INT1581_D9_MENU, R0
+                CMP     OPTM_G_MOUNT_D9, R8
+                RBRA    _OSM_PRE_CRT, !Z
+_OSM_PRE_INT    MOVE    R0, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     1, R9                   ; internal floppy?
+                RBRA    _OSM_PRE_RET, !Z
+                MOVE    INT1581_OFF_MENU, R8
+                MOVE    1, R9
+                RSUB    M2M$FORCE_MENU, 1
+                RBRA    _OSM_PRE_RET, 1
+
                 ; Loading a .crt file selects the virtual cartridge. main.vhd resets the C128
                 ; when the source changes, and again once the file is loaded.
-                CMP     OPTM_G_MOUNT_CRT, R8
+_OSM_PRE_CRT    CMP     OPTM_G_MOUNT_CRT, R8
                 RBRA    _OSM_PRE_RET, !Z
                 MOVE    CART_CRT_MENU, R8
                 RSUB    M2M$GET_SETTING, 1
@@ -297,6 +343,9 @@ _CUSTOM_MSG_RET DECRB
 ; ----------------------------------------------------------------------------
 ; Core specific constants and strings
 ; ----------------------------------------------------------------------------
+
+; MOUNT_LABEL: shown on the line of the drive that is the internal floppy
+STR_INT1581     .ASCII_W "Internal 1581"
 
 ; Disk image file extensions offered by the file browser. The list is
 ; 0-terminated, and the strings are compared against an upper-cased filename.
@@ -378,6 +427,10 @@ END_OF_ROM      .DW 0
 ;
 ; add your own variables here
 ;
+
+; The line of a drive whose MOUNT_LABEL is custom: OSM_O_DX + 2 = 25 words
+; hold the line and its zero terminator
+MOUNT_LABEL_BUF .BLOCK 32
 
 ; M2M Shell variables (only include, if you included "shell.asm" above)
 #include "../../M2M/rom/shell_vars.asm"

@@ -126,6 +126,12 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##   c1581_fdc1772   SD FSM and sd_lba latch on clk_sys (qnice_clk); request/done
 ##                   cross via iecdrv_sync. FIFO is dual-clock (clk_sys / main_clk).
 ##
+##   internal floppy physical_1581_controller (qnice_clk) talks to c1581_fdc1772
+##                   (main_clk) with toggles whose payload is stable before the
+##                   toggle flips, iecdrv_sync levels, and two Gray-pointer FIFOs
+##                   (physical_1581_rdfifo/_wfifo). The FIFO resets and the diag
+##                   device's event toggles go through async_reg 2-FF pairs.
+##
 ## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
 ## logic of all of the above is still fully analysed.
 ##

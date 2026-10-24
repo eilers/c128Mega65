@@ -1569,6 +1569,19 @@ _OPTM_CBS_0     MOVE    SCR$OSM_O_DX, R9
                 MOVE    @R0, R0
                 ADD     R10, R0
 
+                ; Case #0: The core shows its own text for the drive, for
+                ; example while the drive is a real drive instead of an
+                ; image. The line is built in the core buffer
+                ; MOUNT_LABEL_BUF, so the scratch buffer keeps the image line.
+                MOVE    R8, R2                  ; R2: virtual drive id
+                RSUB    MOUNT_LABEL, 1
+                CMP     0, R8                   ; custom text?
+                RBRA    _OPTM_CBS_0B, Z         ; no
+                MOVE    MOUNT_LABEL_BUF, R0     ; yes: replace %s with it
+                RSUB    _OPTM_CBS_REPL, 1
+                RBRA    _OPTM_CBS_RET, 1
+_OPTM_CBS_0B    MOVE    R2, R8                  ; R8: virtual drive id
+
                 ; Case #1: Drive is not mounted
                 ; R8 still contains the virtual drive id.
                 ; If the drive is not mounted, then show OPTM_S_MOUNT

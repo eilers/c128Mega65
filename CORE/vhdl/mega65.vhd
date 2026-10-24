@@ -211,6 +211,21 @@ port (
    iec_srq_n_i             : in  std_logic;
    iec_srq_n_o             : out std_logic;
 
+   -- MEGA65 internal floppy drive (drive A of the connector), used as a 1581
+   f_rdata_i               : in  std_logic;
+   f_index_i               : in  std_logic;
+   f_track0_i              : in  std_logic;
+   f_writeprotect_i        : in  std_logic;
+   f_diskchanged_i         : in  std_logic;
+   f_motora_o              : out std_logic;
+   f_selecta_o             : out std_logic;
+   f_side1_o               : out std_logic;
+   f_stepdir_o             : out std_logic;
+   f_step_o                : out std_logic;
+   f_density_o             : out std_logic;
+   f_wgate_o               : out std_logic;
+   f_wdata_o               : out std_logic;
+
    -- C64 Expansion Port (aka Cartridge Port)
    cart_en_o               : out std_logic;  -- Enable port, active high
    cart_phi2_o             : out std_logic;
@@ -346,6 +361,11 @@ signal reu_hr_waitrequest     : std_logic;
 signal qnice_crt_ce           : std_logic;
 signal qnice_crt_we           : std_logic;
 signal qnice_crt_data         : std_logic_vector(15 downto 0);
+
+-- internal floppy diagnostics (physical_1581_diag)
+signal qnice_p1581_ce         : std_logic;
+signal qnice_p1581_we         : std_logic;
+signal qnice_p1581_data       : std_logic_vector(15 downto 0);
 signal qnice_crt_wait         : std_logic;
 signal main_crt_loaded        : std_logic;
 signal main_crt_loading       : std_logic;
@@ -683,6 +703,26 @@ begin
          qnice_sd_eng_o       => qnice_drv_eng_c2q,
          qnice_sd_eng_i       => qnice_drv_eng_q2c,
 
+         f_rdata_i            => f_rdata_i,
+         f_index_i            => f_index_i,
+         f_track0_i           => f_track0_i,
+         f_writeprotect_i     => f_writeprotect_i,
+         f_diskchanged_i      => f_diskchanged_i,
+         f_motora_o           => f_motora_o,
+         f_selecta_o          => f_selecta_o,
+         f_side1_o            => f_side1_o,
+         f_stepdir_o          => f_stepdir_o,
+         f_step_o             => f_step_o,
+         f_density_o          => f_density_o,
+         f_wgate_o            => f_wgate_o,
+         f_wdata_o            => f_wdata_o,
+
+         qnice_p1581_ce_i     => qnice_p1581_ce,
+         qnice_p1581_we_i     => qnice_p1581_we,
+         qnice_p1581_addr_i   => qnice_dev_addr_i(7 downto 0),
+         qnice_p1581_data_i   => qnice_dev_data_i,
+         qnice_p1581_data_o   => qnice_p1581_data,
+
          reu_avm_write_o         => main_reu_write,
          reu_avm_read_o          => main_reu_read,
          reu_avm_address_o       => main_reu_address,
@@ -814,6 +854,8 @@ begin
       qnice_vdsd_we        <= '0';
       qnice_crt_ce         <= '0';
       qnice_crt_we         <= '0';
+      qnice_p1581_ce       <= '0';
+      qnice_p1581_we       <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -851,6 +893,13 @@ begin
             qnice_crt_we      <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_crt_data;
             qnice_dev_wait_o  <= qnice_crt_wait;
+
+        -- Internal floppy diagnostics (physical_1581_diag inside main.vhd), read-only
+        -- except for its precompensation override
+        when C_DEV_PHYS1581 =>
+            qnice_p1581_ce    <= qnice_dev_ce_i;
+            qnice_p1581_we    <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_p1581_data;
 
          when others => null;
       end case;
