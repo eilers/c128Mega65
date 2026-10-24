@@ -40,6 +40,8 @@ run_tcl "1541 GCR path (tb_c1541_read_write)" CORE/scripts/run_c157x_gcr_path_si
 run_tcl "1571 GCR path (tb_c1571_read_write)" CORE/scripts/run_c157x_gcr_path_sim.tcl tb_c1571_read_write
 run_tcl "Drive LED policy (tb_drive_led_policy)" CORE/scripts/run_drive_led_sim.tcl
 run_tcl "HyperRAM sector fill (tb_vd_hr_pump)" CORE/scripts/run_vd_hr_pump_sim.tcl
+run_tcl "SD card DMA (tb_sd_dma)" CORE/scripts/run_sd_dma_sim.tcl
+run_tcl "Disk images from the SD card (tb_vd_sd)" CORE/scripts/run_vd_sd_sim.tcl
 run_tcl "REU in HyperRAM (tb_reu)" CORE/scripts/run_reu_sim.tcl
 run_tcl "VIA Timer 1 (tb_via_timer)" CORE/scripts/run_via_timer_sim.tcl
 run_tcl "VGA scandoubler (tb_vga_scandoubler)" CORE/scripts/run_vga_scandoubler_sim.tcl

@@ -112,6 +112,16 @@ SF_CONTEXT_DATA .BLOCK 1                        ; optional add. data for ctx
 ; LOAD_IMAGE needs R7 for the progress bar counter, so the image type that
 ; PREP_LOAD_IMAGE determined cannot stay in a register until LOAD_IMAGE returns
 LI_IMGTYPE      .BLOCK 1                        ; image type of the loaded image
+LI_PROGSTEP     .BLOCK 2                        ; bytes per progress char
+
+; DMA_LOAD and MAP_LOAD (sdload.asm)
+SDL_DEVICE      .BLOCK 1                        ; device that loads the file
+SDL_MODE        .BLOCK 1                        ; 0 = DMA, 1 = block table
+SDL_IDX         .BLOCK 1                        ; next block table entry
+SDL_DEVH        .BLOCK 1                        ; FAT32 device handle
+SDL_DEST        .BLOCK 2                        ; byte offset of the next block
+SDL_FATSEC      .BLOCK 2                        ; FAT sector in the buffer
+SDL_NOFDH       .BLOCK FAT32$FDH_STRUCT_SIZE    ; owns the buffer meanwhile
 
 ; ----------------------------------------------------------------------------
 ; Virtual drive and manual/automatic CRT/ROM loading system

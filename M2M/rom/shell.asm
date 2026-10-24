@@ -611,6 +611,13 @@ _HM_MOUNTED     MOVE    R7, R8
 _HM_MOUNTED_C   CMP     OPTM_KEY_SELALT, R6
                 RBRA    _HM_MOUNTED_S, !Z       ; no
 
+                ; A drive that reads its image from the card writes its
+                ; changes back and forgets the image first (sdload.asm)
+                MOVE    VDRIVES_BUFS, R8
+                ADD     R7, R8
+                MOVE    @R8, R8                 ; R8: device of the drive
+                RSUB    VDSD_OFF, 1
+
                 ; Unmount the whole drive by stobing the image mount signal
                 ; while setting the image size to zero
                 MOVE    R7, R8                  ; virtual drive number
@@ -768,6 +775,9 @@ _LI_FOPEN_OK    MOVE    R5, R8
                 MOVE    SCRATCH_DWORD, R1
                 MOVE    R6, @R1++
                 MOVE    R7, @R1
+                MOVE    LI_PROGSTEP, R1         ; for LI_PROGRESS (DMA loads)
+                MOVE    R6, @R1++
+                MOVE    R7, @R1
 
                 ; Build a string that represents the space in the main window
                 ; where we will print the progress bar
@@ -809,10 +819,35 @@ _LI_FOPEN_OK    MOVE    R5, R8
 
                 XOR     R1, R1                  ; R1=window: start from 0
                 CMP     0, R4                   ; mode=disk image?
-                RBRA    _LI_FREAD_S, Z          ; yes
-                MOVE    CRTROM_MAN_4KS, R1      ; no: 4k win frpm globals.vhd
+                RBRA    _LI_FREAD_CR, !Z        ; no
+
+                MOVE    R0, R8                  ; a drive that reads its image
+                MOVE    R5, R9                  ; from the card only needs to
+                MOVE    R12, R10                ; know where it is (sdload.asm)
+                RSUB    MAP_LOAD, 1
+                CMP     0, R8
+                RBRA    _LI_FREAD_EOF, Z        ; mounted
+                CMP     1, R8
+                RBRA    _LI_FREAD_S, Z          ; cannot map: byte by byte
+                MOVE    R8, R6                  ; R6: error code
+                MOVE    R9, R7                  ; R7: message
+                RBRA    _LI_FREAD_RET, 1
+
+_LI_FREAD_CR    MOVE    CRTROM_MAN_4KS, R1      ; 4k win from globals.vhd
                 ADD     R12, R1
                 MOVE    @R1, R1
+
+                MOVE    R0, R8                  ; a device that can do DMA
+                MOVE    R5, R9                  ; loads the file itself
+                MOVE    R1, R10                 ; (sdload.asm)
+                RSUB    DMA_LOAD, 1
+                CMP     0, R8
+                RBRA    _LI_FREAD_EOF, Z        ; loaded
+                CMP     1, R8
+                RBRA    _LI_FREAD_S, Z          ; no DMA: byte by byte
+                MOVE    R8, R9
+                MOVE    ERR_FATAL_LOAD, R8
+                RBRA    FATAL, 1
 
 _LI_FREAD_S     XOR     R2, R2                  ; R2=start address in window
                 ADD     M2M$RAMROM_DATA, R2
@@ -1490,6 +1525,7 @@ FRAME_FULLSCR   SYSCALL(enter, 1)
 #include "filters.asm"
 #include "gencfg.asm"
 #include "options.asm"
+#include "sdload.asm"
 #include "selectfile.asm"
 #include "strings.asm"
 #include "vdrives.asm"

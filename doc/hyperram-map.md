@@ -1,6 +1,6 @@
 # HyperRAM Memory Map
 
-The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the virtual drives, the REU and virtual cartridges. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding.
+The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the REU and virtual cartridges. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding.
 
 Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd`: windows of 4 kW (8 KiB). `0x000`–`0x3FF` covers all 8 MiB.
 
@@ -11,11 +11,9 @@ Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd
 | `0x000–0x0FF` | 2 MiB       | 0–2 MiB     | ascal framebuffer (M2M)          | `C_HMAP_M2M`                     |
 | `0x100–0x1FF` | up to 2 MiB | 2–4 MiB     | REU                              | `C_HMAP_REU`                     |
 | `0x200–0x2FF` | 2 MiB       | 4–6 MiB     | Virtual cartridge                | `C_HMAP_CRT`                     |
-| `0x300–0x364` | 808 KiB     | 6–6.8 MiB   | Drive 8 D81 image + guard window | `C_HMAP_VD0`, `C_HMAP_VD0_GUARD` |
-| `0x365–0x3C9` | 808 KiB     | 6.8–7.6 MiB | Drive 9 D81 image + guard window | `C_HMAP_VD1`, `C_HMAP_VD1_GUARD` |
-| `0x3CA–0x3FF` | 432 KiB     | 7.6–8 MiB   | Unassigned                       |                                  |
+| `0x300–0x3FF` | 2 MiB       | 6–8 MiB     | Unassigned                       |                                  |
 
-The D81 buffers live in HyperRAM because one D81 (819,200 bytes, exactly 100 windows) is more block RAM than the design has left. Each guard window absorbs a write one byte past the end of the image.
+Disk images take no HyperRAM. The virtual drives read and write them in place on the SD card (`CORE/vhdl/vd_sd.vhd`), which freed the two D81 buffers that used to sit at `0x300–0x3C9`.
 
 A 512 KiB REU uses `0x100–0x13F`, a 2 MiB REU `0x100–0x1FF`. `main.vhd` masks the REU's address to its size before `reu_mapper`, so every access stays inside that range. The one exception is the read cache's look-ahead, which can read up to 8 words past the end of a 2 MiB REU, into the cartridge's region.
 
@@ -71,7 +69,7 @@ ascal reserves 2 MiB at address 0: `RAMSIZE = 2^ceil(log2(720 × 540 × 3))` (`M
 
 These are the places where the REU and cartridge work meet. They are already set up for both, so each feature only edits its own blocks.
 
-- **Core HyperRAM port.** In `CORE/vhdl/mega65.vhd`, `i_core_hr_arbit` (`avm_arbit_general`, 4 ports, its maximum) shares the core's HyperRAM master between disk-image staging, the drive sector fill, the REU (`reu_hr_*`) and the virtual cartridge (`crt_hr_*`). Each feature replaces its own tie-off block above the arbiter.
+- **Core HyperRAM port.** In `CORE/vhdl/mega65.vhd`, `i_core_hr_arbit` (`avm_arbit`, 2 ports) shares the core's HyperRAM master between the REU (`reu_hr_*`) and the virtual cartridge (`crt_hr_*`).
 - **Expansion port.** In `CORE/vhdl/main.vhd`, `cart_source` decodes the Cartridge submenu and `reu_cfg` the REU submenu. `handle_cores_expansion_port_signals_proc` has one `case` arm per cartridge source; the virtual cartridge fills its arm, including its DMA request in `v_dma`. The REU is laid over whichever source is active: it drives `reu_dma_req`, `reu_irq` and `reu_dout`, and `reu_io` selects its registers.
 - **Menu.** New items go below `CRT file`, the last item with a `C_MENU_*` index, so they shift no index. The cartridge's `CRT:%s` load line is there.
 - **QNICE device IDs.** The virtual cartridge is `0x0106`; the next free ID is `0x0107` (`globals.vhd`).

@@ -14,6 +14,7 @@ use work.qnice_tools.all;
 library work;
 use work.globals.all;
 use work.types_pkg.all;
+use work.sdhost_pkg.all;
 
 entity qnice_wrapper is
 generic (
@@ -21,6 +22,7 @@ generic (
 );
 port (
    clk_i                     : in  std_logic;
+   clk100_i                  : in  std_logic;                  -- SD controllers: 100 MHz, same MMCM as clk_i
    rst_i                     : in  std_logic;
 
    -- Serial communication (rxd, txd only; rts/cts are not available)
@@ -28,19 +30,29 @@ port (
    uart_rxd_i                : in  std_logic;                  -- receive data
    uart_txd_o                : out std_logic;                  -- send data
 
-   -- Micro SD Connector (external slot at back of the cover)
-   sd_reset_o                : out std_logic;
+   -- Micro SD Connector (external slot at back of the cover): CMD and DAT3..0 with output enables
    sd_clk_o                  : out std_logic;
-   sd_mosi_o                 : out std_logic;
-   sd_miso_i                 : in  std_logic;
+   sd_cmd_o                  : out std_logic;
+   sd_cmd_oe_o               : out std_logic;
+   sd_cmd_i                  : in  std_logic;
+   sd_dat_o                  : out std_logic_vector(3 downto 0);
+   sd_dat_oe_o               : out std_logic_vector(3 downto 0);
+   sd_dat_i                  : in  std_logic_vector(3 downto 0);
    sd_cd_i                   : in  std_logic;
 
    -- SD Connector (this is the slot at the bottom side of the case under the cover)
-   sd2_reset_o               : out std_logic;
    sd2_clk_o                 : out std_logic;
-   sd2_mosi_o                : out std_logic;
-   sd2_miso_i                : in  std_logic;
+   sd2_cmd_o                 : out std_logic;
+   sd2_cmd_oe_o              : out std_logic;
+   sd2_cmd_i                 : in  std_logic;
+   sd2_dat_o                 : out std_logic_vector(3 downto 0);
+   sd2_dat_oe_o              : out std_logic_vector(3 downto 0);
+   sd2_dat_i                 : in  std_logic_vector(3 downto 0);
    sd2_cd_i                  : in  std_logic;
+
+   -- Engine port of the active SD card's controller (QNICE clock)
+   sd_eng_i                  : in  t_sd_c2q;
+   sd_eng_o                  : out t_sd_q2c;
 
    paddle_i                  : in  std_logic_vector(3 downto 0);
    paddle_drain_o            : out std_logic;
@@ -203,6 +215,7 @@ begin
       )
       port map (
          clk50_i                 => clk_i,
+         clk100_i                => clk100_i,
          reset_n_i               => not rst_i,
 
          -- serial communication (rxd, txd only; rts/cts are not available)
@@ -211,18 +224,28 @@ begin
          uart_txd_o              => uart_txd_o,
 
          -- Micro SD Connector (external slot at back of the cover)
-         sd_reset_o              => sd_reset_o,
          sd_clk_o                => sd_clk_o,
-         sd_mosi_o               => sd_mosi_o,
-         sd_miso_i               => sd_miso_i,
+         sd_cmd_o                => sd_cmd_o,
+         sd_cmd_oe_o             => sd_cmd_oe_o,
+         sd_cmd_i                => sd_cmd_i,
+         sd_dat_o                => sd_dat_o,
+         sd_dat_oe_o             => sd_dat_oe_o,
+         sd_dat_i                => sd_dat_i,
          sd_cd_i                 => sd_cd_i,
 
          -- SD Connector (this is the slot at the bottom side of the case under the cover)
-         sd2_reset_o             => sd2_reset_o,
          sd2_clk_o               => sd2_clk_o,
-         sd2_mosi_o              => sd2_mosi_o,
-         sd2_miso_i              => sd2_miso_i,
+         sd2_cmd_o               => sd2_cmd_o,
+         sd2_cmd_oe_o            => sd2_cmd_oe_o,
+         sd2_cmd_i               => sd2_cmd_i,
+         sd2_dat_o               => sd2_dat_o,
+         sd2_dat_oe_o            => sd2_dat_oe_o,
+         sd2_dat_i               => sd2_dat_i,
          sd2_cd_i                => sd2_cd_i,
+
+         -- engine port of the active SD card's controller
+         sd_eng_i                => sd_eng_i,
+         sd_eng_o                => sd_eng_o,
 
          -- QNICE public registers
          csr_reset_o             => qnice_csr_reset_o,
