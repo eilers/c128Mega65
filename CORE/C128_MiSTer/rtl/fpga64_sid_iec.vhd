@@ -1273,7 +1273,9 @@ ramAddr <= systemAddr;
 -- programs the VIC with I/O mapped in and wipes J_ProcessDelays ($D01B). Gate with
 -- cs_ram, not ramCE: Z80 latch writes assert we while ramCE is already low, but
 -- cs_ram stays 1 for those RAM cycles.
-ramWE   <= systemWe and cs_ram;
+-- In Ultimax mode the PLA keeps RAM off under ROML/ROMH, so writes there (EasyFlash
+-- saves) reach only the cartridge. 8K/16K mode writes still go to RAM.
+ramWE   <= systemWe and cs_ram and not ((romL or romH) and mmu_exrom and not mmu_game);
 systemWe_o <= systemWe;
 ramCE   <= cs_ram when
            sysCycle = CYCLE_VIC0 or
