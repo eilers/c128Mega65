@@ -2021,9 +2021,15 @@ BEGIN
       o_adrsa<='0';
       o_adrsb<=o_adrsa;
       
-      o_vacc_ini<=(o_vsize - o_ivsize + 8192) MOD 8192;
+      -- Polyphase (scanlines) starts on a line edge, so whole-number scales put
+      -- rows on line centres and gaps. Centred, 2x would sample every line at +-1/4.
+      IF o_vmode(2)='1' THEN
+        o_vacc_ini<=o_vsize;
+      ELSE
+        o_vacc_ini<=(o_vsize - o_ivsize + 8192) MOD 8192;
+      END IF;
       o_hacc_ini<=(o_hsize + o_ihsize + 8192) MOD 8192;
-      
+
       --Alternate phase
       --o_vacc_ini<=o_ivsize;
       --o_hacc_ini<=(2*o_hsize - o_ihsize + 8192) MOD 8192;
