@@ -147,6 +147,18 @@ cd CORE/scripts
 ./vivado.sh -mode batch -source build_bitstream.tcl -tclargs ../CORE-R6-vivado2022.xpr
 ```
 
+### Several boards at once
+
+```bash
+CORE/scripts/build_boards.sh 6 3
+```
+
+This assembles the M2M shell ROM once, then builds the listed boards side by side
+(`JOBS=2` at a time by default), each with its own log in `artifacts/build-logs`.
+It ends with one line per board: exit code, timing and block RAM. Each synthesis
+takes about 8 GB of memory, so set `JOBS` to what the machine can hold.
+`build_release.sh` uses it when run with `JOBS=2` or more.
+
 ### What the build does
 
 `build_bitstream.tcl`:

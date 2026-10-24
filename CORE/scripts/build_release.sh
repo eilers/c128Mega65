@@ -8,6 +8,8 @@ ROOT_DIR="$(cd "$CORE_DIR/.." && pwd)"
 
 CORETOOL="${CORETOOL:-/var/home/bazzite/Desktop/m65tools-develo-207-c5bf0c-linux/coretool}"
 BOARDS=(6 3 5 4)
+# JOBS=2 builds two boards at a time with build_boards.sh (about 8 GB each during synthesis).
+JOBS="${JOBS:-1}"
 
 # Corefile capabilities and active boot flags (coretool --caps / --flags).
 #
@@ -159,17 +161,24 @@ find_bitstream() {
   die "Bitstream not found for R${rev} (expected $expected)"
 }
 
+if (( JOBS > 1 )); then
+  echo "=== Building R${BOARDS[*]} bitstreams, $JOBS at a time ==="
+  JOBS="$JOBS" "$SCRIPT_DIR/build_boards.sh" "${BOARDS[@]}" || die "A board failed to build."
+fi
+
 for rev in "${BOARDS[@]}"; do
   project_xpr="$CORE_DIR/CORE-R${rev}-vivado2022.xpr"
   [[ -f "$project_xpr" ]] || die "Vivado project missing: $project_xpr"
 
-  echo "=== Building R${rev} bitstream ==="
-  (
-    cd "$ROOT_DIR"
-    CORE/scripts/vivado.sh -mode batch \
-      -source CORE/scripts/build_bitstream.tcl \
-      -tclargs "$project_xpr"
-  )
+  if (( JOBS <= 1 )); then
+    echo "=== Building R${rev} bitstream ==="
+    (
+      cd "$ROOT_DIR"
+      CORE/scripts/vivado.sh -mode batch \
+        -source CORE/scripts/build_bitstream.tcl \
+        -tclargs "$project_xpr"
+    )
+  fi
 
   bit_src="$(find_bitstream "$rev")"
   bit_out="$STAGING_DIR/${PREFIX}_R${rev}.bit"
