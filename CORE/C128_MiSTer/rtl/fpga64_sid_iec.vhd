@@ -300,6 +300,12 @@ signal enableMmu    : std_logic;
 signal enableVic    : std_logic;
 signal enableVdc    : std_logic;
 signal enableVdc_sl : std_logic_vector(1 downto 0);
+-- MEGA65: reset and light pen synchronized into clk_vdc
+signal reset_vdc_sl : std_logic_vector(1 downto 0) := "11";
+signal lp_n_vdc_sl  : std_logic_vector(1 downto 0) := "11";
+attribute ASYNC_REG : string;
+attribute ASYNC_REG of reset_vdc_sl : signal is "TRUE";
+attribute ASYNC_REG of lp_n_vdc_sl  : signal is "TRUE";
 signal enablePixel  : std_logic;
 signal enableSid    : std_logic;
 signal phi2         : std_logic := '0';
@@ -979,6 +985,8 @@ process(clk_vdc)
 begin
    if rising_edge(clk_vdc) then
       enableVdc_sl <= enableVdc_sl(0) & enableVdc;
+      reset_vdc_sl <= reset_vdc_sl(0) & reset;
+      lp_n_vdc_sl  <= lp_n_vdc_sl(0) & cia1_pbi(4);
    end if;
 end process;
 
@@ -993,7 +1001,7 @@ port map (
    debug => vdcDebug,
 
    clk => clk_vdc,
-   reset => reset,
+   reset => reset_vdc_sl(1),
    init => '0',
 
    enableBus => enableVdc_sl(0) and not enableVdc_sl(1),
@@ -1003,7 +1011,7 @@ port map (
    db_in => cpuDo,
    db_out => vdcData,
 
-   lp_n => cia1_pbi(4),
+   lp_n => lp_n_vdc_sl(1),
 
    hsync => vdcHsync,
    vsync => vdcVsync,
