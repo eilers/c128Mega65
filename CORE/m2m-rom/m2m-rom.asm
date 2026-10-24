@@ -143,15 +143,22 @@ PREP_LOAD_IMAGE INCRB
                 ADD     FAT32$FDH_SIZE_HI, R1
                 MOVE    @R1, R1                 ; R1: high word of the file size
 
-                ; A .crt file must fit its 2 MiB in HyperRAM (doc/hyperram-map.md); the parser
-                ; in crt_parser.vhd checks the rest once it is loaded
+                ; A .crt file must fit the memory behind the cartridge device, which says how
+                ; much that is: 2 MiB of HyperRAM on R3, 4 MiB of SDRAM on later boards
+                ; (doc/hyperram-map.md). The parser in crt_parser.vhd checks the rest.
                 CMP     CTX_LOAD_ROM, R9
                 RBRA    _PREP_LI_DISK, !Z
-                CMP     CRT_MAX_HI, R1          ; CMP X,Y: N <=> Y<X, Z <=> Y==X
+                MOVE    R10, R7                 ; R7: menu group id, kept for the caller
+                MOVE    CRT_DEVICE, R8
+                MOVE    CRT_CSR_MAX_HI, R9
+                RSUB    CRTROM_CSR_R, 1         ; R10: largest file, high word
+                MOVE    R10, R2
+                MOVE    R7, R10
+                CMP     R2, R1                  ; CMP X,Y: N <=> Y<X, Z <=> Y==X
                 RBRA    _PREP_LI_OTHER, N       ; well under the limit
                 RBRA    _PREP_LI_BIG, !Z        ; over it
                 CMP     0, R0
-                RBRA    _PREP_LI_OTHER, Z       ; exactly 2 MiB
+                RBRA    _PREP_LI_OTHER, Z       ; exactly the limit
 _PREP_LI_BIG    MOVE    1, R8
                 MOVE    WRN_CRT_TOO_BIG, R9
                 RBRA    _PREP_LI_RET, 1
@@ -298,10 +305,12 @@ IMGEXT_D71      .ASCII_W ".D71"
 IMGEXT_D81      .ASCII_W ".D81"
 DISKIMG_EXT     .DW      IMGEXT_D64, IMGEXT_D71, IMGEXT_D81, 0
 
-; Virtual cartridge files, and the largest one its HyperRAM region holds: 2 MiB = 0x0020:0000
+; Virtual cartridge files. The cartridge device (C_DEV_CRT in globals.vhd) reports the largest
+; file it takes, in 64 kB, in its CSR at 0x7020 (sw_cartridge_csr.vhd).
 IMGEXT_CRT      .ASCII_W ".CRT"
 CRTFILE_EXT     .DW      IMGEXT_CRT, 0
-CRT_MAX_HI      .EQU    0x0020
+CRT_DEVICE      .EQU    0x0106
+CRT_CSR_MAX_HI  .EQU    0x7020
 
 ; Image types as expected by the 2-bit img_type of vdrives.vhd, which main.vhd expands
 ; into the {img_hd, img_mfm, img_gcr, img_ds} vector of iec_drive. Raw GCR images (G64,
@@ -342,9 +351,10 @@ WRN_NO_DISKIMG  .ASCII_P "This core uses D64, D71 and D81 disk\n"
                 .ASCII_P "Nothing to browse.\n\n"
                 .ASCII_W "Press Space to continue."
 
-; Warning: the selected .crt file is too large for the HyperRAM region of the cartridge
+; Warning: the selected .crt file is too large for the memory behind the cartridge
 WRN_CRT_TOO_BIG .ASCII_P "\n\nThis .crt file is too large. A virtual\n"
-                .ASCII_P "cartridge can be up to 2 MB.\n"
+                .ASCII_P "cartridge can be up to 4 MB, or 2 MB on\n"
+                .ASCII_P "an R3 board.\n"
                 .ASCII_W "\nPress SPACE to continue.\n"
 
 ; Warning: the folder the user browsed into holds no .crt file

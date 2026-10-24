@@ -137,6 +137,21 @@ def easyflash() -> None:
     save("crttest-ef", probes, False, 32, 1, 0, chips)
 
 
+def magic_desk_16k() -> None:
+    """Magic Desk 16K at full size: 128 banks of 16 kB, a file just over 2 MiB (SDRAM only)."""
+    banks = 128
+    rom = [pattern(b, 0x4000) for b in range(banks)]
+    probes = []
+    for b in [127, 64, 1, 126, 0, 100]:
+        probes += [(WRITE, 0xDE00, b),
+                   (READ, 0x8400, rom[b][0x400]), (READ, 0x9FFF, rom[b][0x1FFF]),
+                   (READ, 0xA800, rom[b][0x2800]), (READ, 0xBFFF, rom[b][0x3FFF])]
+    probes += [(WRITE, 0x8800, 0x77),                      # goes to the RAM underneath
+               (WRITE, 0xDE00, 0x80), (READ, 0x8800, 0x77)]  # cartridge off
+    rom[0] = bytearray(with_program(rom[0], program(0, 0x8000, probes)))
+    save("crttest-md16k", probes, False, 85, 0, 0, [(0, b, 0x8000, bytes(rom[b])) for b in range(banks)])
+
+
 def unsupported() -> None:
     """Retro Replay, a type cartridge.vhd lacks: the parser must refuse it."""
     crt(HERE / "crttest-badtype.crt", False, 36, 0, 1, [(0, 0, 0x8000, bytes(pattern(0, 0x2000)))])
@@ -149,4 +164,5 @@ if __name__ == "__main__":
     c64_16k()
     ultimax_4k()
     easyflash()
+    magic_desk_16k()
     unsupported()

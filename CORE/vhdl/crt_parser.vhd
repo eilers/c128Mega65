@@ -107,6 +107,8 @@ architecture synthesis of crt_parser is
 
    signal req_address     : std_logic_vector(21 downto 0); -- Start address in HyperRAM
    signal end_address     : std_logic_vector(21 downto 0); -- End address in HyperRAM
+   signal chip_end        : std_logic_vector(21 downto 0); -- End of the CHIP packet just read
+   signal chip_check      : std_logic := '0';              -- check that packet now
 
    -- Convert an ASCII string to std_logic_vector (little-endian format)
    pure function str2slv(s : string) return std_logic_vector is
@@ -258,7 +260,14 @@ begin
                end if;
 
             when WAIT_FOR_CHIP_HEADER_ST =>
+               -- The packet's end first, the checks a clock later: in one clock it missed 100 MHz
                if wide_readdata_valid = '1' then
+                  image_size_v := bswap(wide_readdata(R_CHIP_IMAGE_SIZE));
+                  chip_end     <= avm_address_o + X"08" + image_size_v(15 downto 1);
+                  chip_check   <= '1';
+               end if;
+               if chip_check = '1' then
+                  chip_check <= '0';
                   if wide_readdata(R_CHIP_SIGNATURE) = str2slv("CHIP") then
                      cart_bank_laddr_o <= bswap(wide_readdata(R_CHIP_LOAD_ADDRESS));
                      cart_bank_size_o  <= bswap(wide_readdata(R_CHIP_IMAGE_SIZE));
@@ -273,13 +282,12 @@ begin
                         ", addr=" & to_hstring(bswap(wide_readdata(R_CHIP_LOAD_ADDRESS))) &
                         ", size=" & to_hstring(bswap(wide_readdata(R_CHIP_IMAGE_SIZE)));
 
-                     image_size_v := bswap(wide_readdata(R_CHIP_IMAGE_SIZE));
-                     if end_address = avm_address_o + X"08" + image_size_v(15 downto 1) then
+                     if end_address = chip_end then
                         resp_status_o    <= C_CSR_RESP_READY;
                         state            <= READY_ST;
-                     elsif end_address >= avm_address_o + X"08" + image_size_v(15 downto 1) + X"08" then
+                     elsif end_address >= chip_end + X"08" then
                         -- Oh, there's more ...
-                        avm_address_o    <= avm_address_o + X"08" + image_size_v(15 downto 1);
+                        avm_address_o    <= chip_end;
                         avm_read_o       <= '1';
                         avm_burstcount_o <= X"08";
                         resp_status_o    <= C_CSR_RESP_PARSING;
@@ -331,6 +339,7 @@ begin
             resp_address_o    <= (others => '0');
             state             <= IDLE_ST;
             req_address       <= (others => '0');
+            chip_check        <= '0';
          end if;
 
       end if;

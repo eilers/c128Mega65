@@ -55,7 +55,7 @@ At both sizes `$DF06` reads its top 5 bits as 1 and the bank in the low 3 bits, 
 
 ### Virtual cartridge region: 2 MiB
 
-This covers the common large cartridges: EasyFlash at 1 MiB and Ocean at up to 512 KiB. As in C64MEGA65, the raw `.crt` file is stored, headers included, so the 2 MiB limit applies to the whole file and a cartridge with a full 2 MiB of ROM won't fit. The Shell refuses a larger file before loading it (`PREP_LOAD_IMAGE` in `m2m-rom.asm`).
+This covers the common large cartridges: EasyFlash at 1 MiB and Ocean at up to 512 KiB. As in C64MEGA65, the raw `.crt` file is stored, headers included, so the 2 MiB limit applies to the whole file and a cartridge with a full 2 MiB of ROM won't fit. The Shell refuses a larger file before loading it (`PREP_LOAD_IMAGE` in `m2m-rom.asm`). On R4 and later the file goes to SDRAM instead (see below), and the limit there is 4 MiB, enough for a full-size Magic Desk 16K with its 2 MiB of ROM. The cartridge device reports its limit in CSR `$020`, and the Shell checks the file against that.
 
 On R3 the C128 never reads this region directly. `crt_cacher.vhd` copies the banks a cartridge has switched in into block RAM: 8 slots of 8 KiB each for ROML and for ROMH (a C128 cartridge's 16 KiB windows take two slots), 32 RAMB36 tiles in all, plus 8 for the 32 KiB of cartridge RAM some types have. While a bank is being fetched, the C128 waits, as it does for DMA.
 

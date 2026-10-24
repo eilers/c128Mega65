@@ -15,7 +15,8 @@ use work.qnice_csr_pkg.all;
 
 entity sw_cartridge_csr is
 generic (
-   G_BASE_ADDRESS : std_logic_vector(21 downto 0)
+   G_BASE_ADDRESS : std_logic_vector(21 downto 0);
+   G_MAX_HI       : std_logic_vector(15 downto 0) := x"0020"   -- largest file, in 64 kB (CSR $020)
 );
 port (
    qnice_clk_i               : in  std_logic;
@@ -51,6 +52,9 @@ architecture synthesis of sw_cartridge_csr is
    signal qnice_csr_wait          : std_logic;
    signal qnice_csr_data          : std_logic_vector(15 downto 0);
    signal qnice_req_status        : std_logic_vector( 3 downto 0);
+
+   -- Read-only: the largest file the memory behind this device takes, so the Shell can check
+   constant C_CSR_MAX_HI          : std_logic_vector(11 downto 0) := X"020";
 
    signal qnice_hr_ce             : std_logic;
    signal qnice_hr_addr           : std_logic_vector(31 downto 0);
@@ -120,6 +124,9 @@ begin
             when '1' =>
                qnice_wait_o <= qnice_csr_wait;
                qnice_data_o <= qnice_csr_data;
+               if qnice_addr_i(11 downto 0) = C_CSR_MAX_HI then
+                  qnice_data_o <= G_MAX_HI;
+               end if;
 
             when others =>
                null;

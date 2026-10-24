@@ -9,6 +9,7 @@ Self-checking `.crt` files for the virtual cartridge. `tb_crt` runs them in simu
 | `crttest-16k.crt` | C64, 16 KB at `$8000` | ROML and ROMH from one chip; writes to ROML go to the RAM underneath |
 | `crttest-umax4k.crt` | C64 Ultimax, 4 KB at `$F000` | The reset vector at `$FFFC`; the chip mirrored at `$E000` |
 | `crttest-ef.crt` | EasyFlash, 10 banks | Bank switching across more banks than the cache holds, 8 KB and 16 KB modes, the RAM at `$DF00`, switching the cartridge off |
+| `crttest-md16k.crt` | Magic Desk 16K, 128 banks: 2 MB of ROM, a file just over 2 MiB | Banks up to 127, switching the cartridge off. R4 and later only: R3 refuses a file this size |
 | `crttest-badtype.crt` | Retro Replay | A type the core doesn't support: loading it must fail with "Unsupported type" |
 
 Each program copies itself to `$0C00` and works through a table of probes: reads, which it checks, and writes, which switch banks or modes. It stores every byte it read at `$0500` and finishes by blanking the screen:

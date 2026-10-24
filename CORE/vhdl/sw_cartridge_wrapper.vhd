@@ -92,6 +92,16 @@ architecture synthesis of sw_cartridge_wrapper is
    -- 8 slots of 8 kB on each side, i.e. 64 kB of block RAM each for ROML and ROMH
    constant C_CACHE_SIZE  : natural := 3;
    constant C_STAT_READY  : std_logic_vector(3 downto 0) := "0010";
+   -- Largest .crt file, in 64 kB: the cartridge's 2 MiB region in HyperRAM, or 4 MiB in SDRAM,
+   -- which a full-size Magic Desk 16K (2 MiB of ROM plus headers) needs
+   function max_hi(sdram : boolean) return std_logic_vector is
+   begin
+      if sdram then
+         return x"0040";
+      end if;
+      return x"0020";
+   end function max_hi;
+   constant C_MAX_HI      : std_logic_vector(15 downto 0) := max_hi(G_SDRAM);
    -- Bits of the HyperRAM -> core crossing
    constant C_HR2MAIN     : natural := 1 + 1 + 16 + 8 + 8 + 23 + 1 + 7 + 7 + 1 + 2*C_CACHE_SIZE + 8;
 
@@ -173,7 +183,8 @@ begin
 
    i_sw_cartridge_csr : entity work.sw_cartridge_csr
       generic map (
-         G_BASE_ADDRESS => G_BASE_ADDRESS
+         G_BASE_ADDRESS => G_BASE_ADDRESS,
+         G_MAX_HI       => C_MAX_HI
       )
       port map (
          qnice_clk_i               => qnice_clk_i,

@@ -11,8 +11,8 @@
 --
 -- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64 16 kB cartridge, a
 -- 4 kB Ultimax chip mirrored at $E000, EasyFlash with more banks than the cache holds, the same
--- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00), and
--- a type the parser must refuse.
+-- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00), a
+-- full-size Magic Desk 16K (over 2 MiB, SDRAM only), and a type the parser must refuse.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -40,7 +40,7 @@ architecture sim of tb_crt is
    constant C_QNICE_PERIOD : time    := 20 ns;
    constant C_HR_PERIOD    : time    := 10 ns;
    constant C_HR_LATENCY   : natural := 12;                       -- clocks to a burst's first word
-   constant C_HR_WORDS     : natural := 2**18;                    -- 512 kB from the CRT region on
+   constant C_HR_WORDS     : natural := 2**21;                    -- 4 MB from the CRT region on
    constant C_HR_BASE      : natural := to_integer(unsigned(C_HMAP_CRT)) * 4096;
    constant C_QNICE_BYTES  : natural := 64;                       -- the CRT header goes through QNICE
    -- BOOT0_PATH is <repo>/sdcard/c128/boot0.rom
@@ -773,6 +773,7 @@ begin
       constant C_FS_HI   : std_logic_vector(27 downto 0) := x"FFFF002";
       constant C_PARSEST : std_logic_vector(27 downto 0) := x"FFFF010";
       constant C_PARSEE1 : std_logic_vector(27 downto 0) := x"FFFF011";
+      constant C_MAX_HI  : std_logic_vector(27 downto 0) := x"FFFF020";
       constant C_ERR_STR : std_logic_vector(27 downto 0) := x"FFFF100";
 
       -- Load a .crt as the Shell does and return the parser's final status (2 ready, 3 error)
@@ -860,6 +861,14 @@ begin
       reset_hard <= '0';
       wait for 2 ms;
 
+      -- The largest file the device takes, which the Shell checks before loading
+      q_read(C_MAX_HI, d);
+      if G_SDRAM then
+         check(d = x"0040", "the device takes files up to $" & to_hstring(d) & "0000 bytes, not 4 MiB");
+      else
+         check(d = x"0020", "the device takes files up to $" & to_hstring(d) & "0000 bytes, not 2 MiB");
+      end if;
+
       run_crt("crttest-c128",   20 ms);
       run_crt("crttest-c128fast", 20 ms);
       run_crt("crttest-16k",    20 ms);
@@ -877,6 +886,11 @@ begin
       run_crt("crttest-ef",     30 ms);
       reu_on <= '0';
       wait for 3 ms;
+
+      -- Over 2 MiB: only SDRAM holds it
+      if G_SDRAM then
+         run_crt("crttest-md16k", 30 ms);
+      end if;
 
       -- A type cartridge.vhd lacks must be refused with a reason
       load_crt("crttest-badtype.crt", parse);
