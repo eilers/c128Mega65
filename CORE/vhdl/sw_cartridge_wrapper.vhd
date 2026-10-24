@@ -16,6 +16,8 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.sdhost_pkg.all;
+
 entity sw_cartridge_wrapper is
 generic (
    G_BASE_ADDRESS : std_logic_vector(21 downto 0);  -- word address of the CRT file
@@ -30,6 +32,9 @@ port (
    qnice_we_i          : in  std_logic;
    qnice_data_o        : out std_logic_vector(15 downto 0);
    qnice_wait_o        : out std_logic;
+   qnice_sd_want_o     : out std_logic;                      -- the Shell loads the file by DMA
+   qnice_sd_eng_o      : out t_sd_c2q;
+   qnice_sd_eng_i      : in  t_sd_q2c := (others => '0');
 
    main_clk_i          : in  std_logic;
    main_loaded_o       : out std_logic;                      -- a .crt file is parsed and in use
@@ -208,7 +213,10 @@ begin
          qnice_avm_burstcount_o    => qnice_avm_burstcount,
          qnice_avm_readdata_i      => qnice_avm_readdata,
          qnice_avm_readdatavalid_i => qnice_avm_readdatavalid,
-         qnice_avm_waitrequest_i   => qnice_avm_waitrequest
+         qnice_avm_waitrequest_i   => qnice_avm_waitrequest,
+         qnice_sd_want_o           => qnice_sd_want_o,
+         qnice_sd_eng_o            => qnice_sd_eng_o,
+         qnice_sd_eng_i            => qnice_sd_eng_i
       ); -- i_sw_cartridge_csr
 
    i_cdc_qnice2hr : entity work.cdc_stable

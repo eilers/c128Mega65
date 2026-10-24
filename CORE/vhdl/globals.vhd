@@ -156,8 +156,8 @@ constant C_DEV_RAM            : std_logic_vector(15 downto 0) := x"0100"; -- RAM
 constant C_DEV_SYSTEM_ROM     : std_logic_vector(15 downto 0) := x"0101"; -- boot0.rom
 constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boot1.rom
 constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
-constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- disk image of drive 8, staged in HyperRAM
-constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- disk image of drive 9, staged in HyperRAM
+constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- drive 8: block table of its image on the SD card (vd_sd.vhd)
+constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- drive 9: block table of its image on the SD card (vd_sd.vhd)
 constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- virtual cartridge (.crt), loaded into HyperRAM
 
 ----------------------------------------------------------------------------------------------------------
@@ -165,14 +165,9 @@ constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- vir
 -- Layout and rationale: doc/hyperram-map.md
 ----------------------------------------------------------------------------------------------------------
 
--- 100 windows hold exactly one D81; each guard window absorbs a write one byte past the image.
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 2 MiB
 constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB or 2 MiB
 constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB
-constant C_HMAP_VD0           : std_logic_vector(15 downto 0) := x"0300";     -- Drive 8 disk image: 100 windows
-constant C_HMAP_VD0_GUARD     : std_logic_vector(15 downto 0) := x"0364";
-constant C_HMAP_VD1           : std_logic_vector(15 downto 0) := x"0365";     -- Drive 9 disk image: 100 windows
-constant C_HMAP_VD1_GUARD     : std_logic_vector(15 downto 0) := x"03C9";
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 
 ----------------------------------------------------------------------------------------------------------

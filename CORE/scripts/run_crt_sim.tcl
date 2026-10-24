@@ -38,6 +38,8 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/cartridge_heuristics.vhd"] \
     [file join $repo_dir "CORE/vhdl/mount_buf_wrapper.vhd"] \
     [file join $repo_dir "CORE/vhdl/vd_hr_pump.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sd_eng_arb.vhd"] \
+    [file join $repo_dir "CORE/vhdl/vd_sd.vhd"] \
     [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
     [file join $repo_dir "CORE/vhdl/reu_mapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/memory/avm_cache.vhd"] \
@@ -51,6 +53,8 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
+    [file join $repo_dir "M2M/vhdl/QNICE/sdhost.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \

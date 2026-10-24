@@ -15,6 +15,7 @@ library work;
 use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
+use work.sdhost_pkg.all;
 
 library xpm;
 use xpm.vcomponents.all;
@@ -56,17 +57,24 @@ port (
    kb_io2_i                : in    std_logic;                 -- data input from keyboard
 
    -- Micro SD Connector (external slot at back of the cover)
-   sd_reset_o              : out   std_logic;
+   -- CMD and DAT3..0 with output enables: the top drives the pins (native 4-bit SD or SPI)
    sd_clk_o                : out   std_logic;
-   sd_mosi_o               : out   std_logic;
-   sd_miso_i               : in    std_logic;
+   sd_cmd_o                : out   std_logic;
+   sd_cmd_oe_o             : out   std_logic;
+   sd_cmd_i                : in    std_logic;
+   sd_dat_o                : out   std_logic_vector(3 downto 0);
+   sd_dat_oe_o             : out   std_logic_vector(3 downto 0);
+   sd_dat_i                : in    std_logic_vector(3 downto 0);
    sd_cd_i                 : in    std_logic;
 
    -- SD Connector (this is the slot at the bottom side of the case under the cover)
-   sd2_reset_o             : out   std_logic;
    sd2_clk_o               : out   std_logic;
-   sd2_mosi_o              : out   std_logic;
-   sd2_miso_i              : in    std_logic;
+   sd2_cmd_o               : out   std_logic;
+   sd2_cmd_oe_o            : out   std_logic;
+   sd2_cmd_i               : in    std_logic;
+   sd2_dat_o               : out   std_logic_vector(3 downto 0);
+   sd2_dat_oe_o            : out   std_logic_vector(3 downto 0);
+   sd2_dat_i               : in    std_logic_vector(3 downto 0);
    sd2_cd_i                : in    std_logic;
 
    -- Joysticks and Paddles
@@ -242,6 +250,10 @@ port (
    qnice_ramrom_ce_o       : out   std_logic;
    qnice_ramrom_we_o       : out   std_logic;
    qnice_ramrom_wait_i     : in    std_logic;
+
+   -- Block transfers to and from the active SD card (QNICE clock, see sdhost.vhd)
+   qnice_sd_eng_i          : in    t_sd_c2q := (others => '0');
+   qnice_sd_eng_o          : out   t_sd_q2c;
 
    hdmi_scl_io             : inout std_logic;
    hdmi_sda_io             : inout std_logic;
@@ -630,19 +642,28 @@ begin
    )
    port map (
       clk_i                     => qnice_clk,
+      clk100_i                  => hr_clk,     -- same MMCM as qnice_clk, phase 0
       rst_i                     => qnice_rst,
       uart_rxd_i                => uart_rxd_i,
       uart_txd_o                => uart_txd_o,
-      sd_reset_o                => sd_reset_o,
       sd_clk_o                  => sd_clk_o,
-      sd_mosi_o                 => sd_mosi_o,
-      sd_miso_i                 => sd_miso_i,
+      sd_cmd_o                  => sd_cmd_o,
+      sd_cmd_oe_o               => sd_cmd_oe_o,
+      sd_cmd_i                  => sd_cmd_i,
+      sd_dat_o                  => sd_dat_o,
+      sd_dat_oe_o               => sd_dat_oe_o,
+      sd_dat_i                  => sd_dat_i,
       sd_cd_i                   => sd_cd_i,
-      sd2_reset_o               => sd2_reset_o,
       sd2_clk_o                 => sd2_clk_o,
-      sd2_mosi_o                => sd2_mosi_o,
-      sd2_miso_i                => sd2_miso_i,
+      sd2_cmd_o                 => sd2_cmd_o,
+      sd2_cmd_oe_o              => sd2_cmd_oe_o,
+      sd2_cmd_i                 => sd2_cmd_i,
+      sd2_dat_o                 => sd2_dat_o,
+      sd2_dat_oe_o              => sd2_dat_oe_o,
+      sd2_dat_i                 => sd2_dat_i,
       sd2_cd_i                  => sd2_cd_i,
+      sd_eng_i                  => qnice_sd_eng_i,
+      sd_eng_o                  => qnice_sd_eng_o,
       paddle_i                  => paddle_i,
       paddle_drain_o            => paddle_drain_o,
       qnice_osm_cfg_enable_o    => qnice_osm_cfg_enable,

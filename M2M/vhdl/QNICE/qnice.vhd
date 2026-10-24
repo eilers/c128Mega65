@@ -15,6 +15,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.env1_globals.all;
 use work.qnice_tools.all;
+use work.sdhost_pkg.all;
 
 entity QNICE is
 generic (
@@ -27,24 +28,36 @@ generic (
 port (
    -- QNICE MEGA65 hardware interface
    clk50_i              : in std_logic;            -- 50 MHz clock
+   clk100_i             : in std_logic;            -- 100 MHz from the same MMCM, phase 0 (SD controllers)
    reset_n_i            : in std_logic;            -- reset the whole QNICE SOC
 
    uart_rxd_i           : in std_logic;            -- receive data, 115.200 baud, 8-N-1, rxd, txd only; rts/cts are not available
    uart_txd_o           : out std_logic;           -- send data, ditto
 
    -- Micro SD Connector (external slot at back of the cover)
-   sd_reset_o           : out std_logic;
+   -- CMD and DAT3..0 with output enables: native 4-bit SD, or SPI (CMD = MOSI, DAT0 = MISO, DAT3 = CS)
    sd_clk_o             : out std_logic;
-   sd_mosi_o            : out std_logic;
-   sd_miso_i            : in std_logic;
+   sd_cmd_o             : out std_logic;
+   sd_cmd_oe_o          : out std_logic;
+   sd_cmd_i             : in  std_logic;
+   sd_dat_o             : out std_logic_vector(3 downto 0);
+   sd_dat_oe_o          : out std_logic_vector(3 downto 0);
+   sd_dat_i             : in  std_logic_vector(3 downto 0);
    sd_cd_i              : in std_logic;
 
    -- SD Connector (this is the slot at the bottom side of the case under the cover)
-   sd2_reset_o          : out std_logic;
    sd2_clk_o            : out std_logic;
-   sd2_mosi_o           : out std_logic;
-   sd2_miso_i           : in std_logic;
+   sd2_cmd_o            : out std_logic;
+   sd2_cmd_oe_o         : out std_logic;
+   sd2_cmd_i            : in  std_logic;
+   sd2_dat_o            : out std_logic_vector(3 downto 0);
+   sd2_dat_oe_o         : out std_logic_vector(3 downto 0);
+   sd2_dat_i            : in  std_logic_vector(3 downto 0);
    sd2_cd_i             : in std_logic;
+
+   -- Engine port of the active SD card's controller: block transfers for the core
+   sd_eng_i             : in  t_sd_c2q := (others => '0');
+   sd_eng_o             : out t_sd_q2c;
 
    -- QNICE public registers
    csr_reset_o          : out std_logic;           -- reset the MiSTer core
@@ -136,13 +149,6 @@ signal cpu_halt                  : std_logic;
 signal reset_ctl                 : std_logic;
 signal reset_pre_pore            : std_logic;
 signal reset_post_pore           : std_logic;
-
--- SD Card multiplexing: SD_* signals are the bottom tray, SD2*_ signals are the back slot
-signal sd_mux_reset_ctrl          : std_logic;                       -- reset QNICE's controller
-signal sd_mux_reset_card          : std_logic;                       -- reset SD card
-signal sd_mux_clk                 : std_logic;
-signal sd_mux_mosi                : std_logic;
-signal sd_mux_miso                : std_logic;
 
 -- QNICE standard MMIO signals
 signal rom_en                    : std_logic;
@@ -355,11 +361,13 @@ begin
       );
 
    -- Smart SD card multiplexer: handles the two different SD Card slots of the MEGA65 (see also sysdef.asm)
+   -- and holds the SD card controllers (sdhost.vhd, one per slot)
    i_sdmux : entity work.sdmux
       port map
       (
          -- QNICE system interface
          sysclk50Mhz_i        => clk50_i,
+         clk100_i             => clk100_i,
          sysreset_i           => reset_ctl,
 
          -- Configuration lines to control the behavior of the multiplexer
@@ -369,43 +377,36 @@ begin
          detected_int_o       => sd_cd_int,
          detected_ext_o       => sd_cd_ext,
 
+         -- QNICE registers of the active controller
+         en_i                 => sd_en,
+         we_i                 => sd_we,
+         reg_i                => sd_reg,
+         data_i               => cpu_data_out,
+         data_o               => sd_data_out,
+
+         -- engine port of the active controller
+         eng_i                => sd_eng_i,
+         eng_o                => sd_eng_o,
+
          -- interface to bottom tray's SD card
          sd_tray_detect_i     => sd2_cd_i,
-         sd_tray_reset_o      => sd2_reset_o,
          sd_tray_clk_o        => sd2_clk_o,
-         sd_tray_mosi_o       => sd2_mosi_o,
-         sd_tray_miso_i       => sd2_miso_i,
+         sd_tray_cmd_o        => sd2_cmd_o,
+         sd_tray_cmd_oe_o     => sd2_cmd_oe_o,
+         sd_tray_cmd_i        => sd2_cmd_i,
+         sd_tray_dat_o        => sd2_dat_o,
+         sd_tray_dat_oe_o     => sd2_dat_oe_o,
+         sd_tray_dat_i        => sd2_dat_i,
 
          -- interface to the SD card in the back slot
          sd_back_detect_i     => sd_cd_i,
-         sd_back_reset_o      => sd_reset_o,
          sd_back_clk_o        => sd_clk_o,
-         sd_back_mosi_o       => sd_mosi_o,
-         sd_back_miso_i       => sd_miso_i,
-
-         -- interface to the QNICE SD card controller
-         ctrl_reset_o         => sd_mux_reset_ctrl,
-         ctrl_sd_reset_i      => sd_mux_reset_card,
-         ctrl_sd_clk_i        => sd_mux_clk,
-         ctrl_sd_mosi_i       => sd_mux_mosi,
-         ctrl_sd_miso_o       => sd_mux_miso
-      );
-
-   -- SD Card: connect QNICE SD Card logic to the smart multiplexer
-   sd_card : entity work.sdcard
-      port map
-      (
-         clk                  => clk50_i,
-         reset                => sd_mux_reset_ctrl,
-         en                   => sd_en,
-         we                   => sd_we,
-         reg                  => sd_reg,
-         data_in              => cpu_data_out,
-         data_out             => sd_data_out,
-         sd_reset             => sd_mux_reset_card,
-         sd_clk               => sd_mux_clk,
-         sd_mosi              => sd_mux_mosi,
-         sd_miso              => sd_mux_miso
+         sd_back_cmd_o        => sd_cmd_o,
+         sd_back_cmd_oe_o     => sd_cmd_oe_o,
+         sd_back_cmd_i        => sd_cmd_i,
+         sd_back_dat_o        => sd_dat_o,
+         sd_back_dat_oe_o     => sd_dat_oe_o,
+         sd_back_dat_i        => sd_dat_i
       );
 
    -- Cycle Counter: used by the M2M firmware for measuring delays

@@ -379,10 +379,7 @@ create_pblock pblock_m65driver
 add_cells_to_pblock pblock_m65driver [get_cells [list i_framework/i_m2m_keyb/m65driver]]
 resize_pblock pblock_m65driver -add {SLICE_X0Y225:SLICE_X7Y243}
 
-# Place SD card controller in the middle between the left and right FPGA boundary because the output ports are at the opposide edges
-create_pblock pblock_sdcard
-add_cells_to_pblock pblock_sdcard [get_cells [list i_framework/i_qnice_wrapper/QNICE_SOC/sd_card]]
-resize_pblock pblock_sdcard -add {SLICE_X66Y178:SLICE_X99Y193}
+# No SD card pblock: each slot has its own controller now (sdmux.vhd), placed near its pins
 
 # Place phase-shifted VGA output registers near the actual output buffers
 create_pblock pblock_vga

@@ -16,6 +16,7 @@ library work;
 use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
+use work.sdhost_pkg.all;
 
 library unisim;
 use unisim.vcomponents.all;
@@ -68,6 +69,10 @@ port (
    qnice_dev_ce_i          : in  std_logic;
    qnice_dev_we_i          : in  std_logic;
    qnice_dev_wait_o        : out std_logic;
+
+   -- Block transfers to and from the active SD card (sdhost.vhd's engine port)
+   qnice_sd_eng_o          : out t_sd_c2q;
+   qnice_sd_eng_i          : in  t_sd_q2c;
 
    --------------------------------------------------------------------------------------------------------
    -- HyperRAM Clock Domain
@@ -300,34 +305,22 @@ signal qnice_vd_ce           : std_logic;
 signal qnice_vd_we           : std_logic;
 signal qnice_vd_data         : std_logic_vector(15 downto 0);
 
--- Disk image staging buffers in HyperRAM (mount_buf_wrapper)
-signal qnice_mount_ce        : std_logic;
-signal qnice_mount_we        : std_logic;
-signal qnice_mount_data      : std_logic_vector(15 downto 0);
-signal qnice_mount_wait      : std_logic;
-signal qnice_mount_base      : std_logic_vector(21 downto 0);
+-- Mounted disk images, straight from the SD card (vd_sd.vhd inside main.vhd)
+signal qnice_vdsd_ce         : std_logic;
+signal qnice_vdsd_we         : std_logic;
+signal qnice_vdsd_data       : std_logic_vector(15 downto 0);
+signal qnice_vdsd_drive      : natural range 0 to 1;
 
--- Four Avalon masters share hr_core_*: QNICE still stages the image through
--- mount_buf_wrapper (s0), the hardware pump fills the drive buffer (s1), and
--- the REU (s2) and the virtual cartridge (s3) each own a region of doc/hyperram-map.md.
-signal mount_hr_write         : std_logic;
-signal mount_hr_read          : std_logic;
-signal mount_hr_address       : std_logic_vector(31 downto 0);
-signal mount_hr_writedata     : std_logic_vector(15 downto 0);
-signal mount_hr_byteenable    : std_logic_vector( 1 downto 0);
-signal mount_hr_burstcount    : std_logic_vector( 7 downto 0);
-signal mount_hr_readdata      : std_logic_vector(15 downto 0);
-signal mount_hr_readdatavalid : std_logic;
-signal mount_hr_waitrequest   : std_logic;
-signal pump_hr_write          : std_logic;
-signal pump_hr_read           : std_logic;
-signal pump_hr_address        : std_logic_vector(31 downto 0);
-signal pump_hr_writedata      : std_logic_vector(15 downto 0);
-signal pump_hr_byteenable     : std_logic_vector( 1 downto 0);
-signal pump_hr_burstcount     : std_logic_vector( 7 downto 0);
-signal pump_hr_readdata       : std_logic_vector(15 downto 0);
-signal pump_hr_readdatavalid  : std_logic;
-signal pump_hr_waitrequest    : std_logic;
+-- The SD controller's engine port, shared by the drives (A) and the .crt loader (B)
+signal qnice_drv_eng_c2q     : t_sd_c2q;
+signal qnice_drv_eng_q2c     : t_sd_q2c;
+signal qnice_drv_eng_want    : std_logic;
+signal qnice_crt_eng_c2q     : t_sd_c2q;
+signal qnice_crt_eng_q2c     : t_sd_q2c;
+signal qnice_crt_eng_want    : std_logic;
+
+-- Two Avalon masters share hr_core_*: the REU (s0) and the virtual cartridge (s1),
+-- each in its region of doc/hyperram-map.md.
 
 -- REU: main_reu_* on main_clk, reu_hr_* on hr_clk
 signal main_reu_write         : std_logic;
@@ -679,19 +672,16 @@ begin
          drv_rom_data_i       => qnice_drvrom_b_data,
          drv_rom_wr_i         => qnice_drv_rom_wr,
 
-         hr_clk_i             => hr_clk_i,
-         hr_rst_i             => hr_rst_i,
-         hr_write_o           => pump_hr_write,
-         hr_read_o            => pump_hr_read,
-         hr_address_o         => pump_hr_address,
-         hr_writedata_o       => pump_hr_writedata,
-         hr_byteenable_o      => pump_hr_byteenable,
-         hr_burstcount_o      => pump_hr_burstcount,
-         hr_readdata_i        => pump_hr_readdata,
-         hr_readdatavalid_i   => pump_hr_readdatavalid,
-         hr_waitrequest_i     => pump_hr_waitrequest,
-         hr_base_d8_i         => C_HMAP_VD0(9 downto 0) & x"000",
-         hr_base_d9_i         => C_HMAP_VD1(9 downto 0) & x"000",
+         rst_sd_i             => qnice_rst_i,
+         qnice_vdsd_drive_i   => qnice_vdsd_drive,
+         qnice_vdsd_addr_i    => qnice_dev_addr_i,
+         qnice_vdsd_data_i    => qnice_dev_data_i,
+         qnice_vdsd_data_o    => qnice_vdsd_data,
+         qnice_vdsd_ce_i      => qnice_vdsd_ce,
+         qnice_vdsd_we_i      => qnice_vdsd_we,
+         qnice_sd_want_o      => qnice_drv_eng_want,
+         qnice_sd_eng_o       => qnice_drv_eng_c2q,
+         qnice_sd_eng_i       => qnice_drv_eng_q2c,
 
          reu_avm_write_o         => main_reu_write,
          reu_avm_read_o          => main_reu_read,
@@ -820,8 +810,8 @@ begin
       qnice_drvrom_we      <= '0';
       qnice_vd_ce          <= '0';
       qnice_vd_we          <= '0';
-      qnice_mount_ce       <= '0';
-      qnice_mount_we       <= '0';
+      qnice_vdsd_ce        <= '0';
+      qnice_vdsd_we        <= '0';
       qnice_crt_ce         <= '0';
       qnice_crt_we         <= '0';
 
@@ -849,13 +839,11 @@ begin
             qnice_vd_we       <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_vd_data;
 
-        -- Mounted disk images, staged in HyperRAM. One wrapper serves both drives: QNICE is
-        -- single-threaded, so the two devices are never accessed at the same time.
+        -- Mounted disk images: the block tables and controls of vd_sd (inside main.vhd)
         when C_DEV_MOUNT_D8 | C_DEV_MOUNT_D9 =>
-            qnice_mount_ce    <= qnice_dev_ce_i;
-            qnice_mount_we    <= qnice_dev_we_i;
-            qnice_dev_data_o  <= qnice_mount_data;
-            qnice_dev_wait_o  <= qnice_mount_wait;
+            qnice_vdsd_ce     <= qnice_dev_ce_i;
+            qnice_vdsd_we     <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_vdsd_data;
 
         -- Virtual cartridge: the .crt file goes to HyperRAM, the CSRs start the parser
         when C_DEV_CRT =>
@@ -868,34 +856,22 @@ begin
       end case;
    end process core_specific_devices;
 
-   qnice_mount_base <= C_HMAP_VD1(9 downto 0) & x"000" when qnice_dev_id_i = C_DEV_MOUNT_D9 else
-                       C_HMAP_VD0(9 downto 0) & x"000";
+   qnice_vdsd_drive <= 1 when qnice_dev_id_i = C_DEV_MOUNT_D9 else 0;
 
-   i_mount_buf_wrapper : entity work.mount_buf_wrapper
+   -- The drives get the SD controller first; a .crt load waits between its DMAs
+   i_sd_eng_arb : entity work.sd_eng_arb
       port map (
-         qnice_clk_i        => qnice_clk_i,
-         qnice_rst_i        => qnice_rst_i,
-         qnice_addr_i       => qnice_dev_addr_i,
-         qnice_data_i       => qnice_dev_data_i,
-         qnice_ce_i         => qnice_mount_ce,
-         qnice_we_i         => qnice_mount_we,
-         qnice_data_o       => qnice_mount_data,
-         qnice_wait_o       => qnice_mount_wait,
-
-         hr_base_addr_i     => qnice_mount_base,
-
-         hr_clk_i           => hr_clk_i,
-         hr_rst_i           => hr_rst_i,
-         hr_write_o         => mount_hr_write,
-         hr_read_o          => mount_hr_read,
-         hr_address_o       => mount_hr_address,
-         hr_writedata_o     => mount_hr_writedata,
-         hr_byteenable_o    => mount_hr_byteenable,
-         hr_burstcount_o    => mount_hr_burstcount,
-         hr_readdata_i      => mount_hr_readdata,
-         hr_readdatavalid_i => mount_hr_readdatavalid,
-         hr_waitrequest_i   => mount_hr_waitrequest
-      ); -- i_mount_buf_wrapper
+         clk_i    => qnice_clk_i,
+         rst_i    => qnice_rst_i,
+         a_want_i => qnice_drv_eng_want,
+         a_c2q_i  => qnice_drv_eng_c2q,
+         a_q2c_o  => qnice_drv_eng_q2c,
+         b_want_i => qnice_crt_eng_want,
+         b_c2q_i  => qnice_crt_eng_c2q,
+         b_q2c_o  => qnice_crt_eng_q2c,
+         c2q_o    => qnice_sd_eng_o,
+         q2c_i    => qnice_sd_eng_i
+      ); -- i_sd_eng_arb
 
    -- REU: cross its HyperRAM port from main_clk to hr_clk
    i_reu_avm_fifo : entity work.avm_fifo
@@ -947,6 +923,9 @@ begin
          qnice_we_i         => qnice_crt_we,
          qnice_data_o       => qnice_crt_data,
          qnice_wait_o       => qnice_crt_wait,
+         qnice_sd_want_o    => qnice_crt_eng_want,
+         qnice_sd_eng_o     => qnice_crt_eng_c2q,
+         qnice_sd_eng_i     => qnice_crt_eng_q2c,
          main_clk_i         => main_clk_o,
          main_loaded_o      => main_crt_loaded,
          main_loading_o     => main_crt_loading,
@@ -998,46 +977,44 @@ begin
          sr_waitrequest_i   => sr_core_waitrequest_i
       ); -- i_sw_cartridge_wrapper
 
-   -- s0 = QNICE mount (image staging, including writes). s1 = hardware fill of
-   -- the drive's sector buffer. s2 = REU, s3 = virtual cartridge. Round-robin;
-   -- the Shell and the pump never hold the HyperRAM for a whole cylinder at once.
-   i_core_hr_arbit : entity work.avm_arbit_general
+   -- s0 = REU, s1 = virtual cartridge, taking turns
+   i_core_hr_arbit : entity work.avm_arbit
       generic map (
-         G_NUM_SLAVES   => 4,
+         G_PREFER_SWAP  => true,
          G_FREQ_HZ      => 100_000_000,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
       )
       port map (
-         clk_i                    => hr_clk_i,
-         rst_i                    => hr_rst_i,
-         s_avm_write_i            => crt_hr_write      & reu_hr_write      & pump_hr_write      & mount_hr_write,
-         s_avm_read_i             => crt_hr_read       & reu_hr_read       & pump_hr_read       & mount_hr_read,
-         s_avm_address_i          => crt_hr_address    & reu_hr_address    & pump_hr_address    & mount_hr_address,
-         s_avm_writedata_i        => crt_hr_writedata  & reu_hr_writedata  & pump_hr_writedata  & mount_hr_writedata,
-         s_avm_byteenable_i       => crt_hr_byteenable & reu_hr_byteenable & pump_hr_byteenable & mount_hr_byteenable,
-         s_avm_burstcount_i       => crt_hr_burstcount & reu_hr_burstcount & pump_hr_burstcount & mount_hr_burstcount,
-         s_avm_readdata_o(4*16-1 downto 3*16) => crt_hr_readdata,
-         s_avm_readdata_o(3*16-1 downto 2*16) => reu_hr_readdata,
-         s_avm_readdata_o(2*16-1 downto 1*16) => pump_hr_readdata,
-         s_avm_readdata_o(1*16-1 downto 0*16) => mount_hr_readdata,
-         s_avm_readdatavalid_o(3) => crt_hr_readdatavalid,
-         s_avm_readdatavalid_o(2) => reu_hr_readdatavalid,
-         s_avm_readdatavalid_o(1) => pump_hr_readdatavalid,
-         s_avm_readdatavalid_o(0) => mount_hr_readdatavalid,
-         s_avm_waitrequest_o(3)   => crt_hr_waitrequest,
-         s_avm_waitrequest_o(2)   => reu_hr_waitrequest,
-         s_avm_waitrequest_o(1)   => pump_hr_waitrequest,
-         s_avm_waitrequest_o(0)   => mount_hr_waitrequest,
-         m_avm_write_o            => hr_core_write_o,
-         m_avm_read_o             => hr_core_read_o,
-         m_avm_address_o          => hr_core_address_o,
-         m_avm_writedata_o        => hr_core_writedata_o,
-         m_avm_byteenable_o       => hr_core_byteenable_o,
-         m_avm_burstcount_o       => hr_core_burstcount_o,
-         m_avm_readdata_i         => hr_core_readdata_i,
-         m_avm_readdatavalid_i    => hr_core_readdatavalid_i,
-         m_avm_waitrequest_i      => hr_core_waitrequest_i
+         clk_i                  => hr_clk_i,
+         rst_i                  => hr_rst_i,
+         s0_avm_write_i         => reu_hr_write,
+         s0_avm_read_i          => reu_hr_read,
+         s0_avm_address_i       => reu_hr_address,
+         s0_avm_writedata_i     => reu_hr_writedata,
+         s0_avm_byteenable_i    => reu_hr_byteenable,
+         s0_avm_burstcount_i    => reu_hr_burstcount,
+         s0_avm_readdata_o      => reu_hr_readdata,
+         s0_avm_readdatavalid_o => reu_hr_readdatavalid,
+         s0_avm_waitrequest_o   => reu_hr_waitrequest,
+         s1_avm_write_i         => crt_hr_write,
+         s1_avm_read_i          => crt_hr_read,
+         s1_avm_address_i       => crt_hr_address,
+         s1_avm_writedata_i     => crt_hr_writedata,
+         s1_avm_byteenable_i    => crt_hr_byteenable,
+         s1_avm_burstcount_i    => crt_hr_burstcount,
+         s1_avm_readdata_o      => crt_hr_readdata,
+         s1_avm_readdatavalid_o => crt_hr_readdatavalid,
+         s1_avm_waitrequest_o   => crt_hr_waitrequest,
+         m_avm_write_o          => hr_core_write_o,
+         m_avm_read_o           => hr_core_read_o,
+         m_avm_address_o        => hr_core_address_o,
+         m_avm_writedata_o      => hr_core_writedata_o,
+         m_avm_byteenable_o     => hr_core_byteenable_o,
+         m_avm_burstcount_o     => hr_core_burstcount_o,
+         m_avm_readdata_i       => hr_core_readdata_i,
+         m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
+         m_avm_waitrequest_i    => hr_core_waitrequest_i
       ); -- i_core_hr_arbit
 
    ---------------------------------------------------------------------------------------------
