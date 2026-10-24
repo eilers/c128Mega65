@@ -79,13 +79,15 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- Version of this core. It ends up inside a FAT32 path (see CFG_FILE), so keep it to characters
 -- that are legal there and use "_" instead of spaces. CORE/scripts/build_release.sh refuses to
 -- build unless this matches the release name that is being packaged.
-constant CORE_VERSION : string := "V1.0_Beta2";
+constant CORE_VERSION : string := "V1.1_Beta1";
 
 constant SCR_CREDITS : string :=
 
    "\n Commodore 128 for MEGA65 " & CORE_VERSION & "\n\n" &
    " Core port to the MEGA65\n" &
    "   Stefan Eilers\n\n" &
+   " Special thanks for contributions:\n" &
+   "   Jeff Flitton\n\n" &
    " MiSTer C128 core\n" &
    "   Erik Scheffers, based on C64_MiSTer\n" &
    "   by sorgelig and on FPGA64 by\n" &
