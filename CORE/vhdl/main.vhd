@@ -1263,12 +1263,14 @@ end process crt_rfsh_proc;
 
 crt_rfsh_ok_o <= crt_rfsh_ok;
 
--- The cartridge's RAMs. Writes to $9Exx/$9Fxx also reach $DExx/$DFxx RAM when that is mapped
--- (Action Replay, see C64MEGA65's main.vhd).
+-- The cartridge's RAMs. While its RAM is at ROML, writes to $9Exx/$9Fxx also reach the
+-- $DExx/$DFxx copy (Action Replay, see C64MEGA65's main.vhd). EasyFlash's $DF00 RAM is separate.
 crt_addr_9exx <= '1' when core_ram_addr(12 downto 8) = "11110" else '0';
 crt_addr_9fxx <= '1' when core_ram_addr(12 downto 8) = "11111" else '0';
-crt_ioe_we_o  <= crt_active and system_we and (core_ioe or (core_roml and crt_ioe_wr_ena and crt_addr_9exx));
-crt_iof_we_o  <= crt_active and system_we and (core_iof or (core_roml and crt_iof_wr_ena and crt_addr_9fxx));
+crt_ioe_we_o  <= crt_active and system_we and
+                 (core_ioe or (core_roml and crt_roml_we and crt_ioe_wr_ena and crt_addr_9exx));
+crt_iof_we_o  <= crt_active and system_we and
+                 (core_iof or (core_roml and crt_roml_we and crt_iof_wr_ena and crt_addr_9fxx));
 crt_ram_we_o  <= crt_active and system_we and core_roml and crt_roml_we;
 
 -- Route the cartridge source back into the C128, then lay the REU over it

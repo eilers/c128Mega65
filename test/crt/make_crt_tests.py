@@ -60,18 +60,18 @@ def with_program(chip: bytearray, code: bytes, vectors: int | None = None) -> by
 
 
 def crt(path: Path, c128: bool, hw_type: int, exrom: int, game: int,
-        chips: list[tuple[int, int, int, bytes]]) -> None:
-    """chips: (chip type, bank, load address, data)"""
+        chips: list[tuple[int, int, int, bytes]], title: str | None = None) -> None:
+    """chips: (chip type, bank, load address, data); title defaults to the file name"""
     sig = b"C128 CARTRIDGE  " if c128 else b"C64 CARTRIDGE   "
     out = bytearray(sig + struct.pack(">IHHBBB", 0x40, 0x0100, hw_type, exrom, game, 0) + bytes(5))
-    out += path.stem.upper().encode().ljust(32, b"\0")
+    out += (title or path.stem.upper()).encode().ljust(32, b"\0")
     for chip_type, bank, load, data in chips:
         out += b"CHIP" + struct.pack(">IHHHH", 0x10 + len(data), chip_type, bank, load, len(data)) + data
     path.write_bytes(out)
 
 
-def save(name: str, probes: list[tuple[int, int, int]], *args) -> None:
-    crt(HERE / f"{name}.crt", *args)
+def save(name: str, probes: list[tuple[int, int, int]], *args, **kwargs) -> None:
+    crt(HERE / f"{name}.crt", *args, **kwargs)
     (HERE / f"{name}.exp").write_text("".join(f"{v:02X}\n" for op, _, v in probes if op == READ))
     print(f"{name}.crt: {sum(op == READ for op, _, _ in probes)} reads")
 
@@ -129,12 +129,19 @@ def easyflash() -> None:
                (WRITE, 0xDF00, 0x5A), (WRITE, 0xDF80, 0xA5),               # its 256 bytes of RAM
                (READ, 0xDF00, 0x5A), (READ, 0xDF80, 0xA5),
                (WRITE, 0xDE02, 0x07), (WRITE, 0x8000, 0x77),               # RAM under ROML
-               (WRITE, 0xDE02, 0x04), (READ, 0x8000, 0x77)]                # cartridge off
+               (WRITE, 0xDE02, 0x04), (READ, 0x8000, 0x77),                # cartridge off
+               (WRITE, 0xDE02, 0x07), (WRITE, 0xDF10, 0x3C),               # $9Fxx is not $DFxx
+               (WRITE, 0x9F10, 0xC3), (READ, 0xDF10, 0x3C),
+               (WRITE, 0x8100, 0x11), (WRITE, 0xE100, 0x22),               # RAM under both
+               (WRITE, 0xDE02, 0x05), (WRITE, 0x8100, 0xEE),               # Ultimax: these writes
+               (WRITE, 0xE100, 0xDD), (READ, 0x8100, lo[5][0x100]),        # reach only the cart
+               (WRITE, 0xDE02, 0x04), (READ, 0x8100, 0x11),
+               (WRITE, 0x0001, 0x35), (READ, 0xE100, 0x22), (WRITE, 0x0001, 0x37)]
     hi[0] = bytearray(with_program(hi[0], program(2, 0xE000, probes)))
     chips = []
     for b in range(banks):
         chips += [(2, b, 0x8000, bytes(lo[b])), (2, b, 0xA000, bytes(hi[b]))]
-    save("crttest-ef", probes, False, 32, 1, 0, chips)
+    save("crttest-ef", probes, False, 32, 1, 0, chips, title="EasyFlash")
 
 
 def magic_desk_16k() -> None:
