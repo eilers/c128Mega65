@@ -78,12 +78,13 @@ while (( running > 0 )); do
   running=$(( running - 1 ))
 done
 
-# One line per board: failing endpoints come from the routed timing summary.
+# One line per board: setup and hold come from the routed timing summary.
 echo
 failed=0
 for b in "${BOARDS[@]}"; do
   impl="$CORE_DIR/CORE-R${b}-vivado2022.runs/impl_1"
-  timing="$(awk '/^\| Design Timing Summary/ {f=1} f && $1 ~ /^-?[0-9.]+$/ {print "WNS " $1 " ns, " $3 " failing endpoints"; exit}' \
+  timing="$(awk '/^\| Design Timing Summary/ {f=1} f && $1 ~ /^-?[0-9.]+$/ {
+                   print "setup WNS " $1 " ns (" $3 " failing), hold WHS " $5 " ns (" $7 " failing)"; exit}' \
             "$impl/mega65_r${b}_timing_summary_routed.rpt" 2>/dev/null)"
   bram="$(awk -F'|' '/^\| Block RAM Tile/ {gsub(/ /, "", $3); print $3; exit}' \
           "$impl/mega65_r${b}_utilization_placed.rpt" 2>/dev/null)"
