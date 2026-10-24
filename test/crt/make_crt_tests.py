@@ -76,8 +76,9 @@ def save(name: str, probes: list[tuple[int, int, int]], *args) -> None:
     print(f"{name}.crt: {sum(op == READ for op, _, _ in probes)} reads")
 
 
-def c128_generic() -> None:
-    """C128 function ROM: an 8 kB chip at $8000, mirrored at $A000, and 16 kB at $C000."""
+def c128_generic(name: str = "crttest-c128", mode: int = 1) -> None:
+    """C128 function ROM: an 8 kB chip at $8000, mirrored at $A000, and 16 kB at $C000.
+    Mode 3 runs it in FAST mode."""
     roml, romh = pattern(0, 0x2000), pattern(1, 0x4000)
     assert romh[7:10] != b"CBM"    # or the KERNAL finds a second function ROM at $C000
     probes = [(WRITE, 0xFF00, 0x2A),   # external function ROM at $8000 and $C000, I/O on
@@ -87,8 +88,8 @@ def c128_generic() -> None:
               (READ, 0xC000, romh[0]), (READ, 0xC800, romh[0x800]), (READ, 0xCFFF, romh[0xFFF]),
               (READ, 0xE000, romh[0x2000]), (READ, 0xE123, romh[0x2123]),
               (READ, 0xFFF0, romh[0x3FF0]), (READ, 0xFFFF, romh[0x3FFF])]
-    roml_img = with_program(roml, program(1, 0x8000, probes))
-    save("crttest-c128", probes, True, 0, 0, 0, [(0, 0, 0x8000, roml_img), (0, 0, 0xC000, bytes(romh))])
+    roml_img = with_program(roml, program(mode, 0x8000, probes))
+    save(name, probes, True, 0, 0, 0, [(0, 0, 0x8000, roml_img), (0, 0, 0xC000, bytes(romh))])
 
 
 def c64_16k() -> None:
@@ -144,6 +145,7 @@ def unsupported() -> None:
 
 if __name__ == "__main__":
     c128_generic()
+    c128_generic("crttest-c128fast", 3)
     c64_16k()
     ultimax_4k()
     easyflash()

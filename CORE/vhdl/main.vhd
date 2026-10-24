@@ -226,6 +226,12 @@ entity main is
       crt_data_o              : out std_logic_vector( 7 downto 0);
       crt_lo_data_i           : in  std_logic_vector( 7 downto 0) := (others => '1');
       crt_hi_data_i           : in  std_logic_vector( 7 downto 0) := (others => '1');
+      crt_vic_data_i          : in  std_logic_vector( 7 downto 0) := (others => '1');  -- ROMH for the VIC
+      crt_rd_lo_o             : out std_logic;   -- SDRAM: the CPU's address is in ROML, IO1 or IO2
+      crt_rd_hi_o             : out std_logic;   -- SDRAM: the CPU's address is in ROMH
+      crt_vic_rd_o            : out std_logic;   -- SDRAM: the VIC fetches ROMH (Ultimax)
+      crt_vic_addr_o          : out std_logic_vector(12 downto 0);
+      crt_rfsh_ok_o           : out std_logic;   -- SDRAM: no cartridge read is due for a while
       crt_ioe_we_o            : out std_logic;
       crt_iof_we_o            : out std_logic;
       crt_ram_we_o            : out std_logic;
@@ -459,6 +465,7 @@ signal crt_iof_wr_ena       : std_logic;
 signal crt_bank_lo          : std_logic_vector(6 downto 0);
 signal crt_addr_9exx        : std_logic;
 signal crt_addr_9fxx        : std_logic;
+signal crt_rfsh_ok          : std_logic := '1';
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
@@ -1233,6 +1240,29 @@ crt_bank_lo_o <= crt_bank_lo;
 crt_addr_o    <= std_logic_vector(core_ram_addr(15 downto 0));
 crt_data_o    <= std_logic_vector(core_ram_data_out);
 
+-- With the file in SDRAM, a read is requested as soon as the address is out: the CPU's from
+-- the start of its access (IO1/IO2 by the selects the port uses, which span it too), the VIC's
+-- a clock after each phase starts, when its registered address has caught up.
+crt_rd_lo_o    <= crt_active and (core_roml or core_ioe_bus or core_iof_bus);
+crt_rd_hi_o    <= crt_active and core_romh;
+crt_vic_rd_o   <= crt_active and cart_umax_vic when phi2_ph /= 1 else '0';
+crt_vic_addr_o <= std_logic_vector(core_vic_addr(12 downto 0));
+
+-- SDRAM refreshes go in the middle of PHI2. Every read is requested at a phase start, the CPU's
+-- in FAST mode 8 clocks before it is latched, so a refresh there never makes one late. With no
+-- cartridge, or PHI2 stopped (pause), any time will do.
+crt_rfsh_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      crt_rfsh_ok <= '0';
+      if crt_active = '0' or phi2_cnt = 31 or (core_phi2 = '1' and phi2_ph >= 3 and phi2_ph <= 10) then
+         crt_rfsh_ok <= '1';
+      end if;
+   end if;
+end process crt_rfsh_proc;
+
+crt_rfsh_ok_o <= crt_rfsh_ok;
+
 -- The cartridge's RAMs. Writes to $9Exx/$9Fxx also reach $DExx/$DFxx RAM when that is mapped
 -- (Action Replay, see C64MEGA65's main.vhd).
 crt_addr_9exx <= '1' when core_ram_addr(12 downto 8) = "11110" else '0';
@@ -1561,7 +1591,9 @@ cpu_data_in_proc: process (all)
     -- the CPU from here while the cartridge sets io_rom.
     elsif crt_active = '1' and core_roml = '1' then
       ram_data <= unsigned(crt_ram_data_i) when crt_roml_we = '1' else unsigned(crt_lo_data_i);
-    elsif crt_active = '1' and (core_romh = '1' or core_umax_romh = '1') then
+    elsif crt_active = '1' and core_umax_romh = '1' then
+      ram_data <= unsigned(crt_vic_data_i);
+    elsif crt_active = '1' and core_romh = '1' then
       ram_data <= unsigned(crt_hi_data_i);
     elsif crt_active = '1' and core_ioe = '1' then
       ram_data <= unsigned(crt_ioe_data_i) when crt_ioe_wr_ena = '1' else unsigned(crt_lo_data_i);

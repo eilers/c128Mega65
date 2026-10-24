@@ -1,17 +1,23 @@
 # Run the virtual cartridge simulation (tb_crt): main and sw_cartridge_wrapper boot the test/crt
 # cartridges from a HyperRAM model, loaded through the QNICE CSRs as the Shell loads them, and
 # each cartridge's program must read what its .exp file says.
+# The top tb_crt runs the R3 setup (HyperRAM and the bank cache), tb_crt_sdram the R4+ one.
 # Usage:
-#   vivado -mode batch -source CORE/scripts/run_crt_sim.tcl -tclargs CORE/CORE-R6-vivado2022.xpr
+#   vivado -mode batch -source CORE/scripts/run_crt_sim.tcl -tclargs CORE/CORE-R6-vivado2022.xpr [tb_crt_sdram]
 
 set project_file [lindex $argv 0]
 if {$project_file eq ""} {
     set project_file [file normalize [file join [file dirname [info script]] .. CORE-R6-vivado2022.xpr]]
 }
+set tb_top [lindex $argv 1]
+if {$tb_top eq ""} {
+    set tb_top tb_crt
+}
 
 set core_dir  [file normalize [file join [file dirname [info script]] ..]]
 set repo_dir  [file normalize [file join $core_dir ..]]
 set tb_file   [file join $core_dir sim tb_crt.vhd]
+set tb_sdram  [file join $core_dir sim tb_crt_sdram.vhd]
 set pkg_file  [file join $core_dir sim sim_support_pkg.vhd]
 set boot_rom  [file join $repo_dir sdcard c128 boot0.rom]
 
@@ -38,6 +44,9 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/cartridge.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_parser.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_cacher.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_reader.vhd"] \
+    [file join $repo_dir "M2M/vhdl/controllers/SDRAM/sdram.vhd"] \
+    [file join $repo_dir "M2M/vhdl/axi_fifo_small.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_loader.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
@@ -94,10 +103,12 @@ if {[llength [get_filesets -quiet sim_1]] == 0} {
 if {[llength [get_files -quiet $pkg_file]] == 0} {
     add_files -fileset sources_1 -norecurse $pkg_file
 }
-if {[llength [get_files -quiet $tb_file]] == 0} {
-    add_files -fileset sim_1 -norecurse $tb_file
+foreach f [list $tb_file $tb_sdram] {
+    if {[llength [get_files -quiet $f]] == 0} {
+        add_files -fileset sim_1 -norecurse $f
+    }
+    set_property file_type {VHDL 2008} [get_files $f]
 }
-set_property file_type {VHDL 2008} [get_files $tb_file]
 
 set paths_pkg [file join $core_dir sim boot_paths_pkg.vhd]
 source [file join $core_dir scripts gen_boot_paths_pkg.tcl]
@@ -107,8 +118,8 @@ if {[llength [get_files -quiet $paths_pkg]] == 0} {
 puts "ROM path: $boot_rom"
 update_compile_order -fileset sim_1
 
-puts "Launching virtual cartridge simulation (top=tb_crt)..."
-sim_launch tb_crt
+puts "Launching virtual cartridge simulation (top=$tb_top)..."
+sim_launch $tb_top
 
 set sim_dir [file join \
     [file dirname [file normalize $project_file]] \
@@ -125,6 +136,7 @@ if {[file exists $sim_log]} {
         if {[string match *ALL\ CHECKS\ PASSED* $line] || \
             [string match *CHECKS\ FAILED* $line] || \
             [string match *crttest* $line] || \
+            [string match *waited* $line] || \
             [string match *Error:* $line] || \
             [string match *Failure* $line] || \
             [string match *ERROR* $line]} {

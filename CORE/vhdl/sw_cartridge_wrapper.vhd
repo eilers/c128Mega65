@@ -1,9 +1,13 @@
 ----------------------------------------------------------------------------------
 -- Commodore 128 for MEGA65
 --
--- Virtual cartridge: the QNICE device that loads a .crt file into HyperRAM, the parser and
--- bank cache behind it, and the cartridge's RAMs. main.vhd runs the cartridge's logic
--- (cartridge.vhd) and reads ROM through the main_* ports.
+-- Virtual cartridge: the QNICE device that loads a .crt file into memory, the parser, and the
+-- cartridge's RAMs. main.vhd runs the cartridge's logic (cartridge.vhd) and reads ROM through
+-- the main_* ports.
+--
+-- Without SDRAM (R3) the file sits in HyperRAM and a bank cache in block RAM serves the reads;
+-- the C128 waits while a bank loads. With SDRAM (G_SDRAM, R4 and later) the file sits there
+-- and crt_reader fetches each byte the C128 or VIC asks for, in time for the bus cycle.
 --
 -- After MJoergen's sw_cartridge_wrapper for C64MEGA65 (2023, GPL v3).
 ----------------------------------------------------------------------------------
@@ -14,7 +18,8 @@ use ieee.numeric_std.all;
 
 entity sw_cartridge_wrapper is
 generic (
-   G_BASE_ADDRESS : std_logic_vector(21 downto 0)   -- word address of the CRT file in HyperRAM
+   G_BASE_ADDRESS : std_logic_vector(21 downto 0);  -- word address of the CRT file
+   G_SDRAM        : boolean := false                -- the file is in SDRAM, not HyperRAM
 );
 port (
    qnice_clk_i         : in  std_logic;
@@ -42,6 +47,12 @@ port (
    main_data_i         : in  std_logic_vector( 7 downto 0);  -- CPU write data
    main_lo_data_o      : out std_logic_vector( 7 downto 0);  -- ROML
    main_hi_data_o      : out std_logic_vector( 7 downto 0);  -- ROMH
+   main_vic_data_o     : out std_logic_vector( 7 downto 0);  -- ROMH for the VIC's Ultimax fetch
+   main_rd_lo_i        : in  std_logic := '0';               -- SDRAM: the CPU's address is in ROML (or IO1/IO2)
+   main_rd_hi_i        : in  std_logic := '0';               -- SDRAM: the CPU's address is in ROMH
+   main_vic_rd_i       : in  std_logic := '0';               -- SDRAM: the VIC fetches ROMH (Ultimax)
+   main_vic_addr_i     : in  std_logic_vector(12 downto 0) := (others => '0');
+   main_rfsh_ok_i      : in  std_logic := '1';               -- SDRAM: no read is due soon
    main_ioe_we_i       : in  std_logic;
    main_iof_we_i       : in  std_logic;
    main_ram_we_i       : in  std_logic;
@@ -59,9 +70,22 @@ port (
    hr_burstcount_o     : out std_logic_vector( 7 downto 0);
    hr_readdata_i       : in  std_logic_vector(15 downto 0);
    hr_readdatavalid_i  : in  std_logic;
-   hr_waitrequest_i    : in  std_logic
+   hr_waitrequest_i    : in  std_logic;
+
+   -- SDRAM (G_SDRAM), on the HyperRAM clock
+   sr_refresh_ok_o     : out std_logic;
+   sr_write_o          : out std_logic;
+   sr_read_o           : out std_logic;
+   sr_address_o        : out std_logic_vector(31 downto 0);
+   sr_writedata_o      : out std_logic_vector(15 downto 0);
+   sr_byteenable_o     : out std_logic_vector( 1 downto 0);
+   sr_burstcount_o     : out std_logic_vector( 7 downto 0);
+   sr_readdata_i       : in  std_logic_vector(15 downto 0) := (others => '0');
+   sr_readdatavalid_i  : in  std_logic := '0';
+   sr_waitrequest_i    : in  std_logic := '0'
 );
 end entity sw_cartridge_wrapper;
+
 
 architecture synthesis of sw_cartridge_wrapper is
 
@@ -109,13 +133,16 @@ architecture synthesis of sw_cartridge_wrapper is
    signal hr_crt_readdata         : std_logic_vector(15 downto 0);
    signal hr_crt_readdatavalid    : std_logic;
    signal hr_crt_waitrequest      : std_logic;
+   signal hr_mem_write            : std_logic;
+   signal hr_mem_read             : std_logic;
+   signal hr_mem_address          : std_logic_vector(31 downto 0);
+   signal hr_mem_writedata        : std_logic_vector(15 downto 0);
+   signal hr_mem_byteenable       : std_logic_vector( 1 downto 0);
+   signal hr_mem_burstcount       : std_logic_vector( 7 downto 0);
+   signal hr_mem_readdata         : std_logic_vector(15 downto 0);
+   signal hr_mem_readdatavalid    : std_logic;
+   signal hr_mem_waitrequest      : std_logic;
 
-   signal hr_bram_address         : std_logic_vector(C_CACHE_SIZE+11 downto 0);
-   signal hr_bram_data            : std_logic_vector(15 downto 0);
-   signal hr_bram_lo_wren         : std_logic;
-   signal hr_bram_hi_wren         : std_logic;
-   signal hr_bank_lo              : std_logic_vector( 6 downto 0);
-   signal hr_bank_hi              : std_logic_vector( 6 downto 0);
    signal hr_ack_lo               : std_logic_vector( 6 downto 0);
    signal hr_ack_hi               : std_logic_vector( 6 downto 0);
    signal hr_ready                : std_logic;
@@ -137,16 +164,11 @@ architecture synthesis of sw_cartridge_wrapper is
    signal main_c128               : std_logic;
    signal main_cache_addr_lo      : std_logic_vector(C_CACHE_SIZE-1 downto 0);
    signal main_cache_addr_hi      : std_logic_vector(C_CACHE_SIZE-1 downto 0);
-   signal main_slot_lo            : std_logic_vector(C_CACHE_SIZE-1 downto 0);
-   signal main_slot_hi            : std_logic_vector(C_CACHE_SIZE-1 downto 0);
-   signal main_lo_word            : std_logic_vector(15 downto 0);
-   signal main_hi_word            : std_logic_vector(15 downto 0);
-   signal main_a0_d               : std_logic := '0';
 
 begin
 
    ---------------------------------------------------
-   -- QNICE: control and status registers, and the file's path into HyperRAM
+   -- QNICE: control and status registers, and the file's path into memory
    ---------------------------------------------------
 
    i_sw_cartridge_csr : entity work.sw_cartridge_csr
@@ -240,57 +262,7 @@ begin
          dst_data_o(30 downto 8) => qnice_resp_address
       ); -- i_cdc_hr2qnice
 
-   ---------------------------------------------------
-   -- HyperRAM: parser and bank cache, sharing the port with QNICE
-   ---------------------------------------------------
-
-   i_crt_loader : entity work.crt_loader
-      generic map (
-         G_CACHE_SIZE => C_CACHE_SIZE
-      )
-      port map (
-         clk_i               => hr_clk_i,
-         rst_i               => hr_rst_i,
-         req_start_i         => hr_req_valid,
-         req_address_i       => G_BASE_ADDRESS,
-         req_length_i        => hr_req_length,
-         resp_status_o       => hr_resp_status,
-         resp_error_o        => hr_resp_error,
-         resp_address_o      => hr_resp_address,
-         bank_lo_i           => hr_bank_lo,
-         bank_hi_i           => hr_bank_hi,
-         ack_lo_o            => hr_ack_lo,
-         ack_hi_o            => hr_ack_hi,
-         ready_o             => hr_ready,
-         cache_addr_lo_o     => hr_cache_addr_lo,
-         cache_addr_hi_o     => hr_cache_addr_hi,
-         avm_write_o         => hr_crt_write,
-         avm_read_o          => hr_crt_read,
-         avm_address_o       => hr_crt_address(21 downto 0),
-         avm_writedata_o     => hr_crt_writedata,
-         avm_byteenable_o    => hr_crt_byteenable,
-         avm_burstcount_o    => hr_crt_burstcount,
-         avm_readdata_i      => hr_crt_readdata,
-         avm_readdatavalid_i => hr_crt_readdatavalid,
-         avm_waitrequest_i   => hr_crt_waitrequest,
-         cart_bank_laddr_o   => open,
-         cart_bank_size_o    => open,
-         cart_bank_num_o     => open,
-         cart_bank_raddr_o   => open,
-         cart_bank_wr_o      => open,
-         cart_loading_o      => hr_loading,
-         cart_id_o           => hr_id,
-         cart_exrom_o        => hr_exrom,
-         cart_game_o         => hr_game,
-         cart_size_o         => hr_size,
-         cart_c128_o         => hr_c128,
-         cart_subtype_o      => hr_subtype,
-         bram_address_o      => hr_bram_address,
-         bram_data_o         => hr_bram_data,
-         bram_lo_wren_o      => hr_bram_lo_wren,
-         bram_hi_wren_o      => hr_bram_hi_wren
-      ); -- i_crt_loader
-
+   -- The file's memory, shared by QNICE and the parser (and the cache or reader behind them)
    i_avm_arbit : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => false,
@@ -318,35 +290,21 @@ begin
          s1_avm_readdata_o      => hr_crt_readdata,
          s1_avm_readdatavalid_o => hr_crt_readdatavalid,
          s1_avm_waitrequest_o   => hr_crt_waitrequest,
-         m_avm_write_o          => hr_write_o,
-         m_avm_read_o           => hr_read_o,
-         m_avm_address_o        => hr_address_o,
-         m_avm_writedata_o      => hr_writedata_o,
-         m_avm_byteenable_o     => hr_byteenable_o,
-         m_avm_burstcount_o     => hr_burstcount_o,
-         m_avm_readdata_i       => hr_readdata_i,
-         m_avm_readdatavalid_i  => hr_readdatavalid_i,
-         m_avm_waitrequest_i    => hr_waitrequest_i
+         m_avm_write_o          => hr_mem_write,
+         m_avm_read_o           => hr_mem_read,
+         m_avm_address_o        => hr_mem_address,
+         m_avm_writedata_o      => hr_mem_writedata,
+         m_avm_byteenable_o     => hr_mem_byteenable,
+         m_avm_burstcount_o     => hr_mem_burstcount,
+         m_avm_readdata_i       => hr_mem_readdata,
+         m_avm_readdatavalid_i  => hr_mem_readdatavalid,
+         m_avm_waitrequest_i    => hr_mem_waitrequest
       ); -- i_avm_arbit
 
    ---------------------------------------------------
-   -- Crossings between the core and HyperRAM. Each group moves as a whole (cdc_stable), so
-   -- a slot always arrives together with the bank it holds and whether it is loaded.
+   -- Status towards the core. Each group moves as a whole (cdc_stable), so a cache slot always
+   -- arrives together with the bank it holds and whether it is loaded.
    ---------------------------------------------------
-
-   i_cdc_main2hr : entity work.cdc_stable
-      generic map (
-         G_REGISTER_SRC => true,
-         G_DATA_SIZE    => 14
-      )
-      port map (
-         src_clk_i                => main_clk_i,
-         src_data_i( 6 downto  0) => main_bank_lo_i,
-         src_data_i(13 downto  7) => main_bank_hi_i,
-         dst_clk_i                => hr_clk_i,
-         dst_data_o( 6 downto  0) => hr_bank_lo,
-         dst_data_o(13 downto  7) => hr_bank_hi
-      ); -- i_cdc_main2hr
 
    hr_loaded <= '1' when hr_resp_status = C_STAT_READY else '0';
 
@@ -389,65 +347,389 @@ begin
    main_loaded_o <= main_loaded;
    main_c128_o   <= main_c128;
 
-   -- Wait from the moment the core asks for another bank until the cache reports it loaded
-   main_wait_o   <= '1' when main_loaded = '1' and
-                             (main_bank_lo_i /= main_ack_lo or main_bank_hi_i /= main_ack_hi or main_ready = '0')
-                        else '0';
+   cache_gen : if not G_SDRAM generate
 
-   ---------------------------------------------------
-   -- Bank cache: 16-bit words, a C128 cartridge's 16 kB windows in slot pairs
-   ---------------------------------------------------
+      signal hr_bram_address      : std_logic_vector(C_CACHE_SIZE+11 downto 0);
+      signal hr_bram_data         : std_logic_vector(15 downto 0);
+      signal hr_bram_lo_wren      : std_logic;
+      signal hr_bram_hi_wren      : std_logic;
+      signal hr_bank_lo           : std_logic_vector( 6 downto 0);
+      signal hr_bank_hi           : std_logic_vector( 6 downto 0);
+      signal main_slot_lo         : std_logic_vector(C_CACHE_SIZE-1 downto 0);
+      signal main_slot_hi         : std_logic_vector(C_CACHE_SIZE-1 downto 0);
+      signal main_lo_word         : std_logic_vector(15 downto 0);
+      signal main_hi_word         : std_logic_vector(15 downto 0);
+      signal main_a0_d            : std_logic := '0';
 
-   main_slot_lo <= main_cache_addr_lo(C_CACHE_SIZE-1 downto 1) & main_addr_i(13) when main_c128 = '1' else
-                   main_cache_addr_lo;
-   main_slot_hi <= main_cache_addr_hi(C_CACHE_SIZE-1 downto 1) & main_addr_i(13) when main_c128 = '1' else
-                   main_cache_addr_hi;
-
-   p_a0 : process (main_clk_i)
    begin
-      if rising_edge(main_clk_i) then
-         main_a0_d <= main_addr_i(0);
-      end if;
-   end process p_a0;
 
-   main_lo_data_o <= main_lo_word(15 downto 8) when main_a0_d = '1' else main_lo_word(7 downto 0);
-   main_hi_data_o <= main_hi_word(15 downto 8) when main_a0_d = '1' else main_hi_word(7 downto 0);
+      ---------------------------------------------------
+      -- HyperRAM: parser and bank cache
+      ---------------------------------------------------
 
-   i_crt_lo_ram : entity work.tdp_ram
-      generic map (
-         ADDR_WIDTH => 12 + C_CACHE_SIZE,
-         DATA_WIDTH => 16
-      )
-      port map (
-         clock_a    => main_clk_i,
-         address_a  => main_slot_lo & main_addr_i(12 downto 1),
-         data_a     => (others => '0'),
-         wren_a     => '0',
-         q_a        => main_lo_word,
-         clock_b    => hr_clk_i,
-         address_b  => hr_bram_address,
-         data_b     => hr_bram_data,
-         wren_b     => hr_bram_lo_wren,
-         q_b        => open
-      ); -- i_crt_lo_ram
+      i_crt_loader : entity work.crt_loader
+         generic map (
+            G_CACHE_SIZE => C_CACHE_SIZE
+         )
+         port map (
+            clk_i               => hr_clk_i,
+            rst_i               => hr_rst_i,
+            req_start_i         => hr_req_valid,
+            req_address_i       => G_BASE_ADDRESS,
+            req_length_i        => hr_req_length,
+            resp_status_o       => hr_resp_status,
+            resp_error_o        => hr_resp_error,
+            resp_address_o      => hr_resp_address,
+            bank_lo_i           => hr_bank_lo,
+            bank_hi_i           => hr_bank_hi,
+            ack_lo_o            => hr_ack_lo,
+            ack_hi_o            => hr_ack_hi,
+            ready_o             => hr_ready,
+            cache_addr_lo_o     => hr_cache_addr_lo,
+            cache_addr_hi_o     => hr_cache_addr_hi,
+            avm_write_o         => hr_crt_write,
+            avm_read_o          => hr_crt_read,
+            avm_address_o       => hr_crt_address(21 downto 0),
+            avm_writedata_o     => hr_crt_writedata,
+            avm_byteenable_o    => hr_crt_byteenable,
+            avm_burstcount_o    => hr_crt_burstcount,
+            avm_readdata_i      => hr_crt_readdata,
+            avm_readdatavalid_i => hr_crt_readdatavalid,
+            avm_waitrequest_i   => hr_crt_waitrequest,
+            cart_bank_laddr_o   => open,
+            cart_bank_size_o    => open,
+            cart_bank_num_o     => open,
+            cart_bank_raddr_o   => open,
+            cart_bank_wr_o      => open,
+            cart_loading_o      => hr_loading,
+            cart_id_o           => hr_id,
+            cart_exrom_o        => hr_exrom,
+            cart_game_o         => hr_game,
+            cart_size_o         => hr_size,
+            cart_c128_o         => hr_c128,
+            cart_subtype_o      => hr_subtype,
+            bram_address_o      => hr_bram_address,
+            bram_data_o         => hr_bram_data,
+            bram_lo_wren_o      => hr_bram_lo_wren,
+            bram_hi_wren_o      => hr_bram_hi_wren
+         ); -- i_crt_loader
 
-   i_crt_hi_ram : entity work.tdp_ram
-      generic map (
-         ADDR_WIDTH => 12 + C_CACHE_SIZE,
-         DATA_WIDTH => 16
-      )
-      port map (
-         clock_a    => main_clk_i,
-         address_a  => main_slot_hi & main_addr_i(12 downto 1),
-         data_a     => (others => '0'),
-         wren_a     => '0',
-         q_a        => main_hi_word,
-         clock_b    => hr_clk_i,
-         address_b  => hr_bram_address,
-         data_b     => hr_bram_data,
-         wren_b     => hr_bram_hi_wren,
-         q_b        => open
-      ); -- i_crt_hi_ram
+      hr_write_o         <= hr_mem_write;
+      hr_read_o          <= hr_mem_read;
+      hr_address_o       <= hr_mem_address;
+      hr_writedata_o     <= hr_mem_writedata;
+      hr_byteenable_o    <= hr_mem_byteenable;
+      hr_burstcount_o    <= hr_mem_burstcount;
+      hr_mem_readdata    <= hr_readdata_i;
+      hr_mem_readdatavalid <= hr_readdatavalid_i;
+      hr_mem_waitrequest <= hr_waitrequest_i;
+
+      sr_refresh_ok_o    <= '1';
+      sr_write_o         <= '0';
+      sr_read_o          <= '0';
+      sr_address_o       <= (others => '0');
+      sr_writedata_o     <= (others => '0');
+      sr_byteenable_o    <= (others => '0');
+      sr_burstcount_o    <= (others => '0');
+
+      i_cdc_main2hr : entity work.cdc_stable
+         generic map (
+            G_REGISTER_SRC => true,
+            G_DATA_SIZE    => 14
+         )
+         port map (
+            src_clk_i                => main_clk_i,
+            src_data_i( 6 downto  0) => main_bank_lo_i,
+            src_data_i(13 downto  7) => main_bank_hi_i,
+            dst_clk_i                => hr_clk_i,
+            dst_data_o( 6 downto  0) => hr_bank_lo,
+            dst_data_o(13 downto  7) => hr_bank_hi
+         ); -- i_cdc_main2hr
+
+      -- Wait from the moment the core asks for another bank until the cache reports it loaded
+      main_wait_o <= '1' when main_loaded = '1' and
+                              (main_bank_lo_i /= main_ack_lo or main_bank_hi_i /= main_ack_hi or main_ready = '0')
+                         else '0';
+
+      ---------------------------------------------------
+      -- Bank cache: 16-bit words, a C128 cartridge's 16 kB windows in slot pairs
+      ---------------------------------------------------
+
+      main_slot_lo <= main_cache_addr_lo(C_CACHE_SIZE-1 downto 1) & main_addr_i(13) when main_c128 = '1' else
+                      main_cache_addr_lo;
+      main_slot_hi <= main_cache_addr_hi(C_CACHE_SIZE-1 downto 1) & main_addr_i(13) when main_c128 = '1' else
+                      main_cache_addr_hi;
+
+      p_a0 : process (main_clk_i)
+      begin
+         if rising_edge(main_clk_i) then
+            main_a0_d <= main_addr_i(0);
+         end if;
+      end process p_a0;
+
+      main_lo_data_o  <= main_lo_word(15 downto 8) when main_a0_d = '1' else main_lo_word(7 downto 0);
+      main_hi_data_o  <= main_hi_word(15 downto 8) when main_a0_d = '1' else main_hi_word(7 downto 0);
+      main_vic_data_o <= main_hi_word(15 downto 8) when main_a0_d = '1' else main_hi_word(7 downto 0);
+
+      i_crt_lo_ram : entity work.tdp_ram
+         generic map (
+            ADDR_WIDTH => 12 + C_CACHE_SIZE,
+            DATA_WIDTH => 16
+         )
+         port map (
+            clock_a    => main_clk_i,
+            address_a  => main_slot_lo & main_addr_i(12 downto 1),
+            data_a     => (others => '0'),
+            wren_a     => '0',
+            q_a        => main_lo_word,
+            clock_b    => hr_clk_i,
+            address_b  => hr_bram_address,
+            data_b     => hr_bram_data,
+            wren_b     => hr_bram_lo_wren,
+            q_b        => open
+         ); -- i_crt_lo_ram
+
+      i_crt_hi_ram : entity work.tdp_ram
+         generic map (
+            ADDR_WIDTH => 12 + C_CACHE_SIZE,
+            DATA_WIDTH => 16
+         )
+         port map (
+            clock_a    => main_clk_i,
+            address_a  => main_slot_hi & main_addr_i(12 downto 1),
+            data_a     => (others => '0'),
+            wren_a     => '0',
+            q_a        => main_hi_word,
+            clock_b    => hr_clk_i,
+            address_b  => hr_bram_address,
+            data_b     => hr_bram_data,
+            wren_b     => hr_bram_hi_wren,
+            q_b        => open
+         ); -- i_crt_hi_ram
+
+   end generate cache_gen;
+
+   sdram_gen : if G_SDRAM generate
+
+      signal hr_bank_laddr        : std_logic_vector(15 downto 0);
+      signal hr_bank_size         : std_logic_vector(15 downto 0);
+      signal hr_bank_num          : std_logic_vector(15 downto 0);
+      signal hr_bank_raddr        : std_logic_vector(24 downto 0);
+      signal hr_bank_wr           : std_logic;
+      signal hr_cpu_req_d         : std_logic_vector( 2 downto 0) := (others => '0');
+      signal hr_cpu_req           : std_logic_vector( 2 downto 0) := (others => '0');
+      signal hr_vic_req_d         : std_logic_vector( 2 downto 0) := (others => '0');
+      signal hr_vic_req           : std_logic_vector( 2 downto 0) := (others => '0');
+      signal hr_rfsh_ok_d         : std_logic := '1';
+      signal hr_rfsh_ok           : std_logic := '1';
+      signal hr_cpu_data          : std_logic_vector( 7 downto 0);
+      signal hr_vic_data          : std_logic_vector( 7 downto 0);
+      signal hr_cpu_done          : std_logic_vector( 2 downto 0);
+      signal hr_vic_done          : std_logic_vector( 2 downto 0);
+
+      -- Requests: a key per port, and a Gray counter that counts its changes. The reader takes
+      -- the key once the count has crossed, so the key needs no synchronizer.
+      signal main_cpu_bank        : std_logic_vector( 6 downto 0);
+      signal main_cpu_key         : std_logic_vector(21 downto 0);
+      signal main_vic_key         : std_logic_vector(21 downto 0);
+      signal main_cpu_key_r       : std_logic_vector(21 downto 0) := (others => '1');
+      signal main_vic_key_r       : std_logic_vector(21 downto 0) := (others => '1');
+      signal main_cpu_cnt         : unsigned(2 downto 0) := (others => '0');
+      signal main_vic_cnt         : unsigned(2 downto 0) := (others => '0');
+      signal main_cpu_req_r       : std_logic_vector(2 downto 0) := (others => '0');
+      signal main_vic_req_r       : std_logic_vector(2 downto 0) := (others => '0');
+      signal main_cpu_ok          : std_logic := '0';   -- main_cpu_key_r is this cartridge's
+      signal main_vic_ok          : std_logic := '0';
+      signal main_rfsh_ok_r       : std_logic := '1';
+
+      attribute async_reg : string;
+      attribute async_reg of hr_cpu_req_d : signal is "true";
+      attribute async_reg of hr_cpu_req   : signal is "true";
+      attribute async_reg of hr_vic_req_d : signal is "true";
+      attribute async_reg of hr_vic_req   : signal is "true";
+      attribute async_reg of hr_rfsh_ok_d : signal is "true";
+      attribute async_reg of hr_rfsh_ok   : signal is "true";
+
+   begin
+
+      ---------------------------------------------------
+      -- SDRAM: parser, and the reader that serves the C128's reads
+      ---------------------------------------------------
+
+      i_crt_parser : entity work.crt_parser
+         port map (
+            clk_i               => hr_clk_i,
+            rst_i               => hr_rst_i,
+            req_start_i         => hr_req_valid,
+            req_address_i       => G_BASE_ADDRESS,
+            req_length_i        => hr_req_length,
+            resp_status_o       => hr_resp_status,
+            resp_error_o        => hr_resp_error,
+            resp_address_o      => hr_resp_address,
+            avm_write_o         => hr_crt_write,
+            avm_read_o          => hr_crt_read,
+            avm_address_o       => hr_crt_address(21 downto 0),
+            avm_writedata_o     => hr_crt_writedata,
+            avm_byteenable_o    => hr_crt_byteenable,
+            avm_burstcount_o    => hr_crt_burstcount,
+            avm_readdata_i      => hr_crt_readdata,
+            avm_readdatavalid_i => hr_crt_readdatavalid,
+            avm_waitrequest_i   => hr_crt_waitrequest,
+            cart_bank_laddr_o   => hr_bank_laddr,
+            cart_bank_size_o    => hr_bank_size,
+            cart_bank_num_o     => hr_bank_num,
+            cart_bank_raddr_o   => hr_bank_raddr,
+            cart_bank_wr_o      => hr_bank_wr,
+            cart_loading_o      => hr_loading,
+            cart_id_o           => hr_id,
+            cart_exrom_o        => hr_exrom,
+            cart_game_o         => hr_game,
+            cart_size_o         => hr_size,
+            cart_c128_o         => hr_c128,
+            cart_subtype_o      => hr_subtype
+         ); -- i_crt_parser
+
+      hr_ack_lo        <= (others => '0');
+      hr_ack_hi        <= (others => '0');
+      hr_ready         <= '1';
+      hr_cache_addr_lo <= (others => '0');
+      hr_cache_addr_hi <= (others => '0');
+
+      i_crt_reader : entity work.crt_reader
+         port map (
+            clk_i                 => hr_clk_i,
+            rst_i                 => hr_rst_i,
+            cart_c128_i           => hr_c128,
+            cart_loading_i        => hr_loading,
+            cart_bank_laddr_i     => hr_bank_laddr,
+            cart_bank_size_i      => hr_bank_size,
+            cart_bank_num_i       => hr_bank_num,
+            cart_bank_raddr_i     => hr_bank_raddr,
+            cart_bank_wr_i        => hr_bank_wr,
+            cpu_req_i             => hr_cpu_req,
+            cpu_key_i             => main_cpu_key_r,
+            cpu_data_o            => hr_cpu_data,
+            cpu_done_o            => hr_cpu_done,
+            vic_req_i             => hr_vic_req,
+            vic_key_i             => main_vic_key_r,
+            vic_data_o            => hr_vic_data,
+            vic_done_o            => hr_vic_done,
+            s_avm_write_i         => hr_mem_write,
+            s_avm_read_i          => hr_mem_read,
+            s_avm_address_i       => hr_mem_address,
+            s_avm_writedata_i     => hr_mem_writedata,
+            s_avm_byteenable_i    => hr_mem_byteenable,
+            s_avm_burstcount_i    => hr_mem_burstcount,
+            s_avm_readdata_o      => hr_mem_readdata,
+            s_avm_readdatavalid_o => hr_mem_readdatavalid,
+            s_avm_waitrequest_o   => hr_mem_waitrequest,
+            m_avm_write_o         => sr_write_o,
+            m_avm_read_o          => sr_read_o,
+            m_avm_address_o       => sr_address_o,
+            m_avm_writedata_o     => sr_writedata_o,
+            m_avm_byteenable_o    => sr_byteenable_o,
+            m_avm_burstcount_o    => sr_burstcount_o,
+            m_avm_readdata_i      => sr_readdata_i,
+            m_avm_readdatavalid_i => sr_readdatavalid_i,
+            m_avm_waitrequest_i   => sr_waitrequest_i
+         ); -- i_crt_reader
+
+      hr_write_o      <= '0';
+      hr_read_o       <= '0';
+      hr_address_o    <= (others => '0');
+      hr_writedata_o  <= (others => '0');
+      hr_byteenable_o <= (others => '0');
+      hr_burstcount_o <= (others => '0');
+
+      ---------------------------------------------------
+      -- Core side: ask for the byte as soon as the CPU or VIC puts its address out. It comes
+      -- back well before the C128 latches it (see CORE.xdc), so the C128 never waits.
+      ---------------------------------------------------
+
+      main_wait_o  <= '0';
+
+      main_cpu_bank <= main_bank_hi_i when main_rd_hi_i = '1' else main_bank_lo_i;
+      main_cpu_key  <= main_rd_hi_i & main_cpu_bank & (main_addr_i(13) and main_c128) & main_addr_i(12 downto 0);
+      main_vic_key  <= '1' & main_bank_hi_i & '0' & main_vic_addr_i;
+
+      p_request : process (main_clk_i)
+         variable v_cnt : unsigned(2 downto 0);
+      begin
+         if rising_edge(main_clk_i) then
+            if (main_rd_lo_i = '1' or main_rd_hi_i = '1') and (main_cpu_key /= main_cpu_key_r or main_cpu_ok = '0') then
+               v_cnt          := main_cpu_cnt + 1;
+               main_cpu_cnt   <= v_cnt;
+               main_cpu_req_r <= std_logic_vector(v_cnt xor ('0' & v_cnt(2 downto 1)));
+               main_cpu_key_r <= main_cpu_key;
+               main_cpu_ok    <= '1';
+            end if;
+            if main_vic_rd_i = '1' and (main_vic_key /= main_vic_key_r or main_vic_ok = '0') then
+               v_cnt          := main_vic_cnt + 1;
+               main_vic_cnt   <= v_cnt;
+               main_vic_req_r <= std_logic_vector(v_cnt xor ('0' & v_cnt(2 downto 1)));
+               main_vic_key_r <= main_vic_key;
+               main_vic_ok    <= '1';
+            end if;
+            -- A new cartridge: what the reader holds is the old one's
+            if main_loaded = '0' then
+               main_cpu_ok <= '0';
+               main_vic_ok <= '0';
+            end if;
+            main_rfsh_ok_r <= main_rfsh_ok_i;
+         end if;
+      end process p_request;
+
+      p_sync : process (hr_clk_i)
+      begin
+         if rising_edge(hr_clk_i) then
+            hr_cpu_req_d <= main_cpu_req_r;
+            hr_cpu_req   <= hr_cpu_req_d;
+            hr_vic_req_d <= main_vic_req_r;
+            hr_vic_req   <= hr_vic_req_d;
+            hr_rfsh_ok_d <= main_rfsh_ok_r;
+            hr_rfsh_ok   <= hr_rfsh_ok_d;
+         end if;
+      end process p_sync;
+
+      sr_refresh_ok_o <= hr_rfsh_ok;
+
+      main_lo_data_o  <= hr_cpu_data;
+      main_hi_data_o  <= hr_cpu_data;
+      main_vic_data_o <= hr_vic_data;
+
+      -- pragma translate_off
+      -- Simulation: the most core clocks a request has waited for its byte. In FAST mode the CPU
+      -- latches its byte 7 clocks after asking, so the reader must answer within 5.
+      p_latency : process (main_clk_i)
+         variable v_cpu     : natural := 0;
+         variable v_vic     : natural := 0;
+         variable v_cpu_max : natural := 0;
+         variable v_vic_max : natural := 0;
+      begin
+         if rising_edge(main_clk_i) then
+            if hr_cpu_done = main_cpu_req_r then
+               v_cpu := 0;
+            else
+               v_cpu := v_cpu + 1;
+            end if;
+            if hr_vic_done = main_vic_req_r then
+               v_vic := 0;
+            else
+               v_vic := v_vic + 1;
+            end if;
+            if v_cpu > v_cpu_max then
+               v_cpu_max := v_cpu;
+               report "sw_cartridge_wrapper: a CPU read waited " & integer'image(v_cpu) & " core clocks";
+            end if;
+            if v_vic > v_vic_max then
+               v_vic_max := v_vic;
+               report "sw_cartridge_wrapper: a VIC read waited " & integer'image(v_vic) & " core clocks";
+            end if;
+         end if;
+      end process p_latency;
+      -- pragma translate_on
+
+   end generate sdram_gen;
 
    ---------------------------------------------------
    -- Cartridge RAMs: 256 bytes each at $DExx and $DFxx, and 32 kB in 8 kB banks at ROML

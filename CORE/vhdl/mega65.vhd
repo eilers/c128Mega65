@@ -87,6 +87,18 @@ port (
    hr_high_i               : in  std_logic;  -- Core is too fast
    hr_low_i                : in  std_logic;  -- Core is too slow
 
+   -- SDRAM (R4 and later), also on the HyperRAM clock: the virtual cartridge's file
+   sr_core_refresh_ok_o    : out std_logic;
+   sr_core_write_o         : out std_logic;
+   sr_core_read_o          : out std_logic;
+   sr_core_address_o       : out std_logic_vector(31 downto 0);
+   sr_core_writedata_o     : out std_logic_vector(15 downto 0);
+   sr_core_byteenable_o    : out std_logic_vector( 1 downto 0);
+   sr_core_burstcount_o    : out std_logic_vector( 7 downto 0);
+   sr_core_readdata_i      : in  std_logic_vector(15 downto 0);
+   sr_core_readdatavalid_i : in  std_logic;
+   sr_core_waitrequest_i   : in  std_logic;
+
    --------------------------------------------------------------------------------------------------------
    -- Video Clock Domain
    --------------------------------------------------------------------------------------------------------
@@ -357,6 +369,12 @@ signal main_crt_addr          : std_logic_vector(15 downto 0);
 signal main_crt_data          : std_logic_vector( 7 downto 0);
 signal main_crt_lo_data       : std_logic_vector( 7 downto 0);
 signal main_crt_hi_data       : std_logic_vector( 7 downto 0);
+signal main_crt_vic_data      : std_logic_vector( 7 downto 0);
+signal main_crt_rd_lo         : std_logic;
+signal main_crt_rd_hi         : std_logic;
+signal main_crt_vic_rd        : std_logic;
+signal main_crt_vic_addr      : std_logic_vector(12 downto 0);
+signal main_crt_rfsh_ok       : std_logic;
 signal main_crt_ioe_we        : std_logic;
 signal main_crt_iof_we        : std_logic;
 signal main_crt_ram_we        : std_logic;
@@ -700,6 +718,12 @@ begin
          crt_data_o           => main_crt_data,
          crt_lo_data_i        => main_crt_lo_data,
          crt_hi_data_i        => main_crt_hi_data,
+         crt_vic_data_i       => main_crt_vic_data,
+         crt_rd_lo_o          => main_crt_rd_lo,
+         crt_rd_hi_o          => main_crt_rd_hi,
+         crt_vic_rd_o         => main_crt_vic_rd,
+         crt_vic_addr_o       => main_crt_vic_addr,
+         crt_rfsh_ok_o        => main_crt_rfsh_ok,
          crt_ioe_we_o         => main_crt_ioe_we,
          crt_iof_we_o         => main_crt_iof_we,
          crt_ram_we_o         => main_crt_ram_we,
@@ -907,10 +931,12 @@ begin
          m_avm_readdatavalid_i => reu_hr_readdatavalid
       ); -- i_reu_avm_fifo
 
-   -- Virtual cartridge: the .crt file in its HyperRAM region, its banks cached in block RAM
+   -- Virtual cartridge: the .crt file in SDRAM where the board has it, read for each access.
+   -- On R3 it goes in its HyperRAM region, its banks cached in block RAM.
    i_sw_cartridge_wrapper : entity work.sw_cartridge_wrapper
       generic map (
-         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000"
+         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000",
+         G_SDRAM        => G_BOARD /= "MEGA65_R3"
       )
       port map (
          qnice_clk_i        => qnice_clk_i,
@@ -937,6 +963,12 @@ begin
          main_data_i        => main_crt_data,
          main_lo_data_o     => main_crt_lo_data,
          main_hi_data_o     => main_crt_hi_data,
+         main_vic_data_o    => main_crt_vic_data,
+         main_rd_lo_i       => main_crt_rd_lo,
+         main_rd_hi_i       => main_crt_rd_hi,
+         main_vic_rd_i      => main_crt_vic_rd,
+         main_vic_addr_i    => main_crt_vic_addr,
+         main_rfsh_ok_i     => main_crt_rfsh_ok,
          main_ioe_we_i      => main_crt_ioe_we,
          main_iof_we_i      => main_crt_iof_we,
          main_ram_we_i      => main_crt_ram_we,
@@ -953,7 +985,17 @@ begin
          hr_burstcount_o    => crt_hr_burstcount,
          hr_readdata_i      => crt_hr_readdata,
          hr_readdatavalid_i => crt_hr_readdatavalid,
-         hr_waitrequest_i   => crt_hr_waitrequest
+         hr_waitrequest_i   => crt_hr_waitrequest,
+         sr_refresh_ok_o    => sr_core_refresh_ok_o,
+         sr_write_o         => sr_core_write_o,
+         sr_read_o          => sr_core_read_o,
+         sr_address_o       => sr_core_address_o,
+         sr_writedata_o     => sr_core_writedata_o,
+         sr_byteenable_o    => sr_core_byteenable_o,
+         sr_burstcount_o    => sr_core_burstcount_o,
+         sr_readdata_i      => sr_core_readdata_i,
+         sr_readdatavalid_i => sr_core_readdatavalid_i,
+         sr_waitrequest_i   => sr_core_waitrequest_i
       ); -- i_sw_cartridge_wrapper
 
    -- s0 = QNICE mount (image staging, including writes). s1 = hardware fill of

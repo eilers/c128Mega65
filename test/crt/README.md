@@ -5,6 +5,7 @@ Self-checking `.crt` files for the virtual cartridge. `tb_crt` runs them in simu
 | File | Cartridge | Checks |
 |------|-----------|--------|
 | `crttest-c128.crt` | C128 function ROM: 8 KB at `$8000`, 16 KB at `$C000` | 16 KB ROML and ROMH windows; the 8 KB chip mirrored at `$A000` |
+| `crttest-c128fast.crt` | The same, in FAST mode | The same reads at 2 MHz, where a cartridge has the least time to answer |
 | `crttest-16k.crt` | C64, 16 KB at `$8000` | ROML and ROMH from one chip; writes to ROML go to the RAM underneath |
 | `crttest-umax4k.crt` | C64 Ultimax, 4 KB at `$F000` | The reset vector at `$FFFC`; the chip mirrored at `$E000` |
 | `crttest-ef.crt` | EasyFlash, 10 banks | Bank switching across more banks than the cache holds, 8 KB and 16 KB modes, the RAM at `$DF00`, switching the cartridge off |

@@ -370,6 +370,11 @@ create_pblock pblock_i_hyperram
 add_cells_to_pblock pblock_i_hyperram [get_cells [list i_framework/i_hyperram]]
 resize_pblock pblock_i_hyperram -add {SLICE_X0Y200:SLICE_X7Y224}
 
+# Place SDRAM controller close to its I/O pins (as C64MEGA65 does)
+create_pblock pblock_sr
+add_cells_to_pblock pblock_sr [get_cells [list i_framework/sdram_gen.sdram_inst]]
+resize_pblock pblock_sr -add {SLICE_X156Y100:SLICE_X163Y149}
+
 # Place Keyboard close to I/O pins
 create_pblock pblock_m65driver
 add_cells_to_pblock pblock_m65driver [get_cells [list i_framework/i_m2m_keyb/m65driver]]

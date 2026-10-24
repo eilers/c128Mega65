@@ -57,7 +57,9 @@ At both sizes `$DF06` reads its top 5 bits as 1 and the bank in the low 3 bits, 
 
 This covers the common large cartridges: EasyFlash at 1 MiB and Ocean at up to 512 KiB. As in C64MEGA65, the raw `.crt` file is stored, headers included, so the 2 MiB limit applies to the whole file and a cartridge with a full 2 MiB of ROM won't fit. The Shell refuses a larger file before loading it (`PREP_LOAD_IMAGE` in `m2m-rom.asm`).
 
-The C128 never reads this region directly. `crt_cacher.vhd` copies the banks a cartridge has switched in into block RAM: 8 slots of 8 KiB each for ROML and for ROMH (a C128 cartridge's 16 KiB windows take two slots), 32 RAMB36 tiles in all, plus 8 for the 32 KiB of cartridge RAM some types have. While a bank is being fetched, the C128 waits, as it does for DMA.
+On R3 the C128 never reads this region directly. `crt_cacher.vhd` copies the banks a cartridge has switched in into block RAM: 8 slots of 8 KiB each for ROML and for ROMH (a C128 cartridge's 16 KiB windows take two slots), 32 RAMB36 tiles in all, plus 8 for the 32 KiB of cartridge RAM some types have. While a bank is being fetched, the C128 waits, as it does for DMA.
+
+On R4 and later the file goes to SDRAM instead, at the same address, and this HyperRAM region stays unused. `crt_reader.vhd` reads each byte the CPU or the VIC asks for straight from the file, as the Ultimate does from its own memory. The request starts as soon as the address is out, and the byte is back about 140 ns later, ahead of FAST mode's 8-clock deadline. Nothing is cached, so the C128 never waits and bank switching costs nothing. SDRAM refreshes are kept to the middle of PHI2, where no request is due. The cartridge RAM stays in block RAM.
 
 ### The framebuffer region and triple-buffering
 
@@ -79,4 +81,4 @@ These are the places where the REU and cartridge work meet. They are already set
 
 ## Later
 
-REUs larger than 2 MiB don't fit in HyperRAM beside a cartridge. R4, R5 and R6 boards have 64 MiB of SDRAM with the same chip and pinout on all three. M2M doesn't drive it yet, so it needs a controller first.
+REUs larger than 2 MiB don't fit in HyperRAM beside a cartridge. R4, R5 and R6 boards have 64 MiB of SDRAM with the same chip and pinout on all three. The framework now drives it (C64MEGA65's controller) for the virtual cartridge, which uses a few MiB at most. An REU there would have to share it without delaying the cartridge's reads.

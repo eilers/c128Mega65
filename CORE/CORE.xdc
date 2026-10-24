@@ -124,3 +124,14 @@ set_false_path -from [get_clocks qnice_clk] -to [get_clocks main_clk]
 set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
 
 
+
+
+## ---------------------------------------------------------------------------
+## main_clk <-> hr_clk: the virtual cartridge in SDRAM (R4 and later; R3 has none)
+## ---------------------------------------------------------------------------
+## A request crosses as a key and a Gray count, the count through two flip-flops. The reader
+## takes the key once the count has arrived, two hr_clk or more after both were set. The byte
+## comes back unsynchronized: the reader has it about 140 ns after the request, 80 ns before
+## the C128 latches it in FAST mode, and it holds until the next request.
+set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.main_*_r_reg*"}] -to [get_clocks hr_clk]
+set_max_delay -datapath_only 30 -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.i_crt_reader/*_data_o_reg*"}] -to [get_clocks main_clk]

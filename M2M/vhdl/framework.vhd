@@ -102,6 +102,19 @@ port (
    hr_clk_p_o              : out   std_logic;
    hr_cs0_o                : out   std_logic;
 
+   -- SDRAM - 32M x 16 bit, 3.3V VCC. U44 = IS42S16320F-6BL. R4 and later only.
+   sdram_clk_o             : out   std_logic;
+   sdram_cke_o             : out   std_logic;
+   sdram_ras_n_o           : out   std_logic;
+   sdram_cas_n_o           : out   std_logic;
+   sdram_we_n_o            : out   std_logic;
+   sdram_cs_n_o            : out   std_logic;
+   sdram_ba_o              : out   std_logic_vector(1 downto 0);
+   sdram_a_o               : out   std_logic_vector(12 downto 0);
+   sdram_dqml_o            : out   std_logic;
+   sdram_dqmh_o            : out   std_logic;
+   sdram_dq_io             : inout std_logic_vector(15 downto 0);
+
    -- Connect to CORE
    qnice_clk_o             : out   std_logic;
    qnice_rst_o             : out   std_logic;
@@ -190,6 +203,18 @@ port (
    hr_core_waitrequest_o   : out   std_logic;
    hr_high_o               : out   std_logic; -- Core is too fast
    hr_low_o                : out   std_logic; -- Core is too slow
+
+   -- Provide SDRAM to core (in HyperRAM clock domain). R4 and later; on R3 it reads nothing.
+   sr_core_refresh_ok_i    : in    std_logic := '1';  -- the core may keep refreshes out of its way
+   sr_core_write_i         : in    std_logic := '0';
+   sr_core_read_i          : in    std_logic := '0';
+   sr_core_address_i       : in    std_logic_vector(31 downto 0) := (others => '0');
+   sr_core_writedata_i     : in    std_logic_vector(15 downto 0) := (others => '0');
+   sr_core_byteenable_i    : in    std_logic_vector(1 downto 0) := (others => '0');
+   sr_core_burstcount_i    : in    std_logic_vector(7 downto 0) := (others => '0');
+   sr_core_readdata_o      : out   std_logic_vector(15 downto 0);
+   sr_core_readdatavalid_o : out   std_logic;
+   sr_core_waitrequest_o   : out   std_logic;
 
    -- QNICE control signals
    qnice_dvi_i             : in    std_logic;
@@ -439,6 +464,9 @@ signal hr_rwds_oe_n           : std_logic;   -- Output enable for RWDS
 signal hr_dq_in               : std_logic_vector(7 downto 0);
 signal hr_dq_out              : std_logic_vector(7 downto 0);
 signal hr_dq_oe_n             : std_logic_vector(7 downto 0);   -- Output enable for DQ
+signal sdram_dq_in            : std_logic_vector(15 downto 0);
+signal sdram_dq_out           : std_logic_vector(15 downto 0);
+signal sdram_dq_oe_n          : std_logic_vector(15 downto 0);  -- Output enable for DQ
 
 signal scl_out                : std_logic_vector(7 downto 0);
 signal sda_out                : std_logic_vector(7 downto 0);
@@ -1030,6 +1058,70 @@ begin
    end generate hr_d_gen;
    hr_rwds_in <= hr_rwds_io;
    hr_dq_in   <= hr_d_io;
+
+
+   ---------------------------------------------------------------------------------------------------------------
+   -- SDRAM controller (R4 and later), for the core alone, on the HyperRAM clock as in C64MEGA65
+   ---------------------------------------------------------------------------------------------------------------
+
+   sdram_gen : if G_BOARD /= "MEGA65_R3" generate
+
+      sdram_inst : entity work.sdram
+         generic map (
+            G_CLOCK_SPEED_MHZ => 100,
+            G_REFRESH_HOLD    => 200          -- 2 us: the core's refresh window comes once per C64 cycle
+         )
+         port map (
+            clk_i               => hr_clk,
+            rst_i               => hr_rst,
+            refresh_ok_i        => sr_core_refresh_ok_i,
+            avm_waitrequest_o   => sr_core_waitrequest_o,
+            avm_write_i         => sr_core_write_i,
+            avm_read_i          => sr_core_read_i,
+            avm_address_i       => sr_core_address_i,
+            avm_writedata_i     => sr_core_writedata_i,
+            avm_byteenable_i    => sr_core_byteenable_i,
+            avm_burstcount_i    => sr_core_burstcount_i,
+            avm_readdata_o      => sr_core_readdata_o,
+            avm_readdatavalid_o => sr_core_readdatavalid_o,
+            sdram_a_o           => sdram_a_o,
+            sdram_ba_o          => sdram_ba_o,
+            sdram_cas_n_o       => sdram_cas_n_o,
+            sdram_cke_o         => sdram_cke_o,
+            sdram_clk_o         => sdram_clk_o,
+            sdram_cs_n_o        => sdram_cs_n_o,
+            sdram_dq_in_i       => sdram_dq_in,
+            sdram_dqmh_o        => sdram_dqmh_o,
+            sdram_dqml_o        => sdram_dqml_o,
+            sdram_dq_oe_n_o     => sdram_dq_oe_n,
+            sdram_dq_out_o      => sdram_dq_out,
+            sdram_ras_n_o       => sdram_ras_n_o,
+            sdram_we_n_o        => sdram_we_n_o
+         ); -- sdram_inst
+
+      sdram_dq_gen : for i in sdram_dq_io'range generate
+         sdram_dq_io(i) <= sdram_dq_out(i) when sdram_dq_oe_n(i) = '0' else 'Z';
+      end generate sdram_dq_gen;
+      sdram_dq_in <= sdram_dq_io;
+
+   else generate
+
+      sr_core_readdata_o      <= (others => '0');
+      sr_core_readdatavalid_o <= '0';
+      sr_core_waitrequest_o   <= '0';
+      sdram_clk_o             <= '0';
+      sdram_cke_o             <= '0';
+      sdram_ras_n_o           <= '1';
+      sdram_cas_n_o           <= '1';
+      sdram_we_n_o            <= '1';
+      sdram_cs_n_o            <= '1';
+      sdram_ba_o              <= (others => '0');
+      sdram_a_o               <= (others => '0');
+      sdram_dqml_o            <= '0';
+      sdram_dqmh_o            <= '0';
+      sdram_dq_io             <= (others => 'Z');
+
+   end generate sdram_gen;
 
 
    ---------------------------------------------------------------------------------------------------------------

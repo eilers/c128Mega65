@@ -3,6 +3,7 @@
 ;   MODE 0: C64 cartridge at $8000, started through CBM80
 ;   MODE 1: C128 function ROM at $8000, ID 1, so the KERNAL's POLL starts it at once
 ;   MODE 2: Ultimax, started through the reset vector, which the script points at cold
+;   MODE 3: as MODE 1, but in FAST mode, so its ROM reads run at 2 MHz
 ;
 ; The engine runs from RAM at $0C00, so it can switch banks under itself. Each probe is four
 ; bytes: op, address, value. A read stores the byte at RESULTS and counts it as an error if it
@@ -22,7 +23,7 @@ OP_WRITE    = 2
 .if MODE = 0
         .word cold, cold        ; $8000: cold and warm start
         .byte $C3, $C2, $CD, $38, $30
-.elseif MODE = 1
+.elseif MODE = 1 .or MODE = 3
         jmp cold                ; $8000: cold start
         jmp cold                ; $8003: warm start
         .byte $01               ; $8006: ID 1, start at once
@@ -34,7 +35,11 @@ cold:   sei
         cld
         ldx #$FF
         txs
-.if MODE <> 1
+.if MODE = 3
+        lda #$01                ; FAST: 2 MHz from here on, the copy below included
+        sta $D030
+.endif
+.if MODE = 0 .or MODE = 2
         lda #$37                ; data before direction, or the port drops the cartridge
         sta $01
         lda #$2F

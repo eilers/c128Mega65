@@ -337,6 +337,16 @@ architecture synthesis of mega65_r3 is
    signal hr_core_readdatavalid  : std_logic;
    signal hr_core_waitrequest    : std_logic;
    signal hr_low                 : std_logic;
+   signal sr_core_refresh_ok     : std_logic;
+   signal sr_core_write          : std_logic;
+   signal sr_core_read           : std_logic;
+   signal sr_core_address        : std_logic_vector(31 downto 0);
+   signal sr_core_writedata      : std_logic_vector(15 downto 0);
+   signal sr_core_byteenable     : std_logic_vector(1 downto 0);
+   signal sr_core_burstcount     : std_logic_vector(7 downto 0);
+   signal sr_core_readdata       : std_logic_vector(15 downto 0);
+   signal sr_core_readdatavalid  : std_logic;
+   signal sr_core_waitrequest    : std_logic;
    signal hr_high                : std_logic;
 
    ---------------------------------------------------------------------------------------------
@@ -558,6 +568,17 @@ begin
       hr_reset_o              => hr_reset_o,
       hr_clk_p_o              => hr_clk_p_o,
       hr_cs0_o                => hr_cs0_o,
+      sdram_clk_o             => open,                -- R3 has no SDRAM
+      sdram_cke_o             => open,
+      sdram_ras_n_o           => open,
+      sdram_cas_n_o           => open,
+      sdram_we_n_o            => open,
+      sdram_cs_n_o            => open,
+      sdram_ba_o              => open,
+      sdram_a_o               => open,
+      sdram_dqml_o            => open,
+      sdram_dqmh_o            => open,
+      sdram_dq_io             => open,
 
       -- Connect to CORE
       qnice_clk_o             => qnice_clk,
@@ -640,6 +661,16 @@ begin
       hr_core_waitrequest_o   => hr_core_waitrequest,
       hr_high_o               => hr_high,
       hr_low_o                => hr_low,
+      sr_core_refresh_ok_i    => sr_core_refresh_ok,
+      sr_core_write_i         => sr_core_write,
+      sr_core_read_i          => sr_core_read,
+      sr_core_address_i       => sr_core_address,
+      sr_core_writedata_i     => sr_core_writedata,
+      sr_core_byteenable_i    => sr_core_byteenable,
+      sr_core_burstcount_i    => sr_core_burstcount,
+      sr_core_readdata_o      => sr_core_readdata,
+      sr_core_readdatavalid_o => sr_core_readdatavalid,
+      sr_core_waitrequest_o   => sr_core_waitrequest,
 
       -- Audio
       audio_clk_o             => audio_clk,
@@ -842,6 +873,16 @@ begin
          hr_core_waitrequest_i   => hr_core_waitrequest,
          hr_high_i               => hr_high,
          hr_low_i                => hr_low,
+         sr_core_refresh_ok_o    => sr_core_refresh_ok,
+         sr_core_write_o         => sr_core_write,
+         sr_core_read_o          => sr_core_read,
+         sr_core_address_o       => sr_core_address,
+         sr_core_writedata_o     => sr_core_writedata,
+         sr_core_byteenable_o    => sr_core_byteenable,
+         sr_core_burstcount_o    => sr_core_burstcount,
+         sr_core_readdata_i      => sr_core_readdata,
+         sr_core_readdatavalid_i => sr_core_readdatavalid,
+         sr_core_waitrequest_i   => sr_core_waitrequest,
 
          --------------------------------------------------------------------
          -- C64 specific ports that are not supported by the M2M framework

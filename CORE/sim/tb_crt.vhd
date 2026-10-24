@@ -2,13 +2,14 @@
 -- Commodore 128 for MEGA65
 --
 -- Testbench for virtual cartridges: main and sw_cartridge_wrapper as mega65.vhd connects them,
--- a HyperRAM model, and the real boot0.rom. The QNICE side loads each test/crt cartridge the way
--- the Shell does: the header through the QNICE device, the rest straight into the model to
--- save time, then the CSRs start the parser. main resets the C128 once the file is parsed,
+-- a HyperRAM model (R3) or with G_SDRAM the SDRAM controller and a model of the chip (R4 and
+-- later), and the real boot0.rom. The QNICE side loads each test/crt cartridge the way the
+-- Shell does: the header through the QNICE device, the rest straight into the model to save
+-- time, then the CSRs start the parser. main resets the C128 once the file is parsed,
 -- the cartridge's program reads its probes and writes what it read to $0500 and its verdict
 -- to $0400, and this compares that with the cartridge's .exp file.
 --
--- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored), a C64 16 kB cartridge, a
+-- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64 16 kB cartridge, a
 -- 4 kB Ultimax chip mirrored at $E000, EasyFlash with more banks than the cache holds, the same
 -- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00), and
 -- a type the parser must refuse.
@@ -27,6 +28,9 @@ use work.sim_support_pkg.all;
 use work.boot_paths_pkg.all;
 
 entity tb_crt is
+   generic (
+      G_SDRAM : boolean := false
+   );
 end entity tb_crt;
 
 architecture sim of tb_crt is
@@ -81,6 +85,12 @@ architecture sim of tb_crt is
    signal crt_data         : std_logic_vector( 7 downto 0);
    signal crt_lo_data      : std_logic_vector( 7 downto 0);
    signal crt_hi_data      : std_logic_vector( 7 downto 0);
+   signal crt_vic_data     : std_logic_vector( 7 downto 0);
+   signal crt_rd_lo        : std_logic;
+   signal crt_rd_hi        : std_logic;
+   signal crt_vic_rd       : std_logic;
+   signal crt_vic_addr     : std_logic_vector(12 downto 0);
+   signal crt_rfsh_ok      : std_logic;
    signal crt_ioe_we       : std_logic;
    signal crt_iof_we       : std_logic;
    signal crt_ram_we       : std_logic;
@@ -106,6 +116,18 @@ architecture sim of tb_crt is
    signal hr_readdata      : std_logic_vector(15 downto 0) := (others => '0');
    signal hr_readdatavalid : std_logic := '0';
    signal hr_waitrequest   : std_logic := '0';
+
+   -- SDRAM: the controller's Avalon port, and its pins
+   signal sr_refresh_ok    : std_logic;
+   signal sr_write         : std_logic;
+   signal sr_read          : std_logic;
+   signal sr_address       : std_logic_vector(31 downto 0);
+   signal sr_writedata     : std_logic_vector(15 downto 0);
+   signal sr_byteenable    : std_logic_vector( 1 downto 0);
+   signal sr_burstcount    : std_logic_vector( 7 downto 0);
+   signal sr_readdata      : std_logic_vector(15 downto 0) := (others => '0');
+   signal sr_readdatavalid : std_logic := '0';
+   signal sr_waitrequest   : std_logic := '0';
 
    type t_words is array (natural range <>) of natural range 0 to 65535;
 
@@ -373,6 +395,12 @@ begin
          crt_data_o           => crt_data,
          crt_lo_data_i        => crt_lo_data,
          crt_hi_data_i        => crt_hi_data,
+         crt_vic_data_i       => crt_vic_data,
+         crt_rd_lo_o          => crt_rd_lo,
+         crt_rd_hi_o          => crt_rd_hi,
+         crt_vic_rd_o         => crt_vic_rd,
+         crt_vic_addr_o       => crt_vic_addr,
+         crt_rfsh_ok_o        => crt_rfsh_ok,
          crt_ioe_we_o         => crt_ioe_we,
          crt_iof_we_o         => crt_iof_we,
          crt_ram_we_o         => crt_ram_we,
@@ -383,7 +411,8 @@ begin
 
    u_crt : entity work.sw_cartridge_wrapper
       generic map (
-         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000"
+         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000",
+         G_SDRAM        => G_SDRAM
       )
       port map (
          qnice_clk_i        => clk_qnice,
@@ -410,6 +439,12 @@ begin
          main_data_i        => crt_data,
          main_lo_data_o     => crt_lo_data,
          main_hi_data_o     => crt_hi_data,
+         main_vic_data_o    => crt_vic_data,
+         main_rd_lo_i       => crt_rd_lo,
+         main_rd_hi_i       => crt_rd_hi,
+         main_vic_rd_i      => crt_vic_rd,
+         main_vic_addr_i    => crt_vic_addr,
+         main_rfsh_ok_i     => crt_rfsh_ok,
          main_ioe_we_i      => crt_ioe_we,
          main_iof_we_i      => crt_iof_we,
          main_ram_we_i      => crt_ram_we,
@@ -426,7 +461,17 @@ begin
          hr_burstcount_o    => hr_burstcount,
          hr_readdata_i      => hr_readdata,
          hr_readdatavalid_i => hr_readdatavalid,
-         hr_waitrequest_i   => hr_waitrequest
+         hr_waitrequest_i   => hr_waitrequest,
+         sr_refresh_ok_o    => sr_refresh_ok,
+         sr_write_o         => sr_write,
+         sr_read_o          => sr_read,
+         sr_address_o       => sr_address,
+         sr_writedata_o     => sr_writedata,
+         sr_byteenable_o    => sr_byteenable,
+         sr_burstcount_o    => sr_burstcount,
+         sr_readdata_i      => sr_readdata,
+         sr_readdatavalid_i => sr_readdatavalid,
+         sr_waitrequest_i   => sr_waitrequest
       );
 
    --------------------------------------------------------------------------------
@@ -465,6 +510,156 @@ begin
          end if;
       end if;
    end process p_hyperram;
+
+   --------------------------------------------------------------------------------
+   -- SDRAM: the real controller, and a model of the IS42S16320 behind the board's delays,
+   -- 4 ns to the chip for its clock and commands and 1.5 ns back for read data
+   --------------------------------------------------------------------------------
+   sdram_gen : if G_SDRAM generate
+      constant C_TO_CHIP   : time := 4 ns;
+      constant C_FROM_CHIP : time := 1.5 ns;
+      constant C_TAC       : time := 5.4 ns;      -- clock to data out at CAS latency 3
+      constant C_TOH       : time := 2.7 ns;      -- data out hold
+
+      signal sd_a        : std_logic_vector(12 downto 0);
+      signal sd_ba       : std_logic_vector( 1 downto 0);
+      signal sd_cmd      : std_logic_vector( 3 downto 0);   -- CS#, RAS#, CAS#, WE#
+      signal sd_dqm      : std_logic_vector( 1 downto 0);
+      signal sd_clk      : std_logic;
+      signal sd_dq_oe_n  : std_logic_vector(15 downto 0);
+      signal sd_dq_out   : std_logic_vector(15 downto 0);
+      signal sd_dq_w     : std_logic_vector(15 downto 0);
+      signal sd_dq_in    : std_logic_vector(15 downto 0);
+      signal c_clk       : std_logic := '0';
+      signal c_a         : std_logic_vector(12 downto 0);
+      signal c_ba        : std_logic_vector( 1 downto 0);
+      signal c_cmd       : std_logic_vector( 3 downto 0) := "1111";
+      signal c_dqm       : std_logic_vector( 1 downto 0) := "11";
+      signal c_dq_w      : std_logic_vector(15 downto 0);
+      signal c_dq_out    : std_logic_vector(15 downto 0) := (others => 'Z');
+   begin
+
+      u_sdram : entity work.sdram
+         generic map (
+            G_CLOCK_SPEED_MHZ => 100,
+            G_REFRESH_HOLD    => 200
+         )
+         port map (
+            clk_i               => clk_hr,
+            rst_i               => rst_hr,
+            refresh_ok_i        => sr_refresh_ok,
+            avm_waitrequest_o   => sr_waitrequest,
+            avm_write_i         => sr_write,
+            avm_read_i          => sr_read,
+            avm_address_i       => sr_address,
+            avm_writedata_i     => sr_writedata,
+            avm_byteenable_i    => sr_byteenable,
+            avm_burstcount_i    => sr_burstcount,
+            avm_readdata_o      => sr_readdata,
+            avm_readdatavalid_o => sr_readdatavalid,
+            sdram_a_o           => sd_a,
+            sdram_ba_o          => sd_ba,
+            sdram_cas_n_o       => sd_cmd(1),
+            sdram_cke_o         => open,
+            sdram_clk_o         => sd_clk,
+            sdram_cs_n_o        => sd_cmd(3),
+            sdram_dq_in_i       => sd_dq_in,
+            sdram_dqmh_o        => sd_dqm(1),
+            sdram_dqml_o        => sd_dqm(0),
+            sdram_dq_oe_n_o     => sd_dq_oe_n,
+            sdram_dq_out_o      => sd_dq_out,
+            sdram_ras_n_o       => sd_cmd(2),
+            sdram_we_n_o        => sd_cmd(0)
+         );
+
+      sd_dq_w  <= sd_dq_out when sd_dq_oe_n(0) = '0' else (others => 'Z');
+      c_clk    <= transport sd_clk  after C_TO_CHIP;
+      c_a      <= transport sd_a    after C_TO_CHIP;
+      c_ba     <= transport sd_ba   after C_TO_CHIP;
+      c_cmd    <= transport sd_cmd  after C_TO_CHIP;
+      c_dqm    <= transport sd_dqm  after C_TO_CHIP;
+      c_dq_w   <= transport sd_dq_w after C_TO_CHIP;
+      sd_dq_in <= transport c_dq_out after C_FROM_CHIP;
+
+      -- Full-page bursts, as the controller sets the chip up: a READ or WRITE runs on a column a
+      -- clock until BURST STOP or PRECHARGE. Read data comes CAS latency clocks after its column,
+      -- and DQM masks it two clocks ahead; for a write, DQM masks the same clock's data.
+      p_chip : process (c_clk)
+         type t_rows is array (0 to 3) of natural;
+         type t_pipe is array (0 to 3) of integer;
+         variable rows    : t_rows := (others => 0);
+         variable cl      : natural := 3;
+         variable rd_on   : boolean := false;
+         variable wr_on   : boolean := false;
+         variable bank    : natural := 0;
+         variable col     : natural := 0;
+         variable pipe    : t_pipe := (others => -1);   -- word addresses, -1 for none
+         variable dqm_d   : std_logic_vector(1 downto 0) := "11";
+         variable fetch   : integer;
+         variable w       : std_logic_vector(15 downto 0);
+         variable cmd     : std_logic_vector(2 downto 0);
+      begin
+         if rising_edge(c_clk) then
+            fetch := -1;
+            cmd   := c_cmd(2 downto 0);
+            if c_cmd(3) = '0' and cmd /= "111" then
+               rd_on := false;
+               wr_on := false;
+               case cmd is
+                  when "011" =>                                     -- ACTIVE
+                     rows(to_integer(unsigned(c_ba))) := to_integer(unsigned(c_a));
+                  when "101" | "100" =>                             -- READ, WRITE
+                     bank  := to_integer(unsigned(c_ba));
+                     col   := to_integer(unsigned(c_a(9 downto 0)));
+                     rd_on := c_cmd(0) = '1';
+                     wr_on := c_cmd(0) = '0';
+                  when "000" =>                                     -- MODE REGISTER SET
+                     cl := to_integer(unsigned(c_a(6 downto 4)));
+                     assert cl = 3 and c_a(2 downto 0) = "111"
+                        report "SDRAM model: expects CAS latency 3 and full-page bursts" severity failure;
+                  when others =>                                    -- PRECHARGE, BURST STOP, REFRESH
+                     null;
+               end case;
+            elsif rd_on or wr_on then
+               col := (col + 1) mod 1024;
+            end if;
+
+            if rd_on then
+               fetch := bank * 2**23 + rows(bank) * 2**10 + col;
+            elsif wr_on then
+               w := std_logic_vector(to_unsigned(hyperram.get(bank * 2**23 + rows(bank) * 2**10 + col), 16));
+               if c_dqm(0) = '0' then
+                  w(7 downto 0) := c_dq_w(7 downto 0);
+               end if;
+               if c_dqm(1) = '0' then
+                  w(15 downto 8) := c_dq_w(15 downto 8);
+               end if;
+               hyperram.put(bank * 2**23 + rows(bank) * 2**10 + col, w, "11");
+            end if;
+
+            -- Drive the word that is due at the next edge
+            for i in 3 downto 1 loop
+               pipe(i) := pipe(i - 1);
+            end loop;
+            pipe(0) := fetch;
+            c_dq_out <= transport (others => 'X') after C_TOH;
+            if pipe(cl - 1) >= 0 then
+               w := std_logic_vector(to_unsigned(hyperram.get(pipe(cl - 1)), 16));
+               if dqm_d(0) = '1' then
+                  w(7 downto 0) := (others => 'Z');
+               end if;
+               if dqm_d(1) = '1' then
+                  w(15 downto 8) := (others => 'Z');
+               end if;
+               c_dq_out <= transport w after C_TAC;
+            else
+               c_dq_out <= transport (others => 'Z') after C_TAC;
+            end if;
+            dqm_d := c_dqm;
+         end if;
+      end process p_chip;
+
+   end generate sdram_gen;
 
    --------------------------------------------------------------------------------
    -- Boot ROM, as in tb_c128_boot
@@ -666,10 +861,15 @@ begin
       wait for 2 ms;
 
       run_crt("crttest-c128",   20 ms);
+      run_crt("crttest-c128fast", 20 ms);
       run_crt("crttest-16k",    20 ms);
       run_crt("crttest-umax4k", 20 ms);
       run_crt("crttest-ef",     30 ms);
-      check(n_waits >= 10, "EasyFlash switched banks without the cache stalling the CPU");
+      if G_SDRAM then
+         check(n_waits = 0, "the CPU waited for the SDRAM");
+      else
+         check(n_waits >= 10, "EasyFlash switched banks without the cache stalling the CPU");
+      end if;
 
       -- With the REU on, EasyFlash still owns $DF00-$DF1F: the REU stays off for it
       reu_on <= '1';
