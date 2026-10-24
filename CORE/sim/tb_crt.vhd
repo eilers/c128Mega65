@@ -12,7 +12,8 @@
 -- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64 16 kB cartridge, a
 -- 4 kB Ultimax chip mirrored at $E000, EasyFlash with more banks than the cache holds, the same
 -- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00), a
--- full-size Magic Desk 16K (over 2 MiB, SDRAM only), and a type the parser must refuse.
+-- full-size Magic Desk 16K (over 2 MiB, SDRAM only), and a type the parser must refuse. It also
+-- watches the expansion port's /ROML-/ROMH: low for a write only in Ultimax mode.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -203,6 +204,8 @@ architecture sim of tb_crt is
    signal status_seen      : boolean := false;
    signal n_waits          : natural := 0;         -- times the cache made the CPU wait
    signal crt_wait_d       : std_logic := '0';
+   signal n_rom_wr         : natural := 0;         -- port /ROML-/ROMH low for a write, not Ultimax
+   signal n_umax_wr        : natural := 0;         -- the same in Ultimax mode, as a PLA does
 
 begin
 
@@ -690,6 +693,28 @@ begin
    end process;
 
    --------------------------------------------------------------------------------
+   -- The expansion port's /ROML-/ROMH on CPU writes: a PLA selects them only in Ultimax mode
+   --------------------------------------------------------------------------------
+   p_rom_wr : process (clk_main)
+      alias roml_n  is <<signal u_dut.cart_roml_n  : std_logic>>;
+      alias romh_n  is <<signal u_dut.cart_romh_n  : std_logic>>;
+      alias aec     is <<signal u_dut.core_aec     : std_logic>>;
+      alias we      is <<signal u_dut.system_we    : std_logic>>;
+      alias exrom_n is <<signal u_dut.core_exrom_n : std_logic>>;
+      alias game_n  is <<signal u_dut.core_game_n  : std_logic>>;
+   begin
+      if rising_edge(clk_main) then
+         if (roml_n = '0' or romh_n = '0') and aec = '1' and we = '1' then
+            if exrom_n = '1' and game_n = '0' then
+               n_umax_wr <= n_umax_wr + 1;
+            else
+               n_rom_wr <= n_rom_wr + 1;
+            end if;
+         end if;
+      end if;
+   end process p_rom_wr;
+
+   --------------------------------------------------------------------------------
    -- What the program writes to RAM bank 0, and how often the cache stalls the CPU
    --------------------------------------------------------------------------------
    p_capture : process (clk_main)
@@ -904,6 +929,11 @@ begin
       check(s = "Unsupported type", "crttest-badtype: error string '" & s & "'");
       wait for 100 us;
       check(crt_loaded = '0', "crttest-badtype: main sees a cartridge");
+
+      -- crttest-16k and crttest-ef write under ROML in 16 kB mode, crttest-ef also in Ultimax
+      check(n_rom_wr = 0, "/ROML-/ROMH went low for " & integer'image(n_rom_wr) &
+                          " clocks of 8K/16K writes");
+      check(n_umax_wr > 0, "no Ultimax write selected ROML/ROMH, so that path is untested");
 
       if errors = 0 then
          write(l, string'("ALL CHECKS PASSED"));
