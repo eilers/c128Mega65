@@ -494,6 +494,7 @@ signal crt_rfsh_ok          : std_logic := '1';
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
+signal cart_rom_sel         : std_logic;   -- the CPU's access may select ROML/ROMH (PLA rules)
 signal cart_roml_n          : std_logic;
 signal cart_romh_n          : std_logic;
 signal cart_io1_n           : std_logic := '1';
@@ -844,8 +845,11 @@ reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0
 -- VIC0-3 slot: the Ultimate samples the address ~100 ns into PHI1.
 cart_umax_vic <= '1' when core_aec = '0' and core_exrom_n = '1' and core_game_n = '0' and
                           core_vic_addr(13 downto 12) = "11" else '0';
-cart_roml_n <= not (core_roml and core_aec);
-cart_romh_n <= not (core_romh and core_aec) and (not cart_umax_vic);
+-- A PLA selects ROML/ROMH for a write only in Ultimax mode. In 8K/16K mode the write goes to RAM
+-- alone, and a plain ROM cartridge, which has no R/W, would drive the bus against it.
+cart_rom_sel <= core_aec and ((not system_we) or (core_exrom_n and not core_game_n));
+cart_roml_n  <= not (core_roml and cart_rom_sel);
+cart_romh_n  <= not (core_romh and cart_rom_sel) and (not cart_umax_vic);
 
 -- /IO1 and /IO2 span the CPU's PHI2 phase as on a C64, not the core's CPU4-7 strobe: the Ultimate
 -- latches them ~350 ns into PHI2. Registered against the CPU/VIC address handover; low EXT5..CPU7,
@@ -1286,12 +1290,14 @@ end process crt_rfsh_proc;
 
 crt_rfsh_ok_o <= crt_rfsh_ok;
 
--- The cartridge's RAMs. Writes to $9Exx/$9Fxx also reach $DExx/$DFxx RAM when that is mapped
--- (Action Replay, see C64MEGA65's main.vhd).
+-- The cartridge's RAMs. While its RAM is at ROML, writes to $9Exx/$9Fxx also reach the
+-- $DExx/$DFxx copy (Action Replay, see C64MEGA65's main.vhd). EasyFlash's $DF00 RAM is separate.
 crt_addr_9exx <= '1' when core_ram_addr(12 downto 8) = "11110" else '0';
 crt_addr_9fxx <= '1' when core_ram_addr(12 downto 8) = "11111" else '0';
-crt_ioe_we_o  <= crt_active and system_we and (core_ioe or (core_roml and crt_ioe_wr_ena and crt_addr_9exx));
-crt_iof_we_o  <= crt_active and system_we and (core_iof or (core_roml and crt_iof_wr_ena and crt_addr_9fxx));
+crt_ioe_we_o  <= crt_active and system_we and
+                 (core_ioe or (core_roml and crt_roml_we and crt_ioe_wr_ena and crt_addr_9exx));
+crt_iof_we_o  <= crt_active and system_we and
+                 (core_iof or (core_roml and crt_roml_we and crt_iof_wr_ena and crt_addr_9fxx));
 crt_ram_we_o  <= crt_active and system_we and core_roml and crt_roml_we;
 
 -- Route the cartridge source back into the C128, then lay the REU over it

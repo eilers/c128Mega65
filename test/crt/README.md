@@ -8,7 +8,7 @@ Self-checking `.crt` files for the virtual cartridge. `tb_crt` runs them in simu
 | `crttest-c128fast.crt` | The same, in FAST mode | The same reads at 2 MHz, where a cartridge has the least time to answer |
 | `crttest-16k.crt` | C64, 16 KB at `$8000` | ROML and ROMH from one chip; writes to ROML go to the RAM underneath |
 | `crttest-umax4k.crt` | C64 Ultimax, 4 KB at `$F000` | The reset vector at `$FFFC`; the chip mirrored at `$E000` |
-| `crttest-ef.crt` | EasyFlash, 10 banks | Bank switching across more banks than the cache holds, 8 KB and 16 KB modes, the RAM at `$DF00`, switching the cartridge off |
+| `crttest-ef.crt` | EasyFlash, 10 banks | Bank switching across more banks than the cache holds, 8 KB and 16 KB modes, the RAM at `$DF00` (writes to `$9Fxx` don't reach it), switching the cartridge off, Ultimax writes reaching only the cartridge, not the RAM underneath |
 | `crttest-md16k.crt` | Magic Desk 16K, 128 banks: 2 MB of ROM, a file just over 2 MiB | Banks up to 127, switching the cartridge off. R4 and later only: R3 refuses a file this size |
 | `crttest-badtype.crt` | Retro Replay | A type the core doesn't support: loading it must fail with "Unsupported type" |
 
