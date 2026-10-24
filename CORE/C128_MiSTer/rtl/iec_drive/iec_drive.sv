@@ -59,7 +59,62 @@ module iec_drive #(parameter PARPORT=1,DRIVES=2)
    output        rom_req,
    output [18:0] rom_addr,
    input   [7:0] rom_data,
-   input         rom_wr
+   input         rom_wr,
+
+   // MEGA65 internal floppy (ported from C64MEGA65 #90/#93/#244). Bit i set:
+   // drive i is a 1581 backed by the MEGA65's internal 3.5" drive, whatever
+   // image is mounted. At most one bit is set (main.vhd). The rest goes to
+   // and from physical_1581_controller (50 MHz) and its FIFOs; see
+   // c1581_fdc1772.v. The write FIFO's write side and the read FIFO's read
+   // side run on clk.
+   input   [N:0] phys_mode,
+   output        phys_active,
+   output        phys_cia_motor_on,
+   output        phys_cia_side,
+   output        phys_step_req_tgl,
+   output        phys_step_outward,
+   output        phys_rd_req_tgl,
+   output  [2:0] phys_rd_op,
+   output  [7:0] phys_rd_track,
+   output        phys_rd_side,
+   output  [7:0] phys_rd_sector,
+   output        phys_rd_cancel_tgl,
+   output  [1:0] phys_rd_seq,
+   input         phys_step_ack_tgl,
+   input         phys_rd_done_tgl,
+   input   [1:0] phys_rd_done_seq,
+   input   [4:0] phys_rd_result,
+   input         phys_rd_crc_err,
+   input         phys_rd_rnf,
+   input         phys_rd_deleted,
+   input   [7:0] phys_rd_c,
+   output        phys_byte_rd_en,
+   input   [7:0] phys_byte_data,
+   input         phys_byte_empty,
+   input         phys_media_ready,
+   input         phys_index,
+   input         phys_track0,
+   input         phys_wprot,
+   input         phys_change,
+   input         phys_motor_on,
+   input         phys_head_settled,
+   output        phys_wr_deleted,
+   output        phys_wr_precomp,
+   output        phys_wr_byte_wr,
+   output  [7:0] phys_wr_byte_data,
+   input         phys_wr_fifo_full,
+   input         phys_wr_feed,
+   input         phys_wr_lost,
+   input         phys_wr_busy,
+   output        phys_dbg_lost_tgl,
+   output        phys_dbg_drain_tgl,
+   output        phys_dbg_staledone_tgl,
+   output        phys_dbg_busycmd_tgl,
+   output        phys_dbg_fin_tgl,
+   output [10:0] phys_dbg_pres_cnt,
+   output        phys_dbg_wr_fin_tgl,
+   output        phys_dbg_wr_wp_tgl,
+   output        phys_dbg_wr_drop_tgl
 );
 
 localparam NDR = (DRIVES < 1) ? 1 : (DRIVES > 4) ? 4 : DRIVES;
@@ -73,12 +128,20 @@ reg [N:0] img_gcr = 0;   // gcr enabled disk image (d64/g64/d71/g71)
 reg [N:0] img_mfm = 0;   // mfm enabled disk image (g64/g71)
 reg [N:0] img_hd  = 0;   // HD (3.5") disk image (d81)
 reg [3:0] rom_bank[NDR]; // ROM bank selector
+
+// MEGA65 internal floppy: a drive in physical mode is a 1581. hd replaces
+// img_hd as the 1581 select; it lives on clk_sys like img_hd. While it
+// changes, main.vhd holds the drive in reset, and a new ROM bank reloads.
+wire [N:0] phys_mode_sys;
+iecdrv_sync #(NDR) phys_mode_sync(clk_sys, phys_mode, phys_mode_sys);
+wire [N:0] hd = img_hd | phys_mode_sys;
+
 always @(posedge clk_sys)
    for(int i=0; i<NDR; i=i+1) begin
       if(img_mounted[i] && img_size)
          {img_hd[i], img_mfm[i], img_gcr[i], img_ds[i]} = img_type;
 
-      if (img_hd[i])
+      if (hd[i])
          rom_bank[i] = 4'((2*NDR)+i);  // 1581 ROM
       else if (drv_mode[i] == 2'b00)
          rom_bank[i] = 4'((0*NDR)+i);  // 1541 ROM
@@ -143,15 +206,16 @@ wire  [N:0] c157x_out_we;
 wire  [7:0] c1581_out_track[NDR];
 wire  [N:0] c1581_out_we;
 
+// MEGA65 internal floppy: a drive in physical mode makes no image requests
 always_comb for(int i=0; i<NDR; i=i+1) begin
-   sd_buff_din[i] = (img_hd[i] ? c1581_sd_buff_dout[i] : c157x_sd_buff_dout[i] );
-   sd_lba[i]      = (img_hd[i] ? c1581_sd_lba[i] << 1  : c157x_sd_lba[i]       );
-   sd_rd[i]       = (img_hd[i] ? c1581_sd_rd[i]        : c157x_sd_rd[i]        );
-   sd_wr[i]       = (img_hd[i] ? c1581_sd_wr[i]        : c157x_sd_wr[i]        );
-   sd_blk_cnt[i]  = (img_hd[i] ? 6'd1                  : c157x_sd_blk_cnt[i]   );
-   mem_a[i]       = (img_hd[i] ? c1581_mem_a[i]        : c157x_mem_a[i]        );
-   out_track[i]   = (img_hd[i] ? c1581_out_track[i]    : c157x_out_track[i]    );
-   out_we[i]      = (img_hd[i] ? c1581_out_we[i]       : c157x_out_we[i]       );
+   sd_buff_din[i] = (hd[i] ? c1581_sd_buff_dout[i] : c157x_sd_buff_dout[i] );
+   sd_lba[i]      = (hd[i] ? c1581_sd_lba[i] << 1  : c157x_sd_lba[i]       );
+   sd_rd[i]       = phys_mode_sys[i] ? 1'b0 : (hd[i] ? c1581_sd_rd[i] : c157x_sd_rd[i]);
+   sd_wr[i]       = phys_mode_sys[i] ? 1'b0 : (hd[i] ? c1581_sd_wr[i] : c157x_sd_wr[i]);
+   sd_blk_cnt[i]  = (hd[i] ? 6'd1                  : c157x_sd_blk_cnt[i]   );
+   mem_a[i]       = (hd[i] ? c1581_mem_a[i]        : c157x_mem_a[i]        );
+   out_track[i]   = (hd[i] ? c1581_out_track[i]    : c157x_out_track[i]    );
+   out_we[i]      = (hd[i] ? c1581_out_we[i]       : c157x_out_we[i]       );
 end
 
 // MEGA65 port: the c1581_* IEC nets are declared here, ahead of the c157x_multi
@@ -171,7 +235,7 @@ wire [14:0] c157x_mem_a[NDR];
 c157x_multi #(.PARPORT(PARPORT), .DRIVES(DRIVES)) c157x
 (
    .clk(clk),
-   .reset(reset | img_hd | ~rom_valid),
+   .reset(reset | hd | ~rom_valid),
    .ce(ce),
 
    .drv_mode(drv_mode),
@@ -235,7 +299,7 @@ wire [14:0] c1581_mem_a[NDR];
 c1581_multi #(.PARPORT(PARPORT), .DRIVES(DRIVES)) c1581
 (
    .clk(clk),
-   .reset(reset | ~img_hd | ~rom_valid),
+   .reset(reset | ~hd | ~rom_valid),
    .ce(ce),
 
    .iec_atn_i (iec_atn_i),
@@ -276,7 +340,56 @@ c1581_multi #(.PARPORT(PARPORT), .DRIVES(DRIVES)) c1581
    .sd_buff_din(c1581_sd_buff_dout),
    .sd_buff_wr(sd_buff_wr),
    .out_track(c1581_out_track),
-   .out_we(c1581_out_we)
+   .out_we(c1581_out_we),
+
+   .phys_mode             ( phys_mode              ),
+   .phys_active           ( phys_active            ),
+   .phys_cia_motor_on     ( phys_cia_motor_on      ),
+   .phys_cia_side         ( phys_cia_side          ),
+   .phys_step_req_tgl     ( phys_step_req_tgl      ),
+   .phys_step_outward     ( phys_step_outward      ),
+   .phys_rd_req_tgl       ( phys_rd_req_tgl        ),
+   .phys_rd_op            ( phys_rd_op             ),
+   .phys_rd_track         ( phys_rd_track          ),
+   .phys_rd_side          ( phys_rd_side           ),
+   .phys_rd_sector        ( phys_rd_sector         ),
+   .phys_rd_cancel_tgl    ( phys_rd_cancel_tgl     ),
+   .phys_rd_seq           ( phys_rd_seq            ),
+   .phys_step_ack_tgl     ( phys_step_ack_tgl      ),
+   .phys_rd_done_tgl      ( phys_rd_done_tgl       ),
+   .phys_rd_done_seq      ( phys_rd_done_seq       ),
+   .phys_rd_result        ( phys_rd_result         ),
+   .phys_rd_crc_err       ( phys_rd_crc_err        ),
+   .phys_rd_rnf           ( phys_rd_rnf            ),
+   .phys_rd_deleted       ( phys_rd_deleted        ),
+   .phys_rd_c             ( phys_rd_c              ),
+   .phys_byte_rd_en       ( phys_byte_rd_en        ),
+   .phys_byte_data        ( phys_byte_data         ),
+   .phys_byte_empty       ( phys_byte_empty        ),
+   .phys_media_ready      ( phys_media_ready       ),
+   .phys_index            ( phys_index             ),
+   .phys_track0           ( phys_track0            ),
+   .phys_wprot            ( phys_wprot             ),
+   .phys_change           ( phys_change            ),
+   .phys_motor_on         ( phys_motor_on          ),
+   .phys_head_settled     ( phys_head_settled      ),
+   .phys_wr_deleted       ( phys_wr_deleted        ),
+   .phys_wr_precomp       ( phys_wr_precomp        ),
+   .phys_wr_byte_wr       ( phys_wr_byte_wr        ),
+   .phys_wr_byte_data     ( phys_wr_byte_data      ),
+   .phys_wr_fifo_full     ( phys_wr_fifo_full      ),
+   .phys_wr_feed          ( phys_wr_feed           ),
+   .phys_wr_lost          ( phys_wr_lost           ),
+   .phys_wr_busy          ( phys_wr_busy           ),
+   .phys_dbg_lost_tgl     ( phys_dbg_lost_tgl      ),
+   .phys_dbg_drain_tgl    ( phys_dbg_drain_tgl     ),
+   .phys_dbg_staledone_tgl( phys_dbg_staledone_tgl ),
+   .phys_dbg_busycmd_tgl  ( phys_dbg_busycmd_tgl   ),
+   .phys_dbg_fin_tgl      ( phys_dbg_fin_tgl       ),
+   .phys_dbg_pres_cnt     ( phys_dbg_pres_cnt      ),
+   .phys_dbg_wr_fin_tgl   ( phys_dbg_wr_fin_tgl    ),
+   .phys_dbg_wr_wp_tgl    ( phys_dbg_wr_wp_tgl     ),
+   .phys_dbg_wr_drop_tgl  ( phys_dbg_wr_drop_tgl   )
 );
 
 endmodule

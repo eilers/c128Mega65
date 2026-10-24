@@ -55,7 +55,58 @@ module c1581_drv
    output  [7:0] sd_buff_din,
    input         sd_buff_wr,
    output  [7:0] out_track,
-   output        out_we
+   output        out_we,
+
+   // MEGA65 internal floppy: passed straight through to c1581_fdc1772,
+   // see there. Inert while phys_mode is 0.
+   input         phys_mode,
+   output        phys_active,
+   output        phys_cia_motor_on,
+   output        phys_cia_side,
+   output        phys_step_req_tgl,
+   output        phys_step_outward,
+   output        phys_rd_req_tgl,
+   output  [2:0] phys_rd_op,
+   output  [7:0] phys_rd_track,
+   output        phys_rd_side,
+   output  [7:0] phys_rd_sector,
+   output        phys_rd_cancel_tgl,
+   output  [1:0] phys_rd_seq,
+   input         phys_step_ack_tgl,
+   input         phys_rd_done_tgl,
+   input   [1:0] phys_rd_done_seq,
+   input   [4:0] phys_rd_result,
+   input         phys_rd_crc_err,
+   input         phys_rd_rnf,
+   input         phys_rd_deleted,
+   input   [7:0] phys_rd_c,
+   output        phys_byte_rd_en,
+   input   [7:0] phys_byte_data,
+   input         phys_byte_empty,
+   input         phys_media_ready,
+   input         phys_index,
+   input         phys_track0,
+   input         phys_wprot,
+   input         phys_change,
+   input         phys_motor_on,
+   input         phys_head_settled,
+   output        phys_wr_deleted,
+   output        phys_wr_precomp,
+   output        phys_wr_byte_wr,
+   output  [7:0] phys_wr_byte_data,
+   input         phys_wr_fifo_full,
+   input         phys_wr_feed,
+   input         phys_wr_lost,
+   input         phys_wr_busy,
+   output        phys_dbg_lost_tgl,
+   output        phys_dbg_drain_tgl,
+   output        phys_dbg_staledone_tgl,
+   output        phys_dbg_busycmd_tgl,
+   output        phys_dbg_fin_tgl,
+   output [10:0] phys_dbg_pres_cnt,
+   output        phys_dbg_wr_fin_tgl,
+   output        phys_dbg_wr_wp_tgl,
+   output        phys_dbg_wr_drop_tgl
 );
 
 assign rom_addr = cpu_a[14:0];
@@ -66,6 +117,13 @@ always @(posedge clk) begin
    prev_mounted <= img_mounted;
    if (~prev_mounted & img_mounted) wps_n <= ~img_readonly;
 end
+
+// MEGA65 internal floppy: the CIA's disk change (PA7) and write protect (PB6)
+// senses follow the real drive. Slow levels from the 50 MHz controller.
+// phys_change=1: disk changed or not yet stepped on; phys_wprot=1: protected.
+wire phys_change_s, phys_wprot_s;
+iecdrv_sync phys_chg_cia_sync(clk, phys_change, phys_change_s);
+iecdrv_sync phys_wp_cia_sync (clk, phys_wprot,  phys_wprot_s);
 
 //same decoder as on real HW
 wire [2:0] ls193 = cpu_a[15:13];
@@ -139,13 +197,14 @@ wire       side       =  pa_out[0];
 // for the same reason ("drive not ready if ready_r() is connected to CIA").
 // Report ready whenever the FDC has latched a disk; spin-up still gates
 // the FDC header path via floppy_ready.
-wire [7:0] pa_in      = {disk_chng_n, 2'b11, drive_num, 1'b1, ~disk_present, 1'b1};
+// In physical mode disk_present is the mechanism's RDY, see c1581_fdc1772.
+wire [7:0] pa_in      = {phys_mode ? ~phys_change_s : disk_chng_n, 2'b11, drive_num, 1'b1, ~disk_present, 1'b1};
 
 wire       fast_dir   =  pb_out[5];
 assign     iec_clk_o  = ~pb_out[3];
 assign     iec_data_o = ~pb_out[1] & ~(pb_out[4] & ~iec_atn_i) & (~fast_dir | sp_out);
 assign     iec_fclk_o = ~fast_dir | cnt_out;
-wire [7:0] pb_in      = {~iec_atn_i, wps_n, 3'b111, ~iec_clk_i, 1'b1, ~iec_data_i};
+wire [7:0] pb_in      = {~iec_atn_i, phys_mode ? ~phys_wprot_s : wps_n, 3'b111, ~iec_clk_i, 1'b1, ~iec_data_i};
 
 wire [7:0] pa_out;
 wire [7:0] pb_out;
@@ -240,9 +299,13 @@ iecdrv_via6522 via
 );
 
 
+// MEGA65 internal floppy: switching between image and internal floppy is a
+// disk change too, so the DOS never keeps the other medium's BAM.
 reg disk_chng_n;
+reg phys_modeD = 0;
 always @(posedge clk) begin
-   if(img_mounted | reset) disk_chng_n <=0;
+   phys_modeD <= phys_mode;
+   if(img_mounted | reset | (phys_modeD ^ phys_mode)) disk_chng_n <=0;
    if(floppy_step) disk_chng_n <=1;
 end
 
@@ -286,7 +349,56 @@ c1581_fdc1772 #(.IMG_TYPE(1), .EXT_MOTOR(1), .FD_NUM(1)) fdc
    .out_track(track_fdc),
    .out_we(out_we),
 
-   .disk_present(disk_present)
+   .disk_present(disk_present),
+
+   .phys_mode(phys_mode),
+   .phys_active(phys_active),
+   .phys_cia_motor_on(phys_cia_motor_on),
+   .phys_cia_side(phys_cia_side),
+   .phys_step_req_tgl(phys_step_req_tgl),
+   .phys_step_outward(phys_step_outward),
+   .phys_rd_req_tgl(phys_rd_req_tgl),
+   .phys_rd_op(phys_rd_op),
+   .phys_rd_track(phys_rd_track),
+   .phys_rd_side(phys_rd_side),
+   .phys_rd_sector(phys_rd_sector),
+   .phys_rd_cancel_tgl(phys_rd_cancel_tgl),
+   .phys_rd_seq(phys_rd_seq),
+   .phys_step_ack_tgl(phys_step_ack_tgl),
+   .phys_rd_done_tgl(phys_rd_done_tgl),
+   .phys_rd_done_seq(phys_rd_done_seq),
+   .phys_rd_result(phys_rd_result),
+   .phys_rd_crc_err(phys_rd_crc_err),
+   .phys_rd_rnf(phys_rd_rnf),
+   .phys_rd_deleted(phys_rd_deleted),
+   .phys_rd_c(phys_rd_c),
+   .phys_byte_rd_en(phys_byte_rd_en),
+   .phys_byte_data(phys_byte_data),
+   .phys_byte_empty(phys_byte_empty),
+   .phys_media_ready(phys_media_ready),
+   .phys_index(phys_index),
+   .phys_track0(phys_track0),
+   .phys_wprot(phys_wprot),
+   .phys_change(phys_change),
+   .phys_motor_on(phys_motor_on),
+   .phys_head_settled(phys_head_settled),
+   .phys_wr_deleted(phys_wr_deleted),
+   .phys_wr_precomp(phys_wr_precomp),
+   .phys_wr_byte_wr(phys_wr_byte_wr),
+   .phys_wr_byte_data(phys_wr_byte_data),
+   .phys_wr_fifo_full(phys_wr_fifo_full),
+   .phys_wr_feed(phys_wr_feed),
+   .phys_wr_lost(phys_wr_lost),
+   .phys_wr_busy(phys_wr_busy),
+   .phys_dbg_lost_tgl(phys_dbg_lost_tgl),
+   .phys_dbg_drain_tgl(phys_dbg_drain_tgl),
+   .phys_dbg_staledone_tgl(phys_dbg_staledone_tgl),
+   .phys_dbg_busycmd_tgl(phys_dbg_busycmd_tgl),
+   .phys_dbg_fin_tgl(phys_dbg_fin_tgl),
+   .phys_dbg_pres_cnt(phys_dbg_pres_cnt),
+   .phys_dbg_wr_fin_tgl(phys_dbg_wr_fin_tgl),
+   .phys_dbg_wr_wp_tgl(phys_dbg_wr_wp_tgl),
+   .phys_dbg_wr_drop_tgl(phys_dbg_wr_drop_tgl)
 );
 
 assign out_track = {track_fdc[6:0], 1'b0};

@@ -59,7 +59,61 @@ module c1581_multi #(parameter PARPORT=1,DRIVES=2)
 	// input         rom_std
 
 	output [14:0] mem_a[NDR],
-	input   [7:0] rom_do[NDR]
+	input   [7:0] rom_do[NDR],
+
+	// MEGA65 internal floppy (ported from C64MEGA65 #90/#93/#244). There is
+	// one mechanism and one controller: the drive whose phys_mode bit is set
+	// drives the outputs below (at most one bit is set, and main.vhd passes
+	// every change through an all-zero gap). The controller's outputs go to
+	// all drives; a drive ignores them while its own phys_mode is 0.
+	input   [N:0] phys_mode,
+	output        phys_active,
+	output        phys_cia_motor_on,
+	output        phys_cia_side,
+	output        phys_step_req_tgl,
+	output        phys_step_outward,
+	output        phys_rd_req_tgl,
+	output  [2:0] phys_rd_op,
+	output  [7:0] phys_rd_track,
+	output        phys_rd_side,
+	output  [7:0] phys_rd_sector,
+	output        phys_rd_cancel_tgl,
+	output  [1:0] phys_rd_seq,
+	input         phys_step_ack_tgl,
+	input         phys_rd_done_tgl,
+	input   [1:0] phys_rd_done_seq,
+	input   [4:0] phys_rd_result,
+	input         phys_rd_crc_err,
+	input         phys_rd_rnf,
+	input         phys_rd_deleted,
+	input   [7:0] phys_rd_c,
+	output        phys_byte_rd_en,
+	input   [7:0] phys_byte_data,
+	input         phys_byte_empty,
+	input         phys_media_ready,
+	input         phys_index,
+	input         phys_track0,
+	input         phys_wprot,
+	input         phys_change,
+	input         phys_motor_on,
+	input         phys_head_settled,
+	output        phys_wr_deleted,
+	output        phys_wr_precomp,
+	output        phys_wr_byte_wr,
+	output  [7:0] phys_wr_byte_data,
+	input         phys_wr_fifo_full,
+	input         phys_wr_feed,
+	input         phys_wr_lost,
+	input         phys_wr_busy,
+	output        phys_dbg_lost_tgl,
+	output        phys_dbg_drain_tgl,
+	output        phys_dbg_staledone_tgl,
+	output        phys_dbg_busycmd_tgl,
+	output        phys_dbg_fin_tgl,
+	output [10:0] phys_dbg_pres_cnt,
+	output        phys_dbg_wr_fin_tgl,
+	output        phys_dbg_wr_wp_tgl,
+	output        phys_dbg_wr_drop_tgl
 );
 
 localparam NDR = (DRIVES < 1) ? 1 : (DRIVES > 4) ? 4 : DRIVES;
@@ -144,6 +198,97 @@ wire [N:0] act_led_drv, pwr_led_drv;
 assign     act_led = act_led_drv & ~reset_drv;
 assign     pwr_led = pwr_led_drv & ~reset_drv;
 
+// MEGA65 internal floppy: each drive's outputs, and the one drive picked by
+// phys_mode (drive 0 when no bit is set; its outputs are inert then).
+//
+// The request toggles are never reset, so two drives generally park them at
+// different levels, and a plain mux would show the controller a phantom
+// request when the internal drive moves between 8 and 9. Each toggle output is
+// therefore re-encoded: it flips only on a real event of the drive that is in
+// physical mode. The levels and quasi-static data are muxed directly; they are
+// only read while the controller is enabled, and the select never moves then.
+wire [N:0] phys_active_d, phys_cia_motor_on_d, phys_cia_side_d;
+wire [N:0] phys_step_req_tgl_d, phys_step_outward_d, phys_rd_req_tgl_d;
+wire [N:0] phys_rd_side_d, phys_rd_cancel_tgl_d, phys_byte_rd_en_d;
+wire [N:0] phys_dbg_lost_tgl_d, phys_dbg_drain_tgl_d, phys_dbg_staledone_tgl_d;
+wire [N:0] phys_dbg_busycmd_tgl_d, phys_dbg_fin_tgl_d;
+wire [N:0] phys_wr_deleted_d, phys_wr_precomp_d, phys_wr_byte_wr_d;
+wire [N:0] phys_dbg_wr_fin_tgl_d, phys_dbg_wr_wp_tgl_d, phys_dbg_wr_drop_tgl_d;
+wire [7:0] phys_wr_byte_data_d[NDR];
+wire [2:0] phys_rd_op_d[NDR];
+wire [7:0] phys_rd_track_d[NDR];
+wire [7:0] phys_rd_sector_d[NDR];
+wire [1:0] phys_rd_seq_d[NDR];
+wire [10:0] phys_dbg_pres_cnt_d[NDR];
+
+integer phys_sel;
+always_comb begin
+	phys_sel = 0;
+	for(int k=1; k<NDR; k=k+1) if(phys_mode[k]) phys_sel = k;
+end
+
+reg [N:0] p_step_req_prev = '0, p_rd_req_prev = '0, p_rd_cancel_prev = '0;
+reg [N:0] p_dbg_lost_prev = '0, p_dbg_drain_prev = '0, p_dbg_staledone_prev = '0;
+reg [N:0] p_dbg_busycmd_prev = '0, p_dbg_fin_prev = '0;
+reg [N:0] p_dbg_wr_fin_prev = '0, p_dbg_wr_wp_prev = '0, p_dbg_wr_drop_prev = '0;
+reg p_step_req_out = 1'b0, p_rd_req_out = 1'b0, p_rd_cancel_out = 1'b0;
+reg p_dbg_lost_out = 1'b0, p_dbg_drain_out = 1'b0, p_dbg_staledone_out = 1'b0;
+reg p_dbg_busycmd_out = 1'b0, p_dbg_fin_out = 1'b0;
+reg p_dbg_wr_fin_out = 1'b0, p_dbg_wr_wp_out = 1'b0, p_dbg_wr_drop_out = 1'b0;
+always @(posedge clk) begin
+	for(int k=0; k<NDR; k=k+1) begin
+		if (phys_mode[k] && (phys_step_req_tgl_d[k]      != p_step_req_prev[k]))      p_step_req_out      <= ~p_step_req_out;
+		if (phys_mode[k] && (phys_rd_req_tgl_d[k]        != p_rd_req_prev[k]))        p_rd_req_out        <= ~p_rd_req_out;
+		if (phys_mode[k] && (phys_rd_cancel_tgl_d[k]     != p_rd_cancel_prev[k]))     p_rd_cancel_out     <= ~p_rd_cancel_out;
+		if (phys_mode[k] && (phys_dbg_lost_tgl_d[k]      != p_dbg_lost_prev[k]))      p_dbg_lost_out      <= ~p_dbg_lost_out;
+		if (phys_mode[k] && (phys_dbg_drain_tgl_d[k]     != p_dbg_drain_prev[k]))     p_dbg_drain_out     <= ~p_dbg_drain_out;
+		if (phys_mode[k] && (phys_dbg_staledone_tgl_d[k] != p_dbg_staledone_prev[k])) p_dbg_staledone_out <= ~p_dbg_staledone_out;
+		if (phys_mode[k] && (phys_dbg_busycmd_tgl_d[k]   != p_dbg_busycmd_prev[k]))   p_dbg_busycmd_out   <= ~p_dbg_busycmd_out;
+		if (phys_mode[k] && (phys_dbg_fin_tgl_d[k]       != p_dbg_fin_prev[k]))       p_dbg_fin_out       <= ~p_dbg_fin_out;
+		if (phys_mode[k] && (phys_dbg_wr_fin_tgl_d[k]    != p_dbg_wr_fin_prev[k]))    p_dbg_wr_fin_out    <= ~p_dbg_wr_fin_out;
+		if (phys_mode[k] && (phys_dbg_wr_wp_tgl_d[k]     != p_dbg_wr_wp_prev[k]))     p_dbg_wr_wp_out     <= ~p_dbg_wr_wp_out;
+		if (phys_mode[k] && (phys_dbg_wr_drop_tgl_d[k]   != p_dbg_wr_drop_prev[k]))   p_dbg_wr_drop_out   <= ~p_dbg_wr_drop_out;
+		p_step_req_prev[k]      <= phys_step_req_tgl_d[k];
+		p_rd_req_prev[k]        <= phys_rd_req_tgl_d[k];
+		p_rd_cancel_prev[k]     <= phys_rd_cancel_tgl_d[k];
+		p_dbg_lost_prev[k]      <= phys_dbg_lost_tgl_d[k];
+		p_dbg_drain_prev[k]     <= phys_dbg_drain_tgl_d[k];
+		p_dbg_staledone_prev[k] <= phys_dbg_staledone_tgl_d[k];
+		p_dbg_busycmd_prev[k]   <= phys_dbg_busycmd_tgl_d[k];
+		p_dbg_fin_prev[k]       <= phys_dbg_fin_tgl_d[k];
+		p_dbg_wr_fin_prev[k]    <= phys_dbg_wr_fin_tgl_d[k];
+		p_dbg_wr_wp_prev[k]     <= phys_dbg_wr_wp_tgl_d[k];
+		p_dbg_wr_drop_prev[k]   <= phys_dbg_wr_drop_tgl_d[k];
+	end
+end
+
+assign phys_active        = phys_active_d[phys_sel];
+assign phys_cia_motor_on  = phys_cia_motor_on_d[phys_sel];
+assign phys_cia_side      = phys_cia_side_d[phys_sel];
+assign phys_step_req_tgl  = p_step_req_out;
+assign phys_step_outward  = phys_step_outward_d[phys_sel];
+assign phys_rd_req_tgl    = p_rd_req_out;
+assign phys_rd_op         = phys_rd_op_d[phys_sel];
+assign phys_rd_track      = phys_rd_track_d[phys_sel];
+assign phys_rd_side       = phys_rd_side_d[phys_sel];
+assign phys_rd_sector     = phys_rd_sector_d[phys_sel];
+assign phys_rd_cancel_tgl = p_rd_cancel_out;
+assign phys_rd_seq        = phys_rd_seq_d[phys_sel];
+assign phys_byte_rd_en    = phys_byte_rd_en_d[phys_sel];
+assign phys_wr_deleted    = phys_wr_deleted_d[phys_sel];
+assign phys_wr_precomp    = phys_wr_precomp_d[phys_sel];
+assign phys_wr_byte_wr    = phys_wr_byte_wr_d[phys_sel] & phys_mode[phys_sel];
+assign phys_wr_byte_data  = phys_wr_byte_data_d[phys_sel];
+assign phys_dbg_lost_tgl      = p_dbg_lost_out;
+assign phys_dbg_drain_tgl     = p_dbg_drain_out;
+assign phys_dbg_staledone_tgl = p_dbg_staledone_out;
+assign phys_dbg_busycmd_tgl   = p_dbg_busycmd_out;
+assign phys_dbg_fin_tgl       = p_dbg_fin_out;
+assign phys_dbg_pres_cnt      = phys_dbg_pres_cnt_d[phys_sel];
+assign phys_dbg_wr_fin_tgl    = p_dbg_wr_fin_out;
+assign phys_dbg_wr_wp_tgl     = p_dbg_wr_wp_out;
+assign phys_dbg_wr_drop_tgl   = p_dbg_wr_drop_out;
+
 generate
 	genvar i;
 	for(i=0; i<NDR; i=i+1) begin :drives
@@ -192,7 +337,56 @@ generate
 			.sd_buff_din(sd_buff_din[i]),
 			.sd_buff_wr(sd_buff_wr),
 			.out_track(out_track[i]),
-			.out_we(out_we[i])
+			.out_we(out_we[i]),
+
+			.phys_mode             ( phys_mode[i]               ),
+			.phys_active           ( phys_active_d[i]           ),
+			.phys_cia_motor_on     ( phys_cia_motor_on_d[i]     ),
+			.phys_cia_side         ( phys_cia_side_d[i]         ),
+			.phys_step_req_tgl     ( phys_step_req_tgl_d[i]     ),
+			.phys_step_outward     ( phys_step_outward_d[i]     ),
+			.phys_rd_req_tgl       ( phys_rd_req_tgl_d[i]       ),
+			.phys_rd_op            ( phys_rd_op_d[i]            ),
+			.phys_rd_track         ( phys_rd_track_d[i]         ),
+			.phys_rd_side          ( phys_rd_side_d[i]          ),
+			.phys_rd_sector        ( phys_rd_sector_d[i]        ),
+			.phys_rd_cancel_tgl    ( phys_rd_cancel_tgl_d[i]    ),
+			.phys_rd_seq           ( phys_rd_seq_d[i]           ),
+			.phys_step_ack_tgl     ( phys_step_ack_tgl          ),
+			.phys_rd_done_tgl      ( phys_rd_done_tgl           ),
+			.phys_rd_done_seq      ( phys_rd_done_seq           ),
+			.phys_rd_result        ( phys_rd_result             ),
+			.phys_rd_crc_err       ( phys_rd_crc_err            ),
+			.phys_rd_rnf           ( phys_rd_rnf                ),
+			.phys_rd_deleted       ( phys_rd_deleted            ),
+			.phys_rd_c             ( phys_rd_c                  ),
+			.phys_byte_rd_en       ( phys_byte_rd_en_d[i]       ),
+			.phys_byte_data        ( phys_byte_data             ),
+			.phys_byte_empty       ( phys_byte_empty            ),
+			.phys_media_ready      ( phys_media_ready           ),
+			.phys_index            ( phys_index                 ),
+			.phys_track0           ( phys_track0                ),
+			.phys_wprot            ( phys_wprot                 ),
+			.phys_change           ( phys_change                ),
+			.phys_motor_on         ( phys_motor_on              ),
+			.phys_head_settled     ( phys_head_settled          ),
+			.phys_wr_deleted       ( phys_wr_deleted_d[i]       ),
+			.phys_wr_precomp       ( phys_wr_precomp_d[i]       ),
+			.phys_wr_byte_wr       ( phys_wr_byte_wr_d[i]       ),
+			.phys_wr_byte_data     ( phys_wr_byte_data_d[i]     ),
+			.phys_wr_fifo_full     ( phys_wr_fifo_full          ),
+			.phys_wr_feed          ( phys_wr_feed               ),
+			.phys_wr_lost          ( phys_wr_lost               ),
+			.phys_wr_busy          ( phys_wr_busy               ),
+			.phys_dbg_lost_tgl     ( phys_dbg_lost_tgl_d[i]     ),
+			.phys_dbg_drain_tgl    ( phys_dbg_drain_tgl_d[i]    ),
+			.phys_dbg_staledone_tgl( phys_dbg_staledone_tgl_d[i]),
+			.phys_dbg_busycmd_tgl  ( phys_dbg_busycmd_tgl_d[i]  ),
+			.phys_dbg_fin_tgl      ( phys_dbg_fin_tgl_d[i]      ),
+			.phys_dbg_pres_cnt     ( phys_dbg_pres_cnt_d[i]     ),
+			.phys_dbg_wr_fin_tgl   ( phys_dbg_wr_fin_tgl_d[i]   ),
+			.phys_dbg_wr_wp_tgl    ( phys_dbg_wr_wp_tgl_d[i]    ),
+			.phys_dbg_wr_drop_tgl  ( phys_dbg_wr_drop_tgl_d[i]  )
 		);
 	end
 endgenerate

@@ -61,7 +61,77 @@ module c1581_fdc1772 (
 	output           out_we,
 
 	// MEGA65 port: disk_present is also the CIA /RDY sense (a disk is inserted).
-	output           disk_present
+	output           disk_present,
+
+	// ---------------------------------------------------------------------
+	// MEGA65 internal floppy as a 1581, ported from C64MEGA65 (issues #90 and
+	// #244). A toggle/level interface to physical_1581_controller (50 MHz)
+	// and its read and write FIFOs. Everything below is gated on phys_mode;
+	// with phys_mode=0 the image path above is unchanged.
+	// ---------------------------------------------------------------------
+	input            phys_mode,         // 1 = this drive is the internal floppy
+
+	// to the controller (raw toggles/levels; the controller syncs them)
+	output           phys_active,       // enable for the controller
+	output           phys_cia_motor_on, // motor-on request (PA2 sense)
+	output           phys_cia_side,     // side select (PA0 sense)
+	output reg       phys_step_req_tgl, // Type-I one-step request (toggle)
+	output reg       phys_step_outward, // 1 = step toward track 0
+	output reg       phys_rd_req_tgl,   // op request (toggle), also writes
+	output reg [2:0] phys_rd_op,        // RDOP_* / WROP_*
+	output reg [7:0] phys_rd_track,     // WD track register at request time
+	output reg       phys_rd_side,      // current head/side
+	output reg [7:0] phys_rd_sector,    // WD sector register at request time
+	output reg       phys_rd_cancel_tgl,// force interrupt / cancel (toggle)
+	output reg [1:0] phys_rd_seq,       // op sequence tag, stable before rd_req_tgl
+
+	// from the controller (synced here into clkcpu)
+	input            phys_step_ack_tgl, // step complete (toggle)
+	input            phys_rd_done_tgl,  // op complete (toggle)
+	input      [1:0] phys_rd_done_seq,  // seq of the op being completed
+	input      [4:0] phys_rd_result,    // RES_* code
+	input            phys_rd_crc_err,   // data/id CRC error
+	input            phys_rd_rnf,       // record not found / not ready
+	input            phys_rd_deleted,   // deleted data mark seen
+	input      [7:0] phys_rd_c,         // ID field C (Read Address -> sector reg)
+
+	// read FIFO (read side is native clkcpu)
+	output reg       phys_byte_rd_en,   // pop the FIFO head
+	input      [7:0] phys_byte_data,    // FIFO head byte (first-word-fall-through)
+	input            phys_byte_empty,
+
+	// live drive state (levels, synced here)
+	input            phys_media_ready,
+	input            phys_index,
+	input            phys_track0,
+	input            phys_wprot,
+	input            phys_change,
+	input            phys_motor_on,
+	input            phys_head_settled,
+
+	// write path: Write Sector / Write Track ride on the request channel above
+	// (phys_rd_op 100 / 101); the bytes go through the write FIFO, whose write
+	// side is native clkcpu. feed/lost/busy are 50 MHz levels, synced here.
+	output reg       phys_wr_deleted,   // with phys_rd_req_tgl: DAM F8 instead of FB
+	output reg       phys_wr_precomp,   // with phys_rd_req_tgl: precomp requested (P = 0)
+	output reg       phys_wr_byte_wr,   // one-clkcpu push into the write FIFO
+	output reg [7:0] phys_wr_byte_data,
+	input            phys_wr_fifo_full, // write FIFO full: DRQ is FIFO room
+	input            phys_wr_feed,      // controller wants bytes (ID found / track armed)
+	input            phys_wr_lost,      // a slot was served from an empty FIFO (sticky per op)
+	input            phys_wr_busy,      // writer not idle (gate open or tail draining)
+
+	// diagnostic event toggles for physical_1581_diag (never reset: each edge
+	// is one event) and the bytes presented by the last read op
+	output reg        phys_dbg_lost_tgl,      // a presentation overwrote an unconsumed byte
+	output reg        phys_dbg_drain_tgl,     // a between-ops drain episode started
+	output reg        phys_dbg_staledone_tgl, // a done was ignored (seq mismatch / no op pending)
+	output reg        phys_dbg_busycmd_tgl,   // a command write while busy was ignored
+	output reg        phys_dbg_fin_tgl,       // a physical read op finished
+	output reg [10:0] phys_dbg_pres_cnt,      // bytes presented by that op
+	output reg        phys_dbg_wr_fin_tgl,    // a physical write op finished
+	output reg        phys_dbg_wr_wp_tgl,     // a write was refused by the write-protect check
+	output reg        phys_dbg_wr_drop_tgl    // a data-register write during a write op was dropped
 	);
 
 parameter CLK_EN           = 16'd8000; // in kHz
@@ -79,6 +149,133 @@ parameter  IMG_TYPE        = IMG_ARCHIE;
 
 localparam W    = FD_NUM - 1;
 localparam WIDX = $clog2(FD_NUM);
+
+// -------------------------------------------------------------------------
+// MEGA65 internal floppy (C64MEGA65 #90/#244): clock crossing and state
+// -------------------------------------------------------------------------
+wire       phys_media_ready_c, phys_index_c, phys_track0_c, phys_wprot_c;
+wire       phys_change_c, phys_motor_on_c, phys_head_settled_c;
+wire [4:0] phys_rd_result_c;
+wire       phys_rd_crc_err_c, phys_rd_rnf_c, phys_rd_deleted_c;
+wire [7:0] phys_rd_c_c;
+wire [1:0] phys_rd_done_seq_c;
+wire       phys_step_ack_c, phys_rd_done_c;
+wire       phys_wr_feed_c, phys_wr_lost_c, phys_wr_busy_c;
+
+iecdrv_sync      phys_mrdy_sync    (clkcpu, phys_media_ready,  phys_media_ready_c);
+iecdrv_sync      phys_index_sync   (clkcpu, phys_index,        phys_index_c);
+iecdrv_sync      phys_trk0_sync    (clkcpu, phys_track0,       phys_track0_c);
+iecdrv_sync      phys_wp_sync      (clkcpu, phys_wprot,        phys_wprot_c);
+iecdrv_sync      phys_chg_sync     (clkcpu, phys_change,       phys_change_c);
+iecdrv_sync      phys_mot_sync     (clkcpu, phys_motor_on,     phys_motor_on_c);
+iecdrv_sync      phys_hs_sync      (clkcpu, phys_head_settled, phys_head_settled_c);
+iecdrv_sync #(5) phys_res_sync     (clkcpu, phys_rd_result,    phys_rd_result_c);
+iecdrv_sync      phys_crc_sync     (clkcpu, phys_rd_crc_err,   phys_rd_crc_err_c);
+iecdrv_sync      phys_rnf_sync     (clkcpu, phys_rd_rnf,       phys_rd_rnf_c);
+iecdrv_sync      phys_del_sync     (clkcpu, phys_rd_deleted,   phys_rd_deleted_c);
+iecdrv_sync #(8) phys_c_sync       (clkcpu, phys_rd_c,         phys_rd_c_c);
+iecdrv_sync #(2) phys_dseq_sync    (clkcpu, phys_rd_done_seq,  phys_rd_done_seq_c);
+iecdrv_sync      phys_stepack_sync (clkcpu, phys_step_ack_tgl, phys_step_ack_c);
+iecdrv_sync      phys_rddone_sync  (clkcpu, phys_rd_done_tgl,  phys_rd_done_c);
+iecdrv_sync      phys_wfeed_sync   (clkcpu, phys_wr_feed,      phys_wr_feed_c);
+iecdrv_sync      phys_wlost_sync   (clkcpu, phys_wr_lost,      phys_wr_lost_c);
+iecdrv_sync      phys_wbusy_sync   (clkcpu, phys_wr_busy,      phys_wr_busy_c);
+
+// Act on the done toggle two clkcpu after it arrives. The controller sets the
+// result flags in the same cycle it flips the toggle, and each crosses through
+// its own synchronizer, which may resolve a cycle apart from the others.
+reg phys_rd_done_c_d1 = 1'b0;
+reg phys_rd_done_c_d2 = 1'b0;
+always @(posedge clkcpu) begin
+	phys_rd_done_c_d1 <= phys_rd_done_c;
+	phys_rd_done_c_d2 <= phys_rd_done_c_d1;
+end
+
+// physical read/step engine state (clkcpu)
+reg         phys_step_busy = 1'b0;     // waiting for a step ack
+reg         phys_rd_pending = 1'b0;    // an op was requested and is not done yet
+reg         phys_reading = 1'b0;       // presenting bytes from the read FIFO
+reg         phys_done_latched = 1'b0;  // the controller reported done
+reg         phys_verify = 1'b0;        // the op in flight is a Type-I verify
+reg         phys_reissue = 1'b0;       // next sector of a multiple-sector read
+reg         phys_rnf_l = 1'b0, phys_crc_l = 1'b0, phys_del_l = 1'b0;   // latched result flags
+reg  [7:0]  phys_c_l = 8'd0;           // latched ID C (Read Address -> sector reg)
+reg         phys_step_ack_serviced = 1'b0;
+reg         phys_rd_done_serviced = 1'b0;
+reg         phys_rd_start = 1'b0;      // new op: re-arm pace, clear counters
+reg         phys_cmd_clear = 1'b0;     // a command was accepted: clear DRQ and LOST DATA
+reg         phys_set_sector = 1'b0;    // Read Address: copy phys_c_l into the sector reg
+reg  [7:0]  phys_step_tally = 8'd0;    // steps issued by the current command (RESTORE bound)
+
+// Bytes are presented at disk pace, like the real WD1772 moves them from its
+// shift register: one DD MFM byte-time is 32 us = 252 clk8m_en ticks.
+localparam [7:0] PHYS_PACE_TICKS = 8'd252;
+reg  [7:0]  phys_pace_cnt = 8'd0;   // ticks until the next presentation (0 = expired)
+reg  [10:0] phys_pres_cnt = 11'd0;  // bytes presented this op (diagnostics only)
+reg         phys_lost_l   = 1'b0;   // LOST DATA (status bit 2, Type II/III)
+reg         phys_draining = 1'b0;   // drain episode tracker for phys_dbg_drain_tgl
+
+// The real WD1772 stays busy for about a millisecond even when a Type-I command
+// needs no steps, and the 1581 ROM relies on that: after writing a command it
+// waits for BUSY to rise ($CBF4). A sub-microsecond pulse hangs the DOS. Every
+// Type-I command and every write termination stays busy at least 1.5 ms.
+localparam [13:0] PHYS_T1_MIN_TICKS = 14'd12000;
+reg  [13:0] phys_t1_min_cnt = 14'd0;
+
+// Physical Write Sector / Write Track. The op is issued on the request channel
+// (phys_rd_op 100 / 101) with the same seq tag, pending latch and done handling
+// as a read. Every data-register write while the op is active goes into the
+// write FIFO, and DRQ means FIFO room: it rises once the controller raises
+// feed (ID found / track op armed), so the CPU runs at most three bytes ahead
+// of the disk. The op completes on its done once the writer is idle. A
+// write-protected disk is refused here before any request.
+localparam [4:0] PHYS_RES_WRITE_PROTECTED = 5'b01001;  // physical_1581_pkg RES_WRITE_PROTECTED
+localparam [4:0] PHYS_RES_LOST_DATA       = 5'b01011;  // physical_1581_pkg RES_LOST_DATA
+localparam [4:0] PHYS_RES_OK              = 5'b00000;  // physical_1581_pkg RES_OK
+reg         phys_wr_op       = 1'b0; // the op in flight is a write
+reg         phys_wr_active   = 1'b0; // a write op takes bytes (until its done / abort)
+reg         phys_wr_active_d = 1'b0;
+reg         phys_wr_track_op = 1'b0; // Write Track (no 512-byte limit)
+reg         phys_wr_wpterm   = 1'b0; // write-protect refusal in progress
+reg         phys_wr_wp_l     = 1'b0; // status bit 6 of a write command
+reg         phys_wr_lost_l   = 1'b0; // status bit 2 of a write command
+reg         phys_wr_clean_l  = 1'b0; // done was RES_OK without lost (m = 1 may continue)
+reg         phys_wr_reissue  = 1'b0; // next sector of a multiple-sector write
+reg  [10:0] phys_wr_cnt      = 11'd0;// bytes pushed by the current op
+reg         phys_wr_fed      = 1'b0; // feed was seen high during this op
+
+// The request toggles are never reset (that would be a phantom edge for the
+// controller), so give them a defined power-up value.
+initial begin
+	phys_step_req_tgl      = 1'b0;
+	phys_rd_req_tgl        = 1'b0;
+	phys_rd_cancel_tgl     = 1'b0;
+	phys_rd_seq            = 2'd0;
+	phys_step_outward      = 1'b0;
+	phys_rd_op             = 3'd0;
+	phys_rd_track          = 8'd0;
+	phys_rd_side           = 1'b0;
+	phys_rd_sector         = 8'd0;
+	phys_byte_rd_en        = 1'b0;
+	phys_dbg_lost_tgl      = 1'b0;
+	phys_dbg_drain_tgl     = 1'b0;
+	phys_dbg_staledone_tgl = 1'b0;
+	phys_dbg_busycmd_tgl   = 1'b0;
+	phys_dbg_fin_tgl       = 1'b0;
+	phys_dbg_pres_cnt      = 11'd0;
+	phys_wr_deleted        = 1'b0;
+	phys_wr_precomp        = 1'b0;
+	phys_wr_byte_wr        = 1'b0;
+	phys_wr_byte_data      = 8'd0;
+	phys_dbg_wr_fin_tgl    = 1'b0;
+	phys_dbg_wr_wp_tgl     = 1'b0;
+	phys_dbg_wr_drop_tgl   = 1'b0;
+end
+
+// EXT_MOTOR=1 for the 1581, so floppy_motor is the CIA's motor line
+assign phys_active       = phys_mode & floppy_reset;
+assign phys_cia_motor_on = floppy_motor;
+assign phys_cia_side     = floppy_side;
 
 // -------------------------------------------------------------------------
 // --------------------- IO controller image handling ----------------------
@@ -246,11 +443,64 @@ reg cpu_rw_data = 0;
 always @(posedge clkcpu)
 	cpu_rw_data <= ~cpu_selD && cpu_sel && cpu_addr == FDC_REG_DATA;
 
-wire drq_clr = !floppy_reset || cpu_rw_data;
+// MEGA65 internal floppy: bytes are accepted while a write op is active, for
+// Write Sector up to the 512th, and once feed has been up only while it still
+// is (bytes the DOS writes after a Write Track ended are dropped, like the real
+// chip does). DRQ also needs FIFO room, no push in flight and no open
+// data-register access: the T65 holds the select for the whole bus cycle and
+// strobes the write at its end.
+wire phys_wr_accept = phys_wr_active && (phys_wr_track_op || phys_wr_cnt < sector_size)
+                      && !(phys_wr_fed && !phys_wr_feed_c);
+wire phys_wr_drq_ok = phys_mode && phys_wr_accept && phys_wr_feed_c && !phys_wr_fifo_full
+                      && !phys_wr_byte_wr && !(cpu_sel && cpu_addr == FDC_REG_DATA)
+                      && !cpu_rw_data;
+
+// Never present a byte into an open CPU read of the data register: the CPU
+// latches cpu_dout at the end of its bus cycle, so a byte landing inside it
+// would be read twice, or lose its DRQ, or count as LOST DATA.
+wire phys_cpu_rd_data_open = cpu_sel && cpu_rw && (cpu_addr == FDC_REG_DATA);
+
+// Bytes are presented as they come off the disk, as the real WD1772 does, so
+// busy drops right after the sector and the DOS catches the next one in the
+// same revolution. (C64MEGA65 holds each sector until its CRC is known, which
+// costs a revolution per sector.) An error done drops phys_reading and the
+// drain below discards what is left; the status then shows the CRC error and
+// the DOS retries, as on a real 1581.
+wire phys_present_now = phys_mode && phys_reading
+                        && (phys_pace_cnt == 8'd0) && !phys_byte_empty
+                        && !phys_cpu_rd_data_open && !cpu_rw_data;
+
+// MEGA65 internal floppy: accepting a command clears DRQ (real-WD1772
+// semantics), and during a write op DRQ follows phys_wr_drq_ok one clkcpu late.
+wire drq_clr = !floppy_reset || cpu_rw_data || phys_cmd_clear
+            || (phys_mode && (phys_wr_active || phys_wr_active_d) && !phys_wr_drq_ok);
 
 always @(posedge clkcpu) begin
 	if(drq_clr) drq <= 1'b0;
 	else if(drq_set) drq <= 1'b1;
+end
+
+// MEGA65 internal floppy: every data-register write while a write op accepts
+// bytes is one push into the write FIFO. A write while the FIFO is full, after
+// the 512th byte or after feed fell is dropped and counted.
+always @(posedge clkcpu) begin : label_wr
+	phys_wr_byte_wr  <= 1'b0;
+	phys_wr_active_d <= phys_wr_active;
+	if (!floppy_reset || !phys_wr_active)
+		phys_wr_fed <= 1'b0;
+	else if (phys_wr_feed_c)
+		phys_wr_fed <= 1'b1;
+	if (!floppy_reset || !phys_wr_active)
+		phys_wr_cnt <= 11'd0;
+	else if (phys_mode && cpu_we && cpu_addr == FDC_REG_DATA) begin
+		if (phys_wr_accept && !phys_wr_fifo_full) begin
+			phys_wr_byte_wr   <= 1'b1;
+			phys_wr_byte_data <= cpu_din;
+			if (phys_wr_cnt != 11'h7FF)
+				phys_wr_cnt <= phys_wr_cnt + 11'd1;
+		end else
+			phys_dbg_wr_drop_tgl <= ~phys_dbg_wr_drop_tgl;
+	end
 end
 
 // -------------------------------------------------------------------------
@@ -343,9 +593,15 @@ wire       fd_writeprot   = fd_any ? img_wp[fdn]          : 1'b1;
 wire       fd_doubleside  = fdn_doubleside[fdn];
 wire [4:0]  fd_spt         = fdn_spt[fdn];
 
-assign floppy_ready = fd_ready && fd_present;
+// MEGA65 internal floppy: ready (CIA PA1) comes from the controller, which
+// models the 1581 mechanism's RDY line: motor on and index pulses seen.
+assign floppy_ready = phys_mode ? phys_media_ready_c : (fd_ready && fd_present);
 
-assign disk_present = fd_present;
+assign disk_present = phys_mode ? phys_media_ready_c : fd_present;
+
+// index for the WD's own housekeeping (motor timeout, spin-up count,
+// Force Interrupt on index): the real index in physical mode
+wire fd_index_eff = phys_mode ? phys_index_c : fd_index;
 
 // -------------------------------------------------------------------------
 // ----------------------- internal state machines -------------------------
@@ -424,6 +680,11 @@ always @(posedge clkcpu) begin
 	track_clear_strobe <= 1'b0;
 	irq_set <= 1'b0;
 
+	// MEGA65 internal floppy: one-cycle strobes
+	phys_set_sector <= 1'b0;
+	phys_rd_start   <= 1'b0;
+	phys_cmd_clear  <= 1'b0;
+
 	sd_done_tgl_cD <= sd_done_tgl_c;
 	if (sd_done_tgl_c ^ sd_done_tgl_cD) sd_io_idle <= 1'b1;
 
@@ -442,6 +703,28 @@ always @(posedge clkcpu) begin
 		irq_at_index <= 1'b0;
 		data_transfer_state <= 2'b00;
 		RNF <= 1'b0;
+
+		// MEGA65 internal floppy: engine reset. The toggle outputs keep their
+		// level (no phantom edge); the trackers re-arm to the current value.
+		phys_step_busy    <= 1'b0;
+		phys_rd_pending   <= 1'b0;
+		phys_reading      <= 1'b0;
+		phys_done_latched <= 1'b0;
+		phys_verify       <= 1'b0;
+		phys_reissue      <= 1'b0;
+		phys_rnf_l <= 1'b0; phys_crc_l <= 1'b0; phys_del_l <= 1'b0;
+		phys_step_tally <= 8'd0;
+		phys_t1_min_cnt <= 14'd0;
+		phys_step_ack_serviced <= phys_step_ack_c;
+		phys_rd_done_serviced  <= phys_rd_done_c_d2;
+		phys_wr_op       <= 1'b0;
+		phys_wr_active   <= 1'b0;
+		phys_wr_track_op <= 1'b0;
+		phys_wr_wpterm   <= 1'b0;
+		phys_wr_wp_l     <= 1'b0;
+		phys_wr_lost_l   <= 1'b0;
+		phys_wr_clean_l  <= 1'b0;
+		phys_wr_reissue  <= 1'b0;
 	end else if (clk8m_en) begin
 		sd_card_read <= 0;
 		sd_card_write <= 0;
@@ -460,8 +743,12 @@ always @(posedge clkcpu) begin
 			step_rate_cnt <= step_rate_cnt - 16'd1;
 
 		// delay timer
-		if(delay_cnt != 0) 
+		if(delay_cnt != 0)
 			delay_cnt <= delay_cnt - 1'd1;
+
+		// MEGA65 internal floppy: minimum busy time (see PHYS_T1_MIN_TICKS)
+		if(phys_t1_min_cnt != 0)
+			phys_t1_min_cnt <= phys_t1_min_cnt - 14'd1;
 
 		// just received a new command
 		if(cmd_rx) begin
@@ -470,11 +757,34 @@ always @(posedge clkcpu) begin
 			sector_not_found <= 1'b0;
 			data_transfer_state <= 2'b00;
 
+			// MEGA65 internal floppy: every command starts from a clean engine
+			phys_rd_pending   <= 1'b0;
+			phys_reading      <= 1'b0;
+			phys_done_latched <= 1'b0;
+			phys_verify       <= 1'b0;
+			phys_step_busy    <= 1'b0;
+			phys_reissue      <= 1'b0;
+			phys_step_tally   <= 8'd0;
+			phys_wr_op        <= 1'b0;
+			phys_wr_active    <= 1'b0;
+			phys_wr_track_op  <= 1'b0;
+			phys_wr_wpterm    <= 1'b0;
+			phys_wr_reissue   <= 1'b0;
+
 			if(cmd_type_1 || cmd_type_2 || cmd_type_3) begin
 				RNF <= 1'b0;
 				motor_on <= 1'b1;
 				// 'h' flag '0' -> wait for spin up
 				if (!motor_on && !cmd[3]) motor_spin_up_sequence <= 6;   // wait for 6 full rotations
+
+				// MEGA65 internal floppy: accepting a command clears DRQ,
+				// LOST DATA and the latched result flags, as on the real chip
+				if (phys_mode) begin
+					phys_cmd_clear <= 1'b1;
+					phys_rnf_l <= 1'b0; phys_crc_l <= 1'b0; phys_del_l <= 1'b0;
+					phys_wr_wp_l <= 1'b0; phys_wr_lost_l <= 1'b0;
+					if (cmd_type_1) phys_t1_min_cnt <= PHYS_T1_MIN_TICKS;
+				end
 			end
 
 			// handle "forced interrupt"
@@ -484,16 +794,37 @@ always @(posedge clkcpu) begin
 				if(cmd[3:2] == 2'b01) irq_at_index <= 1'b1;
 				// From Hatari: Starting a Force Int command when idle should set the motor bit and clear the spinup bit (verified on STF)
 				if (!busy) motor_on <= 1'b1;
+
+				// MEGA65 internal floppy: abort any op in flight; the
+				// controller closes WGATE and answers with a done we ignore
+				if (phys_mode) begin
+					phys_rd_cancel_tgl <= ~phys_rd_cancel_tgl;
+					phys_rd_pending    <= 1'b0;
+					phys_reading       <= 1'b0;
+					phys_done_latched  <= 1'b0;
+					phys_verify        <= 1'b0;
+					phys_step_busy     <= 1'b0;
+					phys_reissue       <= 1'b0;
+					phys_wr_op         <= 1'b0;
+					phys_wr_active     <= 1'b0;
+					phys_wr_track_op   <= 1'b0;
+					phys_wr_wpterm     <= 1'b0;
+					phys_wr_reissue    <= 1'b0;
+				end
 			end
 		end
 
 		// execute command if motor is not supposed to be running or
 		// wait for motor spinup to finish
-		if(busy && motor_spin_up_done && !step_busy && !delaying) begin
+		// MEGA65 internal floppy: the controller owns spin-up and readiness
+		if(busy && (phys_mode || motor_spin_up_done) && !step_busy && !delaying) begin
 
 			// ------------------------ TYPE I -------------------------
 			if(cmd_type_1) begin
-				if(!fd_present) begin
+				// MEGA65 internal floppy: Type-I commands always run, as on the
+				// real WD1772 (no READY input). Only a step clears the disk-change
+				// latch, so gating steps on readiness would deadlock the DOS.
+				if(!phys_mode && !fd_present) begin
 					// no image selected -> send irq after 6 ms
 					if (!notready_wait) begin
 						delay_cnt <= 16'd6*CLK_EN;
@@ -509,9 +840,14 @@ always @(posedge clkcpu) begin
 				0: begin
 					// restore
 					if(cmd[7:4] == 4'b0000) begin
-						if (fd_track0) begin
+						if (phys_mode ? phys_track0_c : fd_track0) begin
 							track_clear_strobe <= 1'b1;
 							seek_state <= 2;
+						end else if (phys_mode && phys_step_tally == 8'd255) begin
+							// MEGA65 internal floppy: like the real WD1772, give up
+							// with a seek error if track 0 never shows after 255 steps
+							RNF <= 1'b1;
+							seek_state <= 3;
 						end else begin
 							step_dir <= 1'b1;
 							seek_state <= 1;
@@ -545,42 +881,132 @@ always @(posedge clkcpu) begin
 
 				// do the step
 				1: begin
-					if (step_dir)
-						step_in <= 1'b1;
-					else
-						step_out <= 1'b1;
-
-					// update the track register if seek/restore or the update flag set
-					if( (!cmd[6] && !cmd[5]) || ((cmd[6] || cmd[5]) && cmd[4]))
+					if (phys_mode) begin
+						// MEGA65 internal floppy: one acknowledged physical step.
+						// The step ack (handshake block below) advances seek_state.
+						if (!phys_step_busy) begin
+							phys_step_outward <= step_dir;          // 1 = toward track 0
+							phys_step_req_tgl <= ~phys_step_req_tgl;
+							phys_step_busy    <= 1'b1;
+							if (phys_step_tally != 8'd255)
+								phys_step_tally <= phys_step_tally + 8'd1;
+							if( (!cmd[6] && !cmd[5]) || ((cmd[6] || cmd[5]) && cmd[4]))
+								if (step_dir)
+									track_dec_strobe <= 1'b1;
+								else
+									track_inc_strobe <= 1'b1;
+						end
+					end else begin
 						if (step_dir)
-							track_dec_strobe <= 1'b1;
+							step_in <= 1'b1;
 						else
-							track_inc_strobe <= 1'b1;
+							step_out <= 1'b1;
 
-					step_pulse_cnt <= STEP_PULSE_CLKS - 1'd1;
-					step_rate_cnt <= step_rate_clk;
+						// update the track register if seek/restore or the update flag set
+						if( (!cmd[6] && !cmd[5]) || ((cmd[6] || cmd[5]) && cmd[4]))
+							if (step_dir)
+								track_dec_strobe <= 1'b1;
+							else
+								track_inc_strobe <= 1'b1;
 
-					seek_state <= (!cmd[6] && !cmd[5]) ? 0 : 2; // loop for seek/restore
+						step_pulse_cnt <= STEP_PULSE_CLKS - 1'd1;
+						step_rate_cnt <= step_rate_clk;
+
+						seek_state <= (!cmd[6] && !cmd[5]) ? 0 : 2; // loop for seek/restore
+					end
 				   end
 
 				// verify
 				2: begin
-					if (cmd[2]) begin
-						delay_cnt <= 16'd3*CLK_EN; // TODO: implement verify, now just delay one more step
+					if (phys_mode) begin
+						if (cmd[2]) begin
+							// MEGA65 internal floppy: once the head has settled, verify
+							// by reading an ID field; the done finishes the command
+							if (phys_head_settled_c && !phys_rd_pending && !phys_verify) begin
+								phys_rd_op      <= 3'b010;    // RDOP_VERIFY (no bytes)
+								phys_rd_track   <= track;
+								phys_rd_side    <= floppy_side;
+								phys_rd_sector  <= sector;
+								phys_rd_seq     <= phys_rd_seq + 2'd1;
+								phys_rd_req_tgl <= ~phys_rd_req_tgl;
+								phys_rd_pending <= 1'b1;
+								phys_verify     <= 1'b1;
+								phys_rd_start   <= 1'b1;
+							end
+						end else
+							seek_state <= 3;
+					end else begin
+						if (cmd[2]) begin
+							delay_cnt <= 16'd3*CLK_EN; // TODO: implement verify, now just delay one more step
+						end
+						seek_state <= 3;
 					end
-					seek_state <= 3;
 				   end
 
 				// finish
 				3: begin
-					busy <= 1'b0;
-					irq_set <= 1'b1; // emit irq when command done
-					seek_state <= 0;
+					// MEGA65 internal floppy: hold busy for the minimum time
+					if (!phys_mode || phys_t1_min_cnt == 14'd0) begin
+						busy <= 1'b0;
+						irq_set <= 1'b1; // emit irq when command done
+						seek_state <= 0;
+					end
 				   end
 				endcase
 			end // if (cmd_type_1)
 
 			// ------------------------ TYPE II -------------------------
+			if(cmd_type_2 && phys_mode) begin
+				// MEGA65 internal floppy: Read Sector issues one physical read op,
+				// Write Sector one write op. Each completes ONLY through the
+				// controller's done, which bounds not-ready (~1.1 s) and record
+				// not found (5 index edges / 1.3 s), so the two never get out
+				// of step.
+				// A read starts only once the read FIFO is empty: bytes left by a
+				// cancelled op would otherwise be presented as this sector's.
+				if (cmd[7:5] == 3'b100) begin
+					// read sector
+					if (!phys_rd_pending && !phys_done_latched && !phys_reissue && phys_byte_empty) begin
+						phys_rd_op      <= 3'b000;    // RDOP_READ_SECTOR
+						phys_rd_track   <= track;
+						phys_rd_side    <= floppy_side;
+						phys_rd_sector  <= sector;
+						phys_rd_seq     <= phys_rd_seq + 2'd1;
+						phys_rd_req_tgl <= ~phys_rd_req_tgl;
+						phys_rd_pending <= 1'b1;
+						phys_reading    <= 1'b1;
+						phys_rd_start   <= 1'b1;
+					end
+				end else if (cmd[7:5] == 3'b101) begin
+					// write sector: the real chip samples /WPRT at command start.
+					// Every write termination holds BUSY for the minimum time.
+					if (!phys_rd_pending && !phys_done_latched && !phys_wr_reissue && !phys_wr_wpterm) begin
+						phys_t1_min_cnt <= PHYS_T1_MIN_TICKS;
+						if (phys_wprot_c) begin
+							phys_wr_wpterm     <= 1'b1;   // status bit 6 alone, no request, no DRQ
+							phys_wr_wp_l       <= 1'b1;
+							phys_dbg_wr_wp_tgl <= ~phys_dbg_wr_wp_tgl;
+						end else begin
+							phys_rd_op       <= 3'b100;   // WROP_WRITE_SECTOR
+							phys_rd_track    <= track;
+							phys_rd_side     <= floppy_side;
+							phys_rd_sector   <= sector;
+							phys_wr_deleted  <= cmd[0];   // a0 = 1 -> DAM F8
+							phys_wr_precomp  <= ~cmd[1];  // P  = 0 -> precomp on
+							phys_rd_seq      <= phys_rd_seq + 2'd1;
+							phys_rd_req_tgl  <= ~phys_rd_req_tgl;
+							phys_rd_pending  <= 1'b1;
+							phys_wr_op       <= 1'b1;
+							phys_wr_active   <= 1'b1;
+							phys_wr_track_op <= 1'b0;
+						end
+					end else if (phys_wr_wpterm && phys_t1_min_cnt == 14'd0) begin
+						phys_wr_wpterm <= 1'b0;
+						busy           <= 1'b0;
+						irq_set        <= 1'b1;
+					end
+				end
+			end else
 			if(cmd_type_2) begin
 				if(!fd_present) begin
 					// no image selected -> send irq after 6 ms
@@ -683,6 +1109,57 @@ always @(posedge clkcpu) begin
 			end
 
 			// ------------------------ TYPE III -------------------------
+			if(cmd_type_3 && phys_mode) begin
+				// MEGA65 internal floppy: Read Address returns the 6 ID bytes
+				// through the FIFO and copies C into the sector register. Write
+				// Track is a write op like Write Sector. Read Track is not
+				// supported and just finishes, as in image mode.
+				if (cmd[7:4] == 4'b1100) begin
+					// read address (once the read FIFO is empty, see Read Sector)
+					if (!phys_rd_pending && !phys_done_latched && phys_byte_empty) begin
+						phys_rd_op      <= 3'b001;    // RDOP_READ_ADDRESS
+						phys_rd_track   <= track;
+						phys_rd_side    <= floppy_side;
+						phys_rd_sector  <= sector;
+						phys_rd_seq     <= phys_rd_seq + 2'd1;
+						phys_rd_req_tgl <= ~phys_rd_req_tgl;
+						phys_rd_pending <= 1'b1;
+						phys_reading    <= 1'b1;
+						phys_rd_start   <= 1'b1;
+					end
+				end else if (cmd[7:4] == 4'b1111) begin
+					// write track: runs index to index, no 512-byte limit
+					if (!phys_rd_pending && !phys_done_latched && !phys_wr_wpterm) begin
+						phys_t1_min_cnt <= PHYS_T1_MIN_TICKS;
+						if (phys_wprot_c) begin
+							phys_wr_wpterm     <= 1'b1;
+							phys_wr_wp_l       <= 1'b1;
+							phys_dbg_wr_wp_tgl <= ~phys_dbg_wr_wp_tgl;
+						end else begin
+							phys_rd_op       <= 3'b101;   // WROP_WRITE_TRACK
+							phys_rd_track    <= track;
+							phys_rd_side     <= floppy_side;
+							phys_rd_sector   <= sector;
+							phys_wr_deleted  <= 1'b0;
+							phys_wr_precomp  <= ~cmd[1];  // P = 0 -> precomp on
+							phys_rd_seq      <= phys_rd_seq + 2'd1;
+							phys_rd_req_tgl  <= ~phys_rd_req_tgl;
+							phys_rd_pending  <= 1'b1;
+							phys_wr_op       <= 1'b1;
+							phys_wr_active   <= 1'b1;
+							phys_wr_track_op <= 1'b1;
+						end
+					end else if (phys_wr_wpterm && phys_t1_min_cnt == 14'd0) begin
+						phys_wr_wpterm <= 1'b0;
+						busy           <= 1'b0;
+						irq_set        <= 1'b1;
+					end
+				end else begin
+					// read track: not supported -> finish
+					busy    <= 1'b0;
+					irq_set <= 1'b1;
+				end
+			end else
 			if(cmd_type_3) begin
 				if(!fd_present) begin
 					// no image selected -> send irq immediately
@@ -717,9 +1194,146 @@ always @(posedge clkcpu) begin
 			end
 		end
 
+		// ---------------------------------------------------------------------
+		// MEGA65 internal floppy: step ack and op done handshakes. Outside the
+		// execute gate, so they advance the seek FSM and finish an op even
+		// while the WD is otherwise waiting. Toggles are compared against
+		// their *_serviced copy, so no edge is lost across the clock crossing.
+		// ---------------------------------------------------------------------
+		if (phys_mode) begin
+			// one physical step acknowledged -> advance the Type-I seek FSM
+			if (phys_step_ack_c != phys_step_ack_serviced) begin
+				phys_step_ack_serviced <= phys_step_ack_c;
+				if (phys_step_busy) begin
+					phys_step_busy <= 1'b0;
+					// loop for seek/restore (cmd[6:5]==00), else go verify/finish
+					seek_state <= (!cmd[6] && !cmd[5]) ? 2'd0 : 2'd2;
+				end
+			end
+
+			// The done must carry the current op's sequence tag. A done with
+			// another tag, or with no op pending, is consumed but ignored, so
+			// a stale result never pairs with a newer command.
+			if (phys_rd_done_c_d2 != phys_rd_done_serviced) begin
+				phys_rd_done_serviced <= phys_rd_done_c_d2;
+				if (phys_rd_pending && phys_rd_done_seq_c == phys_rd_seq) begin
+					phys_rnf_l <= phys_rd_rnf_c;
+					phys_crc_l <= phys_rd_crc_err_c;
+					phys_del_l <= phys_rd_deleted_c;
+					phys_c_l   <= phys_rd_c_c;
+					phys_rd_pending   <= 1'b0;
+					phys_done_latched <= 1'b1;
+					// a failed capture is not sector data: drain it unseen
+					if (phys_rd_rnf_c || phys_rd_crc_err_c)
+						phys_reading <= 1'b0;
+					// A write op stops taking bytes and latches its status.
+					// Write protect is reported alone: the DOS's status table
+					// ($CD5A) maps it together with CRC/RNF to garbage.
+					if (phys_wr_op) begin
+						phys_wr_active  <= 1'b0;
+						phys_wr_clean_l <= (phys_rd_result_c == PHYS_RES_OK) && !phys_wr_lost_c
+						                   && !phys_rd_rnf_c && !phys_rd_crc_err_c;
+						if (phys_rd_result_c == PHYS_RES_WRITE_PROTECTED) begin
+							phys_wr_wp_l <= 1'b1;
+							phys_rnf_l   <= 1'b0;
+							phys_crc_l   <= 1'b0;
+						end else
+							phys_wr_lost_l <= phys_wr_lost_c || (phys_rd_result_c == PHYS_RES_LOST_DATA);
+					end
+				end else begin
+					phys_dbg_staledone_tgl <= ~phys_dbg_staledone_tgl;
+				end
+			end
+
+			// Finish a read op once the done is in, the FIFO is empty and one
+			// more byte-time has passed since the last byte, as on the real
+			// chip: the 1581 ROM's transfer loops poll BUSY before DRQ
+			// ($CD17), so busy must outlive the last DRQ. A stalled CPU gets
+			// LOST DATA, never a wedged WD. A verify is a Type-I completion
+			// and also honours the minimum busy time.
+			if (phys_done_latched && !phys_wr_op && phys_byte_empty && phys_pace_cnt == 8'd0
+			    && !phys_present_now
+			    && (!phys_verify || phys_t1_min_cnt == 14'd0)) begin
+				phys_done_latched <= 1'b0;
+				phys_reading      <= 1'b0;
+				RNF               <= phys_rnf_l;
+				phys_dbg_pres_cnt <= phys_pres_cnt;
+				phys_dbg_fin_tgl  <= ~phys_dbg_fin_tgl;
+				if (phys_verify) begin
+					// Type-I verify: seek error mirrors RNF; finish the command
+					phys_verify <= 1'b0;
+					busy        <= 1'b0;
+					irq_set     <= 1'b1;
+					seek_state  <= 2'd0;
+				end else if (cmd[7:5] == 3'b100 && cmd[4] && !phys_rnf_l && !phys_crc_l) begin
+					// multiple-sector read: only a clean sector continues
+					sector_inc_strobe <= 1'b1;
+					phys_reissue      <= 1'b1;
+				end else begin
+					if (cmd[7:4] == 4'b1100)  // Read Address: WD writes C into sector reg
+						phys_set_sector <= 1'b1;
+					busy    <= 1'b0;
+					irq_set <= 1'b1;
+				end
+			end
+
+			// Next sector of a multiple-sector read (sector already advanced):
+			// a new op with a fresh tag. Not on cmd_rx: a command while busy
+			// can only be Force Interrupt, whose cancel clears phys_reissue
+			// only from the next tick on.
+			if (phys_reissue && !cmd_rx && phys_byte_empty) begin
+				phys_reissue    <= 1'b0;
+				phys_rd_op      <= 3'b000;    // RDOP_READ_SECTOR
+				phys_rd_track   <= track;
+				phys_rd_side    <= floppy_side;
+				phys_rd_sector  <= sector;
+				phys_rd_seq     <= phys_rd_seq + 2'd1;
+				phys_rd_req_tgl <= ~phys_rd_req_tgl;
+				phys_rd_pending <= 1'b1;
+				phys_reading    <= 1'b1;
+				phys_rd_start   <= 1'b1;
+			end
+
+			// Finish a write op once the done is in, the writer is idle (the
+			// last cell is on the disk) and the minimum busy time has passed.
+			// A clean m = 1 Write Sector continues with the next sector.
+			if (phys_done_latched && phys_wr_op && !phys_wr_busy_c
+			    && phys_t1_min_cnt == 14'd0) begin
+				phys_done_latched   <= 1'b0;
+				phys_wr_op          <= 1'b0;
+				RNF                 <= phys_rnf_l;
+				phys_dbg_wr_fin_tgl <= ~phys_dbg_wr_fin_tgl;
+				if (!phys_wr_track_op && cmd[7:5] == 3'b101 && cmd[4] && phys_wr_clean_l) begin
+					sector_inc_strobe <= 1'b1;
+					phys_wr_reissue   <= 1'b1;
+				end else begin
+					busy    <= 1'b0;
+					irq_set <= 1'b1;
+				end
+			end
+
+			// next sector of a multiple-sector write, gated like the read one
+			if (phys_wr_reissue && !cmd_rx) begin
+				phys_wr_reissue  <= 1'b0;
+				phys_t1_min_cnt  <= PHYS_T1_MIN_TICKS;
+				phys_rd_op       <= 3'b100;   // WROP_WRITE_SECTOR
+				phys_rd_track    <= track;
+				phys_rd_side     <= floppy_side;
+				phys_rd_sector   <= sector;
+				phys_wr_deleted  <= cmd[0];
+				phys_wr_precomp  <= ~cmd[1];
+				phys_rd_seq      <= phys_rd_seq + 2'd1;
+				phys_rd_req_tgl  <= ~phys_rd_req_tgl;
+				phys_rd_pending  <= 1'b1;
+				phys_wr_op       <= 1'b1;
+				phys_wr_active   <= 1'b1;
+				phys_wr_track_op <= 1'b0;
+			end
+		end
+
 		// stop motor if there was no command for 10 index pulses
-		indexD <= fd_index;
-		if(indexD && !fd_index) begin
+		indexD <= fd_index_eff;
+		if(indexD && !fd_index_eff) begin
 			irq_at_index <= 1'b0;
 			if (irq_at_index) irq_set <= 1'b1;
 
@@ -914,12 +1528,15 @@ always @(posedge clkcpu) begin
 	crc_en <= 0;
 	if(crc_en) crcval <= crc(crcval, data_out);
 
+	// MEGA65 internal floppy: the real WD1772 has one data register, and the
+	// 1581 ROM's startup test reads back the value just written. Image mode
+	// keeps its old behaviour (data_in is still the previous value here).
 	if (cpu_we && cpu_addr == FDC_REG_DATA) begin
-		data_out <= data_in;
+		data_out <= phys_mode ? cpu_din : data_in;
 		data_in_valid <= 1;
 	end
 
-	// reset fifo read pointer on reception of a new command or 
+	// reset fifo read pointer on reception of a new command or
 	// when multi-sector transfer increments the sector number
 	if(cmd_rx || sector_inc_strobe) begin
 		data_in_valid <= 0;
@@ -928,6 +1545,46 @@ always @(posedge clkcpu) begin
 	end
 
 	drq_set <= 1'b0;
+
+	// MEGA65 internal floppy: during a write op DRQ means write FIFO room
+	if (phys_wr_drq_ok) drq_set <= 1'b1;
+
+	// MEGA65 internal floppy: move each byte from the read FIFO into the data
+	// register as it arrives, at most one per byte-time (31.5 us here, a little
+	// under the disk's 32 us), and raise DRQ, no matter whether the CPU took the
+	// last one, as the real WD1772 does. An unconsumed byte is overwritten and
+	// sets LOST DATA. The pace starts expired, so the first byte comes at once.
+	phys_byte_rd_en <= 1'b0;
+	if (phys_cmd_clear || phys_rd_start) phys_lost_l <= 1'b0;
+	if (phys_rd_start) begin
+		phys_pace_cnt <= 8'd0;
+		phys_pres_cnt <= 11'd0;
+	end else if (clk8m_en) begin
+		if (phys_present_now) begin
+			data_out        <= phys_byte_data;
+			phys_byte_rd_en <= 1'b1;
+			drq_set         <= 1'b1;
+			phys_pace_cnt   <= PHYS_PACE_TICKS - 8'd1;
+			if (phys_pres_cnt != 11'h7FF)
+				phys_pres_cnt <= phys_pres_cnt + 11'd1;
+			if (drq) begin
+				phys_lost_l       <= 1'b1;
+				phys_dbg_lost_tgl <= ~phys_dbg_lost_tgl;
+			end
+		end else if (phys_pace_cnt != 8'd0)
+			phys_pace_cnt <= phys_pace_cnt - 8'd1;
+	end
+
+	// MEGA65 internal floppy: while no read op presents bytes, discard
+	// whatever is in the read FIFO (left from a cancelled op, a disk change,
+	// a reset, or a CRC error), so every op starts from an empty FIFO.
+	if (phys_mode && !phys_reading && !phys_byte_empty) begin
+		phys_byte_rd_en <= 1'b1;
+		if (!phys_draining) phys_dbg_drain_tgl <= ~phys_dbg_drain_tgl;
+		phys_draining <= 1'b1;
+	end else
+		phys_draining <= 1'b0;
+
 	if (clk8m_en) data_transfer_done <= 0;
 	data_transfer_startD <= data_transfer_start;
 	// received request to read data
@@ -993,13 +1650,21 @@ always @(posedge clkcpu) begin
 end
 
 // the status byte
-wire [7:0] status = { (MODEL == 1 || MODEL == 3) ? !floppy_ready : motor_on,
-		      (cmd[7:5] == 3'b101 || cmd[7:4] == 4'b1111 || cmd_type_1) && fd_writeprot, // wrprot (only for write!)
-		      cmd_type_1?motor_spin_up_done:1'b0,  // data mark
-		      RNF,                                 // seek error/record not found
-		      1'b0,                                // crc error
-		      cmd_type_1?fd_track0:data_lost,      // track0/data lost
-		      cmd_type_1?~fd_index:drq,            // index mark/drq
+// MEGA65 internal floppy: in physical mode the mechanical and result bits come
+// from the controller. For writes, bit 6 is the latched write-protect outcome
+// and bit 2 includes the write op's LOST DATA. RNF is suppressed while the CRC
+// bit is set: the 1581 DOS ($CD3F) indexes a table with (status>>3)&$0B, and
+// CRC+RNF together lands on a hole that means success.
+wire [7:0] status = { (MODEL == 1 || MODEL == 3) ? !floppy_ready : (phys_mode ? phys_motor_on_c : motor_on),
+		      phys_mode ? ( ((cmd[7:5] == 3'b101) || (cmd[7:4] == 4'b1111)) ? phys_wr_wp_l
+		                    : (cmd_type_1 ? phys_wprot_c : 1'b0) )
+		                : ((cmd[7:5] == 3'b101 || cmd[7:4] == 4'b1111 || cmd_type_1) && fd_writeprot), // wrprot (only for write!)
+		      cmd_type_1 ? motor_spin_up_done : ((phys_mode && cmd[7:5] == 3'b100) ? phys_del_l : 1'b0), // data mark / deleted
+		      phys_mode ? (RNF & ~phys_crc_l) : RNF,  // seek error/record not found
+		      phys_mode ? phys_crc_l : 1'b0,          // crc error
+		      cmd_type_1 ? (phys_mode ? phys_track0_c : fd_track0)
+		                 : (phys_mode ? (phys_lost_l | phys_wr_lost_l) : data_lost),   // track0/data lost
+		      cmd_type_1 ? (phys_mode ? ~phys_index_c : ~fd_index) : drq,          // index mark/drq
 		      busy } /* synthesis keep */;
 
 reg [7:0] track /* verilator public */ = 0;
@@ -1062,7 +1727,11 @@ always @(posedge clkcpu) begin
 
 		// only react if stb just raised
 		if(cpu_we) begin
-			if(cpu_addr == FDC_REG_CMDSTATUS) begin       // command register
+			// MEGA65 internal floppy: the real WD1772 ignores a command
+			// written while busy unless it is Force Interrupt
+			if(cpu_addr == FDC_REG_CMDSTATUS && phys_mode && busy && cpu_din[7:4] != 4'b1101)
+				phys_dbg_busycmd_tgl <= ~phys_dbg_busycmd_tgl;
+			else if(cpu_addr == FDC_REG_CMDSTATUS) begin  // command register
 				cmd <= cpu_din;
 				cmd_rx_i <= 1'b1;
 				// ------------- TYPE I commands -------------
@@ -1121,6 +1790,9 @@ always @(posedge clkcpu) begin
 		if (track_inc_strobe) track <= track + 1'd1;
 		if (track_dec_strobe) track <= track - 1'd1;
 		if (track_clear_strobe) track <= 8'd0;
+		// MEGA65 internal floppy: Read Address puts the ID's track byte (C)
+		// into the sector register, per the WD1772 datasheet
+		if (phys_set_sector) sector <= phys_c_l;
 	end
 end
 
