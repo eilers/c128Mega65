@@ -91,11 +91,6 @@ set_max_delay 15 -from [get_clocks vdc_clk] -to [get_clocks main_clk]
 # VDC MMCM uses integer M/D now; keep AVAL demotion for any residual fractional MMCMs.
 set_property SEVERITY Warning [get_drc_checks AVAL-139]
 
-# Board 100 MHz (clk_i) feeds framework MMCMs + C64 dual-MMCM + VDC MMCM (>3 loads).
-# BACKBONE lets the placer spread them. RTRES-1 may still fire at bitgen when the router
-# skips backbone wires. Demote that check so bring-up bitstreams can be written.
-set_property CLOCK_DEDICATED_ROUTE BACKBONE [get_nets -quiet clk_i_IBUF]
-set_property SEVERITY Warning [get_drc_checks RTRES-1]
 
 
 ## ---------------------------------------------------------------------------

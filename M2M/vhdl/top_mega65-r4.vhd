@@ -11,6 +11,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+library unisim;
+use unisim.vcomponents.all;
+
 library work;
 use work.video_modes_pkg.all;
 use work.sdhost_pkg.all;
@@ -455,7 +458,16 @@ architecture synthesis of mega65_r4 is
    signal i2c_sda                : std_logic := 'H';
    signal i2c_scl                : std_logic := 'H';
 
+   -- the board clock on a global buffer: it clocks fabric as well as several MMCMs
+   signal clk_bufg : std_logic;
+
 begin
+
+   i_clk_bufg : BUFG
+      port map (
+         I => clk_i,
+         O => clk_bufg
+      );
 
    -- SD card lines: tri-state drivers of the controllers' outputs
    sd_mosi_o   <= sd_cmd_out     when sd_cmd_oe     = '1' else 'Z';
@@ -576,7 +588,7 @@ begin
    )
    port map (
       -- Connect to I/O ports
-      clk_i                   => clk_i,
+      clk_i                   => clk_bufg,
       reset_n_i               => not reset_button_i,
       uart_rxd_i              => uart_rxd_i,
       uart_txd_o              => uart_txd_o,
@@ -799,7 +811,7 @@ begin
          G_BOARD => "MEGA65_R4"
       )
       port map (
-         clk_i                   => clk_i,
+         clk_i                   => clk_bufg,
 
          -- Share clock and reset with the framework
          main_clk_o              => main_clk,            -- CORE's 54 MHz clock
