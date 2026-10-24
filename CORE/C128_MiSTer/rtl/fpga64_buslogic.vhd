@@ -159,7 +159,7 @@ begin
 		     cia1Data, cia2Data, cs_sysRomLoc, cs_romFLLoc, cs_romFHLoc, cs_romHLoc, cs_romLLoc,
 			  cs_ramLoc, cs_vicLoc, cs_sidLoc, cs_colorLoc, cs_mmuLLoc, cs_mmuHLoc, cs_vdcLoc,
 			  cs_cia1Loc, cs_cia2Loc, lastVicData,
-			  cs_ioELoc, cs_ioFLoc,
+			  cs_ioELoc, cs_ioFLoc, cs_io7Loc,
 			  io_rom, io_ext, io_data)
 	begin
 		-- If no hardware is addressed the bus is floating.
@@ -198,6 +198,8 @@ begin
 		elsif cs_ioELoc = '1' and io_ext = '1' then
 			dataToCpu <= io_data;
 		elsif cs_ioFLoc = '1' and io_ext = '1' then
+			dataToCpu <= io_data;
+		elsif cs_io7Loc = '1' and io_ext = '1' then
 			dataToCpu <= io_data;
 		end if;
 	end process;
