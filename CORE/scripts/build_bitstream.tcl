@@ -171,6 +171,16 @@ if {[llength $bit_files] > 0} {
     puts "Bitstream: [lindex $bit_files 0]"
 }
 
+# Implementation times the video muxes on main_clk only; check 80-column mode too.
+if {[llength $bit_files] > 0} {
+    if {[catch {
+        open_run impl_1
+        source [file join $core_dir scripts check_80col_timing.tcl]
+    } err]} {
+        puts "80-column timing check did not run: $err"
+    }
+}
+
 if {[string match "*ERROR*" $synth_status] || [string match "*ERROR*" $impl_status]} {
     exit 2
 }

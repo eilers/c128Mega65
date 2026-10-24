@@ -294,6 +294,9 @@ signal vdc_dot_ce        : std_logic := '0';  -- every other clk_vdc: one pulse 
 signal vdc_r_reg        : unsigned(7 downto 0) := (others => '0');
 signal vdc_g_reg         : unsigned(7 downto 0) := (others => '0');
 signal vdc_b_reg         : unsigned(7 downto 0) := (others => '0');
+signal vdc_sync_rst_sl   : std_logic_vector(1 downto 0) := "11";  -- core reset in clk_vdc
+attribute ASYNC_REG : string;
+attribute ASYNC_REG of vdc_sync_rst_sl : signal is "TRUE";
 
 signal hdmi_sel_vdc      : std_logic := '0';
 signal vga_sel_vdc       : std_logic := '0';
@@ -696,9 +699,16 @@ video_sync_vic : entity work.video_sync
   );
 
 -- VDC path: C128 MiSTer video_sync for sync and blanking (centered PAL/NTSC shifts).
+vdc_sync_rst_proc : process (clk_vdc_i)
+begin
+  if rising_edge(clk_vdc_i) then
+    vdc_sync_rst_sl <= vdc_sync_rst_sl(0) & (reset_soft_i or reset_hard_i);
+  end if;
+end process vdc_sync_rst_proc;
+
 video_sync_vdc : entity work.video_sync_c128
   port map (
-    reset       => reset_soft_i or reset_hard_i,
+    reset       => vdc_sync_rst_sl(1),
     clk32       => clk_vdc_i,
     pause       => '0',
     hshift_r60  => std_logic_vector(to_unsigned(43, 12)),   -- centered, not wide

@@ -437,8 +437,8 @@ begin
       ); -- clk_gen
 
 
-   -- Dedicated 32.000 MHz VDC clock (MiSTer pll_vdc). Bus CDC to main stays unconstrained
-   -- (see CORE.xdc); do not add set_clock_groups on this crossing.
+   -- Dedicated 32.000 MHz VDC clock (MiSTer pll_vdc). CORE.xdc explains why the crossing
+   -- to main_clk is safe and how it is constrained.
    clk_vdc_gen: entity work.vdc_clk
       port map (
          refclk       => clk_i,
