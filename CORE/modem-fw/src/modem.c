@@ -8,6 +8,7 @@
 #include "hw.h"
 #include "log.h"
 #include "modem.h"
+#include "trap.h"
 #include "util.h"
 #include "lwip/dns.h"
 #include "lwip/ip_addr.h"
@@ -387,6 +388,9 @@ static void info(int n)
       fmt(buf, sizeof buf, "\r\nLISTENING ON PORT %u\r\nFRAMES DROPPED %u",
           (uint32_t)MODEM_LISTEN_PORT, ETH_STATUS >> 16);
       out_str(buf);
+      fmt(buf, sizeof buf, "\r\nRESTARTS %u\r\nMISSED NMIS %u",
+          trap_restarts(), ACIA_AGAINS & 0xFFFF);
+      out_str(buf);
    } else if (n == 2) {
       m.dump_pos = 0;
       m.dump_len = 1;   // printed from modem_poll, a piece at a time
@@ -482,6 +486,14 @@ static bool execute(const char *p)
          case 'B': case 'L': case 'M': case 'X':
             number(&p);   // accepted, no effect
             break;
+         case '*':        // tests for trap.c: *T faults, *W hangs
+            c = *p++;
+            if (c == 'T')
+               (void)REG32(0xF0100000u);   // nothing there: bus error
+            else if (c == 'W')
+               for (;;)
+                  ;
+            goto error;
          default:
             goto error;
       }
@@ -780,9 +792,28 @@ void modem_init(void)
    log_printf("modem " VERSION " ready");
 }
 
+void modem_say(const char *s)
+{
+   out_str(s);
+}
+
+// The C128 was reset: the program that talked to the modem is gone, so is the call.
+// Settings stay, as on an external modem.
+static void c128_reset(void)
+{
+   hang_up(R_OK, false);
+   m.out_head = m.out_tail = 0;
+   m.dump_len = 0;
+   m.len = 0;
+   m.prev = 0;
+   while (acia_get() >= 0)
+      ;
+}
+
 void modem_poll(void)
 {
-   acia_events();
+   if (acia_events() & ACIA_EV_RESET)
+      c128_reset();
    lines();
    timers();
    if (m.cmd_mode || m.state != ST_ONLINE) {

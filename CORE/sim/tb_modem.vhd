@@ -57,6 +57,7 @@ architecture sim of tb_modem is
    signal eth_txen  : std_logic;
    signal eth_mdio  : std_logic;
 
+   signal hr_stall  : boolean := false;    -- the next HyperRAM read waits 2 ms
    signal errors    : natural := 0;
    signal irq_seen  : boolean := false;
    signal done      : boolean := false;
@@ -141,6 +142,9 @@ begin
             count := to_integer(unsigned(hr_burstcount));
             assert a >= 0 and a + count <= C_MEM_WORDS report "HyperRAM read outside the window" severity failure;
             hr_waitrequest <= '1';
+            if hr_stall then
+               wait for 2 ms;                    -- beyond the CPU's 1.3 ms bus timeout
+            end if;
             for i in 1 to C_HR_LATENCY loop
                wait until rising_edge(hr_clk);
             end loop;
@@ -224,6 +228,19 @@ begin
          rx_len := 0;
       end procedure receive;
 
+      -- Read and drop whatever arrives until the line has been quiet for a while
+      procedure drain is
+         variable t0 : time := now;
+      begin
+         while now - t0 < 500 us loop
+            peek(1);
+            if v(3) = '1' then
+               peek(0);
+               t0 := now;
+            end if;
+         end loop;
+      end procedure drain;
+
       procedure send(s : string) is
       begin
          for i in s'range loop
@@ -265,6 +282,93 @@ begin
 
       send("ATDT1.2.3.4:23" & CR);
       receive("NO DIALTONE", 5 ms);
+
+      -- CCGMS starts with DTR on and the receive IRQ off while it loads its config, then
+      -- turns the IRQ on. A byte that came in between must interrupt then.
+      drain;
+      poke(2, 16#0B#);
+      send("AT" & CR);
+      wait for 1 ms;
+      if irq /= '0' then
+         report "IRQ with the receive IRQ off" severity error;
+         errors <= errors + 1;
+      end if;
+      poke(2, 16#09#);
+      if irq /= '1' then
+         report "no IRQ for the byte waiting when the receive IRQ came on" severity error;
+         errors <= errors + 1;
+      end if;
+      receive("OK" & CR & LF, 5 ms);
+
+      -- CCGMS's send routine reads the status, which clears the IRQ. If that comes before the
+      -- CPU has seen the NMI, the byte must interrupt again rather than wait for good.
+      drain;
+      send("AT" & CR);
+      wait until irq = '1' for 5 ms;
+      peek(1);
+      wait for 1 us;
+      if irq /= '0' or v(3) /= '1' then
+         report "status read did not clear the IRQ with a byte waiting" severity error;
+         errors <= errors + 1;
+      end if;
+      wait until irq = '1' for 1 ms;
+      if irq /= '1' then
+         report "a byte left unread after a status read never interrupted again" severity error;
+         errors <= errors + 1;
+      end if;
+      receive("OK" & CR & LF, 5 ms);
+
+      -- With DTR off the receiver is off: what the modem says then is lost
+      drain;
+      poke(2, 16#0A#);
+      send("AT" & CR);
+      wait for 2 ms;
+      poke(2, 16#09#);
+      wait for 100 us;
+      peek(1);
+      if v(3) /= '0' then
+         report "a byte from while DTR was off came through" severity error;
+         errors <= errors + 1;
+      end if;
+
+      -- A C128 reset in the middle of an answer: the next program finds nothing stale
+      send("ATI" & CR);
+      wait for 300 us;
+      main_rst <= '1';
+      wait for 20 us;
+      wait until rising_edge(main_clk);
+      main_rst <= '0';
+      wait for 3 ms;
+      poke(3, 16#10#);
+      poke(7, 0);
+      poke(2, 16#09#);
+      wait for 100 us;
+      peek(1);
+      if v(3) /= '0' then
+         report "a byte from before the reset came through" severity error;
+         errors <= errors + 1;
+      end if;
+      send("AT" & CR);
+      receive(CR & LF & "OK" & CR & LF, 20 ms);
+
+      -- A trap restarts the firmware, which says so; AT*T reads from nowhere
+      send("AT*T" & CR);
+      receive("MODEM RESTARTED", 50 ms);
+      send("AT" & CR);
+      receive(CR & LF & "OK" & CR & LF, 20 ms);
+
+      -- HyperRAM too slow for the CPU: it gives up on the access and restarts, and the
+      -- bridge drops the late answer instead of handing it to the next access
+      hr_stall <= true;
+      wait for 50 us;
+      hr_stall <= false;
+      receive("MODEM RESTARTED", 50 ms);
+      send("AT" & CR);
+      receive(CR & LF & "OK" & CR & LF, 20 ms);
+      send("ATI1" & CR);
+      receive("RESTARTS", 20 ms);
+      receive("MISSED NMIS", 5 ms);
+      receive("OK", 5 ms);
 
       if not irq_seen then
          report "6551 never raised its IRQ" severity error;

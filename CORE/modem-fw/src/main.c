@@ -4,6 +4,7 @@
 #include "eth.h"
 #include "log.h"
 #include "modem.h"
+#include "trap.h"
 #include "util.h"
 #include "lwip/init.h"
 #include "lwip/timeouts.h"
@@ -22,12 +23,17 @@ static void on_status(struct netif *nif)
 
 int main(void)
 {
+   log_init();
+   trap_init();
    log_printf("boot");
    lwip_init();
    eth_init();
    netif_set_status_callback(&eth_netif, on_status);
    modem_init();
+   trap_report();
+   watchdog_start();
    for (;;) {
+      watchdog_kick();
       eth_poll();
       sys_check_timeouts();
       modem_poll();

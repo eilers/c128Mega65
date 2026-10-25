@@ -2,10 +2,23 @@
 #include "log.h"
 #include "util.h"
 
-#define LOG_SIZE 1024   // power of 2
+#define LOG_SIZE  1024   // power of 2
+#define LOG_MAGIC 0x4C4F4721
 
-static char ring[LOG_SIZE];
-static uint32_t head;   // total bytes ever written
+// Survives a restart after a trap (trap.c), so ATI2 shows what came before it
+static struct {
+   uint32_t magic;
+   uint32_t head;        // total bytes ever written
+   char ring[LOG_SIZE];
+} lg __attribute__((section(".noinit")));
+
+void log_init(void)
+{
+   if (lg.magic != LOG_MAGIC) {
+      lg.magic = LOG_MAGIC;
+      lg.head = 0;
+   }
+}
 
 void log_printf(const char *f, ...)
 {
@@ -19,23 +32,23 @@ void log_printf(const char *f, ...)
       n = sizeof line - 2;
    line[n++] = '\r';
    for (int i = 0; i < n; i++)
-      ring[head++ & (LOG_SIZE - 1)] = line[i];
+      lg.ring[lg.head++ & (LOG_SIZE - 1)] = line[i];
 }
 
 size_t log_copy(uint32_t *pos, char *out, size_t size)
 {
-   uint32_t oldest = head > LOG_SIZE ? head - LOG_SIZE : 0;
+   uint32_t oldest = lg.head > LOG_SIZE ? lg.head - LOG_SIZE : 0;
    uint32_t p = *pos;
    if (p < oldest) {
       // start at the first whole line
       p = oldest;
       if (p)
-         while (p < head && ring[p++ & (LOG_SIZE - 1)] != '\r')
+         while (p < lg.head && lg.ring[p++ & (LOG_SIZE - 1)] != '\r')
             ;
    }
    size_t n = 0;
-   while (p < head && n < size)
-      out[n++] = ring[p++ & (LOG_SIZE - 1)];
+   while (p < lg.head && n < size)
+      out[n++] = lg.ring[p++ & (LOG_SIZE - 1)];
    *pos = p;
    return n;
 }

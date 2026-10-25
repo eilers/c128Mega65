@@ -17,6 +17,7 @@
 #define ACIA_STATE    REG32(ACIA_BASE + 0x08) // R: see ACIA_ST_*
 #define ACIA_LINES    REG32(ACIA_BASE + 0x0C) // RW: lines the modem drives, see ACIA_LN_*
 #define ACIA_EVENTS   REG32(ACIA_BASE + 0x10) // R: pending events, W: 1 clears, see ACIA_EV_*
+#define ACIA_AGAINS   REG32(ACIA_BASE + 0x14) // R: receive IRQs raised again for an unread byte, since power-up
 
 #define ACIA_ST_CMD(s)    ((s) & 0xFF)          // 6551 command register
 #define ACIA_ST_CTRL(s)   (((s) >> 8) & 0xFF)   // 6551 control register

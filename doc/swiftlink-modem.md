@@ -26,7 +26,8 @@ the connection. Callers can also reach the C128 on TCP port 6400, so it can run 
 | `ATE`, `ATV`, `ATQ`, `AT&C` | Echo, word or number results, quiet, DCD always on (`&C0`) or with the carrier |
 | `ATS50=n`          | Telnet: 0 = use it when the far end does or the port is 23 (default), 1 = never, 2 = always |
 
-Settings last until the next reset; the modem has nothing to save them to.
+Settings survive a C128 reset (a short press of the reset button) and last until the
+MEGA65 is switched off or reset with a long press; the modem has nothing to save them to.
 
 **Addresses.** `$DE00` and `$DF00` are cartridge I/O, and a cartridge that uses the same
 address collides with the modem, as a real SwiftLink would. At `$DF00` the core's REU is
@@ -50,7 +51,16 @@ C128 bus ── 6551 (acia6551) ── 64-byte FIFOs ── NEORV32 ── RMII 
   IRQ is a level, a status read clears the IRQ, a status write is the programmed reset.
   Unlike a 6551 it never overruns: the next byte waits until the C128 has read the last
   one. RTS (command bits 2-3) pauses the incoming data, which is how terminal programs
-  hold the modem off.
+  hold the modem off. With DTR off the receiver is off and incoming bytes are lost, as on
+  a 6551. A byte that arrives while the receive IRQ is off interrupts when the IRQ comes
+  on; a 6551 would interrupt on the overrun instead. CCGMS needs both: it turns DTR on
+  before it installs its NMI handler, and keeps the receive IRQ off while it starts up.
+  A byte still unread a character time later interrupts again, as the next byte would on
+  a 6551. CCGMS's send routine reads the status, which clears the IRQ; when that read
+  lands just before the CPU samples NMI, the NMI is lost, and without the repeat the
+  receiver would stay full for good. `ATI1` counts these as `MISSED NMIS`.
+- **A C128 reset** resets the 6551 and makes the modem hang up and drop anything it was
+  still sending. Its settings stay, as on an external modem.
 - **The modem** is a NEORV32 RISC-V (`CORE/vhdl/neorv32`, v1.13.6) running lwIP 2.2.1
   and a Hayes command set (`CORE/modem-fw`). The command set follows the Ultimate's
   `modem.cc`; telnet negotiation is new. The Ultimate relays raw TCP, which corrupts
@@ -90,6 +100,10 @@ has the modem off. Once released, it starts in its boot code (`CORE/modem-fw/boo
 104 bytes, served by `modem.vhd` at `0xF0003000`), which checks the image's header and
 checksum every 100 ms and jumps to it once both are right. Without the file the modem stays silent, and the 6551 still answers.
 
+A trap (a bus error, say) or a main loop stuck for a second restarts the firmware. The
+C128 sees `MODEM RESTARTED` with the cause, the call is dropped, and the settings go back
+to the defaults. `ATI2`'s log keeps what came before, and `ATI1` counts the restarts.
+
 ### Addresses
 
 | CPU address    | What                                             |
@@ -108,7 +122,10 @@ so every MEGA65 gets its own.
 
 - `CORE/sim/tb_modem.vhd` (`CORE/scripts/run_modem_sim.tcl`): the real firmware boots
   from a HyperRAM model; the testbench programs the 6551, types AT commands and checks
-  the echo, `OK`, `ATI`, `ERROR`, `NO DIALTONE` and the 6551's IRQ.
+  the echo, `OK`, `ATI`, `ERROR`, `NO DIALTONE` and the 6551's IRQ. It also plays
+  CCGMS's start (DTR on with the receive IRQ off, then on), a status read that clears
+  the IRQ before the NMI is taken, DTR off, a C128 reset in the middle of an answer, and
+  restarts after a trap and after a HyperRAM read that takes too long.
 - CCGMS Future (github.com/mist64/ccgmsterm) has an automated transfer test: `test/xfer.c`
   behind socat on a PC drives the terminal through every XMODEM variant and Punter. Its
   regular build supports SwiftLink at `$DE00`, `$DF00` and `$D700`. The EasyFlash build

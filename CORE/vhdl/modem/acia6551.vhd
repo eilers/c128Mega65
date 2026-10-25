@@ -37,11 +37,11 @@ entity acia6551 is
       -- Bytes from the modem (FIFO read side, first word fall through)
       rx_data_i  : in  std_logic_vector(7 downto 0);
       rx_valid_i : in  std_logic;
-      rx_pop_o   : out std_logic;
+      rx_pop_o   : out std_logic := '0';
 
       -- Bytes to the modem (FIFO write side)
       tx_data_o  : out std_logic_vector(7 downto 0);
-      tx_push_o  : out std_logic;
+      tx_push_o  : out std_logic := '0';
       tx_ready_i : in  std_logic;
 
       -- Lines the modem drives, '1' = asserted
@@ -53,9 +53,10 @@ entity acia6551 is
       command_o  : out std_logic_vector(7 downto 0);
       control_o  : out std_logic_vector(7 downto 0);
       turbo_o    : out std_logic_vector(1 downto 0);
-      ev_ctrl_o  : out std_logic;         -- control register written
-      ev_cmd_o   : out std_logic;         -- command register written
-      ev_reset_o : out std_logic          -- reset or programmed reset
+      ev_ctrl_o  : out std_logic := '0';  -- control register written
+      ev_cmd_o   : out std_logic := '0';  -- command register written
+      ev_reset_o : out std_logic := '0';  -- reset or programmed reset
+      ev_again_o : out std_logic := '0'   -- receive IRQ raised again for a byte left unread
    );
 end entity acia6551;
 
@@ -93,6 +94,7 @@ architecture synthesis of acia6551 is
    signal rdrf        : std_logic := '0';
    signal dcd_d       : std_logic := '0';
    signal dsr_d       : std_logic := '0';
+   signal rx_irq_d    : std_logic := '0';
 
    alias dtr          : std_logic is command(0);
    alias rx_irq_off   : std_logic is command(1);
@@ -118,6 +120,7 @@ begin
          ev_ctrl_o  <= '0';
          ev_cmd_o   <= '0';
          ev_reset_o <= '0';
+         ev_again_o <= '0';
 
          if rx_timer /= 0 then
             rx_timer <= rx_timer - 1;
@@ -126,14 +129,34 @@ begin
             tx_timer <= tx_timer - 1;
          end if;
 
-         -- Receive with DTR on and RTS asserted (RTS is how terminal programs pause the modem)
-         if rx_valid_i = '1' and rx_timer = 0 and rdrf = '0' and dtr = '1' and tx_ctrl /= "00" then
-            rdr      <= rx_data_i;
-            rdrf     <= '1';
-            rx_pop_o <= '1';
-            rx_timer <= char_clocks;
-            if rx_irq_off = '0' then
+         -- Receive with DTR on and RTS asserted (RTS is how terminal programs pause the modem).
+         -- With DTR off the receiver is off and what arrives is lost, as on a 6551, so a program
+         -- that turns DTR on finds nothing stale. rx_pop_o takes effect a clock later.
+         if rx_valid_i = '1' and rx_pop_o = '0' then
+            if rx_timer = 0 and rdrf = '0' and dtr = '1' and tx_ctrl /= "00" then
+               rdr      <= rx_data_i;
+               rdrf     <= '1';
+               rx_pop_o <= '1';
+               rx_timer <= char_clocks;
+            elsif dtr = '0' then
+               rx_pop_o <= '1';
+            end if;
+         end if;
+
+         -- The receive IRQ: a byte waiting with the IRQ and DTR on. A 6551 would overrun on the
+         -- next byte if the IRQ was off when this one came; this one never overruns, so it
+         -- interrupts when the IRQ comes on instead (CCGMS starts with it off for a while).
+         -- A byte still unread a character time later interrupts again, as the next byte would
+         -- on a 6551. CCGMS's send routine reads the status, which clears the IRQ; if that lands
+         -- before the CPU has seen the NMI, the byte would otherwise wait for good.
+         rx_irq_d <= rdrf and dtr and not rx_irq_off;
+         if rdrf = '1' and dtr = '1' and rx_irq_off = '0' then
+            if rx_irq_d = '0' then
                irq <= '1';
+            elsif rx_timer = 0 then
+               irq        <= '1';
+               rx_timer   <= char_clocks;
+               ev_again_o <= '1';
             end if;
          end if;
 

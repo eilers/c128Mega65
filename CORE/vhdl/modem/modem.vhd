@@ -92,18 +92,24 @@ architecture synthesis of modem is
    signal ev_tog_s    : std_logic_vector(2 downto 0) := "000";
    signal ev_tog_d    : std_logic_vector(2 downto 0) := "000";
    signal events      : std_logic_vector(2 downto 0) := "000";
+   signal again_tog   : std_logic := '0';                        -- toggles on main_clk
+   signal again_tog_m : std_logic := '0';
+   signal again_tog_s : std_logic := '0';
+   signal again_tog_d : std_logic := '0';
+   signal irq_agains  : unsigned(15 downto 0) := (others => '0'); -- since power-up
 
    attribute async_reg : string;
    attribute async_reg of enable_m, enable_s : signal is "true";
    attribute async_reg of lines_m, lines_s   : signal is "true";
    attribute async_reg of state_m, state_s   : signal is "true";
    attribute async_reg of ev_tog_m, ev_tog_s : signal is "true";
+   attribute async_reg of again_tog_m, again_tog_s : signal is "true";
 
    -- 6551 and its FIFOs
    signal acia_command : std_logic_vector(7 downto 0);
    signal acia_control : std_logic_vector(7 downto 0);
    signal acia_turbo   : std_logic_vector(1 downto 0);
-   signal acia_ev_ctrl, acia_ev_cmd, acia_ev_reset : std_logic;
+   signal acia_ev_ctrl, acia_ev_cmd, acia_ev_reset, acia_ev_again : std_logic;
    signal main_rx_data  : std_logic_vector(7 downto 0);
    signal main_rx_valid : std_logic;
    signal main_rx_pop   : std_logic;
@@ -189,7 +195,8 @@ begin
          turbo_o    => acia_turbo,
          ev_ctrl_o  => acia_ev_ctrl,
          ev_cmd_o   => acia_ev_cmd,
-         ev_reset_o => acia_ev_reset
+         ev_reset_o => acia_ev_reset,
+         ev_again_o => acia_ev_again
       ); -- i_acia
 
    state_main <= acia_turbo & acia_control & acia_command;
@@ -200,6 +207,7 @@ begin
          lines_m <= lines;
          lines_s <= lines_m;
          ev_tog  <= ev_tog xor (acia_ev_reset & acia_ev_cmd & acia_ev_ctrl);
+         again_tog <= again_tog xor acia_ev_again;
       end if;
    end process main_cdc_proc;
 
@@ -262,6 +270,12 @@ begin
          ev_tog_m <= ev_tog;
          ev_tog_s <= ev_tog_m;
          ev_tog_d <= ev_tog_s;
+         again_tog_m <= again_tog;
+         again_tog_s <= again_tog_m;
+         again_tog_d <= again_tog_s;
+         if again_tog_s /= again_tog_d then
+            irq_agains <= irq_agains + 1;
+         end if;
          cpu_rstn <= enable_s and not rst_i;
       end if;
    end process modem_cdc_proc;
@@ -287,7 +301,7 @@ begin
          CACHE_BURSTS_EN   => true,
          CACHE_UC_BASE     => x"F0000000",
          XBUS_EN           => true,
-         XBUS_TIMEOUT      => 8192,
+         XBUS_TIMEOUT      => 65536,       -- 1.3 ms: HyperRAM can be slow, and a timeout costs a restart
          IO_CLINT_EN       => true
       )
       port map (
@@ -390,6 +404,8 @@ begin
                      reg_dat(2 downto 0) <= lines;
                   when x"0010" =>
                      reg_dat(2 downto 0) <= v_ev;
+                  when x"0014" =>                                    -- ACIA_AGAINS
+                     reg_dat(15 downto 0) <= std_logic_vector(irq_agains);
                   when x"1000" =>                                    -- ETH_RX
                      reg_dat(31)         <= eth_rx_valid;
                      reg_dat(8 downto 0) <= eth_rx_last & eth_rx_data;
