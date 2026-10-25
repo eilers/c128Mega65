@@ -154,6 +154,9 @@ port(
    UMAXromH 	: out std_logic;
    IOE			: out std_logic;
    IOF			: out std_logic;
+   -- MEGA65: CPU access to $D7xx, the C128's spare I/O select (SwiftLink at $D700). Read data
+   -- comes back on io_data with io_ext, as for IOE/IOF.
+   IO7         : out std_logic;
    -- MEGA65: IOE/IOF's decode without their CPU4-7 gate, for the Expansion Port. Also high in
    -- PHI1 for the CPU's next address, so gate it with PHI2 (main.vhd does)
    IOE_bus     : out std_logic;
@@ -810,6 +813,7 @@ port map (
 
 IOE <= ioe_i and cs_enable and vicCycle;
 IOF <= iof_i and cs_enable and vicCycle;
+IO7 <= io7_i and cs_enable and vicCycle;
 IOE_bus <= ioe_i and cs_enable;
 IOF_bus <= iof_i and cs_enable;
 cs_io <= cs_vic or cs_sid or cs_mmuL or cs_vdc or io7_i or cs_color or cs_cia1 or cs_cia2 or ioe_i or iof_i;
