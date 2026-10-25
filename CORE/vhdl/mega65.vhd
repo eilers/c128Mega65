@@ -375,6 +375,10 @@ signal main_crt_rd_hi         : std_logic;
 signal main_crt_vic_rd        : std_logic;
 signal main_crt_vic_addr      : std_logic_vector(12 downto 0);
 signal main_crt_rfsh_ok       : std_logic;
+signal main_crt_reset         : std_logic;
+signal main_crt_phi2          : std_logic;
+signal main_crt_flash_wr      : std_logic;
+signal main_crt_flash_rd      : std_logic;
 signal main_crt_ioe_we        : std_logic;
 signal main_crt_iof_we        : std_logic;
 signal main_crt_ram_we        : std_logic;
@@ -724,6 +728,10 @@ begin
          crt_vic_rd_o         => main_crt_vic_rd,
          crt_vic_addr_o       => main_crt_vic_addr,
          crt_rfsh_ok_o        => main_crt_rfsh_ok,
+         crt_reset_o          => main_crt_reset,
+         crt_phi2_o           => main_crt_phi2,
+         crt_flash_wr_o       => main_crt_flash_wr,
+         crt_flash_rd_o       => main_crt_flash_rd,
          crt_ioe_we_o         => main_crt_ioe_we,
          crt_iof_we_o         => main_crt_iof_we,
          crt_ram_we_o         => main_crt_ram_we,
@@ -969,6 +977,10 @@ begin
          main_vic_rd_i      => main_crt_vic_rd,
          main_vic_addr_i    => main_crt_vic_addr,
          main_rfsh_ok_i     => main_crt_rfsh_ok,
+         main_reset_i       => main_crt_reset,
+         main_phi2_i        => main_crt_phi2,
+         main_flash_wr_i    => main_crt_flash_wr,
+         main_flash_rd_i    => main_crt_flash_rd,
          main_ioe_we_i      => main_crt_ioe_we,
          main_iof_we_i      => main_crt_iof_we,
          main_ram_we_i      => main_crt_ram_we,
