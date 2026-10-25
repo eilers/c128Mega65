@@ -9,6 +9,9 @@
 -- the C128 waits while a bank loads. With SDRAM (G_SDRAM, R4 and later) the file sits there
 -- and crt_reader fetches each byte the C128 or VIC asks for, in time for the bus cycle.
 --
+-- An EasyFlash's flash chips (crt_flash) take programs and erases, which crt_reader (SDRAM) or
+-- crt_cacher (R3) writes into the file.
+--
 -- After MJoergen's sw_cartridge_wrapper for C64MEGA65 (2023, GPL v3).
 ----------------------------------------------------------------------------------
 
@@ -58,6 +61,10 @@ port (
    main_vic_rd_i       : in  std_logic := '0';               -- SDRAM: the VIC fetches ROMH (Ultimax)
    main_vic_addr_i     : in  std_logic_vector(12 downto 0) := (others => '0');
    main_rfsh_ok_i      : in  std_logic := '1';               -- SDRAM: no read is due soon
+   main_reset_i        : in  std_logic := '0';               -- the C128 is in reset
+   main_phi2_i         : in  std_logic := '0';
+   main_flash_wr_i     : in  std_logic := '0';               -- a write selects ROML or ROMH (Ultimax)
+   main_flash_rd_i     : in  std_logic := '0';               -- a read selects ROML or ROMH
    main_ioe_we_i       : in  std_logic;
    main_iof_we_i       : in  std_logic;
    main_ram_we_i       : in  std_logic;
@@ -169,6 +176,7 @@ architecture synthesis of sw_cartridge_wrapper is
    signal hr_size                 : std_logic_vector(22 downto 0);
    signal hr_c128                 : std_logic;
    signal hr_subtype              : std_logic_vector( 7 downto 0);
+   signal hr_ef                   : std_logic;
    signal hr_loaded               : std_logic;
    signal hr_loading              : std_logic;
 
@@ -179,6 +187,36 @@ architecture synthesis of sw_cartridge_wrapper is
    signal main_c128               : std_logic;
    signal main_cache_addr_lo      : std_logic_vector(C_CACHE_SIZE-1 downto 0);
    signal main_cache_addr_hi      : std_logic_vector(C_CACHE_SIZE-1 downto 0);
+   signal main_lo_mem             : std_logic_vector( 7 downto 0);  -- ROML and ROMH from memory
+   signal main_hi_mem             : std_logic_vector( 7 downto 0);
+
+   -- EasyFlash's flash chips (index 0 ROML's, 1 ROMH's) and their jobs
+   signal main_flash_rst          : std_logic;
+   signal main_flash_oe           : std_logic_vector( 1 downto 0);
+   signal main_flash_lo_data      : std_logic_vector( 7 downto 0);
+   signal main_flash_hi_data      : std_logic_vector( 7 downto 0);
+   signal main_fl_req             : std_logic_vector( 1 downto 0);
+   signal main_fl_lo_job          : std_logic_vector(28 downto 0);
+   signal main_fl_hi_job          : std_logic_vector(28 downto 0);
+   signal main_fl_done            : std_logic_vector( 1 downto 0);
+   signal main_fl_fail            : std_logic_vector( 1 downto 0);
+   signal main_fl_done_d          : std_logic_vector( 1 downto 0) := "00";
+   signal main_fl_done_s          : std_logic_vector( 1 downto 0) := "00";
+   signal hr_fl_req_d             : std_logic_vector( 1 downto 0) := "00";
+   signal hr_fl_req               : std_logic_vector( 1 downto 0) := "00";
+   signal hr_fl_done              : std_logic_vector( 1 downto 0);
+   signal hr_fl_fail              : std_logic_vector( 1 downto 0);
+   signal hr_prefill              : std_logic;                        -- filling EasyFlash spares
+   signal main_pre_d              : std_logic := '0';
+   signal main_pre                : std_logic := '0';
+
+   attribute async_reg : string;
+   attribute async_reg of main_fl_done_d : signal is "true";
+   attribute async_reg of main_fl_done_s : signal is "true";
+   attribute async_reg of hr_fl_req_d    : signal is "true";
+   attribute async_reg of hr_fl_req      : signal is "true";
+   attribute async_reg of main_pre_d     : signal is "true";
+   attribute async_reg of main_pre       : signal is "true";
 
 begin
 
@@ -326,6 +364,7 @@ begin
    ---------------------------------------------------
 
    hr_loaded <= '1' when hr_resp_status = C_STAT_READY else '0';
+   hr_ef     <= '1' when hr_id = x"0020" and hr_c128 = '0' else '0';
 
    i_cdc_hr2main : entity work.cdc_stable
       generic map (
@@ -366,6 +405,61 @@ begin
    main_loaded_o <= main_loaded;
    main_c128_o   <= main_c128;
 
+   ---------------------------------------------------
+   -- EasyFlash's flash chips. While one is busy or shows its ID, it answers reads itself.
+   ---------------------------------------------------
+
+   main_flash_rst <= '1' when main_reset_i = '1' or main_loaded = '0' or main_c128 = '1' or
+                              main_id_o /= x"0020" else '0';
+
+   i_crt_flash : entity work.crt_flash
+      port map (
+         clk_i     => main_clk_i,
+         rst_i     => main_flash_rst,
+         wr_i      => main_flash_wr_i and not main_flash_rst,
+         rd_i      => main_flash_rd_i,
+         hi_i      => main_rd_hi_i,
+         bank_lo_i => main_bank_lo_i(5 downto 0),
+         bank_hi_i => main_bank_hi_i(5 downto 0),
+         addr_i    => main_addr_i(12 downto 0),
+         data_i    => main_data_i,
+         phi2_i    => main_phi2_i,
+         oe_o      => main_flash_oe,
+         lo_data_o => main_flash_lo_data,
+         hi_data_o => main_flash_hi_data,
+         req_o     => main_fl_req,
+         lo_job_o  => main_fl_lo_job,
+         hi_job_o  => main_fl_hi_job,
+         done_i    => main_fl_done,
+         fail_i    => main_fl_fail
+      ); -- i_crt_flash
+
+   main_lo_data_o <= main_flash_lo_data when main_flash_oe(0) = '1' else main_lo_mem;
+   main_hi_data_o <= main_flash_hi_data when main_flash_oe(1) = '1' else main_hi_mem;
+
+   -- A job is held until it is done, so only the toggles need synchronizers. fail is steady by
+   -- the time done has crossed.
+   p_fl_hr : process (hr_clk_i)
+   begin
+      if rising_edge(hr_clk_i) then
+         hr_fl_req_d <= main_fl_req;
+         hr_fl_req   <= hr_fl_req_d;
+      end if;
+   end process p_fl_hr;
+
+   p_fl_main : process (main_clk_i)
+   begin
+      if rising_edge(main_clk_i) then
+         main_fl_done_d <= hr_fl_done;
+         main_fl_done_s <= main_fl_done_d;
+         main_pre_d     <= hr_prefill;
+         main_pre       <= main_pre_d;
+      end if;
+   end process p_fl_main;
+
+   main_fl_done <= main_fl_done_s;
+   main_fl_fail <= hr_fl_fail;
+
    cache_gen : if not G_SDRAM generate
 
       signal hr_bram_address      : std_logic_vector(C_CACHE_SIZE+11 downto 0);
@@ -388,7 +482,8 @@ begin
 
       i_crt_loader : entity work.crt_loader
          generic map (
-            G_CACHE_SIZE => C_CACHE_SIZE
+            G_CACHE_SIZE    => C_CACHE_SIZE,
+            G_SPARE_ADDRESS => std_logic_vector(unsigned(G_BASE_ADDRESS) + 16#80000#)  -- +1 MiB
          )
          port map (
             clk_i               => hr_clk_i,
@@ -406,6 +501,12 @@ begin
             ready_o             => hr_ready,
             cache_addr_lo_o     => hr_cache_addr_lo,
             cache_addr_hi_o     => hr_cache_addr_hi,
+            fl_req_i            => hr_fl_req,
+            fl_lo_job_i         => main_fl_lo_job,
+            fl_hi_job_i         => main_fl_hi_job,
+            fl_done_o           => hr_fl_done,
+            fl_fail_o           => hr_fl_fail,
+            prefill_o           => hr_prefill,
             avm_write_o         => hr_crt_write,
             avm_read_o          => hr_crt_read,
             avm_address_o       => hr_crt_address(21 downto 0),
@@ -465,9 +566,11 @@ begin
             dst_data_o(13 downto  7) => hr_bank_hi
          ); -- i_cdc_main2hr
 
-      -- Wait from the moment the core asks for another bank until the cache reports it loaded
+      -- Wait from the moment the core asks for another bank until the cache reports it loaded,
+      -- and while an EasyFlash's spare banks are filled
       main_wait_o <= '1' when main_loaded = '1' and
-                              (main_bank_lo_i /= main_ack_lo or main_bank_hi_i /= main_ack_hi or main_ready = '0')
+                              (main_bank_lo_i /= main_ack_lo or main_bank_hi_i /= main_ack_hi or
+                               main_ready = '0' or main_pre = '1')
                          else '0';
 
       ---------------------------------------------------
@@ -486,8 +589,9 @@ begin
          end if;
       end process p_a0;
 
-      main_lo_data_o  <= main_lo_word(15 downto 8) when main_a0_d = '1' else main_lo_word(7 downto 0);
-      main_hi_data_o  <= main_hi_word(15 downto 8) when main_a0_d = '1' else main_hi_word(7 downto 0);
+      main_lo_mem     <= main_lo_word(15 downto 8) when main_a0_d = '1' else main_lo_word(7 downto 0);
+      main_hi_mem     <= main_hi_word(15 downto 8) when main_a0_d = '1' else main_hi_word(7 downto 0);
+
       main_vic_data_o <= main_hi_word(15 downto 8) when main_a0_d = '1' else main_hi_word(7 downto 0);
 
       i_crt_lo_ram : entity work.tdp_ram
@@ -545,6 +649,7 @@ begin
       signal hr_vic_data          : std_logic_vector( 7 downto 0);
       signal hr_cpu_done          : std_logic_vector( 2 downto 0);
       signal hr_vic_done          : std_logic_vector( 2 downto 0);
+      signal main_fl_done_q       : std_logic_vector( 1 downto 0) := "00";
 
       -- Requests: a key per port, and a Gray counter that counts its changes. The reader takes
       -- the key once the count has crossed, so the key needs no synchronizer.
@@ -561,7 +666,6 @@ begin
       signal main_vic_ok          : std_logic := '0';
       signal main_rfsh_ok_r       : std_logic := '1';
 
-      attribute async_reg : string;
       attribute async_reg of hr_cpu_req_d : signal is "true";
       attribute async_reg of hr_cpu_req   : signal is "true";
       attribute async_reg of hr_vic_req_d : signal is "true";
@@ -615,10 +719,16 @@ begin
       hr_cache_addr_hi <= (others => '0');
 
       i_crt_reader : entity work.crt_reader
+         generic map (
+            G_SPARE_ADDRESS       => std_logic_vector(unsigned(G_BASE_ADDRESS) + 16#80000#)  -- +1 MiB
+         )
          port map (
             clk_i                 => hr_clk_i,
             rst_i                 => hr_rst_i,
+            cart_ready_i          => hr_loaded,
+            cart_size_i           => hr_size,
             cart_c128_i           => hr_c128,
+            cart_ef_i             => hr_ef,
             cart_loading_i        => hr_loading,
             cart_bank_laddr_i     => hr_bank_laddr,
             cart_bank_size_i      => hr_bank_size,
@@ -633,6 +743,13 @@ begin
             vic_key_i             => main_vic_key_r,
             vic_data_o            => hr_vic_data,
             vic_done_o            => hr_vic_done,
+            slot_ok_i             => hr_rfsh_ok,
+            fl_req_i              => hr_fl_req,
+            fl_lo_job_i           => main_fl_lo_job,
+            fl_hi_job_i           => main_fl_hi_job,
+            fl_done_o             => hr_fl_done,
+            fl_fail_o             => hr_fl_fail,
+            prefill_o             => hr_prefill,
             s_avm_write_i         => hr_mem_write,
             s_avm_read_i          => hr_mem_read,
             s_avm_address_i       => hr_mem_address,
@@ -665,7 +782,8 @@ begin
       -- back well before the C128 latches it (see CORE.xdc), so the C128 never waits.
       ---------------------------------------------------
 
-      main_wait_o  <= '0';
+      -- Only while an EasyFlash's spare banks are filled, which keeps the C128 in reset
+      main_wait_o  <= main_loaded and main_pre;
 
       main_cpu_bank <= main_bank_hi_i when main_rd_hi_i = '1' else main_bank_lo_i;
       main_cpu_key  <= main_rd_hi_i & main_cpu_bank & (main_addr_i(13) and main_c128) & main_addr_i(12 downto 0);
@@ -689,12 +807,13 @@ begin
                main_vic_key_r <= main_vic_key;
                main_vic_ok    <= '1';
             end if;
-            -- A new cartridge: what the reader holds is the old one's
-            if main_loaded = '0' then
+            -- A new cartridge, or a flash job changed the file: what the reader holds is stale
+            if main_loaded = '0' or main_fl_done_s /= main_fl_done_q then
                main_cpu_ok <= '0';
                main_vic_ok <= '0';
             end if;
             main_rfsh_ok_r <= main_rfsh_ok_i;
+            main_fl_done_q <= main_fl_done_s;
          end if;
       end process p_request;
 
@@ -712,8 +831,8 @@ begin
 
       sr_refresh_ok_o <= hr_rfsh_ok;
 
-      main_lo_data_o  <= hr_cpu_data;
-      main_hi_data_o  <= hr_cpu_data;
+      main_lo_mem     <= hr_cpu_data;
+      main_hi_mem     <= hr_cpu_data;
       main_vic_data_o <= hr_vic_data;
 
       -- pragma translate_off

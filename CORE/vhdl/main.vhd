@@ -264,6 +264,10 @@ entity main is
       crt_vic_rd_o            : out std_logic;   -- SDRAM: the VIC fetches ROMH (Ultimax)
       crt_vic_addr_o          : out std_logic_vector(12 downto 0);
       crt_rfsh_ok_o           : out std_logic;   -- SDRAM: no cartridge read is due for a while
+      crt_reset_o             : out std_logic;   -- the C128 is in reset
+      crt_phi2_o              : out std_logic;
+      crt_flash_wr_o          : out std_logic;   -- a CPU write selects ROML or ROMH (Ultimax), one clock
+      crt_flash_rd_o          : out std_logic;   -- a CPU read selects ROML or ROMH, one clock
       crt_ioe_we_o            : out std_logic;
       crt_iof_we_o            : out std_logic;
       crt_ram_we_o            : out std_logic;
@@ -1308,18 +1312,27 @@ crt_vic_addr_o <= std_logic_vector(core_vic_addr(12 downto 0));
 
 -- SDRAM refreshes go in the middle of PHI2. Every read is requested at a phase start, the CPU's
 -- in FAST mode 8 clocks before it is latched, so a refresh there never makes one late. With no
--- cartridge, or PHI2 stopped (pause), any time will do.
+-- cartridge, PHI2 stopped (pause) or the C128 in reset, any time will do.
 crt_rfsh_proc : process (clk_main_i)
 begin
    if rising_edge(clk_main_i) then
       crt_rfsh_ok <= '0';
-      if crt_active = '0' or phi2_cnt = 31 or (core_phi2 = '1' and phi2_ph >= 3 and phi2_ph <= 10) then
+      if crt_active = '0' or phi2_cnt = 31 or reset_core_n = '0' or
+         (core_phi2 = '1' and phi2_ph >= 3 and phi2_ph <= 10) then
          crt_rfsh_ok <= '1';
       end if;
    end if;
 end process crt_rfsh_proc;
 
 crt_rfsh_ok_o <= crt_rfsh_ok;
+
+-- EasyFlash's flash chips see each CPU access to ROML/ROMH once, at its RAM strobe. As with
+-- the port's /ROML-/ROMH, only an Ultimax write selects a chip.
+crt_reset_o    <= not reset_core_n;
+crt_phi2_o     <= core_phi2;
+crt_flash_wr_o <= crt_active and ram_ce and system_we and (core_roml or core_romh) and
+                  core_exrom_n and not core_game_n;
+crt_flash_rd_o <= crt_active and ram_ce and not system_we and (core_roml or core_romh);
 
 -- The cartridge's RAMs. While its RAM is at ROML, writes to $9Exx/$9Fxx also reach the
 -- $DExx/$DFxx copy (Action Replay, see C64MEGA65's main.vhd). EasyFlash's $DF00 RAM is separate.

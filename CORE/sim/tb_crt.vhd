@@ -11,9 +11,10 @@
 --
 -- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64 16 kB cartridge, a
 -- 4 kB Ultimax chip mirrored at $E000, EasyFlash with more banks than the cache holds, the same
--- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00), a
--- full-size Magic Desk 16K (over 2 MiB, SDRAM only), and a type the parser must refuse. It also
--- watches the expansion port's /ROML-/ROMH: low for a write only in Ultimax mode.
+-- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00),
+-- EasyFlash's flash chips taking programs and erases, a full-size Magic
+-- Desk 16K (over 2 MiB, SDRAM only), and a type the parser must refuse. It also watches the
+-- expansion port's /ROML-/ROMH: low for a write only in Ultimax mode.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -92,6 +93,10 @@ architecture sim of tb_crt is
    signal crt_vic_rd       : std_logic;
    signal crt_vic_addr     : std_logic_vector(12 downto 0);
    signal crt_rfsh_ok      : std_logic;
+   signal crt_reset        : std_logic;
+   signal crt_phi2         : std_logic;
+   signal crt_flash_wr     : std_logic;
+   signal crt_flash_rd     : std_logic;
    signal crt_ioe_we       : std_logic;
    signal crt_iof_we       : std_logic;
    signal crt_ram_we       : std_logic;
@@ -404,6 +409,10 @@ begin
          crt_vic_rd_o         => crt_vic_rd,
          crt_vic_addr_o       => crt_vic_addr,
          crt_rfsh_ok_o        => crt_rfsh_ok,
+         crt_reset_o          => crt_reset,
+         crt_phi2_o           => crt_phi2,
+         crt_flash_wr_o       => crt_flash_wr,
+         crt_flash_rd_o       => crt_flash_rd,
          crt_ioe_we_o         => crt_ioe_we,
          crt_iof_we_o         => crt_iof_we,
          crt_ram_we_o         => crt_ram_we,
@@ -448,6 +457,10 @@ begin
          main_vic_rd_i      => crt_vic_rd,
          main_vic_addr_i    => crt_vic_addr,
          main_rfsh_ok_i     => crt_rfsh_ok,
+         main_reset_i       => crt_reset,
+         main_phi2_i        => crt_phi2,
+         main_flash_wr_i    => crt_flash_wr,
+         main_flash_rd_i    => crt_flash_rd,
          main_ioe_we_i      => crt_ioe_we,
          main_iof_we_i      => crt_iof_we,
          main_ram_we_i      => crt_ram_we,
@@ -846,15 +859,16 @@ begin
          wait until rising_edge(clk_main);
          cap_clear <= false;
          wait until status_seen for timeout;
-         check(status_seen, name & ": the program never finished");
-         if not status_seen then
-            return;
-         end if;
+         check(status_seen, name & ": the program never finished, after " & integer'image(n_results) &
+                            " results");
          wait for 10 us;
          file_open(f, C_CRT_DIR & name & ".exp", read_mode);
          while not endfile(f) loop
             readline(f, el);
             hread(el, want);
+            if n >= n_results then
+               exit;
+            end if;
             if results(n) /= want then
                report name & ": probe " & integer'image(n) & " read $" & to_hstring(results(n)) &
                       ", expected $" & to_hstring(want) severity error;
@@ -864,6 +878,9 @@ begin
          end loop;
          file_close(f);
          check(bad = 0, name & ": " & integer'image(bad) & " of " & integer'image(n) & " probes read wrong");
+         if not status_seen then
+            return;
+         end if;
          check(n_results = n, name & ": the program stored " & integer'image(n_results) & " results, not " &
                               integer'image(n));
          check(status = x"10" and status_errors = x"00", name & ": the program reports '" &
@@ -898,17 +915,24 @@ begin
       run_crt("crttest-c128fast", 20 ms);
       run_crt("crttest-16k",    20 ms);
       run_crt("crttest-umax4k", 20 ms);
-      run_crt("crttest-ef",     30 ms);
+      -- EasyFlash runs take longer: the spare banks of the banks a file lacks are filled first
+      run_crt("crttest-ef",     60 ms);
       if G_SDRAM then
          check(n_waits = 0, "the CPU waited for the SDRAM");
       else
          check(n_waits >= 10, "EasyFlash switched banks without the cache stalling the CPU");
       end if;
 
+      -- EasyFlash's flash chips: programs and erases change the file
+      run_crt("crttest-efflash", 60 ms);
+      if G_SDRAM then
+         check(n_waits = 0, "a flash job made the CPU wait for the SDRAM");
+      end if;
+
       -- With the REU on, EasyFlash still owns $DF00-$DF1F: the REU stays off for it
       reu_on <= '1';
       wait for 3 ms;
-      run_crt("crttest-ef",     30 ms);
+      run_crt("crttest-ef",     60 ms);
       reu_on <= '0';
       wait for 3 ms;
 

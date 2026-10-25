@@ -81,9 +81,10 @@
   enable modes (a drive is enabled exactly while an image is mounted) and the
   track-number overlay (`drv_overlay.sv`).
 * Virtual cartridges: freezers (Action Replay, Final Cartridge III, Super Snapshot 5)
-  run, but there is no freeze button yet. EasyFlash writes to its flash are lost, so
-  games that save there don't keep their saves. The banked C128 types (Warp Speed 128,
-  COMAL 80 128, Magic Desk 128, GMod2-C128) are not supported.
+  run, but there is no freeze button yet. EasyFlash saves to its flash last until the
+  cartridge is loaded again or the MEGA65 is switched off; they are not written back to
+  the SD card yet. The banked C128 types (Warp Speed 128, COMAL 80 128, Magic Desk 128,
+  GMod2-C128) are not supported.
 * Expansion port: a cartridge can take the bus with `/DMA` (for example the Ultimate
   II+ menu) only while the 8502 runs. A real C128 stops its Z80 (CP/M mode) for `/DMA`
   too (PRG p. 636), but the core's Z80 keeps running and the cartridge's accesses are
