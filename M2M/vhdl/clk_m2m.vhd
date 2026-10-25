@@ -36,6 +36,9 @@ entity clk_m2m is
       audio_clk_o       : out std_logic;   -- Audio's 12.288 MHz clock
       audio_rst_o       : out std_logic;   -- Audio's reset, synchronized
 
+      modem_clk_o       : out std_logic;   -- C128 core: the modem's 50 MHz clock (CPU and Ethernet)
+      modem_rst_o       : out std_logic;   -- the modem's reset, synchronized
+
       sys_pps_o         : out std_logic    -- One pulse per second (in sys_clk domain)
    );
 end entity clk_m2m;
@@ -49,6 +52,7 @@ signal hr_clk_mmcm          : std_logic;
 signal hr_clk_del_mmcm      : std_logic;
 signal hr_delay_refclk_mmcm : std_logic;
 signal audio_clk_mmcm       : std_logic;
+signal modem_clk_mmcm       : std_logic;
 
 signal sys_clk_9975_bg      : std_logic;
 
@@ -84,6 +88,9 @@ begin
          CLKOUT3_DIVIDE       => 12,         -- HyperRAM @ 100 MHz phase delayed
          CLKOUT3_DUTY_CYCLE   => 0.500,
          CLKOUT3_PHASE        => 90.000,
+         CLKOUT4_DIVIDE       => 24,         -- Modem (CPU and Ethernet) @ 50 MHz
+         CLKOUT4_DUTY_CYCLE   => 0.500,
+         CLKOUT4_PHASE        => 0.000,
          DIVCLK_DIVIDE        => 1,
          REF_JITTER1          => 0.010,
          STARTUP_WAIT         => "FALSE"
@@ -96,6 +103,7 @@ begin
          CLKOUT1             => hr_clk_mmcm,
          CLKOUT2             => hr_delay_refclk_mmcm,
          CLKOUT3             => hr_clk_del_mmcm,
+         CLKOUT4             => modem_clk_mmcm,
          LOCKED              => qnice_locked,
          PWRDWN              => '0',
          RST                 => '0'
@@ -158,6 +166,12 @@ begin
          O => audio_clk_o
       );
 
+   modem_clk_bufg : BUFG
+      port map (
+         I => modem_clk_mmcm,
+         O => modem_clk_o
+      );
+
    -------------------------------------
    -- Reset generation
    -------------------------------------
@@ -187,6 +201,16 @@ begin
          dest_clk  => hr_clk_o,         -- 1-bit input: Destination clock.
          dest_arst => hr_rst_o          -- 1-bit output: src_rst synchronized to the destination clock domain.
                                         -- This output is registered.
+      );
+
+   i_xpm_cdc_async_rst_modem : xpm_cdc_async_rst
+      generic map (
+         RST_ACTIVE_HIGH => 1
+      )
+      port map (
+         src_arst  => not (qnice_locked and sys_rstn_i),
+         dest_clk  => modem_clk_o,
+         dest_arst => modem_rst_o
       );
 
    i_xpm_cdc_async_rst_audio : xpm_cdc_async_rst

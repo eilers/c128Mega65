@@ -266,7 +266,20 @@ port (
    cart_a_o                : out unsigned(15 downto 0);
    cart_data_oe_o          : out std_logic; -- 0 : tristate (i.e. input), 1 : output
    cart_d_i                : in  unsigned( 7 downto 0);
-   cart_d_o                : out unsigned( 7 downto 0)
+   cart_d_o                : out unsigned( 7 downto 0);
+
+   -- SwiftLink modem: its 50 MHz clock (CPU and Ethernet) and the Ethernet PHY
+   modem_clk_i             : in    std_logic;
+   modem_rst_i             : in    std_logic;
+   eth_clock_o             : out   std_logic;
+   eth_reset_o             : out   std_logic;
+   eth_mdc_o               : out   std_logic;
+   eth_mdio_io             : inout std_logic;
+   eth_rxd_i               : in    std_logic_vector(1 downto 0);
+   eth_rxdv_i              : in    std_logic;
+   eth_rxer_i              : in    std_logic;
+   eth_txd_o               : out   std_logic_vector(1 downto 0);
+   eth_txen_o              : out   std_logic
 );
 end entity MEGA65_Core;
 
@@ -403,6 +416,37 @@ signal crt_hr_burstcount      : std_logic_vector( 7 downto 0);
 signal crt_hr_readdata        : std_logic_vector(15 downto 0);
 signal crt_hr_readdatavalid   : std_logic;
 signal crt_hr_waitrequest     : std_logic;
+
+-- SwiftLink modem: the 6551's bus on main_clk, its firmware reads on hr_clk
+signal main_modem_en          : std_logic;
+signal main_modem_rst         : std_logic;
+signal main_modem_cs          : std_logic;
+signal main_modem_we          : std_logic;
+signal main_modem_addr        : std_logic_vector(2 downto 0);
+signal main_modem_wdata       : std_logic_vector(7 downto 0);
+signal main_modem_rdata       : std_logic_vector(7 downto 0);
+signal main_modem_irq         : std_logic;
+
+signal modem_hr_write         : std_logic;
+signal modem_hr_read          : std_logic;
+signal modem_hr_address       : std_logic_vector(31 downto 0);
+signal modem_hr_writedata     : std_logic_vector(15 downto 0);
+signal modem_hr_byteenable    : std_logic_vector( 1 downto 0);
+signal modem_hr_burstcount    : std_logic_vector( 7 downto 0);
+signal modem_hr_readdata      : std_logic_vector(15 downto 0);
+signal modem_hr_readdatavalid : std_logic;
+signal modem_hr_waitrequest   : std_logic;
+
+-- REU and cartridge, after their arbiter
+signal exp_hr_write           : std_logic;
+signal exp_hr_read            : std_logic;
+signal exp_hr_address         : std_logic_vector(31 downto 0);
+signal exp_hr_writedata       : std_logic_vector(15 downto 0);
+signal exp_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal exp_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal exp_hr_readdata        : std_logic_vector(15 downto 0);
+signal exp_hr_readdatavalid   : std_logic;
+signal exp_hr_waitrequest     : std_logic;
 
 -- Drive ROM server: hands boot1.rom to iec_drive byte by byte (QNICE clock domain)
 signal qnice_drvrom_b_addr   : std_logic_vector(17 downto 0) := (others => '0');
@@ -733,6 +777,15 @@ begin
          reu_avm_readdatavalid_i => main_reu_readdatavalid,
          reu_avm_waitrequest_i   => main_reu_waitrequest,
 
+         modem_en_o           => main_modem_en,
+         modem_rst_o          => main_modem_rst,
+         modem_cs_o           => main_modem_cs,
+         modem_we_o           => main_modem_we,
+         modem_addr_o         => main_modem_addr,
+         modem_data_o         => main_modem_wdata,
+         modem_data_i         => main_modem_rdata,
+         modem_irq_i          => main_modem_irq,
+
          crt_loaded_i         => main_crt_loaded,
          crt_loading_i        => main_crt_loading,
          crt_id_i             => main_crt_id,
@@ -1055,6 +1108,46 @@ begin
          s1_avm_readdata_o      => crt_hr_readdata,
          s1_avm_readdatavalid_o => crt_hr_readdatavalid,
          s1_avm_waitrequest_o   => crt_hr_waitrequest,
+         m_avm_write_o          => exp_hr_write,
+         m_avm_read_o           => exp_hr_read,
+         m_avm_address_o        => exp_hr_address,
+         m_avm_writedata_o      => exp_hr_writedata,
+         m_avm_byteenable_o     => exp_hr_byteenable,
+         m_avm_burstcount_o     => exp_hr_burstcount,
+         m_avm_readdata_i       => exp_hr_readdata,
+         m_avm_readdatavalid_i  => exp_hr_readdatavalid,
+         m_avm_waitrequest_i    => exp_hr_waitrequest
+      ); -- i_core_hr_arbit
+
+   -- s0 = REU and cartridge, s1 = the modem's firmware reads (a cache line at a time)
+   i_modem_hr_arbit : entity work.avm_arbit
+      generic map (
+         G_PREFER_SWAP  => true,
+         G_FREQ_HZ      => 100_000_000,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                  => hr_clk_i,
+         rst_i                  => hr_rst_i,
+         s0_avm_write_i         => exp_hr_write,
+         s0_avm_read_i          => exp_hr_read,
+         s0_avm_address_i       => exp_hr_address,
+         s0_avm_writedata_i     => exp_hr_writedata,
+         s0_avm_byteenable_i    => exp_hr_byteenable,
+         s0_avm_burstcount_i    => exp_hr_burstcount,
+         s0_avm_readdata_o      => exp_hr_readdata,
+         s0_avm_readdatavalid_o => exp_hr_readdatavalid,
+         s0_avm_waitrequest_o   => exp_hr_waitrequest,
+         s1_avm_write_i         => modem_hr_write,
+         s1_avm_read_i          => modem_hr_read,
+         s1_avm_address_i       => modem_hr_address,
+         s1_avm_writedata_i     => modem_hr_writedata,
+         s1_avm_byteenable_i    => modem_hr_byteenable,
+         s1_avm_burstcount_i    => modem_hr_burstcount,
+         s1_avm_readdata_o      => modem_hr_readdata,
+         s1_avm_readdatavalid_o => modem_hr_readdatavalid,
+         s1_avm_waitrequest_o   => modem_hr_waitrequest,
          m_avm_write_o          => hr_core_write_o,
          m_avm_read_o           => hr_core_read_o,
          m_avm_address_o        => hr_core_address_o,
@@ -1064,7 +1157,50 @@ begin
          m_avm_readdata_i       => hr_core_readdata_i,
          m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
          m_avm_waitrequest_i    => hr_core_waitrequest_i
-      ); -- i_core_hr_arbit
+      ); -- i_modem_hr_arbit
+
+   ---------------------------------------------------------------------------------------------
+   -- SwiftLink modem: a 6551 on the C128's bus, a NEORV32 with lwIP on the Ethernet port
+   ---------------------------------------------------------------------------------------------
+
+   i_modem : entity work.modem
+      generic map (
+         G_MAIN_CLK_HZ => CORE_CLK_SPEED,
+         G_HR_BASE     => to_integer(unsigned(C_HMAP_MODEM)) * 4096   -- 4 KW windows
+      )
+      port map (
+         clk_i              => modem_clk_i,
+         rst_i              => modem_rst_i,
+         main_clk_i         => main_clk_o,
+         main_rst_i         => main_modem_rst,
+         enable_i           => main_modem_en,
+         cs_i               => main_modem_cs,
+         we_i               => main_modem_we,
+         addr_i             => main_modem_addr,
+         data_i             => main_modem_wdata,
+         data_o             => main_modem_rdata,
+         irq_o              => main_modem_irq,
+         hr_clk_i           => hr_clk_i,
+         hr_rst_i           => hr_rst_i,
+         hr_write_o         => modem_hr_write,
+         hr_read_o          => modem_hr_read,
+         hr_address_o       => modem_hr_address,
+         hr_writedata_o     => modem_hr_writedata,
+         hr_byteenable_o    => modem_hr_byteenable,
+         hr_burstcount_o    => modem_hr_burstcount,
+         hr_readdata_i      => modem_hr_readdata,
+         hr_readdatavalid_i => modem_hr_readdatavalid,
+         hr_waitrequest_i   => modem_hr_waitrequest,
+         eth_clock_o        => eth_clock_o,
+         eth_reset_o        => eth_reset_o,
+         eth_mdc_o          => eth_mdc_o,
+         eth_mdio_io        => eth_mdio_io,
+         eth_rxd_i          => eth_rxd_i,
+         eth_rxdv_i         => eth_rxdv_i,
+         eth_rxer_i         => eth_rxer_i,
+         eth_txd_o          => eth_txd_o,
+         eth_txen_o         => eth_txen_o
+      ); -- i_modem
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)

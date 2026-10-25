@@ -324,6 +324,8 @@ architecture synthesis of mega65_r3 is
    signal reset_n                : std_logic;
    signal audio_clk              : std_logic;
    signal audio_reset            : std_logic;
+   signal modem_clk              : std_logic;
+   signal modem_rst              : std_logic;
    signal audio_left             : signed(15 downto 0);
    signal audio_right            : signed(15 downto 0);
 
@@ -515,13 +517,9 @@ begin
    audio_sdti_o  <= '0';
    audio_lrclk_o <= '0';
    audio_pdn_n_o <= '0';
-   eth_clock_o   <= '0';
    eth_led2_o    <= '0';
-   eth_mdc_o     <= '0';
-   eth_mdio_io   <= 'Z';
-   eth_reset_o   <= '1';
-   eth_txd_o     <= (others => '0');
-   eth_txen_o    <= '0';
+   -- The other Ethernet pins belong to the C128 core's modem
+
    -- Drive A of the internal floppy connector goes to the core (the
    -- internal drive as a 1581); drive B stays inactive.
    f_motorb_o    <= '1';
@@ -714,6 +712,8 @@ begin
       -- Audio
       audio_clk_o             => audio_clk,
       audio_reset_o           => audio_reset,
+      modem_clk_o             => modem_clk,
+      modem_rst_o             => modem_rst,
       audio_left_o            => audio_left,
       audio_right_o           => audio_right,
 
@@ -1011,7 +1011,19 @@ begin
          --
          cart_addr_oe_o    => cart_addr_oe, -- 0 : tristate (i.e. input), 1 : output
          cart_a_i          => cart_a_in,
-         cart_a_o          => cart_a_out
+         cart_a_o          => cart_a_out,
+         --
+         modem_clk_i       => modem_clk,
+         modem_rst_i       => modem_rst,
+         eth_clock_o       => eth_clock_o,
+         eth_reset_o       => eth_reset_o,
+         eth_mdc_o         => eth_mdc_o,
+         eth_mdio_io       => eth_mdio_io,
+         eth_rxd_i         => eth_rxd_i,
+         eth_rxdv_i        => eth_rxdv_i,
+         eth_rxer_i        => eth_rxer_i,
+         eth_txd_o         => eth_txd_o,
+         eth_txen_o        => eth_txen_o
       ); -- CORE
 
 end architecture synthesis;

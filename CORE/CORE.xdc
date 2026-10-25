@@ -153,3 +153,20 @@ set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
 ## the C128 latches it in FAST mode, and it holds until the next request.
 set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.main_*_r_reg*"}] -to [get_clocks hr_clk]
 set_max_delay -datapath_only 30 -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.i_crt_reader/*_data_o_reg*"}] -to [get_clocks main_clk]
+
+## ---------------------------------------------------------------------------
+## SwiftLink modem (CORE/vhdl/modem): its own 50 MHz clock for the NEORV32 and Ethernet
+## ---------------------------------------------------------------------------
+## It meets the C128 (main_clk) and HyperRAM (hr_clk) only through axis_fifo_async FIFOs
+## (Gray pointers, LUTRAM read data) and two-flip-flop synchronizers. A datapath-only limit
+## of one destination period keeps the Gray bits within a clock of each other.
+create_generated_clock -name modem_clk [get_pins i_framework/i_clk_m2m/i_clk_qnice/CLKOUT4]
+set_max_delay -datapath_only 15 -from [get_clocks main_clk]  -to [get_clocks modem_clk]
+set_max_delay -datapath_only 15 -from [get_clocks modem_clk] -to [get_clocks main_clk]
+set_max_delay -datapath_only 10 -from [get_clocks hr_clk]    -to [get_clocks modem_clk]
+set_max_delay -datapath_only 10 -from [get_clocks modem_clk] -to [get_clocks hr_clk]
+
+## RMII receive inputs in the IOBs, as in C64MEGA65
+set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxd_reg[*]]
+set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxdv_reg]
+set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxer_reg]

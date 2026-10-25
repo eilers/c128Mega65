@@ -183,12 +183,13 @@ _CRTRI_A_LOOP   MOVE    LOG_STR_ARLINE1, R8
                 MOVE    0, @R3                  ; ..and set 4k window to zero
                 RBRA    _CRTRI_A5, 1
 
-_CRTRI_A2       CMP    CRTROM_TYPE_HYPRAM, R2   ; HyperRAM device?
+_CRTRI_A2       CMP     CRTROM_TYPE_HYPRAM, R8  ; HyperRAM device?
                 RBRA    _CRTRI_A3, !Z           ; no
-                MOVE   M2M$HYPERRAM, @R2        ; yes: use HyperRAM dev. id..
-                MOVE   @R1++, @R3               ; ..and store the 4k window
+                MOVE    M2M$HYPERRAM, @R2       ; yes: use HyperRAM dev. id..
+                MOVE    @R1++, @R3              ; ..and store the 4k window
+                RBRA    _CRTRI_A5, 1
 
-_CRTRI_A3       CMP     CRTROM_TYPE_SDRAM, R2   ; SRAM device?
+_CRTRI_A3       CMP     CRTROM_TYPE_SDRAM, R8   ; SRAM device?
                 RBRA   _CRTRI_A4, !Z            ; no
                                                 ; @TODO: future R4 boards
                                                 ; for now: fatal

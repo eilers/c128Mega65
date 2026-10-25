@@ -1,6 +1,6 @@
 # HyperRAM Memory Map
 
-The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the REU and virtual cartridges. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding.
+The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the REU, virtual cartridges and the modem's firmware. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding.
 
 Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd`: windows of 4 kW (8 KiB). `0x000`–`0x3FF` covers all 8 MiB.
 
@@ -11,11 +11,16 @@ Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd
 | `0x000–0x0FF` | 2 MiB       | 0–2 MiB     | ascal framebuffer (M2M)          | `C_HMAP_M2M`                     |
 | `0x100–0x1FF` | up to 2 MiB | 2–4 MiB     | REU                              | `C_HMAP_REU`                     |
 | `0x200–0x2FF` | 2 MiB       | 4–6 MiB     | Virtual cartridge                | `C_HMAP_CRT`                     |
-| `0x300–0x3FF` | 2 MiB       | 6–8 MiB     | Unassigned                       |                                  |
+| `0x300–0x3FE` | up to 2 MiB | 6–8 MiB     | Modem firmware                   | `C_HMAP_MODEM`                   |
+| `0x3FF`       | 8 KiB       | at 8 MiB    | Unassigned (keep free, below)    |                                  |
 
 Disk images take no HyperRAM. The virtual drives read and write them in place on the SD card (`CORE/vhdl/vd_sd.vhd`), which freed the two D81 buffers that used to sit at `0x300–0x3C9`.
 
 A 512 KiB REU uses `0x100–0x13F`, a 2 MiB REU `0x100–0x1FF`. `main.vhd` masks the REU's address to its size before `reu_mapper`, so every access stays inside that range. The one exception is the read cache's look-ahead, which can read up to 8 words past the end of a 2 MiB REU, into the cartridge's region.
+
+### Modem firmware: `0x300–0x3FE`
+
+The Shell loads the optional `/c128/modem.bin` here at startup, before the core runs, as it loads `boot0.rom` and `boot1.rom` into their devices. It writes one byte into the low half of each 16-bit word, so the window holds up to 1,044,480 bytes of firmware; today's is about 52 KB. The modem's NEORV32 reads it through its caches (`CORE/vhdl/modem/modem_hr_bridge.vhd`), a 64-word burst per cache line, on its own port of the core's HyperRAM arbiter. It never writes here. The CPU stays in reset while the modem is switched off, so with the modem off nothing reads this window.
 
 Keep the top window (`0x3FF`) unassigned. The REU's read cache fetches up to 8 words past the address it was asked for, and on the HyperRAM chips that need the write workaround a single-word write becomes a 2-word burst. At the top of HyperRAM those extra words run past the end of the chip. C64MEGA65 hit this with its REU in the last 512 KiB (its issue #214). Elsewhere the extra read words and the masked second write word are harmless.
 
@@ -69,8 +74,8 @@ ascal reserves 2 MiB at address 0: `RAMSIZE = 2^ceil(log2(720 × 540 × 3))` (`M
 
 These are the places where the REU and cartridge work meet. They are already set up for both, so each feature only edits its own blocks.
 
-- **Core HyperRAM port.** In `CORE/vhdl/mega65.vhd`, `i_core_hr_arbit` (`avm_arbit`, 2 ports) shares the core's HyperRAM master between the REU (`reu_hr_*`) and the virtual cartridge (`crt_hr_*`).
-- **Expansion port.** In `CORE/vhdl/main.vhd`, `cart_source` decodes the Cartridge submenu and `reu_cfg` the REU submenu. `handle_cores_expansion_port_signals_proc` has one `case` arm per cartridge source; the virtual cartridge fills its arm, including its DMA request in `v_dma`. The REU is laid over whichever source is active: it drives `reu_dma_req`, `reu_irq` and `reu_dout`, and `reu_io` selects its registers.
+- **Core HyperRAM port.** In `CORE/vhdl/mega65.vhd`, `i_core_hr_arbit` (`avm_arbit`, 2 ports) shares the core's HyperRAM master between the REU (`reu_hr_*`) and the virtual cartridge (`crt_hr_*`). A second `avm_arbit`, `i_modem_hr_arbit`, puts the modem's firmware reads (`modem_hr_*`) beside the two.
+- **Expansion port.** In `CORE/vhdl/main.vhd`, `cart_source` decodes the Cartridge submenu and `reu_cfg` the REU submenu. `handle_cores_expansion_port_signals_proc` has one `case` arm per cartridge source; the virtual cartridge fills its arm, including its DMA request in `v_dma`. The REU is laid over whichever source is active: it drives `reu_dma_req`, `reu_irq` and `reu_dout`, and `reu_io` selects its registers. The SwiftLink modem goes over both: at its base (`$DE00`, `$DF00` or `$D700`) its 8 registers answer, and its 6551 pulls NMI. At `$DF00` it would share the REU's registers, so `reu_cfg` turns the REU off then.
 - **Menu.** New items go below `CRT file`, the last item with a `C_MENU_*` index, so they shift no index. The cartridge's `CRT:%s` load line is there.
 - **QNICE device IDs.** The virtual cartridge is `0x0106`; the next free ID is `0x0107` (`globals.vhd`).
 - **The CPU's write signal.** The core's `ram_we` only fires for writes to RAM (`ramWE <= systemWe and cs_ram` in `fpga64_sid_iec.vhd`, since 657f411). Writes to `$DFxx` are I/O, and in C128 mode `$FF00` is the MMU, so neither shows on `ram_we`. `fpga64_sid_iec` therefore also brings out the unfiltered `systemWe`, which is `system_we` in `main.vhd`. The REU takes it for its registers at `$DF00` and for the `$FF00` writes that BASIC 7's `STASH`, `FETCH` and `SWAP` use to start a transfer. The hardware slot takes it too, for R/W, the data bus direction and the EasyFlash 3 checks. A virtual cartridge's bank switching needs it as well.

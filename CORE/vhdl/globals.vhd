@@ -95,6 +95,9 @@ constant C_MENU_REU_512K         : natural := 93;  -- REU: 512 KB
 constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB
 constant C_MENU_CART_HW          : natural := 100; -- Cartridge: hardware slot (default)
 constant C_MENU_CART_CRT         : natural := 101; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 109; -- Modem: SwiftLink at $DE00 (Off at 108 is the default)
+constant C_MENU_MODEM_DF00       : natural := 110; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 111; -- Modem: SwiftLink at $D700
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -172,6 +175,7 @@ constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- int
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 2 MiB
 constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB or 2 MiB
 constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB
+constant C_HMAP_MODEM         : std_logic_vector(15 downto 0) := x"0300";     -- Modem firmware: up to 1 MB, one byte per word
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 
 ----------------------------------------------------------------------------------------------------------
@@ -245,14 +249,17 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_
 -- C128 core specific ROMs
 constant BOOT_0 : string := "/c128/boot0.rom" & ENDSTR;
 constant BOOT_1 : string := "/c128/boot1.rom" & ENDSTR;
+constant MODEM_FW : string := "/c128/modem.bin" & ENDSTR;      -- optional: without it the modem stays silent
 constant BOOT_0_START : std_logic_vector(15 downto 0) := x"0000";
 constant BOOT_1_START : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(BOOT_0'length, 16));
+constant MODEM_FW_START : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(BOOT_0'length + BOOT_1'length, 16));
 
 -- M2M framework constants
-constant C_CRTROMS_AUTO_NUM      : natural := 2;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
-constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1;
+constant C_CRTROMS_AUTO_NUM      : natural := 3;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
+constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1 & MODEM_FW;
 constant C_CRTROMS_AUTO          : crtrom_buf_array := (C_CRTROMTYPE_DEVICE, C_DEV_SYSTEM_ROM, C_CRTROMTYPE_MANDATORY, BOOT_0_START, 
                                                         C_CRTROMTYPE_DEVICE, C_DEV_DRIVE_ROM, C_CRTROMTYPE_MANDATORY, BOOT_1_START, 
+                                                        C_CRTROMTYPE_HYPERRAM, C_HMAP_MODEM, C_CRTROMTYPE_OPTIONAL, MODEM_FW_START,
                                                         x"EEEE");                     -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------

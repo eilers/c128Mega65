@@ -280,7 +280,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 108; -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 117; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -289,13 +289,13 @@ constant OPTM_SIZE         : natural := 108; -- amount of items including empty 
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 27 rows. The Video submenu is
+-- tallest page. The main menu is the tallest at 28 rows. The Video submenu is
 -- 20 rows and the HDMI submenu 14 (headline through Back to main menu; the "%s"
 -- opener is hidden inside the submenu); both leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 27;
+constant OPTM_DY           : natural := 28;
 
 constant OPTM_ITEMS        : string :=
 
@@ -413,6 +413,15 @@ constant OPTM_ITEMS        : string :=
    " CRT:%s\n"              &    -- the .crt file; loading one selects CRT file
    "\n"                     &
    " Back to main menu\n"   &
+   " Modem: %s\n"           &    -- Modem submenu; %s is the SwiftLink's address or Off
+   " SwiftLink Modem\n"     &
+   "\n"                     &
+   " Off\n"                 &    -- default
+   " $DE00\n"               &    -- SwiftLink's usual address
+   " $DF00\n"               &    -- switches the REU off
+   " $D700\n"               &    -- the C128's internal I/O slot
+   "\n"                     &
+   " Back to main menu\n"   &
    "\n"                     &
 
    " Credits\n"             &
@@ -441,6 +450,7 @@ constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/V
 constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB
 constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartridge's .crt file
 constant OPTM_G_INT1581    : integer := 18;   -- Internal 1581: Off, Drive 8, Drive 9
+constant OPTM_G_MODEM      : integer := 19;   -- Modem: Off, $DE00, $DF00, $D700
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -562,6 +572,15 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_CART + OPTM_G_STDSEL,                         -- Hardware
                                              OPTM_G_CART,                                         -- CRT file
                                              OPTM_G_MOUNT_CRT + OPTM_G_LOAD_ROM,                  -- CRT:%s
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_SUBMENU,                                      -- Modem submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- SwiftLink Modem
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_MODEM + OPTM_G_STDSEL,                        -- Off
+                                             OPTM_G_MODEM,                                        -- $DE00
+                                             OPTM_G_MODEM,                                        -- $DF00
+                                             OPTM_G_MODEM,                                        -- $D700
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_LINE,                                         -- Line
