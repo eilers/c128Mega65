@@ -16,7 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CODE_MAX = 0x400    # the program stays below this offset of its chip
-READ, WRITE = 1, 2
+READ, WRITE, POLL, STATUS, TOGGLE, POLLQ = 1, 2, 3, 4, 5, 6    # see crttest.s
 
 LD_CFG = """
 MEMORY {{
@@ -72,8 +72,8 @@ def crt(path: Path, c128: bool, hw_type: int, exrom: int, game: int,
 
 def save(name: str, probes: list[tuple[int, int, int]], *args, **kwargs) -> None:
     crt(HERE / f"{name}.crt", *args, **kwargs)
-    (HERE / f"{name}.exp").write_text("".join(f"{v:02X}\n" for op, _, v in probes if op == READ))
-    print(f"{name}.crt: {sum(op == READ for op, _, _ in probes)} reads")
+    (HERE / f"{name}.exp").write_text("".join(f"{v:02X}\n" for op, _, v in probes if op != WRITE))
+    print(f"{name}.crt: {sum(op != WRITE for op, _, _ in probes)} reads")
 
 
 def c128_generic(name: str = "crttest-c128", mode: int = 1) -> None:
@@ -144,6 +144,74 @@ def easyflash() -> None:
     save("crttest-ef", probes, False, 32, 1, 0, chips, title="EasyFlash")
 
 
+def easyflash_flash() -> None:
+    """EasyFlash's flash chips, driven as EAPI does: commands in Ultimax mode, reads in 16 kB mode,
+    a programmed byte back within EAPI's 20 reads. ROML has banks 0, 1, 8 and 56, ROMH 0 and 1;
+    the others are missing from the file."""
+    U, K16 = 0x05, 0x07                                        # $DE02: Ultimax, 16 kB
+    lo = {b: pattern(2 * b, 0x2000) for b in (0, 1, 8, 56)}
+    hi = {b: pattern(2 * b + 1, 0x2000) for b in (0, 1)}
+    hi[0][-6:] = struct.pack("<HHH", 0xE000, 0xE000, 0xE000)
+
+    def cmd(chip: int, *data: int) -> list[tuple[int, int, int]]:
+        """Unlock and command bytes for ROML's chip ($8xxx) or ROMH's ($Exxx)"""
+        out = []
+        for d in data:
+            out += [(WRITE, chip + 0x555, 0xAA), (WRITE, chip + 0x2AA, 0x55), (WRITE, chip + 0x555, d)]
+        return out
+
+    v = lo[1][0x123] & 0x5A                                    # clears bits, bit 7 among them
+    w = 0x8F                                                   # would set bit 7 again
+    vh = hi[1][0x456] & 0xA5
+    assert v != lo[1][0x123] and vh != hi[1][0x456] and not v & 0x80
+
+    probes = [(WRITE, 0xDE02, U)] + cmd(0xE000, 0x90) + cmd(0x8000, 0x90)       # autoselect
+    probes += [(WRITE, 0xDE02, K16),
+               (READ, 0xA000, 0x01), (READ, 0xA001, 0xA4),                     # AMD, AM29F040
+               (READ, 0x8000, 0x01), (READ, 0x8001, 0xA4),
+               (WRITE, 0xDE00, 9), (READ, 0x8002, 0x00), (READ, 0xA002, 0x00),  # not protected
+               (WRITE, 0xDE02, U), (WRITE, 0xE000, 0x00),                      # not a reset
+               (WRITE, 0xDE02, K16), (READ, 0xA000, 0x01),
+               (WRITE, 0xDE02, U), (WRITE, 0xE000, 0xF0), (WRITE, 0x8000, 0xF0),  # reset
+               (WRITE, 0xDE00, 0), (WRITE, 0xDE02, K16),
+               (READ, 0xA800, hi[0][0x800]), (READ, 0x8800, lo[0][0x800])]
+    # Program: unlock in bank 0, the byte in its own bank, as EAPI does
+    probes += [(WRITE, 0xDE02, U)] + cmd(0x8000, 0xA0)
+    probes += [(WRITE, 0xDE00, 1), (WRITE, 0x8123, v), (WRITE, 0xDE02, K16),
+               (POLLQ, 0x8123, v), (READ, 0x8122, lo[1][0x122])]
+    probes += [(WRITE, 0xDE02, U)] + cmd(0xE000, 0xA0)
+    probes += [(WRITE, 0xE456, vh), (WRITE, 0xDE02, K16), (POLLQ, 0xA456, vh), (READ, 0xA457, hi[1][0x457])]
+    # A 0 can't become 1 again: DQ5 status from any address of that chip, until a reset command
+    probes += [(WRITE, 0xDE02, U)] + cmd(0x8000, 0xA0)
+    probes += [(WRITE, 0x8123, w), (WRITE, 0xDE02, K16),
+               (STATUS, 0x8123, 0x20), (STATUS, 0x8000, 0x20), (READ, 0xA456, vh),
+               (WRITE, 0xDE02, U), (WRITE, 0x8000, 0xF0), (WRITE, 0xDE02, K16),
+               (READ, 0x8123, v & w)]
+    # Banks the file lacks read $FF and still take bytes
+    probes += [(WRITE, 0xDE00, 9), (READ, 0x8456, 0xFF), (WRITE, 0xDE02, U)] + cmd(0x8000, 0xA0)
+    probes += [(WRITE, 0x8456, 0x5A), (WRITE, 0xDE02, K16), (POLLQ, 0x8456, 0x5A),
+               (READ, 0x8457, 0xFF), (READ, 0x9FFF, 0xFF)]
+    probes += [(WRITE, 0xDE00, 8), (READ, 0xA777, 0xFF), (WRITE, 0xDE02, U)] + cmd(0xE000, 0xA0)
+    probes += [(WRITE, 0xE777, 0x33), (WRITE, 0xDE02, K16), (POLLQ, 0xA777, 0x33)]
+    # Erase ROML's sector of banks 8-15: status from any bank of that chip while it runs
+    probes += [(WRITE, 0xDE02, U)] + cmd(0x8000, 0x80) + [(WRITE, 0x8555, 0xAA)]
+    probes += [(WRITE, 0x82AA, 0x55), (WRITE, 0xDE00, 12), (WRITE, 0x8000, 0x30), (WRITE, 0xDE02, K16),
+               (TOGGLE, 0x8000, 0x40), (STATUS, 0x8000, 0x08),
+               (WRITE, 0xDE00, 1), (STATUS, 0x8123, 0x08), (READ, 0xA456, vh),
+               (WRITE, 0xDE00, 8), (POLL, 0x8000, 0xFF), (READ, 0x9FFF, 0xFF),
+               (WRITE, 0xDE00, 9), (READ, 0x8456, 0xFF),
+               (WRITE, 0xDE00, 1), (READ, 0x8123, v & w),                      # other sector
+               (WRITE, 0xDE00, 8), (READ, 0xA777, 0x33)]                       # other chip
+    # Outside Ultimax mode the chips see no writes: this sequence programs nothing
+    probes += [(WRITE, 0xDE00, 1)] + cmd(0x8000, 0xA0)
+    probes += [(WRITE, 0x8800, 0x00), (READ, 0x8800, lo[1][0x800]),
+               (WRITE, 0xDE02, U), (WRITE, 0x8800, 0x00), (WRITE, 0xDE02, K16),
+               (READ, 0x8800, lo[1][0x800])]
+    hi[0] = bytearray(with_program(hi[0], program(2, 0xE000, probes)))
+    chips = [(2, b, 0x8000, bytes(d)) for b, d in lo.items()] + [(2, b, 0xA000, bytes(d)) for b, d in hi.items()]
+    save("crttest-efflash", probes, False, 32, 1, 0, sorted(chips, key=lambda c: (c[1], c[2])))
+
+
 def magic_desk_16k() -> None:
     """Magic Desk 16K at full size: 128 banks of 16 kB, a file just over 2 MiB (SDRAM only)."""
     banks = 128
@@ -171,5 +239,6 @@ if __name__ == "__main__":
     c64_16k()
     ultimax_4k()
     easyflash()
+    easyflash_flash()
     magic_desk_16k()
     unsupported()

@@ -28,7 +28,8 @@ use ieee.numeric_std_unsigned.all;
 
 entity crt_loader is
    generic (
-      G_CACHE_SIZE : natural
+      G_CACHE_SIZE    : natural;
+      G_SPARE_ADDRESS : std_logic_vector(21 downto 0) := (others => '0')   -- see crt_cacher
    );
    port (
       clk_i               : in  std_logic;
@@ -50,6 +51,14 @@ entity crt_loader is
       ready_o             : out std_logic;
       cache_addr_lo_o     : out std_logic_vector(G_CACHE_SIZE-1 downto 0);
       cache_addr_hi_o     : out std_logic_vector(G_CACHE_SIZE-1 downto 0);
+
+      -- EasyFlash flash jobs, see crt_cacher
+      fl_req_i            : in  std_logic_vector( 1 downto 0) := "00";
+      fl_lo_job_i         : in  std_logic_vector(28 downto 0) := (others => '0');
+      fl_hi_job_i         : in  std_logic_vector(28 downto 0) := (others => '0');
+      fl_done_o           : out std_logic_vector( 1 downto 0);
+      fl_fail_o           : out std_logic_vector( 1 downto 0);
+      prefill_o           : out std_logic;
 
       -- Connect to HyperRAM
       avm_write_o         : out std_logic;
@@ -89,6 +98,9 @@ architecture synthesis of crt_loader is
    constant C_STAT_READY           : std_logic_vector(3 downto 0) := "0010"; -- Successfully parsed CRT file
    signal cart_valid               : std_logic;
    signal cart_c128                : std_logic;
+   signal cart_size                : std_logic_vector(22 downto 0);
+   signal cart_id                  : std_logic_vector(15 downto 0);
+   signal cart_ef                  : std_logic;
 
    signal avm_parser_write         : std_logic;
    signal avm_parser_read          : std_logic;
@@ -137,26 +149,32 @@ begin
          cart_bank_raddr_o   => cart_bank_raddr_o,
          cart_bank_wr_o      => cart_bank_wr_o,
          cart_loading_o      => cart_loading_o,
-         cart_id_o           => cart_id_o,
+         cart_id_o           => cart_id,
          cart_exrom_o        => cart_exrom_o,
          cart_game_o         => cart_game_o,
-         cart_size_o         => cart_size_o,
+         cart_size_o         => cart_size,
          cart_c128_o         => cart_c128,
          cart_subtype_o      => cart_subtype_o
       ); -- i_crt_parser
 
    cart_c128_o <= cart_c128;
+   cart_size_o <= cart_size;
+   cart_id_o   <= cart_id;
+   cart_ef     <= '1' when cart_id = x"0020" and cart_c128 = '0' else '0';
    cart_valid  <= '1' when resp_status_o = C_STAT_READY else '0';
 
    i_crt_cacher : entity work.crt_cacher
       generic map (
-         G_CACHE_SIZE => G_CACHE_SIZE
+         G_CACHE_SIZE    => G_CACHE_SIZE,
+         G_SPARE_ADDRESS => G_SPARE_ADDRESS
       )
       port map (
          clk_i               => clk_i,
          rst_i               => rst_i,
          cart_valid_i        => cart_valid,
+         cart_size_i         => cart_size,
          cart_c128_i         => cart_c128,
+         cart_ef_i           => cart_ef,
          cart_loading_i      => cart_loading_o,
          cart_bank_laddr_i   => cart_bank_laddr_o,
          cart_bank_size_i    => cart_bank_size_o,
@@ -170,6 +188,12 @@ begin
          ready_o             => ready_o,
          cache_addr_lo_o     => cache_addr_lo_o,
          cache_addr_hi_o     => cache_addr_hi_o,
+         fl_req_i            => fl_req_i,
+         fl_lo_job_i         => fl_lo_job_i,
+         fl_hi_job_i         => fl_hi_job_i,
+         fl_done_o           => fl_done_o,
+         fl_fail_o           => fl_fail_o,
+         prefill_o           => prefill_o,
          avm_write_o         => avm_cacher_write,
          avm_read_o          => avm_cacher_read,
          avm_address_o       => avm_cacher_address,

@@ -8,7 +8,10 @@
 ; The engine runs from RAM at $0C00, so it can switch banks under itself. Each probe is four
 ; bytes: op, address, value. A read stores the byte at RESULTS and counts it as an error if it
 ; is not the value; a write stores the value. At the end the border turns green or red, and
-; STATUS holds 'P' or 'F' and then the error count.
+; STATUS holds 'P' or 'F' and then the error count. For flash chips there are four more reads:
+; poll (read until the value, for up to about 3 s), quick poll (at most 20 reads, as EAPI waits
+; for a programmed byte), status (only DQ7, DQ5 and DQ3) and toggle (two reads XORed, $40 while
+; DQ6 toggles).
 
 RESULTS     = $0500
 STATUS      = $0400
@@ -16,6 +19,10 @@ BORDER      = $D020
 TP          = $FB               ; zero page, free for user programs on the C64 and C128
 
 OP_WRITE    = 2
+OP_POLL     = 3
+OP_STATUS   = 4
+OP_TOGGLE   = 5
+OP_POLLQ    = 6
 
 .import __ENGINE_LOAD__, __ENGINE_RUN__
 
@@ -63,24 +70,59 @@ engine: lda #<table
         sta TP+1
 @loop:  ldy #0
         lda (TP),y              ; op, 0 ends the table
-        beq @done
-        tax
+        bne @op
+        jmp @done
+@op:    tax
         iny
         lda (TP),y
         sta @rd+1
+        sta @rd2+1
         sta @wr+1
         iny
         lda (TP),y
         sta @rd+2
+        sta @rd2+2
         sta @wr+2
         iny
         lda (TP),y              ; value
         cpx #OP_WRITE
-        bne @rd
+        bne @read
 @wr:    sta $FFFF
         jmp @next
+@read:  lda #0                  ; a poll gives up after 2 * 65536 reads
+        sta tries
+        sta tries+1
+        lda #2
+        sta tries+2
+        cpx #OP_POLLQ
+        bne @rd
+        lda #20                 ; a quick one after 20
+        sta tries
+        lda #1
+        sta tries+1
+        sta tries+2
+        ldx #OP_POLL
 @rd:    lda $FFFF
-        ldx count
+        cpx #OP_POLL
+        bne @stat
+        cmp (TP),y
+        beq @store
+        dec tries
+        bne @rd
+        dec tries+1
+        bne @rd
+        dec tries+2
+        bne @rd
+        beq @store
+@stat:  cpx #OP_STATUS
+        bne @tog
+        and #$A8                ; DQ7, DQ5, DQ3
+@tog:   cpx #OP_TOGGLE
+        bne @store
+        sta tmp
+@rd2:   lda $FFFF
+        eor tmp
+@store: ldx count
         sta RESULTS,x
         inc count
         cmp (TP),y
@@ -90,9 +132,9 @@ engine: lda #<table
         lda TP
         adc #4
         sta TP
-        bcc @loop
+        bcc @again
         inc TP+1
-        bne @loop
+@again: jmp @loop
 
 @done:  ldx #5                  ; green, 'P'
         lda #$10
@@ -109,5 +151,7 @@ engine: lda #<table
 
 count:  .byte 0
 errors: .byte 0
+tries:  .byte 0, 0, 0
+tmp:    .byte 0
 table:
         .include "probes.inc"

@@ -135,3 +135,8 @@ set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
 ## the C128 latches it in FAST mode, and it holds until the next request.
 set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.main_*_r_reg*"}] -to [get_clocks hr_clk]
 set_max_delay -datapath_only 30 -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.i_crt_reader/*_data_o_reg*"}] -to [get_clocks main_clk]
+## EasyFlash flash jobs, on R3 too, cross the same way: a job held until done, a toggle through
+## two flip-flops each way. fail is read only once done has crossed.
+set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/i_crt_flash/*_r_reg*"}] -to [get_clocks hr_clk]
+set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/*fl_*_o_reg*"}] -to [get_clocks main_clk]
+set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/*fl_pre_reg*" || NAME =~ "*i_sw_cartridge_wrapper/*pre_req_reg*"}] -to [get_clocks main_clk]
