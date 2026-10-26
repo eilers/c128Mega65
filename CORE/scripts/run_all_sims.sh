@@ -58,6 +58,7 @@ run_tcl "157x DOS job queue (tb_c157x_job)" CORE/scripts/run_c157x_job_sim.tcl
 # Long-running bring-up gates last.
 run_step "C128 boot path (tb_c128_boot)" CORE/scripts/run_boot_sim.sh "$PROJECT"
 run_tcl "Cartridge DMA (tb_cart_dma)" CORE/scripts/run_cart_dma_sim.tcl
+run_tcl "REU and SwiftLink in FAST mode (tb_fast_io)" CORE/scripts/run_fast_io_sim.tcl
 run_tcl "Virtual cartridges (tb_crt)" CORE/scripts/run_crt_sim.tcl
 run_tcl "Virtual cartridges in SDRAM (tb_crt_sdram)" CORE/scripts/run_crt_sim.tcl tb_crt_sdram
 run_tcl "SwiftLink modem (tb_modem)" CORE/scripts/run_modem_sim.tcl

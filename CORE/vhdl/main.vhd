@@ -454,6 +454,8 @@ signal cart_source          : t_cart_source;
 signal reu_menu             : std_logic_vector(1 downto 0);   -- the menu's choice, as reu.sv's cfg
 signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
+signal reu_cs               : std_logic;                      -- reu_io's strobe, once per access
+signal io_phi2              : std_logic;                      -- PHI2 of an I/O access: CPU4-6
 signal modem_base           : std_logic_vector(1 downto 0);   -- "00" off, "01" $DE00, "10" $DF00, "11" $D700
 signal modem_sel            : std_logic;                      -- the 6551's 8 bytes at its base
 signal reu_dma_req          : std_logic;
@@ -854,6 +856,12 @@ reu_menu <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
 reu_cfg  <= "00" when crt_io2 = '1' or modem_base = "10" else reu_menu;
 reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0';
 
+-- In FAST mode the CPU has PHI1 too, and IOE/IOF/IO7 come up there as well as in CPU4-7. The REU
+-- and the 6551 act on their select's rising edge, so they take it in PHI2 alone, once per access.
+-- Read data still follows the select, to the end of CPU7.
+io_phi2 <= core_phi2 and phi2_d;
+reu_cs  <= reu_io and io_phi2;
+
 -- SwiftLink modem: the 6551 and the Turbo232 register take 8 bytes at the chosen base. At $DF00
 -- it shares IO2 with the REU's registers, so the REU is off then.
 modem_base <= "01" when osm_control_i(C_MENU_MODEM_DE00) = '1' else
@@ -867,7 +875,7 @@ modem_sel  <= '1' when core_ram_addr(7 downto 3) = "00000" and
 
 modem_en_o   <= '0' when modem_base = "00" else '1';
 modem_rst_o  <= not reset_core_n;
-modem_cs_o   <= modem_sel;
+modem_cs_o   <= modem_sel and io_phi2;
 modem_we_o   <= system_we;
 modem_addr_o <= std_logic_vector(core_ram_addr(2 downto 0));
 modem_data_o <= std_logic_vector(core_ram_data_out);
@@ -1175,7 +1183,7 @@ reu_inst : entity work.reu
       cpu_dout  => std_logic_vector(core_ram_data_out),
       cpu_din   => reu_dout,
       cpu_we    => system_we,
-      cpu_cs    => reu_io,
+      cpu_cs    => reu_cs,
       irq       => reu_irq
    ); -- reu_inst
 
