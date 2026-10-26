@@ -6,9 +6,10 @@
 -- byte address A is HyperRAM word G_BASE + A.
 --
 -- CPU side: NEORV32 XBUS (pipelined Wishbone) on the modem clock. A cache line
--- fill (cti "010" on its first request) becomes one HyperRAM burst; the cache's next
--- requests, each the following word, are answered from it in order. Single reads
--- fetch 4 words.
+-- fill (cti "010" on its first request) is read in 16-word HyperRAM bursts; the cache's
+-- next requests, each the following word, are answered in order. Single reads fetch
+-- 4 words. HDMI's scaler takes turns with us on HyperRAM, and a 64-word burst made it
+-- miss its deadline on the 80-column screen: pixels from further along the line.
 -- Writes are bus errors: the firmware never writes here.
 -- The CPU gives up on an access when its bus times out, without telling us. Any
 -- request that isn't the next word of the line being filled therefore starts
@@ -58,6 +59,7 @@ architecture synthesis of modem_hr_bridge is
 
    constant C_LINE_WORDS : natural := G_LINE_BYTES / 4;
    constant C_HR_TIMEOUT : natural := 2 ** 18;   -- hr_clk cycles (2.6 ms, beyond the CPU's own timeout)
+   constant C_HR_BURST   : natural := 16;        -- HyperRAM words per burst of a line fill
 
    -- CPU side
    signal busy        : std_logic := '0';
@@ -81,6 +83,7 @@ architecture synthesis of modem_hr_bridge is
    signal hr_busy      : std_logic := '0';
    signal hr_gen       : std_logic_vector(1 downto 0) := "00";
    signal hr_left      : natural range 0 to G_LINE_BYTES := 0;  -- words still to come
+   signal hr_burst     : natural range 0 to C_HR_BURST := 0;    -- of those, in this burst
    signal hr_byte      : natural range 0 to 3 := 0;
    signal hr_word      : std_logic_vector(31 downto 0) := (others => '0');
    signal hr_rsp_valid : std_logic := '0';
@@ -229,6 +232,7 @@ begin
 
    hr_proc : process (hr_clk_i)
       variable v_count : natural range 0 to G_LINE_BYTES;
+      variable v_burst : natural range 0 to C_HR_BURST;
    begin
       if rising_edge(hr_clk_i) then
          hr_req_ready <= '0';
@@ -246,20 +250,23 @@ begin
          if hr_busy = '0' and hr_req_valid = '1' and hr_req_ready = '0' and hr_cpu_rst = '0' then
             if hr_req_data(20) = '1' then
                v_count := G_LINE_BYTES;
+               v_burst := C_HR_BURST;
             else
                v_count := 4;
+               v_burst := 4;
             end if;
             hr_busy         <= '1';
             hr_keep         <= '1';
             hr_gen          <= hr_req_data(22 downto 21);
             hr_req_ready    <= '1';   -- pop the request
             hr_left         <= v_count;
+            hr_burst        <= v_burst;
             hr_byte         <= 0;
             hr_wait         <= 0;
             hr_read_o       <= '1';
             hr_address_o    <= std_logic_vector(to_unsigned(G_BASE, 32) +
                                                 unsigned(hr_req_data(19 downto 2) & "00"));
-            hr_burstcount_o <= std_logic_vector(to_unsigned(v_count, 8));
+            hr_burstcount_o <= std_logic_vector(to_unsigned(v_burst, 8));
          end if;
 
          if hr_busy = '1' then
@@ -275,6 +282,15 @@ begin
                end if;
                if hr_left = 1 then
                   hr_busy <= '0';
+               elsif hr_burst = 1 then
+                  -- The line's next burst: the arbiter can give the scaler a turn first
+                  hr_read_o    <= '1';
+                  hr_address_o <= std_logic_vector(unsigned(hr_address_o) + C_HR_BURST);
+               end if;
+               if hr_burst = 1 then
+                  hr_burst <= C_HR_BURST;
+               else
+                  hr_burst <= hr_burst - 1;
                end if;
                hr_left <= hr_left - 1;
                hr_wait <= 0;
