@@ -1644,7 +1644,8 @@ BEGIN
       avl_readdataack<='0';
       avl_readack<='0';
       avl_read_i<='0';
-      --avl_write_i<='0';
+      -- A write left high through a reset starts a burst that never ends and locks up HyperRAM
+      avl_write_i<='0';
       avl_write_sync<='0';
       avl_write_sync2<='0';
       avl_write_pulse<='0';

@@ -280,6 +280,7 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 | Authentic drive LED      | `CORE/sim/tb_drive_led_policy.vhd` | green access/error pulses and delayed yellow dirty-cache indication                                        |
 | VGA scandoubler          | `CORE/sim/tb_vga_scandoubler.sv`   | M2M `video_mixer` at the VIC-II and VDC dot rates: every dot once per line, every line twice when scandoubled |
 | HDMI CRT emulation fit   | `CORE/sim/tb_scanline_fit.vhd`     | M2M `scanline_fit` in every HDMI mode: whole HDMI rows per line, lines and sides cropped, ascal's output rectangle |
+| HDMI after a reset       | `CORE/sim/tb_ascal_reset.vhd`      | ascal and `avm_decrease` against a HyperRAM controller model, reset while ascal writes: no burst left open, no read lost, reads resume |
 | 1541/1571 bring-up       | `CORE/sim/tb_c157x_boot.sv`        | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
 
 ### 1541/1571 bring-up simulation
