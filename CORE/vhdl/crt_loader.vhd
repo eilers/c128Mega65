@@ -51,6 +51,10 @@ entity crt_loader is
       ready_o             : out std_logic;
       cache_addr_lo_o     : out std_logic_vector(G_CACHE_SIZE-1 downto 0);
       cache_addr_hi_o     : out std_logic_vector(G_CACHE_SIZE-1 downto 0);
+      view_lo_o           : out std_logic_vector(63 downto 0);
+      view_hi_o           : out std_logic_vector(63 downto 0);
+      want_lo_i           : in  std_logic_vector(13 downto 0) := (others => '0');
+      want_hi_i           : in  std_logic_vector(13 downto 0) := (others => '0');
 
       -- EasyFlash flash jobs, see crt_cacher
       fl_req_i            : in  std_logic_vector( 1 downto 0) := "00";
@@ -188,6 +192,10 @@ begin
          ready_o             => ready_o,
          cache_addr_lo_o     => cache_addr_lo_o,
          cache_addr_hi_o     => cache_addr_hi_o,
+         view_lo_o           => view_lo_o,
+         view_hi_o           => view_hi_o,
+         want_lo_i           => want_lo_i,
+         want_hi_i           => want_hi_i,
          fl_req_i            => fl_req_i,
          fl_lo_job_i         => fl_lo_job_i,
          fl_hi_job_i         => fl_hi_job_i,

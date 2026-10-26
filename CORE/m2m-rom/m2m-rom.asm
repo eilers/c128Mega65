@@ -61,9 +61,110 @@ START_FIRMWARE  RBRA    START_SHELL, 1
 ;   R8: 0, if no custom SUBMENU_SUMMARY, else:
 ;       string pointer to completely new headline (do not modify/re-use R8)
 ;   R9, R10: unchanged
+;
+; In a build that asks for it (CSR $023, the 6r3 build), while a .crt file is the source, the
+; Cartridge line shows how often the C128 waited a C64 cycle or more for a bank of the cache
+; since the menu was last drawn, and the longest wait. Drawing the menu clears both
+; (CSR $021-$022 of the cartridge device).
 
-SUBMENU_SUMMARY XOR     R8, R8                  ; R8 = 0 = no custom string
+SUBMENU_SUMMARY INCRB
+                MOVE    R9, R6                  ; R6/R7: R9/R10, kept for the caller
+                MOVE    R10, R7
+
+                ; Is this the Cartridge submenu? Its first menu group is the cartridge source.
+                MOVE    R9, R0
+_SMS_GROUP      ADD     1, R0
+                MOVE    @R0, R1
+                AND     0x00FF, R1              ; R1: menu group, 0 for text and lines
+                RBRA    _SMS_GROUP, Z
+                XOR     R8, R8
+                CMP     OPTM_G_CART, R1
+                RBRA    _SMS_RET, !Z
+                MOVE    CART_CRT_MENU, R8       ; and is a .crt file the source?
+                RSUB    M2M$GET_SETTING, 1
+                XOR     R8, R8
+                CMP     1, R9
+                RBRA    _SMS_RET, !Z
+
+                ; The caller reads the menu through the RAM/ROM window, so put it back after
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    @R0, R4
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    @R0, R5
+
+                MOVE    CRT_DEVICE, R8
+                MOVE    CRT_CSR_STATS, R9
+                RSUB    CRTROM_CSR_R, 1         ; R10: 1 = show the waits
+                CMP     1, R10
+                RBRA    _SMS_NONE, !Z
+                MOVE    CRT_CSR_STALLS, R9
+                RSUB    CRTROM_CSR_R, 1
+                MOVE    R10, R2                 ; R2: waits
+                MOVE    CRT_CSR_STALL_MAX, R9
+                RSUB    CRTROM_CSR_R, 1
+                MOVE    R10, R3                 ; R3: longest wait in C64 cycles
+                MOVE    CRT_CSR_STALLS, R9
+                RSUB    CRTROM_CSR_W, 1         ; clear both
+
+                ; At most 4 digits each, so the line fits OPTM_DX. A PAL C64 cycle is
+                ; 1.015 us: us = cycles + cycles / 64.
+                CMP     9999, R2                ; unsigned: N <=> 9999 > R2
+                RBRA    _SMS_CNT_OK, N
+                MOVE    9999, R2
+_SMS_CNT_OK     CMP     9999, R3
+                RBRA    _SMS_LEN_OK, N
+                MOVE    9999, R3
+_SMS_LEN_OK     MOVE    R3, R0
+                AND     0xFFFB, SR              ; clear Carry, which SHR shifts in
+                SHR     6, R0
+                ADD     R0, R3
+                CMP     9999, R3
+                RBRA    _SMS_US_OK, N
+                MOVE    9999, R3
+
+                ; " Stalls <waits> max <longest>us"
+_SMS_US_OK      MOVE    STALL_LINE, R1
+                MOVE    STR_STALLS, R8
+                RSUB    _SMS_CAT, 1
+                MOVE    R2, R8
+                RSUB    _SMS_DEC, 1
+                MOVE    STR_STALL_MAX, R8
+                RSUB    _SMS_CAT, 1
+                MOVE    R3, R8
+                RSUB    _SMS_DEC, 1
+                MOVE    STR_STALL_US, R8
+                RSUB    _SMS_CAT, 1
+
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    R4, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    R5, @R0
+                MOVE    STALL_LINE, R8
+                RBRA    _SMS_RET, 1
+
+_SMS_NONE       MOVE    M2M$RAMROM_DEV, R0
+                MOVE    R4, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    R5, @R0
+                XOR     R8, R8
+
+_SMS_RET        MOVE    R6, R9
+                MOVE    R7, R10
+                DECRB
                 RET
+
+; Appends the string at R8 to the line that ends at R1, and moves R1 to its new end
+_SMS_CAT        MOVE    @R8++, @R1++
+                RBRA    _SMS_CAT, !Z
+                SUB     1, R1
+                RET
+
+; Appends R8 in decimal to the line that ends at R1, and moves R1 to its new end
+_SMS_DEC        XOR     R9, R9
+                MOVE    STALL_DEC, R10
+                SYSCALL(h2dstr, 1)              ; R11: the digits without leading spaces
+                MOVE    R11, R8
+                RBRA    _SMS_CAT, 1
 
 ; MOUNT_LABEL callback function:
 ;
@@ -360,6 +461,14 @@ IMGEXT_CRT      .ASCII_W ".CRT"
 CRTFILE_EXT     .DW      IMGEXT_CRT, 0
 CRT_DEVICE      .EQU    0x0106
 CRT_CSR_MAX_HI  .EQU    0x7020
+CRT_CSR_STALLS  .EQU    0x7021                  ; R: bank waits, W: clear
+CRT_CSR_STALL_MAX .EQU  0x7022                  ; R: longest wait, in C64 cycles
+CRT_CSR_STATS   .EQU    0x7023                  ; R: 1 = show them in the menu
+
+; SUBMENU_SUMMARY: the Cartridge line while the banks of a .crt file are cached
+STR_STALLS      .ASCII_W " Stalls "
+STR_STALL_MAX   .ASCII_W " max "
+STR_STALL_US    .ASCII_W "us"
 
 ; Image types as expected by the 2-bit img_type of vdrives.vhd, which main.vhd expands
 ; into the {img_hd, img_mfm, img_gcr, img_ds} vector of iec_drive. Raw GCR images (G64,
@@ -431,6 +540,11 @@ END_OF_ROM      .DW 0
 ; The line of a drive whose MOUNT_LABEL is custom: OSM_O_DX + 2 = 25 words
 ; hold the line and its zero terminator
 MOUNT_LABEL_BUF .BLOCK 32
+
+; The Cartridge line of SUBMENU_SUMMARY (at most OPTM_DX = 23 characters), and the digits
+; of a number
+STALL_LINE      .BLOCK 32
+STALL_DEC       .BLOCK 11
 
 ; M2M Shell variables (only include, if you included "shell.asm" above)
 #include "../../M2M/rom/shell_vars.asm"

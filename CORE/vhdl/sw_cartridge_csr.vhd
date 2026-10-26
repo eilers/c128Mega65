@@ -17,7 +17,8 @@ use work.sdhost_pkg.all;
 entity sw_cartridge_csr is
 generic (
    G_BASE_ADDRESS : std_logic_vector(21 downto 0);
-   G_MAX_HI       : std_logic_vector(15 downto 0) := x"0020"   -- largest file, in 64 kB (CSR $020)
+   G_MAX_HI       : std_logic_vector(15 downto 0) := x"0020";  -- largest file, in 64 kB (CSR $020)
+   G_STATS        : boolean := false                           -- the Shell shows CSR $021-$022
 );
 port (
    qnice_clk_i               : in  std_logic;
@@ -48,7 +49,11 @@ port (
    -- SD controller's engine port: the Shell loads the file by DMA (sd_dma.vhd)
    qnice_sd_want_o           : out std_logic;
    qnice_sd_eng_o            : out t_sd_c2q;
-   qnice_sd_eng_i            : in  t_sd_q2c := (others => '0')
+   qnice_sd_eng_i            : in  t_sd_q2c := (others => '0');
+
+   -- How often the C128 waited for a bank (low word) and its longest wait (high word)
+   qnice_stats_i             : in  std_logic_vector(31 downto 0) := (others => '0');
+   qnice_stats_clr_o         : out std_logic                         -- toggles to clear them
 );
 end entity sw_cartridge_csr;
 
@@ -61,6 +66,13 @@ architecture synthesis of sw_cartridge_csr is
 
    -- Read-only: the largest file the memory behind this device takes, so the Shell can check
    constant C_CSR_MAX_HI          : std_logic_vector(11 downto 0) := X"020";
+
+   -- Bank waits since the last clear (sw_cartridge_wrapper), which the Shell's menu shows if G_STATS
+   constant C_CSR_STALLS          : std_logic_vector(11 downto 0) := X"021";  -- R: count, W: clear
+   constant C_CSR_STALL_MAX       : std_logic_vector(11 downto 0) := X"022";  -- R: longest, C64 cycles
+   constant C_CSR_STATS           : std_logic_vector(11 downto 0) := X"023";  -- R: 1 = show them
+
+   signal stats_clr               : std_logic := '0';
 
    signal qnice_hr_ce             : std_logic;
    signal qnice_hr_addr           : std_logic_vector(31 downto 0);
@@ -167,6 +179,15 @@ begin
                qnice_data_o <= qnice_csr_data;
                if qnice_addr_i(11 downto 0) = C_CSR_MAX_HI then
                   qnice_data_o <= G_MAX_HI;
+               elsif qnice_addr_i(11 downto 0) = C_CSR_STALLS then
+                  qnice_data_o <= qnice_stats_i(15 downto 0);
+               elsif qnice_addr_i(11 downto 0) = C_CSR_STALL_MAX then
+                  qnice_data_o <= qnice_stats_i(31 downto 16);
+               elsif qnice_addr_i(11 downto 0) = C_CSR_STATS then
+                  qnice_data_o <= x"0000";
+                  if G_STATS then
+                     qnice_data_o <= x"0001";
+                  end if;
                elsif qnice_addr_i(11 downto 0) = C_CSR_DMA_MAGIC then
                   qnice_data_o <= X"5D4A";
                elsif qnice_addr_i(11 downto 0) = C_CSR_DMA_CTRL then
@@ -226,6 +247,7 @@ begin
                when C_CSR_DMA_DEST_HI => dma_dest(31 downto 16)  <= qnice_data_i;
                when C_CSR_DMA_LEN_LO  => dma_len(15 downto 0)    <= qnice_data_i;
                when C_CSR_DMA_LEN_HI  => dma_len(31 downto 16)   <= qnice_data_i;
+               when C_CSR_STALLS      => stats_clr               <= not stats_clr;
                when others => null;
             end case;
          end if;
@@ -261,6 +283,7 @@ begin
       ); -- i_sd_dma
 
    qnice_sd_want_o        <= dma_busy;
+   qnice_stats_clr_o      <= stats_clr;
 
    -- The DMA owns the memory port while it runs; QNICE does not touch the file meanwhile
    qnice_avm_write_o      <= dma_avm_write when dma_busy = '1' else q2h_write;

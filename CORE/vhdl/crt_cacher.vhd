@@ -7,9 +7,11 @@
 -- bank or window the file has no chip for reads $FF.
 --
 -- The core asks for banks by number (bank_lo_i, bank_hi_i). The slot each one maps to is on
--- cache_addr_*_o, and ack_*_o and ready_o say which banks those slots hold and whether they are
--- loaded. A slot is only marked valid once a load into it has finished, so an aborted load is
--- never read as data.
+-- cache_addr_*_o, ack_*_o says which bank that slot holds, and view_*_o which of its 256-byte
+-- bursts are loaded (bit n: burst n; a C128 window's pair of slots has 64). Slots fill a burst at
+-- a time, and a burst the core waits for (want_*_i) comes next, so the C128 waits for one burst
+-- rather than the whole bank. A burst is only marked once all of it is written, so an aborted
+-- load is never read as data. ready_o says both slots are complete.
 --
 -- It also carries out EasyFlash's flash jobs (crt_flash), between loads: a program reads the
 -- byte's word from HyperRAM, writes it back ANDed with the new byte and patches the cached copy;
@@ -55,6 +57,10 @@ entity crt_cacher is
       ready_o             : out std_logic;                         -- both slots are loaded
       cache_addr_lo_o     : out std_logic_vector(G_CACHE_SIZE-1 downto 0);
       cache_addr_hi_o     : out std_logic_vector(G_CACHE_SIZE-1 downto 0);
+      view_lo_o           : out std_logic_vector(63 downto 0);     -- loaded bursts of that slot
+      view_hi_o           : out std_logic_vector(63 downto 0);
+      want_lo_i           : in  std_logic_vector(13 downto 0) := (others => '0');  -- valid, bank, burst
+      want_hi_i           : in  std_logic_vector(13 downto 0) := (others => '0');
 
       -- EasyFlash flash jobs from crt_flash, index 0 for ROML's chip and 1 for ROMH's. A job is
       -- new when its req toggles; done follows req once it is finished.
@@ -107,8 +113,9 @@ architecture synthesis of crt_cacher is
    type t_tags is array (0 to C_SLOTS-1) of t_bank;
    signal lo_tag       : t_tags := (others => (others => '0'));
    signal hi_tag       : t_tags := (others => (others => '0'));
-   signal lo_valid     : std_logic_vector(C_SLOTS-1 downto 0) := (others => '0');
-   signal hi_valid     : std_logic_vector(C_SLOTS-1 downto 0) := (others => '0');
+   type t_bits is array (0 to C_SLOTS-1) of std_logic_vector(31 downto 0);
+   signal lo_bits      : t_bits := (others => (others => '0'));   -- loaded bursts of each slot
+   signal hi_bits      : t_bits := (others => (others => '0'));
    signal lo_next      : t_slot := (others => '0');   -- round-robin victim
    signal hi_next      : t_slot := (others => '0');
    signal lo_req       : t_bank := (others => '0');   -- the request lo_slot belongs to
@@ -117,17 +124,31 @@ architecture synthesis of crt_cacher is
    signal hi_slot      : t_slot := (others => '0');
    signal cart_valid_d : std_logic := '0';
 
-   type t_state is (IDLE_ST, READ_ST, FL_READ_ST, FL_WRITE_ST);
+   -- Each side's request, slot and loaded bursts, all taken on the same clock: what the core
+   -- sees, and what the loader decides by
+   signal lo_ack       : t_bank := (others => '0');
+   signal hi_ack       : t_bank := (others => '0');
+   signal lo_cur       : t_slot := (others => '0');
+   signal hi_cur       : t_slot := (others => '0');
+   signal lo_view      : std_logic_vector(63 downto 0) := (others => '0');
+   signal hi_view      : std_logic_vector(63 downto 0) := (others => '0');
+   signal lo_full      : std_logic := '0';
+   signal hi_full      : std_logic := '0';
+   signal lo_seq       : unsigned(5 downto 0) := (others => '0');   -- next burst in order
+   signal hi_seq       : unsigned(5 downto 0) := (others => '0');
+   signal want_lo      : std_logic_vector(13 downto 0) := (others => '0');
+   signal want_hi      : std_logic_vector(13 downto 0) := (others => '0');
+
+   type t_state is (IDLE_ST, SRC_ST, READ_ST, DONE_ST, FL_READ_ST, FL_WRITE_ST);
    signal state        : t_state := IDLE_ST;
    signal ld_hi        : std_logic := '0';            -- the load is for the HI side
-   signal ld_fill      : std_logic := '0';            -- no chip: fill the slot with $FF
+   signal ld_fill      : std_logic := '0';            -- no chip: fill the burst with $FF
    signal ld_slot      : t_slot := (others => '0');
    signal ld_bank      : t_bank := (others => '0');
    signal ld_base      : unsigned(21 downto 0) := (others => '0');
    signal ld_len       : t_bursts := (others => '0');
    signal ld_src       : t_bursts := (others => '0'); -- burst of the image being read
-   signal ld_word      : unsigned(12 downto 0) := (others => '0');  -- word in the slot
-   signal ld_last      : unsigned(12 downto 0) := (others => '0');  -- last word of the slot
+   signal ld_word      : unsigned(12 downto 0) := (others => '0');  -- word in the slot (pair)
    signal ld_stale     : std_logic := '0';            -- a new cartridge arrived during the load
 
    -- Flash jobs: the step the current one is at, and the HyperRAM accesses it makes
@@ -187,6 +208,22 @@ architecture synthesis of crt_cacher is
    end function spare_addr;
 
    signal ld_abort     : std_logic;
+   signal ready        : std_logic := '0';
+
+   -- The burst after b, round a slot (32 bursts) or a C128 window (64)
+   function next_burst(b : unsigned(5 downto 0); c128 : std_logic) return unsigned is
+   begin
+      if c128 = '0' then
+         return '0' & (b(4 downto 0) + 1);
+      end if;
+      return b + 1;
+   end function next_burst;
+
+   -- The second slot of a C128 window's pair, which starts at an even slot
+   function pair(s : t_slot) return natural is
+   begin
+      return to_integer(s(s'high downto 1) & '1');
+   end function pair;
 
 begin
 
@@ -201,16 +238,18 @@ begin
    spare_ok  <= '1' when unsigned(cart_size_i) <= 16#100000# else '0';
    prefill_o <= fl_pre or pre_req;
 
-   ack_lo_o         <= lo_req;
-   ack_hi_o         <= hi_req;
-   cache_addr_lo_o  <= std_logic_vector(lo_slot);
-   cache_addr_hi_o  <= std_logic_vector(hi_slot);
-   ready_o          <= cart_valid_i and lo_valid(to_integer(lo_slot)) and hi_valid(to_integer(hi_slot));
+   ack_lo_o         <= lo_ack;
+   ack_hi_o         <= hi_ack;
+   cache_addr_lo_o  <= std_logic_vector(lo_cur);
+   cache_addr_hi_o  <= std_logic_vector(hi_cur);
+   view_lo_o        <= lo_view;
+   view_hi_o        <= hi_view;
+   ready_o          <= ready;
 
-   -- Stop at the next burst boundary if the side moved on to another slot or bank
+   -- Drop a burst whose slot was given to another bank while it loaded
    ld_abort <= '1' when cart_valid_i = '0' or ld_stale = '1' or
-                        (ld_hi = '0' and (lo_slot /= ld_slot or lo_tag(to_integer(ld_slot)) /= ld_bank)) or
-                        (ld_hi = '1' and (hi_slot /= ld_slot or hi_tag(to_integer(ld_slot)) /= ld_bank)) else '0';
+                        (ld_hi = '0' and lo_tag(to_integer(ld_slot)) /= ld_bank) or
+                        (ld_hi = '1' and hi_tag(to_integer(ld_slot)) /= ld_bank) else '0';
 
    p_cacher : process (clk_i)
       variable v_bank  : natural range 0 to 127;
@@ -224,8 +263,43 @@ begin
       variable v_old   : std_logic_vector(7 downto 0);
       variable v_new   : std_logic_vector(7 downto 0);
       variable v_valid : std_logic;
+      variable v_lo    : std_logic_vector(63 downto 0);
+      variable v_hi    : std_logic_vector(63 downto 0);
+      variable v_lof   : std_logic;
+      variable v_hif   : std_logic;
+      variable v_go    : boolean;
+      variable v_side  : std_logic;
+      variable v_burst : unsigned(5 downto 0);
    begin
       if rising_edge(clk_i) then
+         -- Each side as the core sees it, all from this clock's state: the bank, its slot and the
+         -- slot's loaded bursts. A C128 window spans a pair of slots; a C64 slot's bursts repeat.
+         v_lo := lo_bits(to_integer(lo_slot)) & lo_bits(to_integer(lo_slot));
+         v_hi := hi_bits(to_integer(hi_slot)) & hi_bits(to_integer(hi_slot));
+         if cart_c128_i = '1' then
+            v_lo := lo_bits(pair(lo_slot)) & lo_bits(to_integer(lo_slot));
+            v_hi := hi_bits(pair(hi_slot)) & hi_bits(to_integer(hi_slot));
+         end if;
+         v_lof := '0';
+         if v_lo = (v_lo'range => '1') then
+            v_lof := '1';
+         end if;
+         v_hif := '0';
+         if v_hi = (v_hi'range => '1') then
+            v_hif := '1';
+         end if;
+         lo_view <= v_lo;
+         hi_view <= v_hi;
+         lo_full <= v_lof;
+         hi_full <= v_hif;
+         lo_ack  <= lo_req;
+         hi_ack  <= hi_req;
+         lo_cur  <= lo_slot;
+         hi_cur  <= hi_slot;
+         ready   <= cart_valid_i and v_lof and v_hif;
+         want_lo <= want_lo_i;
+         want_hi <= want_hi_i;
+
          bram_lo_wren_o <= '0';
          bram_hi_wren_o <= '0';
          if avm_waitrequest_i = '0' then
@@ -290,40 +364,60 @@ begin
             end if;
          end if;
 
-         -- Loader: one slot at a time, HI first (an Ultimax cartridge's reset vector is there).
-         -- It comes before the mapping below, so a slot that is re-tagged on the clock its load
-         -- ends stays invalid.
+         -- Loader: a burst at a time. One the core waits for comes first, then the rest of each
+         -- slot in order, HI before LO (an Ultimax cartridge's reset vector is there). It comes
+         -- before the mapping below, so a slot that is re-tagged on the clock a burst ends keeps
+         -- that burst unmarked.
          case state is
             when IDLE_ST =>
-               if cart_valid_i = '1' and cart_valid_d = '1' and
-                  (hi_valid(to_integer(hi_slot)) = '0' or lo_valid(to_integer(lo_slot)) = '0') then
-                  if hi_valid(to_integer(hi_slot)) = '0' then
-                     v_fill  := not hi_present(to_integer(unsigned(hi_req)));
-                     ld_hi   <= '1';
-                     ld_slot <= hi_slot;
-                     ld_bank <= hi_req;
-                     ld_base <= unsigned(hi_addr(to_integer(unsigned(hi_req))));
-                     ld_len  <= hi_len(to_integer(unsigned(hi_req)));
-                     avm_address_o <= hi_addr(to_integer(unsigned(hi_req)));
+               if cart_valid_i = '1' and cart_valid_d = '1' and (hi_full = '0' or lo_full = '0') then
+                  v_go := false;
+                  if want_hi(13) = '1' and want_hi(12 downto 6) = hi_ack and
+                     hi_view(to_integer(unsigned(want_hi(5 downto 0)))) = '0' then
+                     v_go    := true;
+                     v_side  := '1';
+                     v_burst := unsigned(want_hi(5 downto 0));
+                  elsif want_lo(13) = '1' and want_lo(12 downto 6) = lo_ack and
+                        lo_view(to_integer(unsigned(want_lo(5 downto 0)))) = '0' then
+                     v_go    := true;
+                     v_side  := '0';
+                     v_burst := unsigned(want_lo(5 downto 0));
+                  elsif hi_full = '0' then
+                     -- Skip a burst that is in already
+                     v_go    := hi_view(to_integer(hi_seq)) = '0';
+                     v_side  := '1';
+                     v_burst := hi_seq;
+                     hi_seq  <= next_burst(hi_seq, cart_c128_i);
                   else
-                     v_fill  := not lo_present(to_integer(unsigned(lo_req)));
-                     ld_hi   <= '0';
-                     ld_slot <= lo_slot;
-                     ld_bank <= lo_req;
-                     ld_base <= unsigned(lo_addr(to_integer(unsigned(lo_req))));
-                     ld_len  <= lo_len(to_integer(unsigned(lo_req)));
-                     avm_address_o <= lo_addr(to_integer(unsigned(lo_req)));
+                     v_go    := lo_view(to_integer(lo_seq)) = '0';
+                     v_side  := '0';
+                     v_burst := lo_seq;
+                     lo_seq  <= next_burst(lo_seq, cart_c128_i);
                   end if;
-                  ld_fill    <= v_fill;
-                  ld_src     <= (others => '0');
-                  ld_word    <= (others => '0');
-                  ld_stale   <= '0';
-                  ld_last    <= to_unsigned(4095, 13);
-                  if cart_c128_i = '1' then
-                     ld_last <= to_unsigned(8191, 13);
+
+                  if v_go then
+                     if v_side = '1' then
+                        v_bank  := to_integer(unsigned(hi_ack));
+                        v_fill  := not hi_present(v_bank);
+                        ld_slot <= hi_cur;
+                        ld_bank <= hi_ack;
+                        ld_base <= unsigned(hi_addr(v_bank));
+                        ld_len  <= hi_len(v_bank);
+                     else
+                        v_bank  := to_integer(unsigned(lo_ack));
+                        v_fill  := not lo_present(v_bank);
+                        ld_slot <= lo_cur;
+                        ld_bank <= lo_ack;
+                        ld_base <= unsigned(lo_addr(v_bank));
+                        ld_len  <= lo_len(v_bank);
+                     end if;
+                     ld_hi    <= v_side;
+                     ld_fill  <= v_fill;
+                     ld_src   <= resize(v_burst, 7);
+                     ld_word  <= v_burst & "0000000";
+                     ld_stale <= '0';
+                     state    <= SRC_ST;
                   end if;
-                  avm_read_o <= not v_fill;
-                  state      <= READ_ST;
                elsif fl_wants = '1' then
                   -- A flash access, one word, between loads
                   avm_address_o <= std_logic_vector(fl_addr);
@@ -366,6 +460,16 @@ begin
                   state <= IDLE_ST;
                end if;
 
+            when SRC_ST =>
+               -- The burst of the image to read: an image smaller than the slot is mirrored
+               if ld_src >= ld_len then
+                  ld_src <= ld_src - ld_len;
+               else
+                  avm_address_o <= std_logic_vector(ld_base + shift_left(resize(ld_src, 22), 7));
+                  avm_read_o    <= not ld_fill;
+                  state         <= READ_ST;
+               end if;
+
             when READ_ST =>
                -- A word from HyperRAM, or one $FFFF a clock while filling
                if avm_readdatavalid_i = '1' or ld_fill = '1' then
@@ -380,29 +484,23 @@ begin
                   ld_word        <= ld_word + 1;
 
                   if ld_word(6 downto 0) = C_BURST - 1 then
-                     if ld_abort = '1' then
-                        state <= IDLE_ST;
-                     elsif ld_word = ld_last then
-                        -- The slot is full
+                     -- The burst is in. Its bit is in the slot that holds it: the second of a
+                     -- C128 window's pair for the window's upper half.
+                     if ld_abort = '0' then
+                        v_slot := ld_slot + resize(ld_word(12 downto 12), G_CACHE_SIZE);
                         if ld_hi = '1' then
-                           hi_valid(to_integer(ld_slot)) <= '1';
+                           hi_bits(to_integer(v_slot))(to_integer(ld_word(11 downto 7))) <= '1';
                         else
-                           lo_valid(to_integer(ld_slot)) <= '1';
+                           lo_bits(to_integer(v_slot))(to_integer(ld_word(11 downto 7))) <= '1';
                         end if;
-                        state <= IDLE_ST;
-                     else
-                        -- Next burst, wrapping round the image if it is smaller than the slot
-                        if ld_src + 1 = ld_len then
-                           ld_src        <= (others => '0');
-                           avm_address_o <= std_logic_vector(ld_base);
-                        else
-                           ld_src        <= ld_src + 1;
-                           avm_address_o <= std_logic_vector(ld_base + shift_left(resize(ld_src + 1, 22), 7));
-                        end if;
-                        avm_read_o <= not ld_fill;
                      end if;
+                     state <= DONE_ST;
                   end if;
                end if;
+
+            when DONE_ST =>
+               -- One clock for the views to show the new burst, so it is not loaded twice
+               state <= IDLE_ST;
          end case;
 
          -- Flash jobs, a step at a time; FL_READ_ST and FL_WRITE_ST move the HyperRAM steps on
@@ -512,12 +610,18 @@ begin
                if fl_ch = '0' then
                   v_hit := lookup(lo_tag, '0' & std_logic_vector(fl_bank), cart_c128_i);
                   if v_hit /= C_SLOTS then
-                     lo_valid(v_hit) <= '0';
+                     lo_bits(v_hit) <= (others => '0');
+                     if cart_c128_i = '1' then
+                        lo_bits(pair(to_unsigned(v_hit, G_CACHE_SIZE))) <= (others => '0');
+                     end if;
                   end if;
                else
                   v_hit := lookup(hi_tag, '0' & std_logic_vector(fl_bank), cart_c128_i);
                   if v_hit /= C_SLOTS then
-                     hi_valid(v_hit) <= '0';
+                     hi_bits(v_hit) <= (others => '0');
+                     if cart_c128_i = '1' then
+                        hi_bits(pair(to_unsigned(v_hit, G_CACHE_SIZE))) <= (others => '0');
+                     end if;
                   end if;
                end if;
                fl_step <= J_NEXT;
@@ -573,8 +677,8 @@ begin
          cart_valid_d <= cart_valid_i;
          if v_init then
             ld_stale <= '1';
-            lo_valid <= (others => '0');
-            hi_valid <= (others => '0');
+            lo_bits  <= (others => (others => '0'));
+            hi_bits  <= (others => (others => '0'));
             lo_tag   <= (others => (others => '1'));
             hi_tag   <= (others => (others => '1'));
          end if;
@@ -595,11 +699,15 @@ begin
                if v_init then
                   v_slot := (others => '0');
                end if;
-               lo_slot                      <= v_slot;
-               lo_tag(to_integer(v_slot))   <= bank_lo_i;
-               lo_valid(to_integer(v_slot)) <= '0';
-               lo_next                      <= v_slot + v_step;
+               lo_slot                     <= v_slot;
+               lo_tag(to_integer(v_slot))  <= bank_lo_i;
+               lo_bits(to_integer(v_slot)) <= (others => '0');
+               if cart_c128_i = '1' then
+                  lo_bits(pair(v_slot)) <= (others => '0');
+               end if;
+               lo_next                     <= v_slot + v_step;
             end if;
+            lo_seq <= (others => '0');
          end if;
 
          if cart_valid_i = '1' and (bank_hi_i /= hi_req or v_init) then
@@ -612,11 +720,15 @@ begin
                if v_init then
                   v_slot := (others => '0');
                end if;
-               hi_slot                      <= v_slot;
-               hi_tag(to_integer(v_slot))   <= bank_hi_i;
-               hi_valid(to_integer(v_slot)) <= '0';
-               hi_next                      <= v_slot + v_step;
+               hi_slot                     <= v_slot;
+               hi_tag(to_integer(v_slot))  <= bank_hi_i;
+               hi_bits(to_integer(v_slot)) <= (others => '0');
+               if cart_c128_i = '1' then
+                  hi_bits(pair(v_slot)) <= (others => '0');
+               end if;
+               hi_next                     <= v_slot + v_step;
             end if;
+            hi_seq <= (others => '0');
          end if;
 
          if rst_i = '1' then
@@ -630,8 +742,8 @@ begin
             fl_done_o    <= fl_req_i;
             fl_fail_o    <= "00";
             state        <= IDLE_ST;
-            lo_valid     <= (others => '0');
-            hi_valid     <= (others => '0');
+            lo_bits      <= (others => (others => '0'));
+            hi_bits      <= (others => (others => '0'));
             cart_valid_d <= '0';
          end if;
       end if;
