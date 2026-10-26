@@ -20,7 +20,8 @@ use work.sdhost_pkg.all;
 
 entity mega65_r6 is
 generic (
-   -- Leave the SDRAM unused and keep everything in HyperRAM, as on R3 (build target 6r3)
+   -- Leave the SDRAM unused and keep everything in HyperRAM, as on R3, and show the cartridge
+   -- cache's waits in the menu (build target 6r3)
    G_R3_MEMORY : boolean := false
 );
 port (
@@ -847,7 +848,8 @@ begin
    CORE : entity work.MEGA65_Core
       generic map (
          G_BOARD => "MEGA65_R6",
-         G_SDRAM => not G_R3_MEMORY
+         G_SDRAM => not G_R3_MEMORY,
+         G_STATS => G_R3_MEMORY
       )
       port map (
          clk_i                   => clk_bufg,

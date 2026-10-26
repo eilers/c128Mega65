@@ -172,6 +172,11 @@ is left out and everything lives in HyperRAM, so the virtual cartridge runs thro
 `crt_cacher` and its block RAM cache, with R3's 2 MiB file limit. Everything else,
 such as pins, audio and the RTC, stays R6. Use it to work on the R3 code paths without an R3.
 
+While a .crt file runs, the menu's Cartridge line shows `Stalls <n> max <t>us`: how often
+the cache stopped the C128 for a C64 cycle or more while it loaded a bank, and the longest
+stop. Each time the menu is drawn it shows the waits since the last time, so close the menu,
+play the part to measure, and open it again. Other builds show `Cartridge: CRT file`.
+
 The target sets the R6 top's `G_R3_MEMORY` generic. It builds from its own copy of the
 R6 project, `CORE/CORE-R6R3-vivado2022.xpr`, which is made fresh each time and not
 checked in, so it can build next to a normal R6 (`build_boards.sh 6 6r3`). The bitstream
