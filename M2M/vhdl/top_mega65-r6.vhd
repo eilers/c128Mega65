@@ -19,6 +19,10 @@ use work.video_modes_pkg.all;
 use work.sdhost_pkg.all;
 
 entity mega65_r6 is
+generic (
+   -- Leave the SDRAM unused and keep everything in HyperRAM, as on R3 (build target 6r3)
+   G_R3_MEMORY : boolean := false
+);
 port (
    -- Onboard crystal oscillator = 100 MHz
    clk_i                   : in    std_logic;
@@ -615,7 +619,8 @@ begin
 
    i_framework : entity work.framework
    generic map (
-      G_BOARD => "MEGA65_R6"
+      G_BOARD => "MEGA65_R6",
+      G_SDRAM => not G_R3_MEMORY
    )
    port map (
       -- Connect to I/O ports
@@ -841,7 +846,8 @@ begin
 
    CORE : entity work.MEGA65_Core
       generic map (
-         G_BOARD => "MEGA65_R6"
+         G_BOARD => "MEGA65_R6",
+         G_SDRAM => not G_R3_MEMORY
       )
       port map (
          clk_i                   => clk_bufg,

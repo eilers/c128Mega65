@@ -103,7 +103,12 @@ foreach v_file $sv_compat_v_files {
     }
 }
 
-puts "TOP: [get_property top [current_fileset]]"
+# Target 6r3: an R6 bitstream with R3's memory map (see build_bitstream.tcl)
+if {[regexp {CORE-R6R3} [file rootname [file tail $project_file]]]} {
+    set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
+}
+
+puts "TOP: [get_property top [current_fileset]] [get_property generic [current_fileset]]"
 
 # Promote implicit net declarations to errors. When a port connection names an
 # identifier before its declaration, Vivado silently creates a 1-bit net and ignores

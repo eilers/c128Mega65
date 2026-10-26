@@ -26,7 +26,8 @@ use xpm.vcomponents.all;
 
 entity MEGA65_Core is
 generic (
-   G_BOARD           : string                              -- Which platform we are running on.
+   G_BOARD           : string;                             -- Which platform we are running on.
+   G_SDRAM           : boolean := true                     -- false: use HyperRAM only, as on R3
 );
 port (
    --------------------------------------------------------------------------------------------------------
@@ -1022,7 +1023,7 @@ begin
    i_sw_cartridge_wrapper : entity work.sw_cartridge_wrapper
       generic map (
          G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000",
-         G_SDRAM        => G_BOARD /= "MEGA65_R3"
+         G_SDRAM        => G_BOARD /= "MEGA65_R3" and G_SDRAM
       )
       port map (
          qnice_clk_i        => qnice_clk_i,
