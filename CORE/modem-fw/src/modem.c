@@ -280,10 +280,15 @@ static void on_dns(const char *name, const ip_addr_t *addr, void *arg)
    connect_to(addr);
 }
 
-// ATD: host[:port], with or without quotes (Zimodem style)
+// ATD: [T|P] host[:port], with or without quotes (Zimodem style). Only one T or P
+// is skipped, as on the Ultimate, so a host such as pkg.example.com keeps its P.
 static void dial(const char *p)
 {
-   while (*p == 'T' || *p == 'P' || *p == ' ' || *p == '"')
+   while (*p == ' ')
+      p++;
+   if (*p == 'T' || *p == 'P')
+      p++;
+   while (*p == ' ' || *p == '"')
       p++;
    int n = 0;
    while (*p && *p != ':' && *p != '"' && *p != ' ' && n < DNS_MAX_NAME_LENGTH)
