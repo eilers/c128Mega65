@@ -24,7 +24,8 @@ use work.sdhost_pkg.all;
 entity sw_cartridge_wrapper is
 generic (
    G_BASE_ADDRESS : std_logic_vector(21 downto 0);  -- word address of the CRT file
-   G_SDRAM        : boolean := false                -- the file is in SDRAM, not HyperRAM
+   G_SDRAM        : boolean := false;               -- the file is in SDRAM, not HyperRAM
+   G_STATS        : boolean := false                -- the Shell shows the bank waits (CSR $023)
 );
 port (
    qnice_clk_i         : in  std_logic;
@@ -114,8 +115,9 @@ architecture synthesis of sw_cartridge_wrapper is
       return x"0020";
    end function max_hi;
    constant C_MAX_HI      : std_logic_vector(15 downto 0) := max_hi(G_SDRAM);
-   -- Bits of the HyperRAM -> core crossing
-   constant C_HR2MAIN     : natural := 1 + 1 + 16 + 8 + 8 + 23 + 1 + 7 + 7 + 1 + 2*C_CACHE_SIZE + 8;
+   -- Bits of the HyperRAM -> core crossing, and where in it the loaded bursts of each side are
+   constant C_HR2MAIN     : natural := 1 + 1 + 16 + 8 + 8 + 23 + 1 + 7 + 7 + 1 + 2*C_CACHE_SIZE + 128 + 8;
+   constant C_VIEW        : natural := 73 + 2*C_CACHE_SIZE;
 
    signal qnice_req_length        : std_logic_vector(22 downto 0);
    signal qnice_req_valid         : std_logic;
@@ -170,6 +172,8 @@ architecture synthesis of sw_cartridge_wrapper is
    signal hr_ready                : std_logic;
    signal hr_cache_addr_lo        : std_logic_vector(C_CACHE_SIZE-1 downto 0);
    signal hr_cache_addr_hi        : std_logic_vector(C_CACHE_SIZE-1 downto 0);
+   signal hr_view_lo              : std_logic_vector(63 downto 0);   -- loaded bursts, see crt_cacher
+   signal hr_view_hi              : std_logic_vector(63 downto 0);
    signal hr_id                   : std_logic_vector(15 downto 0);
    signal hr_exrom                : std_logic_vector( 7 downto 0);
    signal hr_game                 : std_logic_vector( 7 downto 0);
@@ -187,8 +191,14 @@ architecture synthesis of sw_cartridge_wrapper is
    signal main_c128               : std_logic;
    signal main_cache_addr_lo      : std_logic_vector(C_CACHE_SIZE-1 downto 0);
    signal main_cache_addr_hi      : std_logic_vector(C_CACHE_SIZE-1 downto 0);
+   signal main_view_lo            : std_logic_vector(63 downto 0);
+   signal main_view_hi            : std_logic_vector(63 downto 0);
    signal main_lo_mem             : std_logic_vector( 7 downto 0);  -- ROML and ROMH from memory
    signal main_hi_mem             : std_logic_vector( 7 downto 0);
+
+   -- Bank waits for the Shell's menu: count (low word) and longest (high word), CSR $021-$022
+   signal qnice_stats             : std_logic_vector(31 downto 0);
+   signal qnice_stats_clr         : std_logic;
 
    -- EasyFlash's flash chips (index 0 ROML's, 1 ROMH's) and their jobs
    signal main_flash_rst          : std_logic;
@@ -227,7 +237,8 @@ begin
    i_sw_cartridge_csr : entity work.sw_cartridge_csr
       generic map (
          G_BASE_ADDRESS => G_BASE_ADDRESS,
-         G_MAX_HI       => C_MAX_HI
+         G_MAX_HI       => C_MAX_HI,
+         G_STATS        => G_STATS and not G_SDRAM
       )
       port map (
          qnice_clk_i               => qnice_clk_i,
@@ -254,7 +265,9 @@ begin
          qnice_avm_waitrequest_i   => qnice_avm_waitrequest,
          qnice_sd_want_o           => qnice_sd_want_o,
          qnice_sd_eng_o            => qnice_sd_eng_o,
-         qnice_sd_eng_i            => qnice_sd_eng_i
+         qnice_sd_eng_i            => qnice_sd_eng_i,
+         qnice_stats_i             => qnice_stats,
+         qnice_stats_clr_o         => qnice_stats_clr
       ); -- i_sw_cartridge_csr
 
    i_cdc_qnice2hr : entity work.cdc_stable
@@ -385,6 +398,8 @@ begin
          src_data_i(72)            => hr_ready,
          src_data_i(72+C_CACHE_SIZE downto 73)                => hr_cache_addr_lo,
          src_data_i(72+2*C_CACHE_SIZE downto 73+C_CACHE_SIZE) => hr_cache_addr_hi,
+         src_data_i(C_VIEW+63 downto C_VIEW)                  => hr_view_lo,
+         src_data_i(C_VIEW+127 downto C_VIEW+64)              => hr_view_hi,
          src_data_i(C_HR2MAIN-1 downto C_HR2MAIN-8)           => hr_subtype,
          dst_clk_i                 => main_clk_i,
          dst_data_o(0)             => main_loaded,
@@ -399,6 +414,8 @@ begin
          dst_data_o(72)            => main_ready,
          dst_data_o(72+C_CACHE_SIZE downto 73)                => main_cache_addr_lo,
          dst_data_o(72+2*C_CACHE_SIZE downto 73+C_CACHE_SIZE) => main_cache_addr_hi,
+         dst_data_o(C_VIEW+63 downto C_VIEW)                  => main_view_lo,
+         dst_data_o(C_VIEW+127 downto C_VIEW+64)              => main_view_hi,
          dst_data_o(C_HR2MAIN-1 downto C_HR2MAIN-8)           => main_subtype_o
       ); -- i_cdc_hr2main
 
@@ -468,11 +485,26 @@ begin
       signal hr_bram_hi_wren      : std_logic;
       signal hr_bank_lo           : std_logic_vector( 6 downto 0);
       signal hr_bank_hi           : std_logic_vector( 6 downto 0);
+      signal hr_want_lo           : std_logic_vector(13 downto 0);
+      signal hr_want_hi           : std_logic_vector(13 downto 0);
+      signal main_burst           : unsigned( 5 downto 0);           -- of the address, in its slot (pair)
+      signal main_miss_lo         : std_logic;
+      signal main_miss_hi         : std_logic;
+      signal main_want_lo         : std_logic_vector(13 downto 0) := (others => '0');  -- valid, bank, burst
+      signal main_want_hi         : std_logic_vector(13 downto 0) := (others => '0');
       signal main_slot_lo         : std_logic_vector(C_CACHE_SIZE-1 downto 0);
       signal main_slot_hi         : std_logic_vector(C_CACHE_SIZE-1 downto 0);
       signal main_lo_word         : std_logic_vector(15 downto 0);
       signal main_hi_word         : std_logic_vector(15 downto 0);
       signal main_a0_d            : std_logic := '0';
+      signal main_wait            : std_logic;
+      signal main_stall           : std_logic;
+      signal main_stall_clk       : unsigned( 4 downto 0) := (others => '0');  -- 32 clocks a C64 cycle
+      signal main_stall_len       : unsigned(15 downto 0) := (others => '0');
+      signal main_stall_cnt       : unsigned(15 downto 0) := (others => '0');
+      signal main_stall_max       : unsigned(15 downto 0) := (others => '0');
+      signal main_stats_clr       : std_logic;
+      signal main_stats_clr_d     : std_logic := '0';
 
    begin
 
@@ -501,6 +533,10 @@ begin
             ready_o             => hr_ready,
             cache_addr_lo_o     => hr_cache_addr_lo,
             cache_addr_hi_o     => hr_cache_addr_hi,
+            view_lo_o           => hr_view_lo,
+            view_hi_o           => hr_view_hi,
+            want_lo_i           => hr_want_lo,
+            want_hi_i           => hr_want_hi,
             fl_req_i            => hr_fl_req,
             fl_lo_job_i         => main_fl_lo_job,
             fl_hi_job_i         => main_fl_hi_job,
@@ -555,23 +591,133 @@ begin
       i_cdc_main2hr : entity work.cdc_stable
          generic map (
             G_REGISTER_SRC => true,
-            G_DATA_SIZE    => 14
+            G_DATA_SIZE    => 42
          )
          port map (
             src_clk_i                => main_clk_i,
             src_data_i( 6 downto  0) => main_bank_lo_i,
             src_data_i(13 downto  7) => main_bank_hi_i,
+            src_data_i(27 downto 14) => main_want_lo,
+            src_data_i(41 downto 28) => main_want_hi,
             dst_clk_i                => hr_clk_i,
             dst_data_o( 6 downto  0) => hr_bank_lo,
-            dst_data_o(13 downto  7) => hr_bank_hi
+            dst_data_o(13 downto  7) => hr_bank_hi,
+            dst_data_o(27 downto 14) => hr_want_lo,
+            dst_data_o(41 downto 28) => hr_want_hi
          ); -- i_cdc_main2hr
 
-      -- Wait from the moment the core asks for another bank until the cache reports it loaded,
-      -- and while an EasyFlash's spare banks are filled
-      main_wait_o <= '1' when main_loaded = '1' and
-                              (main_bank_lo_i /= main_ack_lo or main_bank_hi_i /= main_ack_hi or
-                               main_ready = '0' or main_pre = '1')
-                         else '0';
+      -- The C128 waits only when the CPU reads a burst of the selected bank that is not in yet:
+      -- ROML or ROMH, or IO1/IO2, whose ROM reads come from ROML's slot. The cache loads that
+      -- burst next. The CPU's address is out from the start of its access, so the wait reaches
+      -- the core's DMA request before the access is latched, and is held, as the address the
+      -- core shows changes while the DMA runs, until the burst is in or the bank is changed.
+      -- In reset it waits until both slots are complete, and while EasyFlash spares are filled.
+      main_burst   <= (main_addr_i(13) and main_c128) & unsigned(main_addr_i(12 downto 8));
+      main_miss_lo <= '1' when main_rd_lo_i = '1' and
+                               (main_ack_lo /= main_bank_lo_i or main_view_lo(to_integer(main_burst)) = '0')
+                          else '0';
+      main_miss_hi <= '1' when main_rd_hi_i = '1' and
+                               (main_ack_hi /= main_bank_hi_i or main_view_hi(to_integer(main_burst)) = '0')
+                          else '0';
+
+      p_want : process (main_clk_i)
+      begin
+         if rising_edge(main_clk_i) then
+            if main_want_lo(13) = '0' and main_want_hi(13) = '0' then
+               if main_miss_lo = '1' then
+                  main_want_lo <= '1' & main_bank_lo_i & std_logic_vector(main_burst);
+               elsif main_miss_hi = '1' then
+                  main_want_hi <= '1' & main_bank_hi_i & std_logic_vector(main_burst);
+               end if;
+            end if;
+            if main_want_lo(13) = '1' and
+               (main_want_lo(12 downto 6) /= main_bank_lo_i or
+                (main_ack_lo = main_want_lo(12 downto 6) and
+                 main_view_lo(to_integer(unsigned(main_want_lo(5 downto 0)))) = '1')) then
+               main_want_lo(13) <= '0';
+            end if;
+            if main_want_hi(13) = '1' and
+               (main_want_hi(12 downto 6) /= main_bank_hi_i or
+                (main_ack_hi = main_want_hi(12 downto 6) and
+                 main_view_hi(to_integer(unsigned(main_want_hi(5 downto 0)))) = '1')) then
+               main_want_hi(13) <= '0';
+            end if;
+            if main_loaded = '0' or main_reset_i = '1' then
+               main_want_lo(13) <= '0';
+               main_want_hi(13) <= '0';
+            end if;
+         end if;
+      end process p_want;
+
+      main_wait <= '1' when main_loaded = '1' and
+                            (main_pre = '1' or
+                             (main_reset_i = '1' and (main_bank_lo_i /= main_ack_lo or
+                                                      main_bank_hi_i /= main_ack_hi or main_ready = '0')) or
+                             main_miss_lo = '1' or main_miss_hi = '1' or
+                             main_want_lo(13) = '1' or main_want_hi(13) = '1')
+                       else '0';
+      main_wait_o <= main_wait;
+
+      ---------------------------------------------------
+      -- Bank waits while the C128 runs, for the Shell's menu: how many lasted a C64 cycle or
+      -- more, which surely stopped the CPU (a hit only waits for its ack, a few hundred ns), and
+      -- the longest in C64 cycles, since the Shell last cleared them or a file was loaded
+      ---------------------------------------------------
+
+      main_stall <= main_wait and not main_reset_i;
+
+      p_stats : process (main_clk_i)
+      begin
+         if rising_edge(main_clk_i) then
+            main_stats_clr_d <= main_stats_clr;
+
+            if main_stall = '1' then
+               main_stall_clk <= main_stall_clk + 1;
+               if main_stall_clk = 0 and main_stall_len /= x"FFFF" then
+                  main_stall_len <= main_stall_len + 1;
+               end if;
+               if main_stall_clk = 31 and main_stall_len = 1 and main_stall_cnt /= x"FFFF" then
+                  main_stall_cnt <= main_stall_cnt + 1;
+               end if;
+            else
+               main_stall_clk <= (others => '0');
+               main_stall_len <= (others => '0');
+            end if;
+
+            if main_stall_len > main_stall_max then
+               main_stall_max <= main_stall_len;
+            end if;
+
+            if main_stats_clr /= main_stats_clr_d or main_loaded = '0' then
+               main_stall_cnt <= (others => '0');
+               main_stall_max <= (others => '0');
+            end if;
+         end if;
+      end process p_stats;
+
+      i_cdc_stats : entity work.cdc_stable
+         generic map (
+            G_REGISTER_SRC => true,
+            G_DATA_SIZE    => 32
+         )
+         port map (
+            src_clk_i  => main_clk_i,
+            src_data_i => std_logic_vector(main_stall_max) & std_logic_vector(main_stall_cnt),
+            dst_clk_i  => qnice_clk_i,
+            dst_data_o => qnice_stats
+         ); -- i_cdc_stats
+
+      i_cdc_stats_clr : entity work.cdc_stable
+         generic map (
+            G_REGISTER_SRC => false,
+            G_DATA_SIZE    => 1
+         )
+         port map (
+            src_clk_i     => qnice_clk_i,
+            src_data_i(0) => qnice_stats_clr,
+            dst_clk_i     => main_clk_i,
+            dst_data_o(0) => main_stats_clr
+         ); -- i_cdc_stats_clr
 
       ---------------------------------------------------
       -- Bank cache: 16-bit words, a C128 cartridge's 16 kB windows in slot pairs
@@ -717,6 +863,8 @@ begin
       hr_ready         <= '1';
       hr_cache_addr_lo <= (others => '0');
       hr_cache_addr_hi <= (others => '0');
+      hr_view_lo       <= (others => '1');
+      hr_view_hi       <= (others => '1');
 
       i_crt_reader : entity work.crt_reader
          generic map (
@@ -784,6 +932,7 @@ begin
 
       -- Only while an EasyFlash's spare banks are filled, which keeps the C128 in reset
       main_wait_o  <= main_loaded and main_pre;
+      qnice_stats  <= (others => '0');
 
       main_cpu_bank <= main_bank_hi_i when main_rd_hi_i = '1' else main_bank_lo_i;
       main_cpu_key  <= main_rd_hi_i & main_cpu_bank & (main_addr_i(13) and main_c128) & main_addr_i(12 downto 0);
