@@ -46,6 +46,7 @@ run_tcl "REU in HyperRAM (tb_reu)" CORE/scripts/run_reu_sim.tcl
 run_tcl "VIA Timer 1 (tb_via_timer)" CORE/scripts/run_via_timer_sim.tcl
 run_tcl "VGA scandoubler (tb_vga_scandoubler)" CORE/scripts/run_vga_scandoubler_sim.tcl
 run_tcl "HDMI CRT emulation fit (tb_scanline_fit)" CORE/scripts/run_scanline_fit_sim.tcl
+run_tcl "HDMI after a reset (tb_ascal_reset)" CORE/scripts/run_ascal_reset_sim.tcl
 run_tcl "Drive RAM (tb_iecdrv_mem)" CORE/scripts/run_drive_mem_sim.tcl
 run_tcl "Drive DOS ROM handover (tb_drive_rom)" CORE/scripts/run_drive_rom_sim.tcl
 run_tcl "1581 ready / sector path (tb_c1581_ready)" CORE/scripts/run_c1581_ready_sim.tcl
