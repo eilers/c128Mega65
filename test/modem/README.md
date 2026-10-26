@@ -37,6 +37,19 @@ cartridge in VICE 3.9 `x128`, C64 mode, with its SwiftLink at `$D700` at 38400 b
 `ATDT afterlife.dynu.com:6400` (a C64 BBS from CCGMS's phone book). `CONNECT 38400`,
 then the BBS's screen. `+++`, wait a second, `ATH` hangs up; so does leaving CCGMS.
 
+## HyperRAM load and HDMI
+
+The modem's firmware shares HyperRAM with HDMI's scaler. Two test commands load it for
+15 seconds (`AT*H1=60` makes it a minute), ignoring the network meanwhile, then print
+`HYPERRAM READS n/S`:
+
+- `AT*H1`: every instruction misses the cache, so the modem reads cache line after cache line.
+- `AT*H2`: uncached reads of the firmware image, 4 bytes at a time.
+
+Run them on the 80-column screen and watch HDMI: it must stay clean. On an R6, `AT*H1`
+reads about 335,000 lines a second and `AT*H2` about 1,350,000 words. When a cache line
+was one 64-word HyperRAM burst, `AT*H1` filled HDMI with sparkles.
+
 ## Automated transfer test
 
 On a computer on the same network (macOS or Linux, with `cc` and `socat`):
