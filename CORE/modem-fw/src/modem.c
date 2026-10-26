@@ -21,7 +21,8 @@
 #define RING_PERIOD   2000    // ms
 #define RING_MAX      10
 #define FLUSH_IDLE    3       // ms without a byte from the C128 before a short segment goes out
-#define FLUSH_SIZE    512
+#define FLUSH_SIZE    192     // bytes from the C128 that go out at once
+#define TXBUF_SIZE    256     // FLUSH_SIZE plus room for telnet replies
 
 enum state { ST_IDLE, ST_RESOLVING, ST_CONNECTING, ST_RINGING, ST_ONLINE };
 
@@ -80,7 +81,8 @@ static struct {
    struct pbuf *rx;            // received, not yet passed to the C128
    uint32_t rx_count;
    bool remote_closed;
-   uint16_t unsent;
+   uint8_t txbuf[TXBUF_SIZE];  // for the far end, gathered into one tcp_write: a write per
+   uint16_t txlen;             // byte takes a pbuf each, and TCP_SND_QUEUELEN stops it at 8
    uint32_t t_last_tx;
    int esc_count;
    uint32_t t_esc;
@@ -231,7 +233,7 @@ static void go_online(struct tcp_pcb *pcb)
    m.telnet = m.s[S_TELNET] == 2 || (m.s[S_TELNET] == 0 && m.port == 23);
    m.iac_state = 0;
    m.we_do = m.we_will = 0;
-   m.unsent = 0;
+   m.txlen = 0;
    m.esc_count = 0;
    m.t_last_tx = millis();
    tcp_nagle_disable(pcb);
@@ -554,10 +556,11 @@ static void command_input(void)
 
 static void telnet_send(uint8_t cmd, uint8_t opt)
 {
-   uint8_t b[3] = { IAC, cmd, opt };
-   if (m.pcb)
-      tcp_write(m.pcb, b, 3, TCP_WRITE_FLAG_COPY);
-   m.unsent += 3;
+   if (m.txlen + 3 > TXBUF_SIZE)
+      return;   // 21 replies queued behind a full buffer: the far end does without
+   m.txbuf[m.txlen++] = IAC;
+   m.txbuf[m.txlen++] = cmd;
+   m.txbuf[m.txlen++] = opt;
 }
 
 // We will do BINARY and SGA, and let the other side do those and ECHO.
@@ -675,10 +678,8 @@ static void data_input(void)
 {
    uint32_t now = millis();
    uint32_t guard = (uint32_t)m.s[S_GUARD] * 20;
-   uint8_t buf[64];
-   int n = 0;
    int c;
-   while (m.pcb && n < (int)sizeof buf - 1 && tcp_sndbuf(m.pcb) > (u16_t)(n + 2) && (c = acia_get()) >= 0) {
+   while (m.pcb && m.txlen < FLUSH_SIZE && (c = acia_get()) >= 0) {
       if (c == m.s[S_ESCAPE]) {
          if (m.esc_count == 0 ? now - m.t_last_tx >= guard : now - m.t_esc < guard) {
             m.esc_count++;
@@ -690,13 +691,9 @@ static void data_input(void)
          m.esc_count = 0;
       }
       m.t_last_tx = now;
-      buf[n++] = (uint8_t)c;
+      m.txbuf[m.txlen++] = (uint8_t)c;
       if (m.telnet && c == IAC)
-         buf[n++] = IAC;
-   }
-   if (n) {
-      tcp_write(m.pcb, buf, (u16_t)n, TCP_WRITE_FLAG_COPY);
-      m.unsent += n;
+         m.txbuf[m.txlen++] = IAC;
    }
    if (m.esc_count >= 3 && now - m.t_esc >= guard) {
       m.esc_count = 0;
@@ -705,11 +702,14 @@ static void data_input(void)
    }
 }
 
+// A write lwIP can't take yet keeps the bytes for the next try; until then
+// data_input leaves the C128's bytes in the ACIA, which holds the C128 up.
 static void flush_tx(void)
 {
-   if (m.pcb && m.unsent && (m.unsent >= FLUSH_SIZE || millis() - m.t_last_tx >= FLUSH_IDLE)) {
+   if (m.pcb && m.txlen && (m.txlen >= FLUSH_SIZE || millis() - m.t_last_tx >= FLUSH_IDLE) &&
+       tcp_write(m.pcb, m.txbuf, m.txlen, TCP_WRITE_FLAG_COPY) == ERR_OK) {
       tcp_output(m.pcb);
-      m.unsent = 0;
+      m.txlen = 0;
    }
 }
 
@@ -835,6 +835,6 @@ void modem_poll(void)
       else if (m.remote_closed && m.state == ST_RINGING)
          hang_up(R_OK, false);
    }
-   if (m.unsent && m.cmd_mode)
+   if (m.txlen && m.cmd_mode)
       flush_tx();
 }
