@@ -5,6 +5,7 @@
 #include <string.h>
 #include "acia.h"
 #include "eth.h"
+#include "hog.h"
 #include "hw.h"
 #include "log.h"
 #include "modem.h"
@@ -493,13 +494,26 @@ static bool execute(const char *p)
          case 'B': case 'L': case 'M': case 'X':
             number(&p);   // accepted, no effect
             break;
-         case '*':        // tests for trap.c: *T faults, *W hangs
+         case '*':        // tests: *T faults, *W hangs (trap.c); *H1, *H2[=seconds] load HyperRAM (hog.c)
             c = *p++;
             if (c == 'T')
                (void)REG32(0xF0100000u);   // nothing there: bus error
             else if (c == 'W')
                for (;;)
                   ;
+            if (c == 'H' && (n = number(&p)) >= 1 && n <= 2) {
+               uint32_t secs = 15;
+               if (*p == '=') {
+                  p++;
+                  secs = (uint32_t)number(&p);
+               }
+               if (secs == 0)
+                  goto error;
+               char buf[40];
+               fmt(buf, sizeof buf, "\r\nHYPERRAM READS %u/S", hog(n, secs) / secs);
+               out_str(buf);
+               break;
+            }
             goto error;
          default:
             goto error;

@@ -76,7 +76,7 @@ build: 292 of 365, from 285.5 without the modem), and about 6,100 LUTs.
 | What                         | Tiles | Why                                                              |
 |------------------------------|-------|------------------------------------------------------------------|
 | CPU data RAM, 16 KB          | 4     | lwIP's buffers and the stack (13.5 KB used)                      |
-| Instruction cache, 8 KB      | 2.5   | four byte lanes of a RAMB18 each, and the tags; the firmware itself, 52 KB, stays in HyperRAM |
+| Instruction cache, 8 KB      | 2.5   | four byte lanes of a RAMB18 each, and the tags; the firmware itself, 68 KB, stays in HyperRAM |
 | No data cache                | 0     | NEORV32's would take 2 tiles at any size up to 8 KB; constants come from HyperRAM a word at a time |
 | Register file, boot code     | 0     | flip-flops and LUTs; NEORV32's RAM styles took 1.5 tiles          |
 | MAC frame buffers, 4 + 2 KB  | 0     | LUTRAM (Vivado can't put `axis_dropper`'s buffer in block RAM)   |
