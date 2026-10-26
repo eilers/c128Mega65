@@ -38,6 +38,7 @@ awk '/constant C_CRTROMS_AUTO_NUM/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " ");
 awk '/constant C_MENU_HELP_F13/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); printf("HELP_MENU_F13               .EQU %s\n", a[1])}' ../vhdl/globals.vhd >> globals.asm
 awk '/constant C_MENU_CART_CRT/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); printf("CART_CRT_MENU               .EQU %s\n", a[1])}' ../vhdl/globals.vhd >> globals.asm
 awk '/constant OPTM_G_MOUNT_CRT/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); printf("OPTM_G_MOUNT_CRT            .EQU %s\n", a[1])}' ../vhdl/config.vhd >> globals.asm
+awk '/constant OPTM_G_CART[ \t]/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); printf("OPTM_G_CART                 .EQU %s\n", a[1])}' ../vhdl/config.vhd >> globals.asm
 awk '/constant C_MENU_INT1581_OFF/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); printf("INT1581_OFF_MENU            .EQU %s\n", a[1])}' ../vhdl/globals.vhd >> globals.asm
 awk '/constant C_MENU_INT1581_D8/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); printf("INT1581_D8_MENU             .EQU %s\n", a[1])}' ../vhdl/globals.vhd >> globals.asm
 awk '/constant C_MENU_INT1581_D9/ {gsub(/.*:=|;.*/, "", $0); split($0, a, " "); printf("INT1581_D9_MENU             .EQU %s\n", a[1])}' ../vhdl/globals.vhd >> globals.asm

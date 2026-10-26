@@ -209,6 +209,8 @@ architecture sim of tb_crt is
    signal status_seen      : boolean := false;
    signal n_waits          : natural := 0;         -- times the cache made the CPU wait
    signal crt_wait_d       : std_logic := '0';
+   signal wait_clks        : natural := 0;         -- length of the current wait, in main clocks
+   signal max_wait         : natural := 0;         -- the longest wait while the C128 runs
    signal n_rom_wr         : natural := 0;         -- port /ROML-/ROMH low for a write, not Ultimax
    signal n_umax_wr        : natural := 0;         -- the same in Ultimax mode, as a PLA does
 
@@ -738,6 +740,14 @@ begin
          if crt_wait = '1' and crt_wait_d = '0' then
             n_waits <= n_waits + 1;
          end if;
+         if crt_wait = '1' and crt_reset = '0' then
+            wait_clks <= wait_clks + 1;
+            if wait_clks + 1 > max_wait then
+               max_wait <= wait_clks + 1;
+            end if;
+         else
+            wait_clks <= 0;
+         end if;
          if ram_we = '1' and ram_addr(17 downto 16) = "00" then
             a := to_integer(ram_addr(15 downto 0));
             if a >= 16#0500# and a <= 16#05FF# then
@@ -759,6 +769,7 @@ begin
             status_errors <= (others => 'U');
             status_seen   <= false;
             n_waits       <= 0;
+            max_wait      <= 0;
          end if;
       end if;
    end process p_capture;
@@ -886,7 +897,8 @@ begin
          check(status = x"10" and status_errors = x"00", name & ": the program reports '" &
                to_hstring(status) & "' with $" & to_hstring(status_errors) & " errors");
          report name & ": " & integer'image(n) & " probes checked, the cache stalled the CPU " &
-                integer'image(n_waits) & " times";
+                integer'image(n_waits) & " times, the longest " &
+                integer'image(max_wait * (C_MAIN_PERIOD / 1 ns) / 1000) & " us";
       end procedure run_crt;
 
       variable parse : natural;
