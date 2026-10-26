@@ -85,6 +85,12 @@ build: 292 of 365, from 285.5 without the modem), and about 6,100 LUTs.
 Running the firmware from block RAM instead would have cost 13 more tiles. From
 HyperRAM it also updates without a new core: copy a new `modem.bin` and reset.
 
+**Short HyperRAM bursts.** HDMI's scaler keeps its frame buffer in HyperRAM and takes
+turns with the core, and it only has room for two bursts of the incoming picture. So
+`modem_hr_bridge.vhd` reads a cache line in four 16-word bursts. As one 64-word burst it
+made the scaler miss its deadlines on the 80-column screen while the modem was busy,
+and HDMI showed sparkles (VGA doesn't go through the scaler).
+
 **No big receive buffer.** The FIFOs only cover the CPU's gaps (64 bytes is 11 ms at
 57600 baud). When the C128 falls behind, for example while it writes an XMODEM block to
 disk, it drops RTS. The FIFO fills, the firmware stops taking data from lwIP, the TCP
@@ -125,7 +131,8 @@ so every MEGA65 gets its own.
   the echo, `OK`, `ATI`, `ERROR`, `NO DIALTONE` and the 6551's IRQ. It also plays
   CCGMS's start (DTR on with the receive IRQ off, then on), a status read that clears
   the IRQ before the NMI is taken, DTR off, a C128 reset in the middle of an answer, and
-  restarts after a trap and after a HyperRAM read that takes too long.
+  restarts after a trap and after a HyperRAM read that takes too long. A HyperRAM burst
+  longer than 16 words is an error.
 - CCGMS Future (github.com/mist64/ccgmsterm) has an automated transfer test: `test/xfer.c`
   behind socat on a PC drives the terminal through every XMODEM variant and Punter. Its
   regular build supports SwiftLink at `$DE00`, `$DF00` and `$D700`. The EasyFlash build

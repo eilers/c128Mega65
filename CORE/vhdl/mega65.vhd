@@ -1131,7 +1131,7 @@ begin
          m_avm_waitrequest_i    => exp_hr_waitrequest
       ); -- i_core_hr_arbit
 
-   -- s0 = REU and cartridge, s1 = the modem's firmware reads (a cache line at a time)
+   -- s0 = REU and cartridge, s1 = the modem's firmware reads (16 words at a time)
    i_modem_hr_arbit : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => true,

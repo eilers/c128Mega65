@@ -141,6 +141,7 @@ begin
             a     := to_integer(unsigned(hr_address)) - C_HR_BASE;
             count := to_integer(unsigned(hr_burstcount));
             assert a >= 0 and a + count <= C_MEM_WORDS report "HyperRAM read outside the window" severity failure;
+            assert count <= 16 report "HyperRAM burst longer than 16 words" severity error;
             hr_waitrequest <= '1';
             if hr_stall then
                wait for 2 ms;                    -- beyond the CPU's 1.3 ms bus timeout
