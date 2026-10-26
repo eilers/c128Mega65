@@ -22,7 +22,8 @@ use xpm.vcomponents.all;
 
 entity framework is
 generic (
-   G_BOARD : string                                         -- Which platform are we running on.
+   G_BOARD : string;                                        -- Which platform are we running on.
+   G_SDRAM : boolean := true                                -- false: no SDRAM controller, as on R3
 );
 port (
    clk_i                   : in    std_logic;                  -- 100 MHz clock
@@ -1091,7 +1092,7 @@ begin
    -- SDRAM controller (R4 and later), for the core alone, on the HyperRAM clock as in C64MEGA65
    ---------------------------------------------------------------------------------------------------------------
 
-   sdram_gen : if G_BOARD /= "MEGA65_R3" generate
+   sdram_gen : if G_BOARD /= "MEGA65_R3" and G_SDRAM generate
 
       sdram_inst : entity work.sdram
          generic map (

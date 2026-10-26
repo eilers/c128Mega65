@@ -1,4 +1,5 @@
 CORE/*.cache
+CORE/CORE-R6R3-vivado2022.xpr
 CORE/*.hw
 CORE/*.runs
 CORE/*.sim

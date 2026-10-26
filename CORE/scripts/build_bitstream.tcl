@@ -118,6 +118,12 @@ if {[regexp {CORE-R3} $project_base]} {
     }
 }
 
+# Target 6r3 (build_boards.sh): an R6 bitstream with R3's memory map, the SDRAM unused.
+if {[regexp {CORE-R6R3} $project_base]} {
+    puts "R3 memory map: G_R3_MEMORY=true"
+    set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
+}
+
 # Vivado 2022 may import .sv files as plain Verilog from newer project files.
 # Force all .sv sources to SystemVerilog before synthesis.
 set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]

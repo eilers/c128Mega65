@@ -161,6 +161,23 @@ It ends with one line per board: exit code, timing and block RAM. Each synthesis
 takes about 8 GB of memory, so set `JOBS` to what the machine can hold.
 `build_release.sh` uses it when run with `JOBS=2` or more.
 
+### R3's memory map on an R6
+
+```bash
+CORE/scripts/build_boards.sh 6r3
+```
+
+This builds an R6 bitstream that uses memory the way an R3 does: the SDRAM controller
+is left out and everything lives in HyperRAM, so the virtual cartridge runs through
+`crt_cacher` and its block RAM cache, with R3's 2 MiB file limit. Everything else,
+such as pins, audio and the RTC, stays R6. Use it to work on the R3 code paths without an R3.
+
+The target sets the R6 top's `G_R3_MEMORY` generic. It builds from its own copy of the
+R6 project, `CORE/CORE-R6R3-vivado2022.xpr`, which is made fresh each time and not
+checked in, so it can build next to a normal R6 (`build_boards.sh 6 6r3`). The bitstream
+is `CORE/CORE-R6R3-vivado2022.runs/impl_1/mega65_r6.bit`. Give the `.cor` a version that
+says it is a 6r3 build.
+
 ### What the build does
 
 `build_bitstream.tcl`:
