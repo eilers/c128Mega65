@@ -94,10 +94,11 @@ set_property PULLUP TRUE [get_ports {sd2_mosi_o sd2_miso_i sd2_d1_i sd2_d2_i sd2
 
 ## QNICE's EAE combinatorial division networks take longer than the regular clock period, so we specify a multicycle path
 ## see also the comments in EAE.vhd and explanations in UG903/chapter 5/Multicycle Paths as well as ug911/page 25
-set_multicycle_path -from [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/op*_reg[*]}] \
-   -to [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/res_reg[*]}] -setup 3
-set_multicycle_path -from [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/op*_reg[*]}] \
-   -to [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/res_reg[*]}] -hold 2
+## QNICE sits in qnice_wrapper's qnice_gen generate (G_RISCV); a RISC-V build has none, so these match nothing there
+set_multicycle_path -from [get_cells -include_replicated {i_framework/i_qnice_wrapper/qnice_gen.QNICE_SOC/eae_inst/op*_reg[*]}] \
+   -to [get_cells -include_replicated {i_framework/i_qnice_wrapper/qnice_gen.QNICE_SOC/eae_inst/res_reg[*]}] -setup 3
+set_multicycle_path -from [get_cells -include_replicated {i_framework/i_qnice_wrapper/qnice_gen.QNICE_SOC/eae_inst/op*_reg[*]}] \
+   -to [get_cells -include_replicated {i_framework/i_qnice_wrapper/qnice_gen.QNICE_SOC/eae_inst/res_reg[*]}] -hold 2
 
 
 ################################################################################
