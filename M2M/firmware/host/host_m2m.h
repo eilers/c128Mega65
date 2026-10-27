@@ -13,3 +13,5 @@ extern volatile uint16_t *host_hr;       // HyperRAM, 2^23 words
 #define M2M_DEV32    ((volatile uint32_t *)host_dev())
 #define M2M_HYPERRAM ((uintptr_t)host_hr)
 #define M2M_HALT()   host_halt()
+#define FW_HEAP      ((uintptr_t)host_hr + 0x500000)   // in the firmware's region (fw/heap.c)
+#define FW_HEAP_END  ((uintptr_t)host_hr + 0x7FE000)

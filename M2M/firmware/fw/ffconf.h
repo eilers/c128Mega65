@@ -35,7 +35,7 @@
 /* This option switches f_mkfs(). (0:Disable or 1:Enable) */
 
 
-#define FF_USE_FASTSEEK	0
+#define FF_USE_FASTSEEK	1   /* the cluster map of a file, for sd_dma (fw/roms.c) */
 /* This option switches fast seek feature. (0:Disable or 1:Enable) */
 
 

@@ -11,6 +11,7 @@
 #include "keys.h"
 #include "m2m_rv.h"
 #include "menu.h"
+#include "roms.h"
 #include "sdcard.h"
 #include "shell.h"
 
@@ -20,6 +21,23 @@ extern uint32_t host_regs[];
 
 static int fails, runs, verbose;
 static char cfg_name[64];
+static const char *image;
+
+// The cartridge device (C_DEV_CRT) and its CSR (sw_cartridge_csr.vhd, sd_dma.vhd)
+#define CRT_DEV      0x0106
+#define CSR_STATUS   0x000
+#define CSR_FS_LO    0x001
+#define CSR_FS_HI    0x002
+#define CSR_PARSEST  0x010
+#define CSR_PARSEE1  0x011
+#define CSR_ERR_STR  0x100
+#define CSR_MAX_HI   0x020
+#define SDL_MAGIC    0x030
+#define SDL_BLK_LO   0x032
+#define SDL_BLK_HI   0x033
+#define SDL_COUNT    0x034
+#define SDL_LEN_LO   0x037
+#define SDL_LEN_HI   0x038
 
 static void check(int ok, const char *what)
 {
@@ -191,6 +209,12 @@ static void make_card(uint8_t *file)
    put_file("/c128/boot0.rom", 0, 4100);
    put_file("/c128/boot1.rom", 1, 600);
    put_file("/c128/modem.bin", 2, 1000);
+   put_file("/c128/game.crt", 3, 70000);
+   put_file("/c128/big.crt", 4, 140000);
+   f_mkdir("/c128/Sub");
+   put_file("/c128/Sub/x.crt", 5, 3000);
+   put_file("/c128/Sub/notes.txt", 6, 10);
+   put_file("/c128/Sub/A cartridge with a name far too long for one line.crt", 7, 100);
    cfg_str(CFG_CFG_FILE, cfg_name, sizeof cfg_name);
    if (f_open(&f, cfg_name, FA_READ) == FR_OK) {
       f_read(&f, file, MENU_MAX, &got);
@@ -234,6 +258,7 @@ int main(int argc, char **argv)
       return 2;
    }
    verbose = argc > 3;
+   image = argv[2];
    host_init();
    load_dump(argv[1]);
    uint8_t file[MENU_MAX];
@@ -325,15 +350,109 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    check(!setting_get(item(" Help menu on F13")), "F13 option off");
 
-   // No file browser yet: the CRT and drive items change nothing
+   // A .crt file: the browser, filtered and sorted, starts in /c128; the CPU copies it in
+   // (the device says it has no DMA), the device parses it, the menu shows its name
+   crtrom_csr_set(CRT_DEV, CSR_MAX_HI, 2);            // takes up to 128 KB
+   crtrom_csr_set(CRT_DEV, CSR_PARSEST, 2);           // its parser: OK
    go_to("Cartridge");
    press(M2M_KEY_RETURN);
    go_to("CRT:");
    press(M2M_KEY_RETURN);
-   dump("cartridge submenu");
-   check(setting_get(item(" Hardware")) && !setting_get(item(" CRT file")), "cartridge source unchanged");
-   check(find_row(" CRT:<Load>") > 0 && find_row("=CRT:") < 0, "CRT item not left selected");
+   dump("browser");
+   check(M2M_OSM_XY == 0 && M2M_OSM_DXDY == (45u << 8 | 33), "browser on the whole screen");
+   check(find_row(" <..>") < 0 && find_row("<..>") == 1 && find_row("<Sub>") == 2 &&
+         find_row("big.crt") == 3 && find_row("game.crt") == 4 && find_row(".rom") < 0,
+         "browser: /c128, folders first, only .crt files");
+   check(vram(M2M_DEV_VRAM_ATTR, 1, 1) == 0x8B && vram(M2M_DEV_VRAM_ATTR, 1, 2) == 0x0B,
+         "browser cursor on the first line");
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   dump("menu after the load");
+   check(device_holds(CRT_DEV, 3, 70000), "game.crt copied into the device");
+   check(crtrom_csr_get(CRT_DEV, CSR_FS_LO) == (70000 & 0xFFFF) &&
+         crtrom_csr_get(CRT_DEV, CSR_FS_HI) == 1 && crtrom_csr_get(CRT_DEV, CSR_STATUS) == 3,
+         "size handed to the parser, status OK");
+   check(M2M_OSM_XY == (20u << 8) && find_row("=CRT:game.crt") > 0, "menu: CRT:game.crt selected");
+   check(setting_get(item(" CRT file")) && !setting_get(item(" Hardware")) && setting_get(item(" CRT:%s")),
+         "CRT file source and the CRT item set");
+
+   // Again: where we left off; Run/Stop leaves it loaded
+   press(M2M_KEY_RETURN);
+   check(vram(M2M_DEV_VRAM_ATTR, 1, 4) == 0x8B, "browser: cursor where it was");
    press(M2M_KEY_RUNSTOP);
+   check(find_row("=CRT:game.crt") > 0 && setting_get(item(" CRT:%s")), "cancelled: still loaded");
+
+   // Too large for the device: its message, then the browser again
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   dump("too large");
+   check(find_row("Error code: 0001") == 1 && find_row("This .crt file is too large") > 0, "too large");
+   press(M2M_KEY_SPACE);
+   check(find_row("game.crt") == 4, "browser again after the message");
+
+   // By DMA, from a folder, with a parser error
+   crtrom_csr_set(CRT_DEV, SDL_MAGIC, 0x5D4A);
+   crtrom_csr_set(CRT_DEV, CSR_PARSEST, 3);
+   crtrom_csr_set(CRT_DEV, CSR_PARSEE1, 0x42);
+   const char *bad = "Bad chip packet";
+   for (int i = 0; bad[i - (i > 0)]; i++)
+      crtrom_csr_set(CRT_DEV, CSR_ERR_STR + i, bad[i]);
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   check(find_row("<..>") == 1 && find_row("A cartridge with a name far too long for...") == 2 &&
+         find_row("x.crt") == 3 && find_row("notes") < 0, "browser: Sub, a long name cut");
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   dump("parser error");
+   check(find_row("Error code: 0042") == 1 && find_row("Bad chip packet") == 2, "parser error shown");
+   uint32_t lba = crtrom_csr_get(CRT_DEV, SDL_BLK_LO) | (uint32_t)crtrom_csr_get(CRT_DEV, SDL_BLK_HI) << 16;
+   uint8_t blk[512];
+   FILE *img = fopen(image, "rb");
+   int dma_ok = img && !fseek(img, (long)lba * 512, SEEK_SET) && fread(blk, 512, 1, img) == 1;
+   for (int i = 0; dma_ok && i < 512; i++)
+      dma_ok = blk[i] == pattern(5, i);
+   if (img)
+      fclose(img);
+   check(dma_ok && crtrom_csr_get(CRT_DEV, SDL_COUNT) == 6 &&
+         crtrom_csr_get(CRT_DEV, SDL_LEN_LO) == 3000 && crtrom_csr_get(CRT_DEV, SDL_LEN_HI) == 0,
+         "DMA: x.crt's first block, 6 blocks, 3000 bytes");
+   press(M2M_KEY_SPACE);
+   check(vram(M2M_DEV_VRAM_ATTR, 1, 3) == 0x8B, "browser again, still on x.crt");
+   crtrom_csr_set(CRT_DEV, CSR_PARSEST, 2);
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   check(find_row("=CRT:A cartridge wit...") > 0, "menu: the long name cut with ...");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);                              // <..>: back to /c128, on <Sub>
+   check(find_row("game.crt") == 4 && vram(M2M_DEV_VRAM_ATTR, 1, 2) == 0x8B, "up a folder, cursor on Sub");
+   press(M2M_KEY_RUNSTOP);
+   crtrom_csr_set(CRT_DEV, CSR_PARSEST, 2);
+   crtrom_csr_set(CRT_DEV, SDL_MAGIC, 0);
+
+   // The card changes while browsing: browsing starts over once it is mounted again
+   press(M2M_KEY_RETURN);
+   M2M_CSR &= ~M2M_CSR_SD_DET_EXT;
+   poll(100);
+   M2M_CSR |= M2M_CSR_SD_DET_EXT;
+   poll(40000);
+   check(find_row("<..>") == 1 && find_row("game.crt") == 4 && vram(M2M_DEV_VRAM_ATTR, 1, 1) == 0x8B,
+         "new card: browsing from the start folder");
+   press(M2M_KEY_RUNSTOP);
+
+   // The device drops the file while the menu is open (a core reset)
+   crtrom_csr_set(CRT_DEV, CSR_STATUS, 0);
+   poll(2);
+   check(find_row(" CRT:<Load>") > 0 && !setting_get(item(" CRT:%s")), "dropped file followed");
+   go_to("Hardware");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+
+   // No disk images yet: the drive items change nothing
    go_to("8:");
    press(M2M_KEY_RETURN);
    check(find_row(" 8:<Mount Drive>") > 0 && !setting_get(item(" 8:%s")), "drive item unchanged");

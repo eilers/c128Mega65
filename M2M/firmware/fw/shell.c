@@ -3,12 +3,14 @@
 // whs.asm. Nothing here waits for long: shell_poll handles one key at a time.
 #include <string.h>
 #include "shell.h"
+#include "browse.h"
 #include "cfg.h"
 #include "console.h"
 #include "core.h"
 #include "ff.h"
 #include "filters.h"
 #include "fmt.h"
+#include "heap.h"
 #include "keys.h"
 #include "m2m_rv.h"
 #include "menu.h"
@@ -20,21 +22,35 @@
 #define WAIT_333MS   (CPU_HZ / 3)    // so the key that closes a screen doesn't reach the core
 #define WHS_PAGES    0xFFF           // index of a help page's page count
 
-static char    items[4096];          // OPTM_ITEMS, each line ended where its "\n" was
+static char   *items;                // OPTM_ITEMS in HyperRAM, each line ended where its "\n" was
 static int     start_idx;            // OPTM_START
 static uint8_t is_mount[MENU_MAX];   // drive number + 1, or 0
 static uint8_t is_crtrom[MENU_MAX];  // CRT/ROM number + 1, or 0
 static uint8_t is_help[MENU_MAX];    // help screen (WHS record) number, or 0
 
-static enum { UI_CORE, UI_MENU, UI_HELP, UI_CLOSING } ui;
+#define CRTROM_MAX   4               // CRT/ROM items in the menu
+#define NAME_MAX     32              // a file's name as the menu shows it, cut
+
+static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_CLOSING } ui;
 static uint32_t closing_at;
 static int      help_idx, help_set, help_page, help_pages;
+
+// Choosing and loading a file for a menu item (HANDLE_MOUNTING)
+static struct {
+   int      idx, k;                  // the menu item, its CRT/ROM number
+   uint16_t group;                   // the selection, finished once the file is in
+   int      item;
+   enum { L_MOUNT, L_MOUNT_ERR, L_BROWSE, L_ERROR } step;
+} load;
+static uint8_t crt_loaded[CRTROM_MAX];           // CRTROM_MAN_LDF
+static char    crt_name[CRTROM_MAX][NAME_MAX];   // shown on its line
 
 // The settings file: one byte per menu item, 0 or 1
 static struct {
    int      on;                      // good: saved to when settings change
    FIL      f;
    uint32_t card;                    // sdcard_changes() when it was opened
+   uint32_t slot;                    // M2M_CSR_SD_ACTIVE then
    uint8_t  old[MENU_MAX];           // the settings when the menu opened
 } cfgf;
 
@@ -65,12 +81,12 @@ void shell_fatal(const char *msg, uint32_t code)
 static void load_menu(void)
 {
    int n = cfg_get(CFG_OPTM_ICOUNT, 0);
-   int len = cfg_str(CFG_OPTM_ITEMS, items, sizeof items);
    int mounts = 0, crtroms = 0, helps = 0;
-   char *s = items;
+   char *s = items = heap_alloc(4096);
 
    if (n < 1 || n > MENU_MAX)
       shell_fatal("config.vhd: Illegal menu size (OPTM_SIZE):\nMust be between 1 and 254\n", n);
+   cfg_str(CFG_OPTM_ITEMS, items, 4096);
    menu.n = n;
    start_idx = -1;
    for (int i = 0; i < n; i++) {
@@ -91,7 +107,8 @@ static void load_menu(void)
       if (start_idx < 0 && cfg_get(CFG_OPTM_START, i))
          start_idx = i;
    }
-   (void)len;
+   if (crtroms > CRTROM_MAX)
+      shell_fatal("Too many CRT/ROM items in config.vhd\n", crtroms);
    if (start_idx < 0)
       shell_fatal("config.vhd: No start menu item tag (OPTM_G_START)\n", 0);
    if (menu_init())
@@ -138,6 +155,7 @@ static void load_settings(void)
    }
    cfgf.on   = 1;
    cfgf.card = sdcard_changes();
+   cfgf.slot = M2M_CSR & M2M_CSR_SD_ACTIVE;
    if (b[0] == 0xFF)
       return;
    for (int i = 0; i < menu.n; i++) {
@@ -153,9 +171,25 @@ static void save_settings(void)
    int changed = 0;
    UINT put;
 
-   // Not to a card that went in since: it may not be the file's card
-   if (!cfgf.on || sdcard_changes() != cfgf.card)
+   if (!cfgf.on)
       return;
+   // After a card change the file is opened again, but only in the same slot: a card in
+   // the other one is likely another card (ROSM_INTEGRITY)
+   if (sdcard_changes() != cfgf.card) {
+      char name[64];
+      cfg_str(CFG_CFG_FILE, name, sizeof name);
+      if ((M2M_CSR & M2M_CSR_SD_ACTIVE) != cfgf.slot || sdcard_state() != SDCARD_OK ||
+          f_open(&cfgf.f, name, FA_READ | FA_WRITE) != FR_OK) {
+         cfgf.on = 0;
+         return;
+      }
+      cfgf.card = sdcard_changes();
+      if (f_size(&cfgf.f) != (FSIZE_t)menu.n) {
+         f_close(&cfgf.f);
+         cfgf.on = 0;
+         return;
+      }
+   }
    for (int i = 0; i < menu.n; i++) {
       b[i] = saved_item(i) && setting_get(i);
       changed |= saved_item(i) && b[i] != cfgf.old[i];
@@ -260,8 +294,13 @@ static void show(int idx, const char *line, char *out)
       return;
    }
    if (is_crtrom[idx]) {
-      cfg_str(CFG_OPTM_CRSTR, with, sizeof with);
-      replace_s(line, with, out, max);
+      int k = is_crtrom[idx] - 1;
+      if (crt_loaded[k])
+         replace_s(line, crt_name[k], out, max);
+      else {
+         cfg_str(CFG_OPTM_CRSTR, with, sizeof with);
+         replace_s(line, with, out, max);
+      }
       return;
    }
    strcpy(out, line);
@@ -284,16 +323,31 @@ static void show_help_page(void)
    }
 }
 
+static void load_start(int idx, uint16_t group, int item);
+
+// The settings as the menu has them, and the core's last word (the end of OPTM_CB_SEL)
+static void selected(uint16_t group, int item)
+{
+   if ((group & MENU_ID) != MENU_CLOSE)
+      for (int i = 0; i < menu.n; i++)
+         setting_set(i, menu.sel[i]);
+   core_sel_post(group & MENU_ID, item);
+}
+
 static void select(uint16_t group, int item, enum menu_key key)
 {
    int idx = menu.cursor;
    (void)key;
 
-   if (is_mount[idx] || is_crtrom[idx]) {
-      menu_set(idx, 0);   // @TODO step 5: the file browser, mounting drives, loading cartridges
+   if (is_mount[idx]) {
+      menu_set(idx, 0);   // @TODO step 5: mounting drives
       return;
    }
    core_sel_pre(group & MENU_ID, item);
+   if (is_crtrom[idx]) {
+      load_start(idx, group, item);   // finished by load_done()
+      return;
+   }
    if (is_help[idx]) {
       // Help items are never selected: show the pages, and the menu again after
       menu.sel[idx] = 0;
@@ -305,10 +359,144 @@ static void select(uint16_t group, int item, enum menu_key key)
       show_help_page();
       ui = UI_HELP;
    }
-   if ((group & MENU_ID) != MENU_CLOSE)
-      for (int i = 0; i < menu.n; i++)
-         setting_set(i, menu.sel[i]);
-   core_sel_post(group & MENU_ID, item);
+   selected(group, item);
+}
+
+// -------------------------------------------------------------------------------------
+// Loading a cartridge or ROM: the SD card, the file browser, the file (HANDLE_MOUNTING)
+// -------------------------------------------------------------------------------------
+
+static void frame_full(void)
+{
+   scr_clear();
+   scr_frame(0, 0, OSM_DX, OSM_DY);
+}
+
+static void menu_again(void)
+{
+   menu_show();
+   scr_window_on(menu.x, menu.y, menu.dx, menu.dy);
+   menu_cursor_on();
+   ui = UI_MENU;
+}
+
+static void load_done(int on)
+{
+   menu_set(load.idx, on);
+   selected(load.group, load.item);
+   menu_again();
+}
+
+static void load_start(int idx, uint16_t group, int item)
+{
+   load.idx   = idx;
+   load.k     = is_crtrom[idx] - 1;
+   load.group = group;
+   load.item  = item;
+   load.step  = L_MOUNT;
+   menu.shown = 0;
+   frame_full();
+   scr_full_on();
+   ui = UI_LOAD;
+}
+
+static void load_poll(uint32_t key)
+{
+   char text[200];
+   const char *msg;
+   int err;
+
+   switch (load.step) {
+   case L_MOUNT:
+      if (sdcard_state() == SDCARD_WAIT) {
+         scr_print(1, 1, 1, "Initializing. Please wait...");
+         break;
+      }
+      frame_full();
+      if (sdcard_state() != SDCARD_OK) {
+         fmt_snprintf(text, sizeof text, "Error: Cannot mount SD card!\nError code: %04X"
+                      "\n\nPress Return to retry", sdcard_result());
+         scr_print(1, 1, 1, text);
+         load.step = L_MOUNT_ERR;
+         break;
+      }
+      browse_open(CTX_LOAD_ROM, load.group & MENU_ID, load.k << 8 | 1);
+      load.step = L_BROWSE;
+      break;
+   case L_MOUNT_ERR:
+      if (key == M2M_KEY_RETURN) {
+         sdcard_retry();
+         load.step = L_MOUNT;
+      }
+      break;
+   case L_BROWSE:
+      switch (browse_key(key)) {
+      case BROWSE_BUSY:
+         break;
+      case BROWSE_FILE: {
+         // Its name for the menu: one more than fits, so that the menu cuts it with "..."
+         strncpy(crt_name[load.k], browse_name(), menu.dx - 1);
+         crt_name[load.k][menu.dx - 1] = 0;
+         err = crtrom_load(load.k, browse_path(), load.group & MENU_ID, &msg);
+         crt_loaded[load.k] = crtrom_loaded(load.k);   // as soon as the parser started
+         if (!err) {
+            load_done(1);
+            break;
+         }
+         frame_full();
+         int n = fmt_snprintf(text, sizeof text, "Error code: %04X", err);
+         if (msg)
+            fmt_snprintf(text + n, sizeof text - n, "\n%s\n ", msg);
+         scr_print(1, 1, 1, text);
+         load.step = L_ERROR;
+         break;
+      }
+      case BROWSE_CANCEL:
+         load_done(crt_loaded[load.k]);
+         break;
+      case BROWSE_NOTHING:
+         browse_reset();
+         M2M_CSR &= ~M2M_CSR_SD_MODE;        // the card back to automatic
+         load_done(crt_loaded[load.k]);
+         break;
+      case BROWSE_CHANGED:
+         browse_reset();
+         frame_full();
+         load.step = L_MOUNT;
+         break;
+      }
+      break;
+   case L_ERROR:
+      if (key == M2M_KEY_SPACE) {
+         frame_full();
+         browse_open(CTX_LOAD_ROM, load.group & MENU_ID, load.k << 8 | 1);
+         load.step = L_BROWSE;
+      }
+      break;
+   }
+}
+
+// While the menu is open: a cartridge or ROM that comes or goes, as after a core reset
+// (CRTROM_MLST_GET)
+static void follow_crtroms(void)
+{
+   int changed = 0;
+   for (int i = 0; i < menu.n; i++) {
+      int k = is_crtrom[i] - 1;
+      if (k < 0 || k >= CRTROM_MAX)
+         continue;
+      int now = crtrom_loaded(k);
+      if (now != crt_loaded[k]) {
+         crt_loaded[k] = now;
+         menu_set(i, now);
+         setting_set(i, now);
+         changed = 1;
+      }
+   }
+   if (changed) {
+      menu_show();
+      menu_cursor_on();
+   }
 }
 
 // -------------------------------------------------------------------------------------
@@ -427,16 +615,17 @@ void shell_poll(void)
          open_menu();
       break;
    case UI_MENU:
+      follow_crtroms();
       if (k && menu_key(menu_key_of(k)))
          close_menu();
       break;
+   case UI_LOAD:
+      load_poll(k);
+      break;
    case UI_HELP:
       if (k == M2M_KEY_SPACE || k == M2M_KEY_RUNSTOP) {
-         menu_show();
-         scr_window_on(menu.x, menu.y, menu.dx, menu.dy);
-         menu_set(help_idx, 0);
-         menu_cursor_on();
-         ui = UI_MENU;
+         menu.sel[help_idx] = 0;
+         menu_again();
       } else if (k == M2M_KEY_LEFT && help_page > 0) {
          help_page--;
          show_help_page();
