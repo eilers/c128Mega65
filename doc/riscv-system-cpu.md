@@ -99,7 +99,12 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   with an MBR (good files, a 1 MB one, and eight kinds of broken ones), and the
   firmware's long names and `printf`.
 - Step 1's boot ROM was a bring-up check (a banner, the keys, the CSR, the SD card's
-  block 0), which passed on the R6. Step 4's loader replaces it and isn't on hardware yet.
+  block 0), which passed on the R6. Step 4's loader replaces it.
+- The firmware base passes on the R6 (`6rv` build: WNS +0.397 ns, WHS +0.036 ns, 265.5
+  block RAM tiles): the boot ROM loads `/c128/firmware.bin`, and the firmware lists the
+  card's folders with long names, takes every key (Up and Down repeat), opens folders and
+  goes back, and follows card changes: with the back card out it lists the bottom tray's.
+  Without the file the boot ROM says so, and loads it once the card is right.
 - `qnice_wrapper` elaborates both ways in nvc and Vivado.
 - R6 build (`build_boards.sh 6rv`): timing met at 100 MHz (the CPU's clock +1.0 ns, the
   50/100 MHz handshakes +1.9 ns), and 25 fewer block RAM tiles than a QNICE build
