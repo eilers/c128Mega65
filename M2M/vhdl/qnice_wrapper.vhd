@@ -18,7 +18,8 @@ use work.sdhost_pkg.all;
 
 entity qnice_wrapper is
 generic (
-   G_BOARD : string                                         -- Which platform are we running on.
+   G_BOARD : string;                                        -- Which platform are we running on.
+   G_RISCV : boolean := false                               -- RISC-V system CPU (rv/rv_soc.vhd) instead of QNICE
 );
 port (
    clk_i                     : in  std_logic;
@@ -205,6 +206,7 @@ end function str2data;
 begin
 
    -- QNICE Co-Processor (System-on-a-Chip) for On-Screen-Menu, Disk mounting/virtual drives, ROM loading, etc.
+   qnice_gen : if not G_RISCV generate
    QNICE_SOC : entity work.QNICE
       generic map (
          G_FIRMWARE              => QNICE_FIRMWARE,
@@ -286,6 +288,101 @@ begin
          ramrom_wait_i           => qnice_ramrom_wait,
          ramrom_we_o             => qnice_ramrom_we_o
       ); -- QNICE_SOC
+
+   i_qnice2hyperram : entity work.qnice2hyperram
+      port map (
+         clk_i                 => clk_i,
+         rst_i                 => rst_i,
+         s_qnice_wait_o        => qnice_ramrom_wait_hyperram,
+         s_qnice_address_i     => qnice_ramrom_address,
+         s_qnice_cs_i          => qnice_ramrom_ce_hyperram,
+         s_qnice_write_i       => qnice_ramrom_we_o,
+         s_qnice_writedata_i   => qnice_ramrom_data_out_o,
+         s_qnice_byteenable_i  => "11",
+         s_qnice_readdata_o    => qnice_ramrom_data_in_hyperram,
+         m_avm_write_o         => qnice_avm_write_o,
+         m_avm_read_o          => qnice_avm_read_o,
+         m_avm_address_o       => qnice_avm_address_o,
+         m_avm_writedata_o     => qnice_avm_writedata_o,
+         m_avm_byteenable_o    => qnice_avm_byteenable_o,
+         m_avm_burstcount_o    => qnice_avm_burstcount_o,
+         m_avm_readdata_i      => qnice_avm_readdata_i,
+         m_avm_readdatavalid_i => qnice_avm_readdatavalid_i,
+         m_avm_waitrequest_i   => qnice_avm_waitrequest_i
+      ); -- i_qnice2hyperram
+   end generate qnice_gen;
+
+   -- RISC-V system CPU with the same ports. It has its own HyperRAM port, so the
+   -- HyperRAM device below answers nothing.
+   riscv_gen : if G_RISCV generate
+   i_rv_soc : entity work.rv_soc
+      generic map (
+         G_BOOT_ROM              => RV_BOOT_ROM,
+         G_VGA_DX                => VGA_DX,
+         G_VGA_DY                => VGA_DY,
+         G_FONT_DX               => FONT_DX,
+         G_FONT_DY               => FONT_DY
+      )
+      port map (
+         clk50_i                 => clk_i,
+         clk100_i                => clk100_i,
+         reset_n_i               => not rst_i,
+         uart_rxd_i              => uart_rxd_i,
+         uart_txd_o              => uart_txd_o,
+         sd_clk_o                => sd_clk_o,
+         sd_cmd_o                => sd_cmd_o,
+         sd_cmd_oe_o             => sd_cmd_oe_o,
+         sd_cmd_i                => sd_cmd_i,
+         sd_dat_o                => sd_dat_o,
+         sd_dat_oe_o             => sd_dat_oe_o,
+         sd_dat_i                => sd_dat_i,
+         sd_cd_i                 => sd_cd_i,
+         sd2_clk_o               => sd2_clk_o,
+         sd2_cmd_o               => sd2_cmd_o,
+         sd2_cmd_oe_o            => sd2_cmd_oe_o,
+         sd2_cmd_i               => sd2_cmd_i,
+         sd2_dat_o               => sd2_dat_o,
+         sd2_dat_oe_o            => sd2_dat_oe_o,
+         sd2_dat_i               => sd2_dat_i,
+         sd2_cd_i                => sd2_cd_i,
+         sd_eng_i                => sd_eng_i,
+         sd_eng_o                => sd_eng_o,
+         csr_reset_o             => qnice_csr_reset_o,
+         csr_pause_o             => qnice_csr_pause_o,
+         csr_osm_o               => qnice_osm_cfg_enable_o,
+         csr_keyboard_o          => qnice_csr_keyboard_on_o,
+         csr_joy1_o              => qnice_csr_joy1_on_o,
+         csr_joy2_o              => qnice_csr_joy2_on_o,
+         osm_xy_o                => qnice_osm_cfg_xy_o,
+         osm_dxdy_o              => qnice_osm_cfg_dxdy_o,
+         ascal_mode_i            => "0" & qnice_ascal_triplebuf_i & qnice_ascal_polyphase_i & qnice_ascal_mode_i,
+         ascal_mode_o            => qnice_ascal_mode_o,
+         keys_n_i                => qnice_qnice_keys_n_i,
+         control_d_o             => qnice_gp_reg_o,
+         control_m_o             => qnice_osm_control_m_o,
+         special_i               => (others => '0'),
+         general_i               => (others => '0'),
+         ramrom_dev_o            => qnice_ramrom_dev_o,
+         ramrom_addr_o           => qnice_ramrom_addr_o,
+         ramrom_data_o           => qnice_ramrom_data_out_o,
+         ramrom_data_i           => qnice_ramrom_data_in,
+         ramrom_ce_o             => qnice_ramrom_ce_o,
+         ramrom_wait_i           => qnice_ramrom_wait,
+         ramrom_we_o             => qnice_ramrom_we_o,
+         hr_write_o              => qnice_avm_write_o,
+         hr_read_o               => qnice_avm_read_o,
+         hr_address_o            => qnice_avm_address_o,
+         hr_writedata_o          => qnice_avm_writedata_o,
+         hr_byteenable_o         => qnice_avm_byteenable_o,
+         hr_burstcount_o         => qnice_avm_burstcount_o,
+         hr_readdata_i           => qnice_avm_readdata_i,
+         hr_readdatavalid_i      => qnice_avm_readdatavalid_i,
+         hr_waitrequest_i        => qnice_avm_waitrequest_i
+      ); -- i_rv_soc
+
+   qnice_ramrom_wait_hyperram    <= '0';
+   qnice_ramrom_data_in_hyperram <= x"EEEE";
+   end generate riscv_gen;
 
    -- Shell configuration file config.vhd
    shell_cfg : entity work.config
@@ -500,28 +597,6 @@ begin
 
    qnice_ramrom_address <= "10000" & qnice_ramrom_addr_o(26 downto 0) when qnice_ramrom_addr_o(27) = '1'
                       else "000000000" & qnice_ramrom_addr_o(22 downto 0);
-
-   i_qnice2hyperram : entity work.qnice2hyperram
-      port map (
-         clk_i                 => clk_i,
-         rst_i                 => rst_i,
-         s_qnice_wait_o        => qnice_ramrom_wait_hyperram,
-         s_qnice_address_i     => qnice_ramrom_address,
-         s_qnice_cs_i          => qnice_ramrom_ce_hyperram,
-         s_qnice_write_i       => qnice_ramrom_we_o,
-         s_qnice_writedata_i   => qnice_ramrom_data_out_o,
-         s_qnice_byteenable_i  => "11",
-         s_qnice_readdata_o    => qnice_ramrom_data_in_hyperram,
-         m_avm_write_o         => qnice_avm_write_o,
-         m_avm_read_o          => qnice_avm_read_o,
-         m_avm_address_o       => qnice_avm_address_o,
-         m_avm_writedata_o     => qnice_avm_writedata_o,
-         m_avm_byteenable_o    => qnice_avm_byteenable_o,
-         m_avm_burstcount_o    => qnice_avm_burstcount_o,
-         m_avm_readdata_i      => qnice_avm_readdata_i,
-         m_avm_readdatavalid_i => qnice_avm_readdatavalid_i,
-         m_avm_waitrequest_i   => qnice_avm_waitrequest_i
-      ); -- i_qnice2hyperram
 
    p_hr_stats : process (clk_i)
    begin

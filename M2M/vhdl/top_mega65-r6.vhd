@@ -22,7 +22,9 @@ entity mega65_r6 is
 generic (
    -- Leave the SDRAM unused and keep everything in HyperRAM, as on R3, and show the cartridge
    -- cache's waits in the menu (build target 6r3)
-   G_R3_MEMORY : boolean := false
+   G_R3_MEMORY : boolean := false;
+   -- RISC-V system CPU instead of QNICE (build target 6rv)
+   G_RISCV     : boolean := false
 );
 port (
    -- Onboard crystal oscillator = 100 MHz
@@ -621,7 +623,8 @@ begin
    i_framework : entity work.framework
    generic map (
       G_BOARD => "MEGA65_R6",
-      G_SDRAM => not G_R3_MEMORY
+      G_SDRAM => not G_R3_MEMORY,
+      G_RISCV => G_RISCV
    )
    port map (
       -- Connect to I/O ports

@@ -23,7 +23,8 @@ use xpm.vcomponents.all;
 entity framework is
 generic (
    G_BOARD : string;                                        -- Which platform are we running on.
-   G_SDRAM : boolean := true                                -- false: no SDRAM controller, as on R3
+   G_SDRAM : boolean := true;                               -- false: no SDRAM controller, as on R3
+   G_RISCV : boolean := false                               -- RISC-V system CPU instead of QNICE (qnice_wrapper.vhd)
 );
 port (
    clk_i                   : in    std_logic;                  -- 100 MHz clock
@@ -645,7 +646,8 @@ begin
 
    i_qnice_wrapper : entity work.qnice_wrapper
    generic map (
-      G_BOARD => G_BOARD
+      G_BOARD => G_BOARD,
+      G_RISCV => G_RISCV
    )
    port map (
       clk_i                     => qnice_clk,

@@ -6,7 +6,8 @@
 # side by side never rewrite the same files. Each board gets its own log.
 #
 # Usage: CORE/scripts/build_boards.sh [board ...]      (default: 6 3)
-#   board       3, 4, 5, 6, or 6r3: an R6 bitstream with R3's memory map (SDRAM unused)
+#   board       3, 4, 5, 6, 6r3: an R6 bitstream with R3's memory map (SDRAM unused),
+#               or 6rv: an R6 bitstream with the RISC-V system CPU instead of QNICE
 #   JOBS=2      boards building at once; synthesis takes about 8 GB per board
 #   LOG_DIR=... where the logs go (default: artifacts/build-logs)
 
@@ -28,10 +29,10 @@ LOG_DIR="${LOG_DIR:-$ROOT_DIR/artifacts/build-logs}"
 mkdir -p "$LOG_DIR"
 
 for b in "${BOARDS[@]}"; do
-  # 6r3 builds from its own copy of the R6 project, so it can run beside 6
-  if [[ "$b" == 6r3 ]]; then
-    sed 's/CORE-R6-vivado2022/CORE-R6R3-vivado2022/g' "$CORE_DIR/CORE-R6-vivado2022.xpr" \
-      > "$CORE_DIR/CORE-R6R3-vivado2022.xpr" || exit 1
+  # 6r3 and 6rv build from their own copies of the R6 project, so they can run beside 6
+  if [[ "$b" == 6r3 || "$b" == 6rv ]]; then
+    sed "s/CORE-R6-vivado2022/CORE-R${b^^}-vivado2022/g" "$CORE_DIR/CORE-R6-vivado2022.xpr" \
+      > "$CORE_DIR/CORE-R${b^^}-vivado2022.xpr" || exit 1
   fi
   [[ -f "$CORE_DIR/CORE-R${b^^}-vivado2022.xpr" ]] || { echo "ERROR: no project for R$b" >&2; exit 1; }
 done

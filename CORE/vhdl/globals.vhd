@@ -33,6 +33,9 @@ constant QNICE_FIRMWARE_M2M       : string  := "../../../CORE/m2m-rom/m2m-rom.ro
 -- Select firmware here
 constant QNICE_FIRMWARE           : string  := QNICE_FIRMWARE_M2M;
 
+-- Boot ROM of the RISC-V system CPU that replaces QNICE in a build with G_RISCV (M2M/firmware)
+constant RV_BOOT_ROM              : string  := "../../../M2M/firmware/boot.rom";
+
 ----------------------------------------------------------------------------------------------------------
 -- Clock Speed(s)
 --

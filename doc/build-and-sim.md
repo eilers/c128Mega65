@@ -183,6 +183,16 @@ checked in, so it can build next to a normal R6 (`build_boards.sh 6 6r3`). The b
 is `CORE/CORE-R6R3-vivado2022.runs/impl_1/mega65_r6.bit`. Give the `.cor` a version that
 says it is a 6r3 build.
 
+### RISC-V system CPU instead of QNICE
+
+```bash
+CORE/scripts/build_boards.sh 6rv
+```
+
+An R6 bitstream with the NEORV32 of `M2M/vhdl/rv` in place of QNICE (the R6 top's
+`G_RISCV` generic), from its own copy of the R6 project, `CORE/CORE-R6RV-vivado2022.xpr`.
+Work in progress: see `doc/riscv-system-cpu.md`.
+
 ### What the build does
 
 `build_bitstream.tcl`:
@@ -304,6 +314,10 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 | HDMI CRT emulation fit   | `CORE/sim/tb_scanline_fit.vhd`     | M2M `scanline_fit` in every HDMI mode: whole HDMI rows per line, lines and sides cropped, ascal's output rectangle |
 | HDMI after a reset       | `CORE/sim/tb_ascal_reset.vhd`      | ascal and `avm_decrease` against a HyperRAM controller model, reset while ascal writes: no burst left open, no read lost, reads resume |
 | 1541/1571 bring-up       | `CORE/sim/tb_c157x_boot.sv`        | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
+
+`CORE/scripts/run_rv_soc_nvc.sh` runs `CORE/sim/tb_rv_soc.vhd`, the RISC-V system CPU
+with its self-test firmware, in [nvc](https://www.nickg.me.uk/nvc/) (`brew install nvc`)
+rather than Vivado. It takes a few seconds and isn't part of `run_all_sims.sh` yet.
 
 ### 1541/1571 bring-up simulation
 

@@ -1,0 +1,5 @@
+--target=riscv32-unknown-elf
+-march=rv32imc_zicsr_zifencei
+-Iinclude
+-Ilib
+-std=gnu11

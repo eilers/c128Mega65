@@ -87,6 +87,8 @@ foreach required_file $required_source_files {
 # The SwiftLink modem: NEORV32 goes in its own library
 source [file join [file dirname [info script]] add_modem_sources.tcl]
 add_modem_sources $repo_dir
+source [file join [file dirname [info script]] add_rv_sources.tcl]
+add_rv_sources $repo_dir
 
 set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]
 foreach sv_file $sv_files {
@@ -106,6 +108,11 @@ foreach v_file $sv_compat_v_files {
 # Target 6r3: an R6 bitstream with R3's memory map (see build_bitstream.tcl)
 if {[regexp {CORE-R6R3} [file rootname [file tail $project_file]]]} {
     set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
+}
+
+# Target 6rv: the RISC-V system CPU instead of QNICE
+if {[regexp {CORE-R6RV} [file rootname [file tail $project_file]]]} {
+    set_property generic {G_RISCV=true} [get_filesets sources_1]
 }
 
 puts "TOP: [get_property top [current_fileset]] [get_property generic [current_fileset]]"

@@ -103,6 +103,8 @@ foreach required_file $required_source_files {
 # The SwiftLink modem: NEORV32 goes in its own library
 source [file join [file dirname [info script]] add_modem_sources.tcl]
 add_modem_sources $repo_dir
+source [file join [file dirname [info script]] add_rv_sources.tcl]
+add_rv_sources $repo_dir
 
 # Board-specific sources not present in the shared R6-derived project template.
 set project_base [file rootname [file tail $project_file]]
@@ -122,6 +124,12 @@ if {[regexp {CORE-R3} $project_base]} {
 if {[regexp {CORE-R6R3} $project_base]} {
     puts "R3 memory map: G_R3_MEMORY=true"
     set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
+}
+
+# Target 6rv (build_boards.sh): an R6 bitstream with the RISC-V system CPU instead of QNICE
+if {[regexp {CORE-R6RV} $project_base]} {
+    puts "RISC-V system CPU: G_RISCV=true"
+    set_property generic {G_RISCV=true} [get_filesets sources_1]
 }
 
 # Vivado 2022 may import .sv files as plain Verilog from newer project files.

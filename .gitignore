@@ -1,5 +1,8 @@
 CORE/*.cache
 CORE/CORE-R6R3-vivado2022.xpr
+CORE/CORE-R6RV-vivado2022.xpr
+CORE/rv_soc_nvc
+M2M/firmware/build
 CORE/*.hw
 CORE/*.runs
 CORE/*.sim
