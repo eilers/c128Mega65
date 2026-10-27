@@ -85,8 +85,15 @@ architecture synthesis of rv_hr_bridge is
    signal wr_data_hi  : std_logic_vector(15 downto 0);
    signal wr_be_hi    : std_logic_vector(1 downto 0);
 
-   -- After a reset, read data of a burst from before it is dropped
+   -- After a reset, read data of a burst from before it is dropped. A request that comes
+   -- meanwhile waits for it (XBUS has no stall); the CPU sends no other until it's answered.
    signal settle      : natural range 0 to 63 := 63;
+   signal held        : std_logic := '0';
+   signal held_adr    : std_logic_vector(23 downto 0);
+   signal held_we     : std_logic;
+   signal held_sel    : std_logic_vector(3 downto 0);
+   signal held_dat    : std_logic_vector(31 downto 0);
+   signal held_cti    : std_logic_vector(2 downto 0);
 
 begin
 
@@ -95,6 +102,12 @@ begin
       variable v_count     : natural range 0 to C_LINE_WORDS;
       variable v_expect    : natural range 0 to C_LINE_WORDS;
       variable v_words     : natural range 0 to 2 * C_LINE_WORDS;
+      variable v_stb       : std_logic;
+      variable v_adr       : std_logic_vector(23 downto 0);
+      variable v_we        : std_logic;
+      variable v_sel       : std_logic_vector(3 downto 0);
+      variable v_dat       : std_logic_vector(31 downto 0);
+      variable v_cti       : std_logic_vector(2 downto 0);
    begin
       if rising_edge(clk_i) then
          ack_o       <= '0';
@@ -149,15 +162,42 @@ begin
             end if;
          end if;
 
-         -- CPU requests
-         if stb_i = '1' then
-            if state = S_READ and we_i = '0' and beats_left > 0 and unsigned(adr_i) = next_adr then
+         -- CPU requests, or the one held while settling
+         if held = '1' then
+            v_stb := '1';
+            v_adr := held_adr;
+            v_we  := held_we;
+            v_sel := held_sel;
+            v_dat := held_dat;
+            v_cti := held_cti;
+         else
+            v_stb := stb_i;
+            v_adr := adr_i;
+            v_we  := we_i;
+            v_sel := sel_i;
+            v_dat := dat_i;
+            v_cti := cti_i;
+         end if;
+
+         if v_stb = '1' then
+            held <= '0';
+            if state = S_READ and v_we = '0' and beats_left > 0 and unsigned(v_adr) = next_adr then
                -- The next word of the line being filled
                v_requested := v_requested + 1;
                beats_left  <= beats_left - 1;
                next_adr    <= next_adr + 4;
-            elsif state = S_IDLE and settle = 0 and we_i = '0' then
-               if cti_i = "010" then
+            elsif state = S_IDLE and settle > 0 then
+               held     <= '1';
+               held_adr <= v_adr;
+               held_we  <= v_we;
+               held_sel <= v_sel;
+               held_dat <= v_dat;
+               held_cti <= v_cti;
+            elsif state = S_IDLE and v_we = '0' and
+                  (v_cti /= "010" or (unsigned(v_adr) and to_unsigned(G_LINE_BYTES - 1, 24)) = 0) then
+               -- A line fill starts at the line's start: a stray word from the middle of
+               -- one gets an error below, so it can't leave the bridge waiting for the rest
+               if v_cti = "010" then
                   v_words    := 2 * C_LINE_WORDS;
                   v_expect   := C_LINE_WORDS;
                   beats_left <= C_LINE_WORDS - 1;
@@ -167,31 +207,31 @@ begin
                   beats_left <= 0;
                end if;
                v_requested      := 1;
-               next_adr         <= (unsigned(adr_i(23 downto 2)) & "00") + 4;
+               next_adr         <= (unsigned(v_adr(23 downto 2)) & "00") + 4;
                rd_left          <= v_words;
                burst_left       <= minimum(C_BURST, v_words);
                half             <= '0';
                avm_read_o       <= '1';
-               avm_address_o    <= x"00" & '0' & adr_i(23 downto 2) & '0';
+               avm_address_o    <= x"00" & '0' & v_adr(23 downto 2) & '0';
                avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(C_BURST, v_words), 8));
                state            <= S_READ;
-            elsif state = S_IDLE and settle = 0 and we_i = '1' and sel_i /= "0000" then
+            elsif state = S_IDLE and v_we = '1' and v_sel /= "0000" then
                -- One word or two, depending on the byte enables
                avm_write_o <= '1';
                state       <= S_WRITE;
-               wr_data_hi  <= dat_i(31 downto 16);
-               wr_be_hi    <= sel_i(3 downto 2);
-               if sel_i(1 downto 0) = "00" then
-                  avm_address_o    <= x"00" & '0' & adr_i(23 downto 2) & '1';
-                  avm_writedata_o  <= dat_i(31 downto 16);
-                  avm_byteenable_o <= sel_i(3 downto 2);
+               wr_data_hi  <= v_dat(31 downto 16);
+               wr_be_hi    <= v_sel(3 downto 2);
+               if v_sel(1 downto 0) = "00" then
+                  avm_address_o    <= x"00" & '0' & v_adr(23 downto 2) & '1';
+                  avm_writedata_o  <= v_dat(31 downto 16);
+                  avm_byteenable_o <= v_sel(3 downto 2);
                   avm_burstcount_o <= x"01";
                   wr_hi            <= '0';
                else
-                  avm_address_o    <= x"00" & '0' & adr_i(23 downto 2) & '0';
-                  avm_writedata_o  <= dat_i(15 downto 0);
-                  avm_byteenable_o <= sel_i(1 downto 0);
-                  if sel_i(3 downto 2) = "00" then
+                  avm_address_o    <= x"00" & '0' & v_adr(23 downto 2) & '0';
+                  avm_writedata_o  <= v_dat(15 downto 0);
+                  avm_byteenable_o <= v_sel(1 downto 0);
+                  if v_sel(3 downto 2) = "00" then
                      avm_burstcount_o <= x"01";
                      wr_hi            <= '0';
                   else
@@ -200,7 +240,7 @@ begin
                   end if;
                end if;
             else
-               -- Overlapping requests, or a write with no byte enabled
+               -- Overlapping requests, a stray line word, or a write with no byte enabled
                ack_o <= '1';
                err_o <= '1';
             end if;
@@ -237,6 +277,7 @@ begin
             beats_left  <= 0;
             wr_hi       <= '0';
             settle      <= 63;
+            held        <= '0';
          end if;
       end if;
    end process p_bridge;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Run tb_rv_soc (the RISC-V system CPU, M2M/vhdl/rv) with nvc, the open-source VHDL
-# simulator (brew install nvc): the selftest, then the firmware. Takes about 30 seconds; no
-# Vivado needed.
+# Run tb_rv_hr_bridge and tb_rv_soc (the RISC-V system CPU, M2M/vhdl/rv) with nvc, the
+# open-source VHDL simulator (brew install nvc): the HyperRAM bridge, the selftest, then the
+# firmware. Takes about 30 seconds; no Vivado needed.
 #
 # Usage: CORE/scripts/run_rv_soc_nvc.sh [work dir]
 
@@ -21,7 +21,10 @@ nvc --std=2008 -L . -a \
     "$repo/M2M/vhdl/QNICE/sdmux.vhd" \
     "$repo/M2M/vhdl/rv/rv_hr_bridge.vhd" \
     "$repo/M2M/vhdl/rv/rv_soc.vhd" \
+    "$repo/CORE/sim/tb_rv_hr_bridge.vhd" \
     "$repo/CORE/sim/tb_rv_soc.vhd"
+nvc --std=2008 -L . -e tb_rv_hr_bridge -r --exit-severity=error 2>&1 | tee tb_rv_hr_bridge.log
+grep -q "ALL CHECKS PASSED" tb_rv_hr_bridge.log && echo "RV HR BRIDGE SIM: PASSED" || { echo "RV HR BRIDGE SIM: FAILED"; exit 1; }
 nvc --std=2008 -L . --ieee-warnings=off -e tb_rv_soc -gG_BOOT_ROM="$repo/M2M/firmware/test/selftest.rom" \
     -r --exit-severity=error 2>&1 | tee tb_rv_soc.log
 grep -q "ALL CHECKS PASSED" tb_rv_soc.log && echo "RV SOC SIM: PASSED" || { echo "RV SOC SIM: FAILED"; exit 1; }
