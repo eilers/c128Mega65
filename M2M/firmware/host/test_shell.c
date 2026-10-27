@@ -33,6 +33,9 @@ static int cluster;                      // bytes
 #define CSR_PARSEE1  0x011
 #define CSR_ERR_STR  0x100
 #define CSR_MAX_HI   0x020
+#define CSR_STALLS   0x021
+#define CSR_STALL_MAX 0x022
+#define CSR_STATS    0x023
 #define SDL_MAGIC    0x030
 #define SDL_BLK_LO   0x032
 #define SDL_BLK_HI   0x033
@@ -475,6 +478,19 @@ int main(int argc, char **argv)
    check(M2M_OSM_XY == (20u << 8) && find_row("=CRT:game.crt") > 0, "menu: CRT:game.crt selected");
    check(setting_get(item(" CRT file")) && !setting_get(item(" Hardware")) && setting_get(item(" CRT:%s")),
          "CRT file source and the CRT item set");
+
+   // A build that shows the cartridge cache's waits: the Cartridge line has them, and
+   // drawing it clears them
+   crtrom_csr_set(CRT_DEV, CSR_STATS, 1);
+   crtrom_csr_set(CRT_DEV, CSR_STALLS, 7);
+   crtrom_csr_set(CRT_DEV, CSR_STALL_MAX, 128);
+   press(M2M_KEY_RUNSTOP);
+   dump("stall line");
+   check(find_row(" Stalls 7 max 130us") > 0 && crtrom_csr_get(CRT_DEV, CSR_STALLS) == 0,
+         "Cartridge line: stalls and the longest in us, then cleared");
+   crtrom_csr_set(CRT_DEV, CSR_STATS, 0);
+   press(M2M_KEY_RETURN);
+   go_to("CRT:");
 
    // Again: where we left off; Run/Stop leaves it loaded
    press(M2M_KEY_RETURN);

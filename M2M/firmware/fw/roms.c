@@ -100,10 +100,13 @@ void roms_autoload(void)
    if (n > CRTROM_AUT_MAX)
       shell_fatal("Too many auto-load ROMs in globals.vhd\n", n);
 
-   // The manually loaded ones' devices start idle
-   for (int i = 0; i < (int)sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_NUM); i++)
-      if (sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * i) == TYPE_DEVICE)
-         crtrom_csr_set(sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * i + 1), 0, CSR_ST_IDLE);
+   // The manually loaded ones' devices start idle. QNICE could also load them into a
+   // HyperRAM window; no core here does.
+   for (int i = 0; i < crtrom_count(); i++) {
+      if (sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * i) != TYPE_DEVICE)
+         shell_fatal("globals.vhd: C_CRTROMS_MAN: this firmware\nloads manual CRTs/ROMs only into\ndevices.\n", i);
+      crtrom_csr_set(crtrom_dev(i), 0, CSR_ST_IDLE);
+   }
 
    for (int i = 0; i < n; i++) {
       int      base   = CRTROM_AUT_BUF + 4 * i;

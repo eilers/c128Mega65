@@ -4,6 +4,7 @@
 #include <string.h>
 #include "config_ids.h"
 #include "core.h"
+#include "fmt.h"
 #include "m2m_rv.h"
 #include "roms.h"
 
@@ -11,13 +12,41 @@
 #define INT1581_OFF 0
 #define CART_CRT    1
 
-#define CRT_DEVICE     0x0106   // C_DEV_CRT (globals.vhd)
-#define CRT_CSR_MAX_HI 0x020    // the largest .crt file it takes, in 64 kB (sw_cartridge_csr.vhd)
+#define CRT_DEVICE        0x0106   // C_DEV_CRT (globals.vhd), its CSR (sw_cartridge_csr.vhd):
+#define CRT_CSR_MAX_HI    0x020    // the largest .crt file it takes, in 64 kB
+#define CRT_CSR_STALLS    0x021    // R: bank waits, W: clear
+#define CRT_CSR_STALL_MAX 0x022    // R: the longest, in C64 cycles
+#define CRT_CSR_STATS     0x023    // R: 1 = show them in the menu
 
+// In a build that asks for it (CSR $023, the 6r3 builds), while a .crt file is the source,
+// the Cartridge line shows how often the C128 waited a C64 cycle or more for a bank of the
+// cache since the menu was last drawn, and the longest wait. Drawing it clears both.
 const char *core_submenu_summary(int idx)
 {
-   (void)idx;   // @TODO step 5: the 6r3 build's stall line on the Cartridge headline
-   return NULL;
+   static char line[32];
+   int g;
+
+   // The Cartridge submenu's first menu group is the cartridge source
+   while ((g = shell_group(++idx)) == 0)
+      ;
+   if (g != OPTM_G_CART || !shell_setting(OPTM_G_CART, CART_CRT) ||
+       crtrom_csr_get(CRT_DEVICE, CRT_CSR_STATS) != 1)
+      return NULL;
+   unsigned waits = crtrom_csr_get(CRT_DEVICE, CRT_CSR_STALLS);
+   unsigned most  = crtrom_csr_get(CRT_DEVICE, CRT_CSR_STALL_MAX);
+   crtrom_csr_set(CRT_DEVICE, CRT_CSR_STALLS, 0);
+
+   // At most 4 digits each, so the line fits. A PAL C64 cycle is 1.015 us: us = cycles +
+   // cycles / 64.
+   if (waits > 9999)
+      waits = 9999;
+   if (most > 9999)
+      most = 9999;
+   most += most / 64;
+   if (most > 9999)
+      most = 9999;
+   fmt_snprintf(line, sizeof line, " Stalls %u max %uus", waits, most);
+   return line;
 }
 
 // The drive that is the internal floppy says so instead of naming an image

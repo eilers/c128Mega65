@@ -121,16 +121,20 @@ if {[regexp {CORE-R3} $project_base]} {
     }
 }
 
-# Target 6r3 (build_boards.sh): an R6 bitstream with R3's memory map, the SDRAM unused.
+# Targets 6r3 and 6rv (build_boards.sh): an R6 bitstream with R3's memory map, the SDRAM
+# unused, or with the RISC-V system CPU instead of QNICE; 6r3rv has both. One
+# set_property, as each one replaces the whole list.
+set generics {}
 if {[regexp {CORE-R6R3} $project_base]} {
     puts "R3 memory map: G_R3_MEMORY=true"
-    set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
+    lappend generics G_R3_MEMORY=true
 }
-
-# Target 6rv (build_boards.sh): an R6 bitstream with the RISC-V system CPU instead of QNICE
-if {[regexp {CORE-R6RV} $project_base]} {
+if {[regexp {CORE-R6(R3)?RV} $project_base]} {
     puts "RISC-V system CPU: G_RISCV=true"
-    set_property generic {G_RISCV=true} [get_filesets sources_1]
+    lappend generics G_RISCV=true
+}
+if {[llength $generics] > 0} {
+    set_property generic $generics [get_filesets sources_1]
 }
 
 # Vivado 2022 may import .sv files as plain Verilog from newer project files.

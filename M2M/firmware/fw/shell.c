@@ -548,6 +548,11 @@ static void follow_loads(void)
 // The menu's helpers for the core (M2M$GET_SETTING, M2M$FORCE_MENU)
 // -------------------------------------------------------------------------------------
 
+int shell_group(int idx)
+{
+   return idx >= 0 && idx < menu.n ? (int)(menu.group[idx] & MENU_ID) : -1;
+}
+
 int shell_item(int group, int pos)
 {
    for (int i = 0; i < menu.n; i++)

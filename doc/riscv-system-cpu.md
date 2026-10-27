@@ -94,7 +94,8 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   (`selectfile.asm`, `dirbrowse.asm`). `fw/roms.c` loads `.crt` files, by the device's DMA
   where it has one. `fw/drives.c` mounts disk images: drives 8 and 9 read them straight
   from the card (`vd_sd.vhd`), so mounting only hands the drive the SD block of each 4 KB
-  piece. Not yet: the 6r3 stall line.
+  piece. In builds with R3's memory map, the Cartridge line shows the cartridge cache's
+  waits, as QNICE's does.
 - **Shared** (`lib/`): the SD card through `sdhost`'s registers (512-byte blocks, a byte
   at a time through its buffer, as QNICE did), FatFs's disk layer, CRC-32, menu text, the
   serial port, a small `printf`, and the trap handler.
@@ -149,7 +150,8 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   `test_shell` runs the Shell against `config.vhd` as `run_config_nvc.sh` dumps it (full
   and R3 menus), with the registers and devices faked in `host/host_m2m.c`. Both nvc
   scripts need `QNICE_DIR` in a worktree without the QNICE submodule.
-- Bitstream: `CORE/scripts/build_boards.sh 6rv`, an R6 with `G_RISCV`.
+- Bitstream: `CORE/scripts/build_boards.sh 6rv`, an R6 with `G_RISCV`; `6r3rv` adds R3's
+  memory map (`G_R3_MEMORY`), where the CPU shares HyperRAM with everything else.
 - Simulation: `CORE/scripts/run_rv_soc_nvc.sh` (nvc, about 30 seconds on the Mac): the
   HyperRAM bridge, the selftest, then the firmware, which reads the real `config.vhd` and
   stops on its no-SD-card screen. Build the firmware first.

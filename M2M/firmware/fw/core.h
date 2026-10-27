@@ -28,6 +28,7 @@ const char *core_prep_start(void);
 uint32_t    core_menu_key(void);
 
 // What the Shell offers the core
+int  shell_group(int idx);                    // menu item idx's group (0: text, line), or -1
 int  shell_item(int group, int pos);          // menu index of a group's item, or -1
 int  shell_setting(int group, int pos);       // that item's setting bit (M2M$GET_SETTING)
 void shell_force(int group, int pos, int on); // M2M$FORCE_MENU

@@ -106,14 +106,17 @@ foreach v_file $sv_compat_v_files {
     }
 }
 
-# Target 6r3: an R6 bitstream with R3's memory map (see build_bitstream.tcl)
+# Targets 6r3, 6rv and 6r3rv: R3's memory map, the RISC-V system CPU, or both (see
+# build_bitstream.tcl)
+set generics {}
 if {[regexp {CORE-R6R3} [file rootname [file tail $project_file]]]} {
-    set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
+    lappend generics G_R3_MEMORY=true
 }
-
-# Target 6rv: the RISC-V system CPU instead of QNICE
-if {[regexp {CORE-R6RV} [file rootname [file tail $project_file]]]} {
-    set_property generic {G_RISCV=true} [get_filesets sources_1]
+if {[regexp {CORE-R6(R3)?RV} [file rootname [file tail $project_file]]]} {
+    lappend generics G_RISCV=true
+}
+if {[llength $generics] > 0} {
+    set_property generic $generics [get_filesets sources_1]
 }
 
 puts "TOP: [get_property top [current_fileset]] [get_property generic [current_fileset]]"
