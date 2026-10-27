@@ -75,6 +75,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   50/100 MHz handshakes +1.9 ns), and 25 fewer block RAM tiles than a QNICE build
   (265.5 against 290.5). On the R6 the boot ROM shows its banner, the keys, the CSR and the
   SD card's block 0.
+- The HyperRAM map with the firmware region (`doc/hyperram-map.md`) passes on the R6 in
+  `6` and `6r3` builds: the REU at 512 KB and 2 MB, virtual cartridges, the modem, HDMI,
+  and the R3 menu and settings file.
 
 ## Building and testing
 
