@@ -22,7 +22,9 @@ entity main is
    generic (
       G_BOARD                 : string;                     -- Which MEGA65 revision are we running on
       G_VDNUM                 : natural;                    -- amount of virtual drives
-      G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20   -- reset on a cartridge change: 50 ms
+      G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20;  -- reset on a cartridge change: 50 ms
+      G_REU_BASE              : std_logic_vector(31 downto 0) :=   -- word address of the REU's memory
+                                "0000000" & C_HMAP_REU(12 downto 0) & x"000"
    );
    port (
       clk_main_i              : in  std_logic;  -- Main core clock (~31.53 MHz PAL)
@@ -221,7 +223,7 @@ entity main is
       qnice_p1581_data_i      : in  std_logic_vector(15 downto 0) := (others => '0');
       qnice_p1581_data_o      : out std_logic_vector(15 downto 0);
 
-      -- REU's HyperRAM port (clk_main_i domain; mega65.vhd crosses it to hr_clk)
+      -- REU's memory port, HyperRAM or SDRAM (clk_main_i domain; mega65.vhd crosses it to hr_clk)
       reu_avm_write_o         : out std_logic;
       reu_avm_read_o          : out std_logic;
       reu_avm_address_o       : out std_logic_vector(31 downto 0);
@@ -264,6 +266,7 @@ entity main is
       crt_vic_rd_o            : out std_logic;   -- SDRAM: the VIC fetches ROMH (Ultimax)
       crt_vic_addr_o          : out std_logic_vector(12 downto 0);
       crt_rfsh_ok_o           : out std_logic;   -- SDRAM: no cartridge read is due for a while
+      crt_reu_ok_o            : out std_logic;   -- SDRAM: the REU may start an access
       crt_reset_o             : out std_logic;   -- the C128 is in reset
       crt_phi2_o              : out std_logic;
       crt_flash_wr_o          : out std_logic;   -- a CPU write selects ROML or ROMH (Ultimax), one clock
@@ -452,7 +455,7 @@ signal cart_source          : t_cart_source;
 
 -- REU
 signal reu_menu             : std_logic_vector(1 downto 0);   -- the menu's choice, as reu.sv's cfg
-signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB
+signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB, "11" 16 MB
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
 signal reu_cs               : std_logic;                      -- reu_io's strobe, once per access
 signal io_phi2              : std_logic;                      -- PHI2 of an I/O access: CPU4-6
@@ -510,6 +513,9 @@ signal crt_bank_lo          : std_logic_vector(6 downto 0);
 signal crt_addr_9exx        : std_logic;
 signal crt_addr_9fxx        : std_logic;
 signal crt_rfsh_ok          : std_logic := '1';
+signal crt_reu_ok           : std_logic := '1';
+constant C_REU_FROM         : natural := 7;    -- SDRAM: the REU's window, clocks into PHI2 low
+constant C_REU_TO           : natural := 15;
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
@@ -852,6 +858,7 @@ exp_port_hw <= '1' when cart_source = CART_HW else '0';
 
 reu_menu <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
             "10" when osm_control_i(C_MENU_REU_2M)   = '1' else
+            "11" when osm_control_i(C_MENU_REU_16M)  = '1' else
             "00";
 reu_cfg  <= "00" when crt_io2 = '1' or modem_base = "10" else reu_menu;
 reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0';
@@ -1155,7 +1162,7 @@ begin
 end process handle_hardware_expansion_proc;
 
 --------------------------------------------------------------------------------------------------
--- REU (MiSTer reu.sv) in HyperRAM
+-- REU (MiSTer reu.sv) in HyperRAM, or SDRAM where the board has it
 --------------------------------------------------------------------------------------------------
 -- cpu_we must see I/O writes ($DF01-$DF0A) and $FF00, so it takes system_we, not ram_we.
 reu_inst : entity work.reu
@@ -1190,14 +1197,14 @@ reu_inst : entity work.reu
 -- reu.sv masks addr_ram only when a transfer starts. Mask here too, so that reu_mapper's
 -- prefetch of a freshly written $DF04-$DF06 stays inside the REU's window.
 reu_ram_addr_m <= reu_ram_addr and ("000000" & "111" & x"FFFF") when reu_cfg = "01" else
-                  reu_ram_addr and ("0000" & "11111" & x"FFFF");
+                  reu_ram_addr and ("0000" & "11111" & x"FFFF") when reu_cfg = "10" else
+                  reu_ram_addr and ('0' & x"FFFFFF");
 
--- HyperRAM path, as in C64MEGA65: reu_mapper prefetches and holds the REU's RAM cycle
--- until the data is there, avm_cache keeps sequential reads fast, and avm_fifo in
--- mega65.vhd crosses to hr_clk.
+-- As in C64MEGA65: reu_mapper prefetches and holds the REU's RAM cycle until the data is
+-- there, avm_cache keeps sequential reads fast, and avm_fifo in mega65.vhd crosses to hr_clk.
 reu_mapper_inst : entity work.reu_mapper
    generic map (
-      G_BASE_ADDRESS => "0000000000" & C_HMAP_REU(9 downto 0) & x"000"
+      G_BASE_ADDRESS => G_REU_BASE
    )
    port map (
       clk_i               => clk_main_i,
@@ -1333,6 +1340,22 @@ begin
 end process crt_rfsh_proc;
 
 crt_rfsh_ok_o <= crt_rfsh_ok;
+
+-- The REU starts its SDRAM accesses in the second half of PHI2 low, after the FAST CPU's read at
+-- its start, and they are done before the refreshes in PHI2 high (tb_reu_sdram). Ending earlier
+-- would delay its read cache's refills past SWAP's next write.
+crt_reu_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      crt_reu_ok <= '0';
+      if crt_active = '0' or phi2_cnt = 31 or reset_core_n = '0' or
+         (core_phi2 = '0' and phi2_ph >= C_REU_FROM and phi2_ph <= C_REU_TO) then
+         crt_reu_ok <= '1';
+      end if;
+   end if;
+end process crt_reu_proc;
+
+crt_reu_ok_o <= crt_reu_ok;
 
 -- EasyFlash's flash chips see each CPU access to ROML/ROMH once, at its RAM strobe. As with
 -- the port's /ROML-/ROMH, only an Ultimax write selects a chip.

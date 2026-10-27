@@ -63,6 +63,7 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/crt_reader.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_flash.vhd"] \
     [file join $repo_dir "M2M/vhdl/controllers/SDRAM/sdram.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sdram_arbit.vhd"] \
     [file join $repo_dir "M2M/vhdl/axi_fifo_small.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_loader.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \

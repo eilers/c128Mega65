@@ -150,7 +150,7 @@ t_registers:
         beq @found
 @none:  jsr fail
         .byte $0D, "NO REU AT $DF00. SET REU TO 512 KB", $0D
-        .byte "OR 2 MB IN THE MENU.", 0
+        .byte "OR MORE IN THE MENU.", 0
         jmp done
 @found: lda #1
         sta present
@@ -207,19 +207,23 @@ t_registers:
         sta REU_ACR
         jmp done
 
-; Bank b gets the byte b, from bank 31 down to 0. Reading from bank 0 up, the
-; first bank that does not hold its own number is where the REU wraps.
+; Bank b gets the byte b, from bank 255 down to 0. Reading from bank 0 up, the
+; first bank that does not hold its own number is where the REU wraps. If all
+; 256 do, it is 16 MB: full is set, and banks and nbanks are 0.
 t_size:
         jsr begin
         .byte "SIZE", 0
-        ldx #31
+        lda #0
+        sta full
+        ldx #255
 @wr:    stx BUF_S
         SETX BUF_S, 0, 1
         stx xr+2
         lda #CMD_STASH
         jsr xfer
         dex
-        bpl @wr
+        cpx #255
+        bne @wr
         ldx #0
 @rd:    SETX BUF_S, 0, 1
         stx xr+2
@@ -228,10 +232,12 @@ t_size:
         cpx BUF_S
         bne @end
         inx
-        cpx #32
         bne @rd
+        inc full
 @end:   stx banks
         stx nbanks              ; WHOLE REU covers this or what $DF06 claims, if more
+        lda full
+        bne @print
         lda bankreg
         ldx #32
         cmp #$E0
@@ -244,7 +250,12 @@ t_size:
         stx nbanks
 @print: jsr print
         .byte ": ", 0
-        lda banks
+        lda full
+        beq @not16
+        jsr print
+        .byte "16 MB", 0
+        jmp @reg
+@not16: lda banks
         cmp #8
         bne @not512
         jsr print
@@ -273,6 +284,7 @@ t_mark:
         lda #0
         sta runs
         lda nbanks
+        ora full
         beq @rts
         jsr mark_addr
         lda #CMD_FETCH
@@ -776,6 +788,7 @@ t_whole:
         lda #0
         sta werrs
         lda nbanks
+        ora full
         beq @skip
         lda #$00
         sta wpat
@@ -850,16 +863,19 @@ whole_sweep:
 @next:  inc pg
         bne @more
         inc pg+1
-        lda pg+1                ; a dot every 512 KB
-        and #$07
-        bne @more
+        lda wcmd                ; a dot every 2 MB verified
+        cmp #CMD_VERIFY
+        bne @bank
+        lda pg+1
+        and #$1F
+        bne @bank
         lda #'.'
         jsr CHROUT
-@more:  lda pg+1
+@bank:  lda pg+1                ; done after the last bank (nbanks 0: after 256)
         cmp nbanks
-        beq :+
-        jmp @page
-:       rts
+        bne @more
+        rts
+@more:  jmp @page
 
 ; Leaves a mark with a run count in the REU's last page, for t_mark to find
 write_mark:
@@ -1051,7 +1067,8 @@ present:   .byte 0
 nfail:     .byte 0
 tfail:     .byte 0
 banks:     .byte 0
-nbanks:    .byte 0
+nbanks:    .byte 0              ; 0 with full set: 256 banks
+full:      .byte 0
 bankreg:   .byte 0
 runs:      .byte 0
 saved:     .byte 0

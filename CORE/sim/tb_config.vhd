@@ -1,9 +1,9 @@
 ----------------------------------------------------------------------------------
 -- Commodore 128 for MEGA65
 --
--- Testbench for config.vhd: R3-memory builds (G_R3_MEMORY) leave the 2 MB REU item out of
--- the menu. Reads both menus the way the Shell does and checks that the R3 one is the full
--- one without item C_MENU_REU_2M, in every selector, and that it has its own settings file.
+-- Testbench for config.vhd: R3-memory builds (G_R3_MEMORY) leave the 2 MB and 16 MB REU items
+-- out of the menu. Reads both menus the way the Shell does and checks that the R3 one is the full
+-- one without those items, in every selector, and that it has its own settings file.
 --
 -- Run with CORE/scripts/run_config_nvc.sh
 ----------------------------------------------------------------------------------
@@ -116,7 +116,7 @@ begin
 
       rd(FULL, SEL_ICOUNT, 0, n_f);
       rd(R3,   SEL_ICOUNT, 0, n_r);
-      check(n_r = n_f - 1, "R3 menu has " & integer'image(n_r) & " items, full " & integer'image(n_f));
+      check(n_r = n_f - C_MENU_R3_DROP, "R3 menu has " & integer'image(n_r) & " items, full " & integer'image(n_f));
 
       rd_str(FULL, SEL_OPTM_ITEMS, items_f, len_f);
       rd_str(R3,   SEL_OPTM_ITEMS, items_r, len_r);
@@ -131,12 +131,14 @@ begin
 
       item(items_f, len_f, C_MENU_REU_2M, f1, f2);
       check(items_f(f1 to f2) = " 2 MB", "full item C_MENU_REU_2M is """ & items_f(f1 to f2) & """");
+      item(items_f, len_f, C_MENU_REU_16M, f1, f2);
+      check(items_f(f1 to f2) = " 16 MB", "full item C_MENU_REU_16M is """ & items_f(f1 to f2) & """");
       item(items_f, len_f, C_MENU_CART_CRT, f1, f2);
       check(items_f(f1 to f2) = " CRT file", "full item C_MENU_CART_CRT is """ & items_f(f1 to f2) & """");
 
-      -- R3 item i is full item i, or i + 1 from the 2 MB item on, in text and in every selector
+      -- R3 item i is full item i, or i + 2 from the 2 MB item on, in text and in every selector
       for i in 0 to n_r - 1 loop
-         if i < C_MENU_REU_2M then j := i; else j := i + 1; end if;
+         if i < C_MENU_REU_2M then j := i; else j := i + C_MENU_R3_DROP; end if;
          item(items_f, len_f, j, f1, f2);
          item(items_r, len_r, i, r1, r2);
          check(items_f(f1 to f2) = items_r(r1 to r2),

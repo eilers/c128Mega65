@@ -89,10 +89,10 @@ carries `CORE_VERSION`, so it changes with every release:
 | File                                       | Size                   | SD card path                        |
 |--------------------------------------------|------------------------|-------------------------------------|
 | `CORE/m2m-rom/c128mega65-<version>.cfg`    | one byte per menu line | `/c128/c128mega65-<version>.cfg`    |
-| `CORE/m2m-rom/c128mega65-<version>-r3.cfg` | one byte fewer         | `/c128/c128mega65-<version>-r3.cfg` |
+| `CORE/m2m-rom/c128mega65-<version>-r3.cfg` | two bytes fewer        | `/c128/c128mega65-<version>-r3.cfg` |
 
-R3 and `6r3` builds have no 2 MB REU, so their menu is one line shorter and has
-its own file (`doc/hyperram-map.md`). Regenerate both whenever `OPTM_SIZE_ALL`
+R3 and `6r3` builds have no 2 MB or 16 MB REU, so their menu is two lines shorter
+and has its own file (`doc/hyperram-map.md`). Regenerate both whenever `OPTM_SIZE_ALL`
 or `CORE_VERSION` changes, and delete the files belonging to the previous
 version:
 

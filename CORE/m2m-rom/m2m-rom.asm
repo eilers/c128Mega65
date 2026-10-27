@@ -446,13 +446,13 @@ _CUSTOM_MSG_RET DECRB
 ; ----------------------------------------------------------------------------
 
 ; CRT_MENU_IDX: the menu index of the "CRT file" item in the Cartridge submenu.
-; CART_CRT_MENU counts the 2 MB REU item before it, which R3-memory builds
-; leave out of the menu (config.vhd).
+; CART_CRT_MENU counts the 2 MB and 16 MB REU items before it, which
+; R3-memory builds leave out of the menu (config.vhd).
 ;
 ; Output: R8: index
 CRT_MENU_IDX    MOVE    OPTM_ICOUNT, R8
                 MOVE    @R8, R8                 ; R8: items in this menu
-                SUB     OPTM_SIZE_ALL, R8       ; 0, or -1 without 2 MB
+                SUB     OPTM_SIZE_ALL, R8       ; 0, or -2 without 2 and 16 MB
                 ADD     CART_CRT_MENU, R8
                 RET
 
