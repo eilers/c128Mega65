@@ -185,12 +185,13 @@ static void csr_flags(uint32_t csr, int kb, int j1, int j2)
 
 static void ascal_init(void)
 {
-   // The CRT emulation's polyphase filters
+   // The CRT emulation's polyphase filters. ascal builds each entry from four writes in a
+   // row through one register, so one filter has to be written whole before the other.
    M2M_RAMROM_DEV = M2M_DEV_ASCAL_PPHASE;
-   for (int i = 0; i < 256; i++) {
-      M2M_DEV16[i]         = LANCZOS2_12[i];
+   for (int i = 0; i < 256; i++)
+      M2M_DEV16[i] = LANCZOS2_12[i];
+   for (int i = 0; i < 256; i++)
       M2M_DEV16[0x100 + i] = SCAN_BR_110_80[i];
-   }
 
    M2M_CSR &= ~M2M_CSR_ASCAL_AUTO;
    switch (cfg_get(CFG_GENERAL, CFG_ASCAL_USAGE)) {
