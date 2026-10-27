@@ -123,6 +123,12 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 - The REU in SDRAM on R4 and later, up to 16 MB (`doc/hyperram-map.md`), passes on the R6:
   REUTEST at all three sizes and beside a virtual cartridge, the test cartridges with the REU
   on, and 512 KB only on `6r3`.
+- The Shell's first part passes on the R6 (`6rv` build of `ac67764` with the HyperRAM
+  bridge fix, firmware `8b8d593`): the C128 starts with its ROMs, and the options menu
+  works as QNICE's does, submenus, summaries, help page, F13 and CRT emulation included.
+  The first firmware (`d6e2b46`) drew CRT emulation as a crosshatch: ascal builds each
+  polyphase filter entry from four writes in a row, so the two filters have to be written
+  one after the other. Neither the host test nor `tb_rv_soc` can see that order.
 
 ## Building and testing
 
