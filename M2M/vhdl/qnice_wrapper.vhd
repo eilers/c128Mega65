@@ -1,7 +1,9 @@
 ----------------------------------------------------------------------------------
 -- MiSTer2MEGA65 Framework
 --
--- Wrapper for the QNICE subsystem of M2M
+-- The system CPU of M2M and the devices on its bus. The CPU is the RISC-V of
+-- rv/rv_soc.vhd, which replaced QNICE; the bus, its clock and its signals keep
+-- QNICE's names.
 --
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2023 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -19,8 +21,7 @@ use work.sdhost_pkg.all;
 entity qnice_wrapper is
 generic (
    G_BOARD : string;                                        -- Which platform are we running on.
-   G_SDRAM : boolean := true;                               -- false: no SDRAM, as on R3 (config.vhd's menu)
-   G_RISCV : boolean := false                               -- RISC-V system CPU (rv/rv_soc.vhd) instead of QNICE
+   G_SDRAM : boolean := true                                -- false: no SDRAM, as on R3 (config.vhd's menu)
 );
 port (
    clk_i                     : in  std_logic;
@@ -99,7 +100,7 @@ port (
    qnice_vram_we_o           : out std_logic;   -- Writing to bits 7-0
    qnice_vram_attr_we_o      : out std_logic;   -- Writing to bits 15-8
 
-   -- m2m_keyb output for the firmware and the Shell; see also sysdef.asm
+   -- m2m_keyb output for the firmware and the Shell; see also M2M/firmware/include/m2m_rv.h
    qnice_qnice_keys_n_i      : in  std_logic_vector(15 downto 0);
 
    qnice_pot1_x_n_o          : out unsigned(7 downto 0);
@@ -116,7 +117,7 @@ port (
    qnice_avm_readdata_i      : in  std_logic_vector(15 downto 0);
    qnice_avm_readdatavalid_i : in  std_logic;
    qnice_avm_waitrequest_i   : in  std_logic;
-   hr_rst_i                  : in  std_logic := '0';           -- RISC-V: HyperRAM's reset (clk100_i)
+   hr_rst_i                  : in  std_logic := '0';           -- HyperRAM's reset (clk100_i)
 
    qnice_pps_i               : in  std_logic;
    qnice_hdmi_clk_freq_i     : in  std_logic_vector(27 downto 0);
@@ -156,7 +157,6 @@ constant C_DEV_VRAM_DATA      : std_logic_vector(15 downto 0) := x"0000";
 constant C_DEV_VRAM_ATTR      : std_logic_vector(15 downto 0) := x"0001";
 constant C_DEV_OSM_CONFIG     : std_logic_vector(15 downto 0) := x"0002";
 constant C_DEV_ASCAL_PPHASE   : std_logic_vector(15 downto 0) := x"0003";
-constant C_DEV_HYPERRAM       : std_logic_vector(15 downto 0) := x"0004";
 constant C_DEV_I2C            : std_logic_vector(15 downto 0) := x"0005";
 constant C_DEV_RTC            : std_logic_vector(15 downto 0) := x"0006";
 constant C_DEV_SYS_INFO       : std_logic_vector(15 downto 0) := x"00FF";
@@ -172,11 +172,7 @@ constant C_SYS_HYPERRAM       : std_logic_vector(15 downto 0) := x"0041";
 
 -- Device management
 signal qnice_ramrom_data_in          : std_logic_vector(15 downto 0);
-signal qnice_ramrom_data_in_hyperram : std_logic_vector(15 downto 0);
 signal qnice_ramrom_wait             : std_logic;
-signal qnice_ramrom_wait_hyperram    : std_logic;
-signal qnice_ramrom_ce_hyperram      : std_logic;
-signal qnice_ramrom_address          : std_logic_vector(31 downto 0);
 
 -- Shell configuration (config.vhd)
 signal qnice_config_data             : std_logic_vector(15 downto 0);
@@ -207,116 +203,8 @@ end function str2data;
 
 begin
 
-   -- QNICE Co-Processor (System-on-a-Chip) for On-Screen-Menu, Disk mounting/virtual drives, ROM loading, etc.
-   qnice_gen : if not G_RISCV generate
-   QNICE_SOC : entity work.QNICE
-      generic map (
-         G_FIRMWARE              => QNICE_FIRMWARE,
-         G_VGA_DX                => VGA_DX,
-         G_VGA_DY                => VGA_DY,
-         G_FONT_DX               => FONT_DX,
-         G_FONT_DY               => FONT_DY
-      )
-      port map (
-         clk50_i                 => clk_i,
-         clk100_i                => clk100_i,
-         reset_n_i               => not rst_i,
-
-         -- serial communication (rxd, txd only; rts/cts are not available)
-         -- 115.200 baud, 8-N-1
-         uart_rxd_i              => uart_rxd_i,
-         uart_txd_o              => uart_txd_o,
-
-         -- Micro SD Connector (external slot at back of the cover)
-         sd_clk_o                => sd_clk_o,
-         sd_cmd_o                => sd_cmd_o,
-         sd_cmd_oe_o             => sd_cmd_oe_o,
-         sd_cmd_i                => sd_cmd_i,
-         sd_dat_o                => sd_dat_o,
-         sd_dat_oe_o             => sd_dat_oe_o,
-         sd_dat_i                => sd_dat_i,
-         sd_cd_i                 => sd_cd_i,
-
-         -- SD Connector (this is the slot at the bottom side of the case under the cover)
-         sd2_clk_o               => sd2_clk_o,
-         sd2_cmd_o               => sd2_cmd_o,
-         sd2_cmd_oe_o            => sd2_cmd_oe_o,
-         sd2_cmd_i               => sd2_cmd_i,
-         sd2_dat_o               => sd2_dat_o,
-         sd2_dat_oe_o            => sd2_dat_oe_o,
-         sd2_dat_i               => sd2_dat_i,
-         sd2_cd_i                => sd2_cd_i,
-
-         -- engine port of the active SD card's controller
-         sd_eng_i                => sd_eng_i,
-         sd_eng_o                => sd_eng_o,
-
-         -- QNICE public registers
-         csr_reset_o             => qnice_csr_reset_o,
-         csr_pause_o             => qnice_csr_pause_o,
-         csr_osm_o               => qnice_osm_cfg_enable_o,
-         csr_keyboard_o          => qnice_csr_keyboard_on_o,
-         csr_joy1_o              => qnice_csr_joy1_on_o,
-         csr_joy2_o              => qnice_csr_joy2_on_o,
-         osm_xy_o                => qnice_osm_cfg_xy_o,
-         osm_dxdy_o              => qnice_osm_cfg_dxdy_o,
-
-         ascal_mode_i            => "0" & qnice_ascal_triplebuf_i & qnice_ascal_polyphase_i & qnice_ascal_mode_i,
-         ascal_mode_o            => qnice_ascal_mode_o,
-
-         -- Keyboard input for the firmware and Shell (see sysdef.asm)
-         keys_n_i                => qnice_qnice_keys_n_i,
-
-         -- 256-bit General purpose control flags
-         -- "d" = directly controled by the firmware
-         -- "m" = indirectly controled by the menu system
-         control_d_o             => qnice_gp_reg_o,
-         control_m_o             => qnice_osm_control_m_o,
-
-         -- 16-bit special-purpose and 16-bit general-purpose input flags
-         -- Special-purpose flags are having a given semantic when the "Shell" firmware is running,
-         -- but right now they are reserved and not used, yet.
-         special_i               => (others => '0'),
-         general_i               => (others => '0'),
-
-         -- QNICE MMIO 4k-segmented access to RAMs, ROMs and similarily behaving devices
-         -- ramrom_dev_o: 0 = VRAM data, 1 = VRAM attributes, > 256 = free to be used for any "RAM like" device
-         -- ramrom_addr_o is 28-bit because we have a 16-bit window selector and a 4k window: 65536*4096 = 268.435.456 = 2^28
-         ramrom_dev_o            => qnice_ramrom_dev_o,
-         ramrom_addr_o           => qnice_ramrom_addr_o,
-         ramrom_data_o           => qnice_ramrom_data_out_o,
-         ramrom_data_i           => qnice_ramrom_data_in,
-         ramrom_ce_o             => qnice_ramrom_ce_o,
-         ramrom_wait_i           => qnice_ramrom_wait,
-         ramrom_we_o             => qnice_ramrom_we_o
-      ); -- QNICE_SOC
-
-   i_qnice2hyperram : entity work.qnice2hyperram
-      port map (
-         clk_i                 => clk_i,
-         rst_i                 => rst_i,
-         s_qnice_wait_o        => qnice_ramrom_wait_hyperram,
-         s_qnice_address_i     => qnice_ramrom_address,
-         s_qnice_cs_i          => qnice_ramrom_ce_hyperram,
-         s_qnice_write_i       => qnice_ramrom_we_o,
-         s_qnice_writedata_i   => qnice_ramrom_data_out_o,
-         s_qnice_byteenable_i  => "11",
-         s_qnice_readdata_o    => qnice_ramrom_data_in_hyperram,
-         m_avm_write_o         => qnice_avm_write_o,
-         m_avm_read_o          => qnice_avm_read_o,
-         m_avm_address_o       => qnice_avm_address_o,
-         m_avm_writedata_o     => qnice_avm_writedata_o,
-         m_avm_byteenable_o    => qnice_avm_byteenable_o,
-         m_avm_burstcount_o    => qnice_avm_burstcount_o,
-         m_avm_readdata_i      => qnice_avm_readdata_i,
-         m_avm_readdatavalid_i => qnice_avm_readdatavalid_i,
-         m_avm_waitrequest_i   => qnice_avm_waitrequest_i
-      ); -- i_qnice2hyperram
-   end generate qnice_gen;
-
-   -- RISC-V system CPU with the same ports. It has its own HyperRAM port, so the
-   -- HyperRAM device below answers nothing; that port (qnice_avm_*) is on clk100_i.
-   riscv_gen : if G_RISCV generate
+   -- The system CPU: On-Screen-Menu, drives, ROM loading. Its HyperRAM port (qnice_avm_*)
+   -- is on clk100_i.
    i_rv_soc : entity work.rv_soc
       generic map (
          G_BOOT_ROM              => RV_BOOT_ROM,
@@ -383,10 +271,6 @@ begin
          hr_rst_i                => hr_rst_i
       ); -- i_rv_soc
 
-   qnice_ramrom_wait_hyperram    <= '0';
-   qnice_ramrom_data_in_hyperram <= x"EEEE";
-   end generate riscv_gen;
-
    -- Shell configuration file config.vhd
    shell_cfg : entity work.config
       generic map (
@@ -405,12 +289,11 @@ begin
    -- QNICE devices selected via qnice_ramrom_dev
    --    Devices with IDs < x"0100" are framework devices
    --    All others are user specific / core specific devices
-   -- (refer to M2M/rom/sysdef.asm for a memory map and more details)
+   -- (M2M/firmware/include/m2m_rv.h has the firmware's side of them)
    qnice_ramrom_devices : process(all)
       variable strpos      : natural;
       variable current_chr : std_logic_vector(15 downto 0);
    begin
-      qnice_ramrom_ce_hyperram <= '0';
       qnice_ramrom_data_in     <= x"EEEE";
       qnice_ramrom_wait        <= '0';
       qnice_vram_we_o          <= '0';
@@ -444,12 +327,6 @@ begin
                qnice_ramrom_data_in       <= x"EEEE"; -- write-only
                qnice_poly_wr_o            <= qnice_ramrom_we_o;
 
-            -- HyperRAM access
-            when C_DEV_HYPERRAM =>
-               qnice_ramrom_ce_hyperram   <= qnice_ramrom_ce_o;
-               qnice_ramrom_data_in       <= qnice_ramrom_data_in_hyperram;
-               qnice_ramrom_wait          <= qnice_ramrom_wait_hyperram;
-
             -- I2C devices access
             when C_DEV_I2C =>
                qnice_i2c_ce_o             <= qnice_ramrom_ce_o;
@@ -464,7 +341,7 @@ begin
                qnice_ramrom_data_in       <= qnice_rtc_rd_data_i;
                qnice_ramrom_wait          <= qnice_rtc_wait_i;
 
-            -- Read-only System Info (constants are defined in sysdef.asm)
+            -- Read-only System Info (the firmware has them in M2M/firmware/fw/cfg.h)
             when C_DEV_SYS_INFO =>
                case qnice_ramrom_addr_o(27 downto 12) is
 
@@ -600,9 +477,6 @@ begin
          qnice_ramrom_wait    <= qnice_ramrom_wait_i;
       end if;
    end process qnice_ramrom_devices;
-
-   qnice_ramrom_address <= "10000" & qnice_ramrom_addr_o(26 downto 0) when qnice_ramrom_addr_o(27) = '1'
-                      else "000000000" & qnice_ramrom_addr_o(22 downto 0);
 
    p_hr_stats : process (clk_i)
    begin

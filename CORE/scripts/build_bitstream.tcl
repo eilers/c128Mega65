@@ -69,7 +69,7 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
-    [file join $repo_dir "M2M/vhdl/QNICE/sdhost.vhd"] \
+    [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
@@ -121,20 +121,10 @@ if {[regexp {CORE-R3} $project_base]} {
     }
 }
 
-# Targets 6r3 and 6rv (build_boards.sh): an R6 bitstream with R3's memory map, the SDRAM
-# unused, or with the RISC-V system CPU instead of QNICE; 6r3rv has both. One
-# set_property, as each one replaces the whole list.
-set generics {}
+# Target 6r3 (build_boards.sh): an R6 bitstream with R3's memory map, the SDRAM unused.
 if {[regexp {CORE-R6R3} $project_base]} {
     puts "R3 memory map: G_R3_MEMORY=true"
-    lappend generics G_R3_MEMORY=true
-}
-if {[regexp {CORE-R6(R3)?RV} $project_base]} {
-    puts "RISC-V system CPU: G_RISCV=true"
-    lappend generics G_RISCV=true
-}
-if {[llength $generics] > 0} {
-    set_property generic $generics [get_filesets sources_1]
+    set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
 }
 
 # Vivado 2022 may import .sv files as plain Verilog from newer project files.

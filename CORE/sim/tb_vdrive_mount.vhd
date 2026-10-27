@@ -4,7 +4,7 @@
 -- Testbench for the disk-image mount path: vdrives -> iec_drive.
 --
 -- The QNICE side writes the image size and the 2-bit image type into vdrives and
--- then strobes "image mounted", exactly like VD_STROBE_IM in M2M/rom/vdrives.asm.
+-- then strobes "image mounted", exactly like VD_STROBE_IM in QNICE's vdrives.asm.
 -- vdrives crosses those signals into the core clock domain, main.vhd expands the
 -- 2-bit type into iec_drive's {img_hd, img_mfm, img_gcr, img_ds} and iec_drive
 -- latches the result to pick a drive model.
@@ -40,7 +40,7 @@ architecture sim of tb_vdrive_mount is
    constant C_QNICE_PER : time := 20.000 ns;
    constant C_CORE_PER  : time := 31.718 ns;
 
-   -- Image types as produced by PREP_LOAD_IMAGE in CORE/m2m-rom/m2m-rom.asm
+   -- Image types as produced by core_prep_load in CORE/firmware/core.c
    constant C_IMGTYPE_D64 : integer := 0;
    constant C_IMGTYPE_D71 : integer := 1;
    constant C_IMGTYPE_D81 : integer := 2;
@@ -312,7 +312,7 @@ begin
    end generate drive_gen;
 
    ---------------------------------------------------------------------------
-   -- Stimulus: replay VD_STROBE_IM from M2M/rom/vdrives.asm
+   -- Stimulus: replay VD_STROBE_IM, as QNICE's vdrives.asm did it
    ---------------------------------------------------------------------------
 
    core_monitor : process(clk_core)

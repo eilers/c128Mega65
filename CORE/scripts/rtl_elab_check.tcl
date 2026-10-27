@@ -54,7 +54,7 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
-    [file join $repo_dir "M2M/vhdl/QNICE/sdhost.vhd"] \
+    [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
@@ -106,17 +106,9 @@ foreach v_file $sv_compat_v_files {
     }
 }
 
-# Targets 6r3, 6rv and 6r3rv: R3's memory map, the RISC-V system CPU, or both (see
-# build_bitstream.tcl)
-set generics {}
+# Target 6r3: an R6 bitstream with R3's memory map (see build_bitstream.tcl)
 if {[regexp {CORE-R6R3} [file rootname [file tail $project_file]]]} {
-    lappend generics G_R3_MEMORY=true
-}
-if {[regexp {CORE-R6(R3)?RV} [file rootname [file tail $project_file]]]} {
-    lappend generics G_RISCV=true
-}
-if {[llength $generics] > 0} {
-    set_property generic $generics [get_filesets sources_1]
+    set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
 }
 
 puts "TOP: [get_property top [current_fileset]] [get_property generic [current_fileset]]"

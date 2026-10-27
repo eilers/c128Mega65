@@ -42,7 +42,7 @@ void osm_printn(int x, int y, uint8_t attr, const char *s, int width)
    osm_put(x, y, attr, s, width);
 }
 
-// The menu font's box characters (M2M/rom/sysdef.asm M2M$FC_* and M2M$NC_*)
+// The menu font's box characters (QNICE's sysdef.asm M2M$FC_* and M2M$NC_*)
 static void osm_row(int x, int y, uint8_t attr, int dx, uint8_t l, uint8_t m, uint8_t r)
 {
    char row[OSM_DX + 1];

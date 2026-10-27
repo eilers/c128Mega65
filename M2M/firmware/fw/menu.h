@@ -1,4 +1,4 @@
-// The options menu (M2M/rom/menu.asm): groups of items of which one is selected,
+// The options menu (QNICE's menu.asm): groups of items of which one is selected,
 // single-select items that toggle, submenus, headlines and separator lines, as config.vhd's
 // OPTM_* data describes them. Item indices count every line of the whole menu.
 #pragma once

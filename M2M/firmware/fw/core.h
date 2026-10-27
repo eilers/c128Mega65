@@ -1,9 +1,9 @@
-// The core's part of the Shell: the callbacks of CORE/m2m-rom/m2m-rom.asm, written in
+// The core's part of the Shell: the callbacks of QNICE's m2m-rom.asm, written in
 // CORE/firmware/core.c. Groups are config.vhd's OPTM_G_* ids (build/fw/config_ids.h).
 #pragma once
 #include <stdint.h>
 
-// What the file browser is for (CTX_* in M2M/rom/sysdef.asm), and the situations of
+// What the file browser is for (CTX_* in QNICE's sysdef.asm), and the situations of
 // core_custom_msg (CMSG_*)
 #define CTX_MOUNT_DISKIMG  0x0100
 #define CTX_LOAD_ROM       0x0200

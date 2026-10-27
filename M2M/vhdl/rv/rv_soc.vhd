@@ -75,7 +75,7 @@ port (
    sd_eng_i             : in  t_sd_c2q := (others => '0');
    sd_eng_o             : out t_sd_q2c;
 
-   -- The registers QNICE had at 0xFFE0 and up (see M2M/rom/sysdef.asm), clk50_i
+   -- The registers QNICE had at 0xFFE0 and up (QNICE's sysdef.asm), clk50_i
    csr_reset_o          : out std_logic;
    csr_pause_o          : out std_logic;
    csr_osm_o            : out std_logic;

@@ -40,7 +40,7 @@ static uint8_t buf[512];           // a block of the file being loaded
 #define CSR_PT_OK        2
 #define CSR_PT_ERR       3
 
-// sd_dma.vhd behind a device's CSR (M2M/rom/sdload.asm)
+// sd_dma.vhd behind a device's CSR (QNICE's sdload.asm)
 #define SDL_CSR_MAGIC    0x030
 #define SDL_MAGIC        0x5D4A
 #define SDL_CSR_CTRL     0x031     // W: start, R: bit 0 busy, bit 1 error

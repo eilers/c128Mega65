@@ -1,4 +1,4 @@
-// The Shell (M2M/rom/shell.asm): starts the core with its ROMs and settings, then runs
+// The Shell (QNICE's shell.asm): starts the core with its ROMs and settings, then runs
 // the options menu when Help (or F13) is pressed.
 #pragma once
 #include <stdint.h>

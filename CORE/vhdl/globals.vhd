@@ -18,22 +18,10 @@ use work.video_modes_pkg.all;
 package globals is
 
 ----------------------------------------------------------------------------------------------------------
--- QNICE Firmware
+-- Firmware
 ----------------------------------------------------------------------------------------------------------
 
--- QNICE Firmware: Use the regular QNICE "operating system" called "Monitor" while developing and
--- debugging the firmware/ROM itself. If you are using the M2M ROM (the "Shell") as provided by the
--- framework, then always use the release version of the M2M firmware: QNICE_FIRMWARE_M2M
---
--- Hint: You need to run QNICE/tools/make-toolchain.sh to obtain "monitor.rom" and
--- you need to run CORE/m2m-rom/make_rom.sh to obtain the .rom file
-constant QNICE_FIRMWARE_MONITOR   : string  := "../../../M2M/QNICE/monitor/monitor.rom";    -- debug/development
-constant QNICE_FIRMWARE_M2M       : string  := "../../../CORE/m2m-rom/m2m-rom.rom";         -- release
-
--- Select firmware here
-constant QNICE_FIRMWARE           : string  := QNICE_FIRMWARE_M2M;
-
--- Boot ROM of the RISC-V system CPU that replaces QNICE in a build with G_RISCV (M2M/firmware)
+-- Boot ROM of the system CPU (M2M/firmware), which loads /c128/firmware.bin from the SD card
 constant RV_BOOT_ROM              : string  := "../../../M2M/firmware/boot.rom";
 
 ----------------------------------------------------------------------------------------------------------
@@ -55,7 +43,7 @@ constant CORE_CLK_SPEED : natural := CORE_CLK_SPEED_PAL;
 -- System clock speed (crystal that is driving the FPGA) and QNICE clock speed
 -- !!! Do not touch !!!
 constant BOARD_CLK_SPEED      : natural := 100_000_000;
-constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has dependencies in qnice_globals.vhd
+constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has dependencies in rv/rv_soc.vhd
 
 ----------------------------------------------------------------------------------------------------------
 -- On-Screen-Menu control bit indices (must match OPTM_ITEMS line order in config.vhd)

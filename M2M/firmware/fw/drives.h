@@ -1,4 +1,4 @@
-// The virtual drives (M2M/rom/vdrives.asm), whose disk images are read straight from the
+// The virtual drives (QNICE's vdrives.asm), whose disk images are read straight from the
 // SD card (MAP_LOAD and VDSD_OFF in sdload.asm).
 #pragma once
 #include <stdint.h>

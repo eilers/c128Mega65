@@ -1,4 +1,4 @@
-// The Shell's file browser (M2M/rom/selectfile.asm and dirbrowse.asm): a folder at a
+// The Shell's file browser (QNICE's selectfile.asm and dirbrowse.asm): a folder at a
 // time, sorted with the folders first, filtered by the core, on the whole screen.
 #pragma once
 #include <stdint.h>

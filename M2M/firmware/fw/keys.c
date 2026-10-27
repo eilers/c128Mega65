@@ -1,4 +1,4 @@
-// The menu keys, as QNICE's M2M/rom/keyboard.asm reads them: a key has to be let go
+// The menu keys, as QNICE's keyboard.asm read them: a key has to be let go
 // before it counts again; Up and Down repeat after half a second, 12 times a second.
 #include "keys.h"
 #include "m2m_rv.h"

@@ -16,7 +16,7 @@ ROM_WORDS  := 2048
 FW_BASE    := 0x40400000
 HW_VERSION := $(shell sed -n 's/^\#define M2M_RV_HW_VERSION *\([0-9]*\)u.*/\1/p' include/m2m_rv.h)
 FW_VERSION ?= $(shell git describe --always --dirty --match=NONE 2>/dev/null || echo unknown)
-# The core's part of the firmware (m2m-rom.asm's callbacks) and its config.vhd
+# The core's part of the firmware (the callbacks of QNICE's m2m-rom.asm) and its config.vhd
 CORE_DIR   ?= ../../CORE/firmware
 CONFIG_VHD ?= ../../CORE/vhdl/config.vhd
 FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.asm

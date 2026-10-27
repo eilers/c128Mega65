@@ -1,5 +1,5 @@
-# Adds the RISC-V system CPU (M2M/vhdl/rv) to sources_1. It replaces QNICE in a build
-# with G_RISCV (build target 6rv); NEORV32 itself comes with the modem's sources.
+# Adds the RISC-V system CPU (M2M/vhdl/rv) to sources_1; NEORV32 itself comes with the
+# modem's sources.
 # Sourced by build_bitstream.tcl and rtl_elab_check.tcl.
 
 proc add_rv_sources {repo_dir} {

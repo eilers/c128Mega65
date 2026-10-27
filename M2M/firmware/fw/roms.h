@@ -1,4 +1,4 @@
-// The ROMs that globals.vhd says to load at startup (M2M/rom/crts-and-roms.asm,
+// The ROMs that globals.vhd says to load at startup (QNICE's crts-and-roms.asm,
 // CRTROM_AUTOLOAD), the ones loaded from the menu, and the CSR of their devices.
 #pragma once
 #include <stdint.h>

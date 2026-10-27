@@ -1,5 +1,5 @@
 // The RISC-V system CPU's hardware, as M2M/vhdl/rv/rv_soc.vhd decodes it.
-// Names follow M2M/rom/sysdef.asm, which describes the same hardware for QNICE.
+// Names follow QNICE's sysdef.asm, which described the same hardware.
 #pragma once
 #include <stdint.h>
 
@@ -79,7 +79,7 @@
 #define M2M_SA_COL_TTLE      0x0Eu     // yellow on blue
 #define M2M_SA_COL_SEL       0x0Fu     // white on blue
 
-// SD card controller (M2M/vhdl/QNICE/sdhost.vhd), one register per 32-bit word, low 16 bits
+// SD card controller (M2M/vhdl/sd/sdhost.vhd), one register per 32-bit word, low 16 bits
 #define M2M_SD(r)            REG32(0xE0000100u + 4 * (r))
 #define M2M_SD_ADDR_LO       M2M_SD(0)
 #define M2M_SD_ADDR_HI       M2M_SD(1)

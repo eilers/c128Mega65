@@ -1,4 +1,4 @@
-// The Shell: the start and main loop of M2M/rom/shell.asm, the menu glue and settings
+// The Shell: the start and main loop of QNICE's shell.asm, the menu glue and settings
 // file of options.asm, the reset and ascal handling of gencfg.asm and the help pages of
 // whs.asm. Nothing here waits for long: shell_poll handles one key at a time.
 #include <string.h>

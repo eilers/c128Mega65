@@ -1,4 +1,4 @@
-// The options menu, as M2M/rom/menu.asm runs it, one key at a time.
+// The options menu, as QNICE's menu.asm runs it, one key at a time.
 #include <string.h>
 #include "menu.h"
 #include "screen.h"

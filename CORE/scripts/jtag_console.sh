@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Print the MEGA65 JTAG UART (QNICE Shell log, including DRV_RD lines).
-# Our core runs 115200 8N1 (UART_DIVISOR=27 at 50 MHz in qnice_globals.vhd).
+# Print the MEGA65 JTAG UART: the system CPU's firmware prints its banner there.
+# Our core runs 115200 8N1 (M2M/firmware sets the speed).
 # The MEGA65 factory core's serial monitor runs at 2000000 instead, so reading
-# it at 115200 produces garbage. Do not press Run/Stop + Cursor Up + Help.
+# it at 115200 produces garbage.
 #
 # Usage:
 #   CORE/scripts/jtag_console.sh              # auto-pick port, print to stdout
@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$port" ]]; then
-  # The TE-0790 exposes two serial interfaces and the QNICE console is the second one.
+  # The TE-0790 exposes two serial interfaces and the core's console is the second one.
   # Reprogramming the FPGA makes the adapter re-enumerate, so the numbering is not
   # stable across sessions: after a few programming cycles ttyUSB1 can become ttyUSB2.
   # Take the highest-numbered port that exists rather than a hardcoded pair.

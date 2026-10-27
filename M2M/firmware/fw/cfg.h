@@ -1,6 +1,6 @@
 // The core's configuration: config.vhd and globals.vhd (through the sysinfo device), and
 // the menu's settings bits (control_m, QNICE's M2M$CFM_DATA). Selectors and addresses
-// follow M2M/rom/sysdef.asm.
+// follow QNICE's sysdef.asm.
 #pragma once
 #include <stdint.h>
 

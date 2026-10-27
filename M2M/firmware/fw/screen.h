@@ -1,4 +1,4 @@
-// The Shell's screen (M2M/rom/screen.asm): text on the On-Screen-Menu, and the two windows
+// The Shell's screen (QNICE's screen.asm): text on the On-Screen-Menu, and the two windows
 // that show it, the whole screen and the options menu at the top right.
 #pragma once
 #include <stdint.h>

@@ -9,7 +9,6 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 work=${1:-"$repo/CORE/rv_soc_nvc"}
-qnice=${QNICE_DIR:-"$repo/M2M/QNICE"}   # for config.vhd: a checked-out QNICE submodule
 mkdir -p "$work"
 cd "$work"
 
@@ -18,12 +17,12 @@ while read -r f; do neo+=("$repo/CORE/vhdl/neorv32/$f"); done < "$repo/CORE/vhdl
 
 nvc --std=2008 --work=neorv32 -a "${neo[@]}"
 nvc --std=2008 -L . -a \
-    "$qnice/vhdl/tools.vhd" \
+    "$repo/M2M/vhdl/qnice_tools.vhd" \
     "$repo/M2M/vhdl/av_pipeline/video_modes_pkg.vhd" \
     "$repo/CORE/vhdl/globals.vhd" \
     "$repo/CORE/vhdl/config.vhd" \
-    "$repo/M2M/vhdl/QNICE/sdhost.vhd" \
-    "$repo/M2M/vhdl/QNICE/sdmux.vhd" \
+    "$repo/M2M/vhdl/sd/sdhost.vhd" \
+    "$repo/M2M/vhdl/sd/sdmux.vhd" \
     "$repo/M2M/vhdl/rv/rv_hr_bridge.vhd" \
     "$repo/M2M/vhdl/rv/rv_soc.vhd" \
     "$repo/CORE/sim/tb_rv_hr_bridge.vhd" \

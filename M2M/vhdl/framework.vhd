@@ -23,8 +23,7 @@ use xpm.vcomponents.all;
 entity framework is
 generic (
    G_BOARD : string;                                        -- Which platform are we running on.
-   G_SDRAM : boolean := true;                               -- false: no SDRAM controller, as on R3
-   G_RISCV : boolean := false                               -- RISC-V system CPU instead of QNICE (qnice_wrapper.vhd)
+   G_SDRAM : boolean := true                                -- false: no SDRAM controller, as on R3
 );
 port (
    clk_i                   : in    std_logic;                  -- 100 MHz clock
@@ -393,7 +392,7 @@ signal qnice_v_bp             : std_logic_vector(11 downto 0); -- horizontal bac
 signal qnice_v_fp             : std_logic_vector(11 downto 0); -- horizontal front porch width in pixels
 signal qnice_h_freq           : std_logic_vector(15 downto 0); -- horizontal sync frequency
 
--- m2m_keyb output for the firmware and the Shell; see also sysdef.asm
+-- m2m_keyb output for the firmware and the Shell; see also M2M/firmware/include/m2m_rv.h
 signal qnice_qnice_keys_n     : std_logic_vector(15 downto 0);
 
 -- Paddles in 50 MHz clock domain which happens to be QNICE's
@@ -647,8 +646,7 @@ begin
    i_qnice_wrapper : entity work.qnice_wrapper
    generic map (
       G_BOARD => G_BOARD,
-      G_SDRAM => G_SDRAM,
-      G_RISCV => G_RISCV
+      G_SDRAM => G_SDRAM
    )
    port map (
       clk_i                     => qnice_clk,
@@ -882,54 +880,16 @@ begin
          dest_out(614 downto 550)   => main_rtc_o
       ); -- i_qnice2main
 
-   -- Clock domain crossing: QNICE to HR
-   qnice_hr_gen : if not G_RISCV generate
-   i_avm_fifo_qnice : entity work.avm_fifo
-      generic map (
-         G_WR_DEPTH     => 16,
-         G_RD_DEPTH     => 16,
-         G_FILL_SIZE    => 1,
-         G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
-      )
-      port map (
-         s_clk_i               => qnice_clk,
-         s_rst_i               => qnice_rst,
-         s_avm_waitrequest_o   => qnice_avm_waitrequest,
-         s_avm_write_i         => qnice_avm_write,
-         s_avm_read_i          => qnice_avm_read,
-         s_avm_address_i       => qnice_avm_address,
-         s_avm_writedata_i     => qnice_avm_writedata,
-         s_avm_byteenable_i    => qnice_avm_byteenable,
-         s_avm_burstcount_i    => qnice_avm_burstcount,
-         s_avm_readdata_o      => qnice_avm_readdata,
-         s_avm_readdatavalid_o => qnice_avm_readdatavalid,
-         m_clk_i               => hr_clk,
-         m_rst_i               => hr_rst,
-         m_avm_waitrequest_i   => hr_qnice_waitrequest,
-         m_avm_write_o         => hr_qnice_write,
-         m_avm_read_o          => hr_qnice_read,
-         m_avm_address_o       => hr_qnice_address,
-         m_avm_writedata_o     => hr_qnice_writedata,
-         m_avm_byteenable_o    => hr_qnice_byteenable,
-         m_avm_burstcount_o    => hr_qnice_burstcount,
-         m_avm_readdata_i      => hr_qnice_readdata,
-         m_avm_readdatavalid_i => hr_qnice_readdatavalid
-      ); -- i_avm_fifo_qnice
-   end generate qnice_hr_gen;
-
-   -- The RISC-V system CPU's HyperRAM port is on hr_clk already
-   riscv_hr_gen : if G_RISCV generate
-      hr_qnice_write          <= qnice_avm_write;
-      hr_qnice_read           <= qnice_avm_read;
-      hr_qnice_address        <= qnice_avm_address;
-      hr_qnice_writedata      <= qnice_avm_writedata;
-      hr_qnice_byteenable     <= qnice_avm_byteenable;
-      hr_qnice_burstcount     <= qnice_avm_burstcount;
-      qnice_avm_readdata      <= hr_qnice_readdata;
-      qnice_avm_readdatavalid <= hr_qnice_readdatavalid;
-      qnice_avm_waitrequest   <= hr_qnice_waitrequest;
-   end generate riscv_hr_gen;
+   -- The system CPU's HyperRAM port is on hr_clk already
+   hr_qnice_write          <= qnice_avm_write;
+   hr_qnice_read           <= qnice_avm_read;
+   hr_qnice_address        <= qnice_avm_address;
+   hr_qnice_writedata      <= qnice_avm_writedata;
+   hr_qnice_byteenable     <= qnice_avm_byteenable;
+   hr_qnice_burstcount     <= qnice_avm_burstcount;
+   qnice_avm_readdata      <= hr_qnice_readdata;
+   qnice_avm_readdatavalid <= hr_qnice_readdatavalid;
+   qnice_avm_waitrequest   <= hr_qnice_waitrequest;
 
    -- Clock domain crossing: HR to QNICE
    i_hr2qnice: entity work.cdc_stable

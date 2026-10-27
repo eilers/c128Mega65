@@ -1,4 +1,4 @@
-// The Shell's file browser, as M2M/rom/selectfile.asm and dirbrowse.asm behave: the
+// The Shell's file browser, as QNICE's selectfile.asm and dirbrowse.asm behave: the
 // folder's entries sorted (folders first, as "<name>", case does not matter, numbers by
 // their length), filtered by the core, 31 to a screen. Up and Down move, Left and Right
 // page, Return opens a folder or picks a file, Run/Stop cancels, F1 and F3 choose the

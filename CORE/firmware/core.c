@@ -1,4 +1,4 @@
-// The C128 core's part of the RISC-V Shell: the callbacks of CORE/m2m-rom/m2m-rom.asm.
+// The C128 core's part of the RISC-V Shell: the callbacks of QNICE's m2m-rom.asm.
 // Menu items are found by their config.vhd group and their place in it.
 #include <stddef.h>
 #include <string.h>

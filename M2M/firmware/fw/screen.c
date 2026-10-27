@@ -1,4 +1,4 @@
-// The Shell's screen, as M2M/rom/screen.asm draws it.
+// The Shell's screen, as QNICE's screen.asm draws it.
 #include "screen.h"
 #include "console.h"
 #include "m2m_rv.h"

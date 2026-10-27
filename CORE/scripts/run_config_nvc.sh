@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Run tb_config (config.vhd's menu, full and R3-memory) with nvc (brew install nvc), then
 # tb_config_dump for the RISC-V firmware's host test.
-# Takes a few seconds; no Vivado needed. QNICE_DIR points at a checked-out QNICE submodule
-# if this tree's isn't.
+# Takes a few seconds; no Vivado needed.
 #
 # Usage: CORE/scripts/run_config_nvc.sh [work dir]
 
@@ -10,12 +9,11 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 work=${1:-"$repo/CORE/config_nvc"}
-qnice=${QNICE_DIR:-"$repo/M2M/QNICE"}
 mkdir -p "$work"
 cd "$work"
 
 nvc --std=2008 -a \
-    "$qnice/vhdl/tools.vhd" \
+    "$repo/M2M/vhdl/qnice_tools.vhd" \
     "$repo/M2M/vhdl/av_pipeline/video_modes_pkg.vhd" \
     "$repo/CORE/vhdl/globals.vhd" \
     "$repo/CORE/vhdl/config.vhd" \
