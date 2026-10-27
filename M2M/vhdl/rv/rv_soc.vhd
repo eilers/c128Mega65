@@ -110,7 +110,8 @@ port (
    hr_burstcount_o      : out std_logic_vector(7 downto 0);
    hr_readdata_i        : in  std_logic_vector(15 downto 0);
    hr_readdatavalid_i   : in  std_logic;
-   hr_waitrequest_i     : in  std_logic
+   hr_waitrequest_i     : in  std_logic;
+   hr_rst_i             : in  std_logic := '0' -- the HyperRAM side's reset, with the core's
 );
 end entity rv_soc;
 
@@ -124,7 +125,9 @@ architecture synthesis of rv_soc is
 
    constant C_ROM_WORDS    : natural := 2048;       -- 8 KB
    constant C_LINE_BYTES   : natural := 64;         -- cache line
-   constant C_XBUS_TIMEOUT : natural := 2 ** 17;    -- 1.3 ms at 100 MHz: HyperRAM can be slow
+   -- 2.7 s at 100 MHz: longer than a reset of the core, during which HyperRAM waits (a
+   -- short press of the reset button lasts as long as it is held, up to 1.5 s)
+   constant C_XBUS_TIMEOUT : natural := 2 ** 28;
    constant C_QBUS_TIMEOUT : natural := 50_000;     -- 1 ms at 50 MHz: a device that never ends its wait
 
    type t_rom is array (0 to C_ROM_WORDS - 1) of bit_vector(31 downto 0);
@@ -332,6 +335,7 @@ begin
       port map (
          clk_i               => clk100_i,
          rst_i               => rst100,
+         hr_rst_i            => hr_rst_i,
          stb_i               => hr_stb,
          adr_i               => adr(23 downto 0),
          we_i                => xbus_we,

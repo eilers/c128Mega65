@@ -12,6 +12,9 @@
 -- CPU has no d-cache, so writes come one at a time.
 -- HyperRAM side: Avalon master on the same clock; the framework's avm_fifo crosses to
 -- the HyperRAM clock.
+-- The HyperRAM side is reset with the core (a short press of the reset button), which
+-- loses what it was doing: a read goes on from its next word and a write starts again
+-- once that reset is over. The CPU waits meanwhile (rv_soc.vhd's XBUS timeout is longer).
 --
 -- C128 core: RISC-V replacement for QNICE, licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -27,6 +30,7 @@ entity rv_hr_bridge is
    port (
       clk_i                 : in  std_logic;
       rst_i                 : in  std_logic;
+      hr_rst_i              : in  std_logic;                        -- the HyperRAM side's
 
       -- XBUS: this bridge's requests only
       stb_i                 : in  std_logic;
@@ -85,6 +89,15 @@ architecture synthesis of rv_hr_bridge is
    signal wr_data_hi  : std_logic_vector(15 downto 0);
    signal wr_be_hi    : std_logic_vector(1 downto 0);
 
+   -- After a reset of the HyperRAM side: the read's next word, the write's first half
+   signal resume      : std_logic := '0';
+   signal rd_adr      : unsigned(31 downto 0) := (others => '0');
+   signal w_adr       : std_logic_vector(31 downto 0);
+   signal w_dat       : std_logic_vector(15 downto 0);
+   signal w_be        : std_logic_vector(1 downto 0);
+   signal w_bc        : std_logic_vector(7 downto 0);
+   signal w_hi        : std_logic;
+
    -- After a reset, read data of a burst from before it is dropped. A request that comes
    -- meanwhile waits for it (XBUS has no stall); the CPU sends no other until it's answered.
    signal settle      : natural range 0 to 63 := 63;
@@ -108,6 +121,11 @@ begin
       variable v_sel       : std_logic_vector(3 downto 0);
       variable v_dat       : std_logic_vector(31 downto 0);
       variable v_cti       : std_logic_vector(2 downto 0);
+      variable v_wadr      : std_logic_vector(31 downto 0);
+      variable v_wdat      : std_logic_vector(15 downto 0);
+      variable v_wbe       : std_logic_vector(1 downto 0);
+      variable v_wbc       : std_logic_vector(7 downto 0);
+      variable v_whi       : std_logic;
    begin
       if rising_edge(clk_i) then
          ack_o       <= '0';
@@ -120,7 +138,7 @@ begin
             avm_read_o <= '0';
          end if;
 
-         if avm_readdatavalid_i = '1' and rd_left = 0 then
+         if hr_rst_i = '1' or (avm_readdatavalid_i = '1' and rd_left = 0) then
             settle <= 63;
          elsif settle > 0 then
             settle <= settle - 1;
@@ -138,10 +156,11 @@ begin
                half          <= '0';
             end if;
             rd_left <= rd_left - 1;
+            rd_adr  <= rd_adr + 1;
             if burst_left = 1 and rd_left > 1 then
                -- The next burst of the line, once this one is in
                avm_read_o       <= '1';
-               avm_address_o    <= std_logic_vector(unsigned(avm_address_o) + C_BURST);
+               avm_address_o    <= std_logic_vector(rd_adr + 1);
                avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(C_BURST, rd_left - 1), 8));
                burst_left       <= minimum(C_BURST, rd_left - 1);
             else
@@ -150,7 +169,7 @@ begin
          end if;
 
          -- HyperRAM writes
-         if state = S_WRITE and avm_waitrequest_i = '0' then
+         if state = S_WRITE and avm_write_o = '1' and avm_waitrequest_i = '0' then
             if wr_hi = '1' then
                avm_writedata_o  <= wr_data_hi;
                avm_byteenable_o <= wr_be_hi;
@@ -159,6 +178,24 @@ begin
                avm_write_o <= '0';
                ack_o       <= '1';
                state       <= S_IDLE;
+            end if;
+         end if;
+
+         -- Once a reset of the HyperRAM side is over: the rest of the read, the write again
+         if resume = '1' and settle = 0 then
+            resume <= '0';
+            if state = S_READ and rd_left > 0 then
+               avm_read_o       <= '1';
+               avm_address_o    <= std_logic_vector(rd_adr);
+               avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(C_BURST, rd_left), 8));
+               burst_left       <= minimum(C_BURST, rd_left);
+            elsif state = S_WRITE then
+               avm_write_o      <= '1';
+               avm_address_o    <= w_adr;
+               avm_writedata_o  <= w_dat;
+               avm_byteenable_o <= w_be;
+               avm_burstcount_o <= w_bc;
+               wr_hi            <= w_hi;
             end if;
          end if;
 
@@ -186,7 +223,7 @@ begin
                v_requested := v_requested + 1;
                beats_left  <= beats_left - 1;
                next_adr    <= next_adr + 4;
-            elsif state = S_IDLE and settle > 0 then
+            elsif state = S_IDLE and (settle > 0 or hr_rst_i = '1') then
                held     <= '1';
                held_adr <= v_adr;
                held_we  <= v_we;
@@ -209,6 +246,7 @@ begin
                v_requested      := 1;
                next_adr         <= (unsigned(v_adr(23 downto 2)) & "00") + 4;
                rd_left          <= v_words;
+               rd_adr           <= unsigned(x"00" & '0' & v_adr(23 downto 2) & '0');
                burst_left       <= minimum(C_BURST, v_words);
                half             <= '0';
                avm_read_o       <= '1';
@@ -222,23 +260,33 @@ begin
                wr_data_hi  <= v_dat(31 downto 16);
                wr_be_hi    <= v_sel(3 downto 2);
                if v_sel(1 downto 0) = "00" then
-                  avm_address_o    <= x"00" & '0' & v_adr(23 downto 2) & '1';
-                  avm_writedata_o  <= v_dat(31 downto 16);
-                  avm_byteenable_o <= v_sel(3 downto 2);
-                  avm_burstcount_o <= x"01";
-                  wr_hi            <= '0';
+                  v_wadr := x"00" & '0' & v_adr(23 downto 2) & '1';
+                  v_wdat := v_dat(31 downto 16);
+                  v_wbe  := v_sel(3 downto 2);
+                  v_wbc  := x"01";
+                  v_whi  := '0';
                else
-                  avm_address_o    <= x"00" & '0' & v_adr(23 downto 2) & '0';
-                  avm_writedata_o  <= v_dat(15 downto 0);
-                  avm_byteenable_o <= v_sel(1 downto 0);
+                  v_wadr := x"00" & '0' & v_adr(23 downto 2) & '0';
+                  v_wdat := v_dat(15 downto 0);
+                  v_wbe  := v_sel(1 downto 0);
                   if v_sel(3 downto 2) = "00" then
-                     avm_burstcount_o <= x"01";
-                     wr_hi            <= '0';
+                     v_wbc := x"01";
+                     v_whi := '0';
                   else
-                     avm_burstcount_o <= x"02";
-                     wr_hi            <= '1';
+                     v_wbc := x"02";
+                     v_whi := '1';
                   end if;
                end if;
+               avm_address_o    <= v_wadr;
+               avm_writedata_o  <= v_wdat;
+               avm_byteenable_o <= v_wbe;
+               avm_burstcount_o <= v_wbc;
+               wr_hi            <= v_whi;
+               w_adr            <= v_wadr;
+               w_dat            <= v_wdat;
+               w_be             <= v_wbe;
+               w_bc             <= v_wbc;
+               w_hi             <= v_whi;
             else
                -- Overlapping requests, a stray line word, or a write with no byte enabled
                ack_o <= '1';
@@ -263,6 +311,16 @@ begin
          count     <= v_count;
          expect    <= v_expect;
 
+         -- The HyperRAM side is reset: what it was doing is lost
+         if hr_rst_i = '1' then
+            avm_read_o  <= '0';
+            avm_write_o <= '0';
+            burst_left  <= 0;
+            if state /= S_IDLE then
+               resume <= '1';
+            end if;
+         end if;
+
          if rst_i = '1' then
             state       <= S_IDLE;
             avm_read_o  <= '0';
@@ -278,6 +336,7 @@ begin
             wr_hi       <= '0';
             settle      <= 63;
             held        <= '0';
+            resume      <= '0';
          end if;
       end if;
    end process p_bridge;

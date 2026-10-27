@@ -720,6 +720,7 @@ begin
       qnice_avm_readdata_i      => qnice_avm_readdata,
       qnice_avm_readdatavalid_i => qnice_avm_readdatavalid,
       qnice_avm_waitrequest_i   => qnice_avm_waitrequest,
+      hr_rst_i                  => hr_rst,
       qnice_pps_i               => qnice_pps,
       qnice_hdmi_clk_freq_i     => qnice_hdmi_clk_freq,
       qnice_hr_count_long_i     => qnice_hr_count_long,

@@ -116,6 +116,7 @@ port (
    qnice_avm_readdata_i      : in  std_logic_vector(15 downto 0);
    qnice_avm_readdatavalid_i : in  std_logic;
    qnice_avm_waitrequest_i   : in  std_logic;
+   hr_rst_i                  : in  std_logic := '0';           -- RISC-V: HyperRAM's reset (clk100_i)
 
    qnice_pps_i               : in  std_logic;
    qnice_hdmi_clk_freq_i     : in  std_logic_vector(27 downto 0);
@@ -378,7 +379,8 @@ begin
          hr_burstcount_o         => qnice_avm_burstcount_o,
          hr_readdata_i           => qnice_avm_readdata_i,
          hr_readdatavalid_i      => qnice_avm_readdatavalid_i,
-         hr_waitrequest_i        => qnice_avm_waitrequest_i
+         hr_waitrequest_i        => qnice_avm_waitrequest_i,
+         hr_rst_i                => hr_rst_i
       ); -- i_rv_soc
 
    qnice_ramrom_wait_hyperram    <= '0';
