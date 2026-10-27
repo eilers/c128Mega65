@@ -100,13 +100,6 @@ void uart_putc(char c)
    UART0_DATA = (uint8_t)c;
 }
 
-int uart_getc(void)
-{
-   if (!(UART0_CTRL & (1u << 16)))      // RX FIFO empty
-      return -1;
-   return UART0_DATA & 0xFF;
-}
-
 void uart_puts(const char *s)
 {
    for (; *s; s++) {

@@ -2,7 +2,6 @@
 // HyperRAM. A main loop polls each module in turn, and none of them waits for anything,
 // as in the QNICE Shell. The core stays in reset for now (step 4, the firmware base).
 #include "browse.h"
-#include "cli.h"
 #include "console.h"
 #include "fmt.h"
 #include "keys.h"
@@ -23,6 +22,5 @@ int main(void)
       keys_poll();
       browse_poll();      // first, so the screen is up before the card's first mount
       sdcard_poll();
-      cli_poll();
    }
 }

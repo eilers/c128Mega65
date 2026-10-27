@@ -11,8 +11,7 @@ interface (UCI) and REST API, protocol compatible.
    other, so `config.vhd`, the core's devices and the framework stay as they are.
 2. **Firmware base**: the boot ROM loads the firmware from the SD card into HyperRAM and
    runs it there, from `C_HMAP_FIRMWARE` (`0x200`–`0x3FE`, CPU address `0x40400000`,
-   `doc/hyperram-map.md`). A main loop in C, SD card, FAT32, menu text, keys, a serial
-   console.
+   `doc/hyperram-map.md`). A main loop in C, SD card, FAT32, menu text, keys.
 3. **The Shell in C**, item by item, until it does everything the QNICE Shell does:
    the menu from `config.vhd`, the callbacks in `m2m-rom.asm`, mounting drives, loading
    cartridges and ROMs (`modem.bin` too), the settings file, the help screens. Each step
@@ -82,9 +81,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 - **The firmware** (`fw/`): code and constants in HyperRAM at `0x40400000`; data and stack
   in the 16 KB data RAM. `main.c` polls each module in turn: the keys (Up and Down repeat,
   as in QNICE's `keyboard.asm`), the SD card (mounted when a card is in, dropped when the
-  cards change), the screen, and the serial console (115200 baud; `help` lists its
-  commands, `boot` loads the firmware again). FatFs R0.16 with its two patches, long names
-  in code page 437, the menu font's. For now the screen browses the SD card's folders;
+  cards change) and the screen. FatFs R0.16 with its two patches, long names in code page
+  437, the menu font's. Everything a user needs to see goes on the screen: the serial
+  port needs a JTAG adapter, so it only gets a banner line, for the testbench. For now the screen browses the SD card's folders;
   the core stays in reset.
 - **Shared** (`lib/`): the SD card through `sdhost`'s registers (512-byte blocks, a byte
   at a time through its buffer, as QNICE did), FatFs's disk layer, CRC-32, menu text, the

@@ -32,7 +32,7 @@ that `hdiutil` makes (`host/`).
 | `include/m2m_rv.h`  | the hardware, as `rv_soc.vhd` decodes it                              |
 | `include/fw_image.h`| the firmware file's header                                           |
 | `boot/`             | the boot ROM: loads the firmware from the SD card (`load.c`)          |
-| `fw/`               | the firmware: main loop, keys, SD card, screen, serial console        |
+| `fw/`               | the firmware: main loop, keys, SD card, screen                       |
 | `lib/`              | shared: SD card, FatFs disk layer, CRC-32, menu text, serial port, `printf`, trap handler |
 | `fatfs/`            | [FatFs](http://elm-chan.org/fsw/ff/) R0.16 with patches 1 and 2 (line ends made LF); `boot/` and `fw/` each have an `ffconf.h` |
 | `test/`             | boot ROMs for the testbench                                          |
