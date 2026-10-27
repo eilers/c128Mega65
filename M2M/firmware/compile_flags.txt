@@ -2,4 +2,8 @@
 -march=rv32imc_zicsr_zifencei
 -Iinclude
 -Ilib
+-Ifatfs
+-Ifw
+-Iboot
+-Ibuild/fw
 -std=gnu11

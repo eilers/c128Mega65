@@ -11,8 +11,9 @@ interface (UCI) and REST API, protocol compatible.
    other, so `config.vhd`, the core's devices and the framework stay as they are.
 2. **Firmware base**: the boot ROM loads the firmware from the SD card into HyperRAM and
    runs it there, from `C_HMAP_FIRMWARE` (`0x200`–`0x3FE`, CPU address `0x40400000`,
-   `doc/hyperram-map.md`). FreeRTOS and a C++ subset, SD card, FAT32, menu text, keys.
-3. **The Shell in C++**, item by item, until it does everything the QNICE Shell does:
+   `doc/hyperram-map.md`). A main loop in C, SD card, FAT32, menu text, keys, a serial
+   console.
+3. **The Shell in C**, item by item, until it does everything the QNICE Shell does:
    the menu from `config.vhd`, the callbacks in `m2m-rom.asm`, mounting drives, loading
    cartridges and ROMs (`modem.bin` too), the settings file, the help screens. Each step
    is tested on hardware against a QNICE build.
@@ -22,10 +23,11 @@ Then UCI at `$DF1C` (Gideon's REU also decodes `$DF00`–`$DF1F`, so the two nee
 sorting out), then networking. The modem's own NEORV32 moves into the system CPU at
 that stage.
 
-Decisions (2026-10-26): FreeRTOS and C++ from the start; the firmware runs from HyperRAM
-behind the i-cache, loaded from the SD card by a small boot ROM (no card: a message on
-the screen; the `.cor` flash slot may come later); the modem keeps its CPU until the
-network stage.
+Decisions: the firmware runs from HyperRAM behind the i-cache, loaded from the SD card by
+a small boot ROM (no card: a message on the screen; the `.cor` flash slot may come
+later); the modem keeps its CPU until the network stage (2026-10-26). No RTOS: a main
+loop of small modules that never wait, as in the QNICE Shell, written in C
+(2026-10-27; this replaces the first plan of FreeRTOS and C++).
 
 ## Hardware
 
@@ -63,13 +65,42 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 - **Registers.** The same bits as QNICE's `0xFFE0` and up (`M2M/rom/sysdef.asm`). The
   256 control flags are eight 32-bit registers each, not address/data pairs.
 
+## Firmware
+
+`M2M/firmware`, in C, built with xPack `riscv-none-elf-gcc`.
+
+- **Boot ROM** (`boot/`, 8 KB): reads `/c128/firmware.bin` from the active SD card with
+  a read-only FatFs (8.3 names), loads it into HyperRAM, reads it back to check its
+  CRC-32, and jumps to it. If there's no card, no file, or a bad one, it says why on the
+  menu and the serial port, and tries again when the cards change or Return is pressed.
+- **The file** (`include/fw_image.h`, made by `tools/fw_image.py`): a 512-byte header
+  block, then the image. The header holds a magic number, the load address (inside
+  `0x40400000`–`0x407FE000`), the entry, the size, the image's CRC-32, a version string,
+  and the version of the hardware interface it was built for. The boot ROM starts only a
+  firmware with its own `M2M_RV_HW_VERSION` (`include/m2m_rv.h`): bump it when a change
+  there would break an older firmware.
+- **The firmware** (`fw/`): code and constants in HyperRAM at `0x40400000`; data and stack
+  in the 16 KB data RAM. `main.c` polls each module in turn: the keys (Up and Down repeat,
+  as in QNICE's `keyboard.asm`), the SD card (mounted when a card is in, dropped when the
+  cards change), the screen, and the serial console (115200 baud; `help` lists its
+  commands, `boot` loads the firmware again). FatFs R0.16 with its two patches, long names
+  in code page 437, the menu font's. For now the screen browses the SD card's folders;
+  the core stays in reset.
+- **Shared** (`lib/`): the SD card through `sdhost`'s registers (512-byte blocks, a byte
+  at a time through its buffer, as QNICE did), FatFs's disk layer, CRC-32, menu text, the
+  serial port, a small `printf`, and the trap handler.
+
 ## Status
 
 - `tb_rv_soc` passes with the CPU at 100 MHz: registers, keys, the menu RAM, a device with
   wait states, the SD registers, HyperRAM bytes, halves and words, and code run from
-  HyperRAM.
-- The boot ROM is a bring-up check: it shows a banner, the keys, the CSR, and whether
-  block 0 of the SD card ends in `55AA`. The core stays in reset.
+  HyperRAM. Its second run boots the firmware from its HyperRAM model: the firmware
+  prints its banner and draws its screen.
+- The host tests pass: the boot ROM's loader against FAT32 and FAT16 images made by macOS,
+  with an MBR (good files, a 1 MB one, and eight kinds of broken ones), and the
+  firmware's long names and `printf`.
+- Step 1's boot ROM was a bring-up check (a banner, the keys, the CSR, the SD card's
+  block 0), which passed on the R6. Step 4's loader replaces it and isn't on hardware yet.
 - `qnice_wrapper` elaborates both ways in nvc and Vivado.
 - R6 build (`build_boards.sh 6rv`): timing met at 100 MHz (the CPU's clock +1.0 ns, the
   50/100 MHz handshakes +1.9 ns), and 25 fewer block RAM tiles than a QNICE build
@@ -85,6 +116,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 ## Building and testing
 
 - Firmware: `make -C M2M/firmware` (xPack `riscv-none-elf-gcc`). The `.rom` files are
-  committed, so a core builds without the toolchain.
+  committed, so a core builds without the toolchain. Copy `build/firmware.bin` to
+  `/c128/firmware.bin` on the SD card.
+- Host tests: `make -C M2M/firmware host-test` (macOS: `hdiutil` makes the FAT images).
 - Bitstream: `CORE/scripts/build_boards.sh 6rv`, an R6 with `G_RISCV`.
-- Simulation: `CORE/scripts/run_rv_soc_nvc.sh` (nvc, a few seconds on the Mac).
+- Simulation: `CORE/scripts/run_rv_soc_nvc.sh` (nvc, about 30 seconds on the Mac): the
+  selftest, then the firmware. Build the firmware first.

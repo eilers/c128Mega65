@@ -7,18 +7,24 @@
 -- falling-edge timing), the SD card registers and HyperRAM, including code run from
 -- it. The firmware writes PASS or FAIL into row 1 of the On-Screen-Menu.
 --
+-- With G_HR_IMAGE it runs the real firmware instead (M2M/firmware/build/fw_hr.txt, put
+-- into HyperRAM here as the boot ROM would load it; boot ROM test/fwboot.rom jumps to
+-- it) and checks that it draws its screen: frame, title, and no SD card.
+--
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
 
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use std.textio.all;
 
 use work.sdhost_pkg.all;
 
 entity tb_rv_soc is
    generic (
       G_BOOT_ROM : string  := "selftest.rom";
+      G_HR_IMAGE : string  := "";         -- the firmware's image: one 32-bit word per line, in binary
       G_TRACE_HR : boolean := false       -- report every HyperRAM access
    );
 end entity tb_rv_soc;
@@ -26,10 +32,14 @@ end entity tb_rv_soc;
 architecture sim of tb_rv_soc is
 
    constant C_PERIOD     : time    := 20 ns;       -- 50 MHz; the CPU and HyperRAM run at twice that
-   constant C_HR_WORDS   : natural := 2 ** 18;
+   constant C_HR_WORDS   : natural := 2 ** 18;     -- addresses wrap: CPU 0x40400000 is word 0
    constant C_HR_LATENCY : natural := 16;          -- 100 MHz clocks before read data
    constant C_DEV_WAIT   : natural := 3;           -- wait clocks of the test device
-   constant C_TIMEOUT    : time    := 5 ms;
+   constant C_TIMEOUT    : time    := 50 ms;     -- the firmware: sdhost gives up on no card after 14 ms
+   constant C_FIRMWARE   : boolean := G_HR_IMAGE'length > 0;
+   constant C_FW_TITLE   : natural := 1 * 45 + 2;  -- where the firmware's screen has what (fw/browse.c)
+   constant C_FW_CARD    : natural := 29 * 45 + 2;
+   constant C_TRAP       : natural := 32 * 45;     -- lib/trap.c
 
    signal clk50   : std_logic := '0';
    signal clk100  : std_logic := '1';      -- so that each rising edge of clk50 is one of clk100
@@ -211,7 +221,25 @@ begin
       variable a      : natural := 0;
       variable beats  : natural := 0;
       variable count  : natural;
+      variable loaded : boolean := false;
+      file     f      : text;
+      variable l      : line;
+      variable w      : bit_vector(31 downto 0);
    begin
+      if C_FIRMWARE and not loaded then
+         file_open(f, G_HR_IMAGE, read_mode);
+         a := 0;
+         while not endfile(f) loop
+            readline(f, l);
+            read(l, w);
+            mem(a)     := to_stdlogicvector(w(15 downto 0));
+            mem(a + 1) := to_stdlogicvector(w(31 downto 16));
+            a := a + 2;
+         end loop;
+         file_close(f);
+         loaded := true;
+      end if;
+
       wait until rising_edge(clk100);
       hr_readdatavalid <= '0';
       lfsr := lfsr(6 downto 0) & (lfsr(7) xor lfsr(5) xor lfsr(4) xor lfsr(3));
@@ -263,6 +291,28 @@ begin
    p_check : process
    begin
       wait until reset_n = '1';
+
+      if C_FIRMWARE then
+         while now < C_TIMEOUT loop
+            wait for 10 us;
+            exit when str_at(vram_data, C_FW_CARD, "No SD card") or str_at(vram_data, C_TRAP, "trap");
+         end loop;
+         assert not str_at(vram_data, C_TRAP, "trap") report "firmware: trap" severity error;
+         assert vram_data(0)(7 downto 0) = x"C9" report "firmware: no frame" severity error;
+         assert str_at(vram_data, C_FW_TITLE, "MiSTer2MEGA65 RISC-V firmware")
+            report "firmware: no title" severity error;
+         assert str_at(vram_data, C_FW_CARD, "No SD card") report "firmware: no card line" severity error;
+         assert csr_osm = '1' report "firmware: menu not shown" severity error;
+         assert csr_reset = '1' report "core left reset" severity error;
+         if not str_at(vram_data, C_TRAP, "trap") and vram_data(0)(7 downto 0) = x"C9" and
+            str_at(vram_data, C_FW_TITLE, "MiSTer2MEGA65 RISC-V firmware") and
+            str_at(vram_data, C_FW_CARD, "No SD card") and csr_osm = '1' and csr_reset = '1' then
+            report "ALL CHECKS PASSED";
+         end if;
+         done <= true;
+         wait;
+      end if;
+
       while now < C_TIMEOUT loop
          wait for 10 us;
          exit when str_at(vram_data, 45, "PASS") or str_at(vram_data, 45, "FAIL");

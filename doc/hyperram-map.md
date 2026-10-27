@@ -38,7 +38,7 @@ The Shell loads the optional `/c128/modem.bin` here at startup, before the core 
 
 ### RISC-V firmware: `0x200–0x3FE`
 
-The RISC-V system CPU (`G_RISCV`, `doc/riscv-system-cpu.md`) sees all of HyperRAM at `0x40000000`, two bytes per word, so this region starts at CPU address `0x40400000`. Its boot ROM will load the firmware here from the SD card. QNICE builds leave the region unused.
+The RISC-V system CPU (`G_RISCV`, `doc/riscv-system-cpu.md`) sees all of HyperRAM at `0x40000000`, two bytes per word, so this region starts at CPU address `0x40400000`. Its boot ROM loads the firmware here from the SD card (`/c128/firmware.bin`). QNICE builds leave the region unused.
 
 Keep the top window (`0x3FF`) unassigned. A read cache can fetch past the address it was asked for (the REU's does, up to 8 words), and on the HyperRAM chips that need the write workaround a single-word write becomes a 2-word burst. At the top of HyperRAM those extra words run past the end of the chip. C64MEGA65 hit this with its REU in the last 512 KiB (its issue #214). Elsewhere the extra read words and the masked second write word are harmless.
 

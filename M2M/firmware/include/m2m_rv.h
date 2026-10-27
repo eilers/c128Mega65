@@ -5,6 +5,10 @@
 
 #define CPU_HZ               100000000u
 
+// Version of this hardware interface. Bump it when a change here would break a firmware
+// built for the old one: the boot ROM only starts a firmware built for its own version.
+#define M2M_RV_HW_VERSION    1u
+
 #define REG32(a)             (*(volatile uint32_t *)(a))
 
 // Registers (QNICE's 0xFFE0 and up)
@@ -82,6 +86,8 @@
 
 // HyperRAM: byte address A is word A/2, low byte first
 #define M2M_HYPERRAM         0x40000000u
+#define M2M_FW_BASE          0x40400000u   // the firmware's region, C_HMAP_FIRMWARE 0x200-0x3FE
+#define M2M_FW_END           0x407FE000u   // (doc/hyperram-map.md)
 
 // NEORV32
 #define UART0_CTRL           REG32(0xFFF50000u)

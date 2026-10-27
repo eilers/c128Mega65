@@ -4,6 +4,7 @@ CORE/CORE-R6RV-vivado2022.xpr
 CORE/rv_soc_nvc
 CORE/config_nvc
 M2M/firmware/build
+M2M/firmware/host/build
 CORE/*.hw
 CORE/*.runs
 CORE/*.sim

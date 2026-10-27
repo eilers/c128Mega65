@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run tb_rv_soc (the RISC-V system CPU, M2M/vhdl/rv) with nvc, the open-source VHDL
-# simulator (brew install nvc). Takes a few seconds; no Vivado needed.
+# simulator (brew install nvc): the selftest, then the firmware. Takes about 30 seconds; no
+# Vivado needed.
 #
 # Usage: CORE/scripts/run_rv_soc_nvc.sh [work dir]
 
@@ -23,5 +24,11 @@ nvc --std=2008 -L . -a \
     "$repo/CORE/sim/tb_rv_soc.vhd"
 nvc --std=2008 -L . --ieee-warnings=off -e tb_rv_soc -gG_BOOT_ROM="$repo/M2M/firmware/test/selftest.rom" \
     -r --exit-severity=error 2>&1 | tee tb_rv_soc.log
-
 grep -q "ALL CHECKS PASSED" tb_rv_soc.log && echo "RV SOC SIM: PASSED" || { echo "RV SOC SIM: FAILED"; exit 1; }
+
+# The firmware itself, from HyperRAM: build it first (make -C M2M/firmware)
+image="$repo/M2M/firmware/build/fw_hr.txt"
+[ -f "$image" ] || { echo "RV FIRMWARE SIM: FAILED, no $image (make -C M2M/firmware)"; exit 1; }
+nvc --std=2008 -L . --ieee-warnings=off -e tb_rv_soc -gG_BOOT_ROM="$repo/M2M/firmware/test/fwboot.rom" \
+    -gG_HR_IMAGE="$image" -r --exit-severity=error 2>&1 | tee tb_rv_fw.log
+grep -q "ALL CHECKS PASSED" tb_rv_fw.log && echo "RV FIRMWARE SIM: PASSED" || { echo "RV FIRMWARE SIM: FAILED"; exit 1; }
