@@ -287,6 +287,31 @@ end entity MEGA65_Core;
 
 architecture synthesis of MEGA65_Core is
 
+-- No SDRAM: the cartridge goes in HyperRAM, and the REU is 512 KB at most (doc/hyperram-map.md)
+constant C_R3_MEMORY : boolean := G_BOARD = "MEGA65_R3" or not G_SDRAM;
+
+-- R3-memory builds leave the 2 MB REU item out of the menu (config.vhd). A '0' in its place
+-- keeps every C_MENU_* index, and the REU can't be 2 MB there.
+function menu_bits(ctl : std_logic_vector(255 downto 0)) return std_logic_vector is
+begin
+   if C_R3_MEMORY then
+      return ctl(254 downto C_MENU_REU_2M) & '0' & ctl(C_MENU_REU_2M - 1 downto 0);
+   end if;
+   return ctl;
+end function menu_bits;
+
+-- Word address of the .crt file
+function crt_base return std_logic_vector is
+begin
+   if C_R3_MEMORY then
+      return C_HMAP_CRT(9 downto 0) & x"000";
+   end if;
+   return C_SMAP_CRT(9 downto 0) & x"000";
+end function crt_base;
+
+signal qnice_osm_control   : std_logic_vector(255 downto 0);
+signal main_osm_control    : std_logic_vector(255 downto 0);
+
 ---------------------------------------------------------------------------------------------
 -- Clocks and active high reset signals for each clock domain
 ---------------------------------------------------------------------------------------------
@@ -467,6 +492,9 @@ signal f9_latched            : std_logic;
 
 begin
 
+   qnice_osm_control <= menu_bits(qnice_osm_control_i);
+   main_osm_control  <= menu_bits(main_osm_control_i);
+
    -- The Expansion Port is a pure pass-through here: every cart_* signal goes straight to
    -- main.vhd, which owns the bus timing and the transceiver directions. The same is true for
    -- the IEC buffer enables (iec_*_en_o), the reset line (iec_reset_n_o) and the line drivers,
@@ -558,7 +586,7 @@ begin
       )
       port map (
          src_clk_i     => main_clk_o,
-         src_data_i(0) => main_osm_control_i(C_MENU_HDMI_FF),
+         src_data_i(0) => main_osm_control(C_MENU_HDMI_FF),
          src_data_i(1) => main_video_sel_vdc,
          dst_clk_i     => hr_clk_i,
          dst_data_o(0) => hr_hdmi_ff,
@@ -608,7 +636,7 @@ begin
          pause_i              => main_pause_core_i,
 
          clk_main_speed_i     => CORE_CLK_SPEED,
-         osm_control_i        => main_osm_control_i,
+         osm_control_i        => main_osm_control,
          f9_latched_o         => f9_latched,
 
          -- HDMI video output (domain follows video_select_vdc_o / BUFGMUX above)
@@ -716,7 +744,7 @@ begin
          cart_d_i             => cart_d_i,
          cart_d_o             => cart_d_o,
 
-         iec_hardware_port_en_i => main_osm_control_i(C_MENU_IEC),
+         iec_hardware_port_en_i => main_osm_control(C_MENU_IEC),
          iec_reset_n_o        => iec_reset_n_o,
          iec_atn_n_o          => iec_atn_n_o,
          iec_clk_en_o         => iec_clk_en_o,
@@ -840,26 +868,26 @@ begin
    -- The selection is independent of whether the VIC or the VDC is shown: ascal detects the
    -- incoming image geometry on its own (iauto='1'), so both sources are scaled into the very
    -- same output rectangle of the selected HDMI mode.
-   qnice_video_mode_o <= C_VIDEO_SVGA_800_60   when qnice_osm_control_i(C_MENU_HDMI_800_60)      = '1' else
-                         C_VIDEO_HDMI_720_5994 when qnice_osm_control_i(C_MENU_HDMI_720_5994)    = '1' else
-                         C_VIDEO_HDMI_640_60   when qnice_osm_control_i(C_MENU_HDMI_640_60)      = '1' else
-                         C_VIDEO_HDMI_5_4_50   when qnice_osm_control_i(C_MENU_HDMI_576p_50_5_4) = '1' else
-                         C_VIDEO_HDMI_4_3_50   when qnice_osm_control_i(C_MENU_HDMI_576p_50)     = '1' else
-                         C_VIDEO_HDMI_16_9_60  when qnice_osm_control_i(C_MENU_HDMI_720p_60)     = '1' else
+   qnice_video_mode_o <= C_VIDEO_SVGA_800_60   when qnice_osm_control(C_MENU_HDMI_800_60)      = '1' else
+                         C_VIDEO_HDMI_720_5994 when qnice_osm_control(C_MENU_HDMI_720_5994)    = '1' else
+                         C_VIDEO_HDMI_640_60   when qnice_osm_control(C_MENU_HDMI_640_60)      = '1' else
+                         C_VIDEO_HDMI_5_4_50   when qnice_osm_control(C_MENU_HDMI_576p_50_5_4) = '1' else
+                         C_VIDEO_HDMI_4_3_50   when qnice_osm_control(C_MENU_HDMI_576p_50)     = '1' else
+                         C_VIDEO_HDMI_16_9_60  when qnice_osm_control(C_MENU_HDMI_720p_60)     = '1' else
                          C_VIDEO_HDMI_16_9_50;                       -- C_MENU_HDMI_720p_50
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
    -- "HDMI audio" defaults to selected. Clearing it requests a DVI stream:
    -- video only, no audio packets. The 3.5 mm headphone output is unaffected.
-   qnice_dvi_o                <= not qnice_osm_control_i(C_MENU_HDMI_AUDIO);
+   qnice_dvi_o                <= not qnice_osm_control(C_MENU_HDMI_AUDIO);
    -- VGA Standard doubles each line so the VGA connector runs at ~31.3 kHz
    -- instead of the native 40-column and 80-column ~15.6 kHz. Pulse width and
    -- polarity come from VGA_STD_SYNC. The two retro 15 kHz modes send the
    -- native lines unchanged for RGB monitors and SCART. HDMI does not use
    -- this; the ascaler retimes its own output.
-   qnice_scandoubler_o        <= (not qnice_osm_control_i(C_MENU_VGA_15KHZHSVS)) and
-                                 (not qnice_osm_control_i(C_MENU_VGA_15KHZCS));
+   qnice_scandoubler_o        <= (not qnice_osm_control(C_MENU_VGA_15KHZHSVS)) and
+                                 (not qnice_osm_control(C_MENU_VGA_15KHZCS));
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
    -- Audio filtering and HDMI zoom/crop are not offered in the menu yet, see doc/KNOWN_BUGS.md
    qnice_audio_filter_o       <= '0';                                         -- 0 = raw audio, 1 = use filters from globals.vhd
@@ -870,9 +898,9 @@ begin
    -- each line is still the original television line. Composite sync puts
    -- CSYNC on VGA pin 13 and holds pin 14 high, which is what most RGB
    -- monitors (Sony BVM/PVM) and the MiSTer VGA-to-SCART adaptor expect.
-   qnice_retro15kHz_o         <= qnice_osm_control_i(C_MENU_VGA_15KHZHSVS) or
-                                 qnice_osm_control_i(C_MENU_VGA_15KHZCS);
-   qnice_csync_o              <= qnice_osm_control_i(C_MENU_VGA_15KHZCS);
+   qnice_retro15kHz_o         <= qnice_osm_control(C_MENU_VGA_15KHZHSVS) or
+                                 qnice_osm_control(C_MENU_VGA_15KHZCS);
+   qnice_csync_o              <= qnice_osm_control(C_MENU_VGA_15KHZCS);
    qnice_osm_cfg_scaling_o    <= (others => '1');
 
    -- ascal filters that are applied while processing the input
@@ -884,7 +912,7 @@ begin
 
    -- If polyphase is '1' then the ascal filter mode is ignored and polyphase filters are used instead
    -- @TODO: Right now, the filters are hardcoded in the M2M framework, we need to make them changeable inside m2m-rom.asm
-   qnice_ascal_polyphase_o    <= qnice_osm_control_i(C_MENU_CRT_EMULATION);
+   qnice_ascal_polyphase_o    <= qnice_osm_control(C_MENU_CRT_EMULATION);
 
    -- ascal triple-buffering
    -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded
@@ -1023,8 +1051,8 @@ begin
    -- On R3 it goes in its HyperRAM region, its banks cached in block RAM.
    i_sw_cartridge_wrapper : entity work.sw_cartridge_wrapper
       generic map (
-         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000",
-         G_SDRAM        => G_BOARD /= "MEGA65_R3" and G_SDRAM,
+         G_BASE_ADDRESS => crt_base,
+         G_SDRAM        => not C_R3_MEMORY,
          G_STATS        => G_STATS
       )
       port map (

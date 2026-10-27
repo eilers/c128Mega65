@@ -12,8 +12,9 @@ ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -Os -g -std=gnu11 -ffunction-sections -fdata-sections \
            -Wall -Wextra -Wno-unused-parameter -Isrc -Ilwip/include
 # Code and constants run from HyperRAM (instructions through the i-cache), data from the 16 KB DMEM.
+# The ROM is the 256 KB window at C_HMAP_MODEM (doc/hyperram-map.md) after the 16-byte header.
 LDFLAGS := $(ARCH) -nostartfiles -Wl,--gc-sections -T neorv32/neorv32.ld \
-           -Wl,--defsym,__neorv32_rom_base=0x40000010 -Wl,--defsym,__neorv32_rom_size=0xFEFF0 \
+           -Wl,--defsym,__neorv32_rom_base=0x40000010 -Wl,--defsym,__neorv32_rom_size=0x3FFF0 \
            -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=16K \
            -Wl,-Map,build/modem.map --specs=nano.specs
 

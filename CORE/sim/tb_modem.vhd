@@ -25,7 +25,7 @@ architecture sim of tb_modem is
    constant C_MAIN_PERIOD  : time    := 31.718 ns;   -- 31.528 MHz
    constant C_MODEM_PERIOD : time    := 20 ns;       -- 50 MHz
    constant C_HR_PERIOD    : time    := 10 ns;       -- 100 MHz
-   constant C_HR_BASE      : natural := 16#300000#;
+   constant C_HR_BASE      : natural := 16#1C0000#;    -- C_HMAP_MODEM * 4096
    constant C_MEM_WORDS    : natural := 2 ** 17;
    constant C_HR_LATENCY   : natural := 14;          -- hr_clk cycles before read data
 

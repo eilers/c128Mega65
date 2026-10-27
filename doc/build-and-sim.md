@@ -86,19 +86,23 @@ The on-screen menu only persists its settings if a file of exactly `OPTM_SIZE`
 bytes exists at the `CFG_FILE` path from `CORE/vhdl/config.vhd`. The filename
 carries `CORE_VERSION`, so it changes with every release:
 
-| File                                    | Size                   | SD card path                     |
-|-----------------------------------------|------------------------|----------------------------------|
-| `CORE/m2m-rom/c128mega65-<version>.cfg` | one byte per menu line | `/c128/c128mega65-<version>.cfg` |
+| File                                       | Size                   | SD card path                        |
+|--------------------------------------------|------------------------|-------------------------------------|
+| `CORE/m2m-rom/c128mega65-<version>.cfg`    | one byte per menu line | `/c128/c128mega65-<version>.cfg`    |
+| `CORE/m2m-rom/c128mega65-<version>-r3.cfg` | one byte fewer         | `/c128/c128mega65-<version>-r3.cfg` |
 
-Regenerate it whenever `OPTM_SIZE` or `CORE_VERSION` changes, and delete the
-file belonging to the previous version:
+R3 and `6r3` builds have no 2 MB REU, so their menu is one line shorter and has
+its own file (`doc/hyperram-map.md`). Regenerate both whenever `OPTM_SIZE_ALL`
+or `CORE_VERSION` changes, and delete the files belonging to the previous
+version:
 
 ```bash
 cd M2M/tools
 ./make_config.sh ../../CORE/m2m-rom/c128mega65-<version>.cfg auto
+./make_config.sh ../../CORE/m2m-rom/c128mega65-<version>-r3.cfg auto-r3
 ```
 
-`build_release.sh` ships this file with the release zip.
+`build_release.sh` ships them with the release zip, the R3 one when it builds R3.
 
 ### Disk images
 

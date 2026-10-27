@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Run tb_config (config.vhd's menu, full and R3-memory) with nvc (brew install nvc).
+# Takes a few seconds; no Vivado needed. QNICE_DIR points at a checked-out QNICE submodule
+# if this tree's isn't.
+#
+# Usage: CORE/scripts/run_config_nvc.sh [work dir]
+
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/../.." && pwd)
+work=${1:-"$repo/CORE/config_nvc"}
+qnice=${QNICE_DIR:-"$repo/M2M/QNICE"}
+mkdir -p "$work"
+cd "$work"
+
+nvc --std=2008 -a \
+    "$qnice/vhdl/tools.vhd" \
+    "$repo/M2M/vhdl/av_pipeline/video_modes_pkg.vhd" \
+    "$repo/CORE/vhdl/globals.vhd" \
+    "$repo/CORE/vhdl/config.vhd" \
+    "$repo/CORE/sim/tb_config.vhd"
+nvc --std=2008 --ieee-warnings=off -e tb_config -r --exit-severity=error 2>&1 | tee tb_config.log
+
+grep -q "ALL CHECKS PASSED" tb_config.log && echo "CONFIG SIM: PASSED" || { echo "CONFIG SIM: FAILED"; exit 1; }

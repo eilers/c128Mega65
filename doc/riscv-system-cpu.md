@@ -10,7 +10,8 @@ interface (UCI) and REST API, protocol compatible.
    `QNICE` entity with the same ports. A build switch, `G_RISCV`, picks one or the
    other, so `config.vhd`, the core's devices and the framework stay as they are.
 2. **Firmware base**: the boot ROM loads the firmware from the SD card into HyperRAM and
-   runs it there. FreeRTOS and a C++ subset, SD card, FAT32, menu text, keys.
+   runs it there, from `C_HMAP_FIRMWARE` (`0x200`–`0x3FE`, CPU address `0x40400000`,
+   `doc/hyperram-map.md`). FreeRTOS and a C++ subset, SD card, FAT32, menu text, keys.
 3. **The Shell in C++**, item by item, until it does everything the QNICE Shell does:
    the menu from `config.vhd`, the callbacks in `m2m-rom.asm`, mounting drives, loading
    cartridges and ROMs (`modem.bin` too), the settings file, the help screens. Each step

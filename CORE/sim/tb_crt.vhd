@@ -43,7 +43,15 @@ architecture sim of tb_crt is
    constant C_HR_PERIOD    : time    := 10 ns;
    constant C_HR_LATENCY   : natural := 12;                       -- clocks to a burst's first word
    constant C_HR_WORDS     : natural := 2**21;                    -- 4 MB from the CRT region on
-   constant C_HR_BASE      : natural := to_integer(unsigned(C_HMAP_CRT)) * 4096;
+   -- The .crt file's word address, as mega65.vhd chooses it: SDRAM, or HyperRAM on R3
+   function crt_base(sdram : boolean) return natural is
+   begin
+      if sdram then
+         return to_integer(unsigned(C_SMAP_CRT)) * 4096;
+      end if;
+      return to_integer(unsigned(C_HMAP_CRT)) * 4096;
+   end function crt_base;
+   constant C_HR_BASE      : natural := crt_base(G_SDRAM);        -- the memory model's first word
    constant C_QNICE_BYTES  : natural := 64;                       -- the CRT header goes through QNICE
    -- BOOT0_PATH is <repo>/sdcard/c128/boot0.rom
    constant C_REPO         : string  := BOOT0_PATH(1 to BOOT0_PATH'length - 21);
@@ -425,7 +433,7 @@ begin
 
    u_crt : entity work.sw_cartridge_wrapper
       generic map (
-         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000",
+         G_BASE_ADDRESS => std_logic_vector(to_unsigned(C_HR_BASE, 22)),
          G_SDRAM        => G_SDRAM
       )
       port map (

@@ -59,6 +59,7 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 
 ----------------------------------------------------------------------------------------------------------
 -- On-Screen-Menu control bit indices (must match OPTM_ITEMS line order in config.vhd)
+-- R3-memory builds leave C_MENU_REU_2M out of the menu; mega65.vhd moves their later bits back
 ----------------------------------------------------------------------------------------------------------
 
 constant C_MENU_DRV_1541         : natural := 7;   -- 5.25" drive model: 1541
@@ -95,7 +96,7 @@ constant C_MENU_HELP_F13         : natural := 84;  -- OSM trigger on F13 (Help s
 constant C_MENU_IEC              : natural := 88;  -- IEC: Use hardware port
 constant C_MENU_REU_OFF          : natural := 92;  -- REU: off (default)
 constant C_MENU_REU_512K         : natural := 93;  -- REU: 512 KB
-constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB
+constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB, not on R3-memory builds
 constant C_MENU_CART_HW          : natural := 100; -- Cartridge: hardware slot (default)
 constant C_MENU_CART_CRT         : natural := 101; -- Cartridge: virtual cartridge (.crt)
 constant C_MENU_MODEM_DE00       : natural := 109; -- Modem: SwiftLink at $DE00 (Off at 108 is the default)
@@ -175,11 +176,15 @@ constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- int
 -- Layout and rationale: doc/hyperram-map.md
 ----------------------------------------------------------------------------------------------------------
 
-constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 2 MiB
-constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB or 2 MiB
-constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB
-constant C_HMAP_MODEM         : std_logic_vector(15 downto 0) := x"0300";     -- Modem firmware: up to 1 MB, one byte per word
+constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 1 MiB
+constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0080";     -- REU: 512 KiB; 2 MiB on R4+, over the idle CRT region
+constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"00C0";     -- Virtual cartridge on R3: 2 MiB
+constant C_HMAP_MODEM         : std_logic_vector(15 downto 0) := x"01C0";     -- Modem firmware: up to 256 KB, one byte per word
+constant C_HMAP_FIRMWARE      : std_logic_vector(15 downto 0) := x"0200";     -- RISC-V system CPU's firmware: up to 0x3FE
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
+
+-- SDRAM (R4 and later), in the same units
+constant C_SMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 4 MiB
 
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System

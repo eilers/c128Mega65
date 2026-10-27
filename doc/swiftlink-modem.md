@@ -100,8 +100,8 @@ window covers a round trip of up to about 500 ms at 57600 baud.
 
 ### Booting
 
-The Shell loads `/c128/modem.bin` into HyperRAM at startup (`0x300`–`0x3FE`, see
-`hyperram-map.md`), one byte per 16-bit word. The CPU is held in reset while the menu
+The Shell loads `/c128/modem.bin` into HyperRAM at startup (`0x1C0`–`0x1FF`, see
+`hyperram-map.md`), one byte per 16-bit word, so the image can be up to 256 KB. The CPU is held in reset while the menu
 has the modem off. Once released, it starts in its boot code (`CORE/modem-fw/boot/boot.S`,
 104 bytes, served by `modem.vhd` at `0xF0003000`), which checks the image's header and
 checksum every 100 ms and jumps to it once both are right. Without the file the modem stays silent, and the 6551 still answers.

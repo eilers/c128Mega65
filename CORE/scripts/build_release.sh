@@ -127,12 +127,20 @@ else
 fi
 
 # The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
-# on the SD card, so the release has to carry it next to the .cor files.
+# on the SD card, so the release has to carry it next to the .cor files. R3's menu has no
+# 2 MB REU, so R3 has its own file, one byte shorter.
 SETTINGS_FILE="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}.cfg"
 [[ -f "$SETTINGS_FILE" ]] || die "Settings file missing: $SETTINGS_FILE
      Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE\" auto"
 cp -f "$SETTINGS_FILE" "$STAGING_DIR/"
 echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE")"
+if [[ " ${BOARDS[*]} " == *" 3 "* ]]; then
+  SETTINGS_FILE_R3="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}-r3.cfg"
+  [[ -f "$SETTINGS_FILE_R3" ]] || die "Settings file missing: $SETTINGS_FILE_R3
+     Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE_R3\" auto-r3"
+  cp -f "$SETTINGS_FILE_R3" "$STAGING_DIR/"
+  echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE_R3")"
+fi
 
 echo "Building M2M shell ROM..."
 (

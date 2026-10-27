@@ -1,6 +1,6 @@
 # HyperRAM Memory Map
 
-The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the REU, virtual cartridges and the modem's firmware. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding.
+The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the REU, virtual cartridges, the modem's firmware and the RISC-V system CPU's firmware. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding. Every board has the same map.
 
 Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd`: windows of 4 kW (8 KiB). `0x000`–`0x3FF` covers all 8 MiB.
 
@@ -8,21 +8,39 @@ Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd
 
 | Windows       | Size        | Bytes       | Owner                            | Constant                         |
 |---------------|-------------|-------------|----------------------------------|----------------------------------|
-| `0x000–0x0FF` | 2 MiB       | 0–2 MiB     | ascal framebuffer (M2M)          | `C_HMAP_M2M`                     |
-| `0x100–0x1FF` | up to 2 MiB | 2–4 MiB     | REU                              | `C_HMAP_REU`                     |
-| `0x200–0x2FF` | 2 MiB       | 4–6 MiB     | Virtual cartridge                | `C_HMAP_CRT`                     |
-| `0x300–0x3FE` | up to 2 MiB | 6–8 MiB     | Modem firmware                   | `C_HMAP_MODEM`                   |
+| `0x000–0x07F` | 1 MiB       | 0–1 MiB     | ascal framebuffer (M2M)          | `C_HMAP_M2M`                     |
+| `0x080–0x0BF` | 512 KiB     | 1–1.5 MiB   | REU (a 2 MiB REU runs on to `0x17F` on R4+) | `C_HMAP_REU`          |
+| `0x0C0–0x1BF` | 2 MiB       | 1.5–3.5 MiB | Virtual cartridge (R3; idle on R4+) | `C_HMAP_CRT`                  |
+| `0x1C0–0x1FF` | 512 KiB     | 3.5–4 MiB   | Modem firmware                   | `C_HMAP_MODEM`                   |
+| `0x200–0x3FE` | ~4 MiB      | 4–8 MiB     | RISC-V system CPU's firmware     | `C_HMAP_FIRMWARE`                |
 | `0x3FF`       | 8 KiB       | at 8 MiB    | Unassigned (keep free, below)    |                                  |
+
+On R4 and later the virtual cartridge is in SDRAM, at `C_SMAP_CRT` (`0x200` in the same units, 4 MiB in), so its HyperRAM region is idle there.
 
 Disk images take no HyperRAM. The virtual drives read and write them in place on the SD card (`CORE/vhdl/vd_sd.vhd`), which freed the two D81 buffers that used to sit at `0x300–0x3C9`.
 
-A 512 KiB REU uses `0x100–0x13F`, a 2 MiB REU `0x100–0x1FF`. `main.vhd` masks the REU's address to its size before `reu_mapper`, so every access stays inside that range. The one exception is the read cache's look-ahead, which can read up to 8 words past the end of a 2 MiB REU, into the cartridge's region.
+A 512 KiB REU uses `0x080–0x0BF`. On R4 and later a 2 MiB REU uses `0x080–0x17F`, over the cartridge's idle HyperRAM region. `main.vhd` masks the REU's address to its size before `reu_mapper`, so every access stays inside that range. The one exception is the read cache's look-ahead, which can read up to 8 words past the end of the REU: into the cartridge's region, which is harmless because it only reads.
 
-### Modem firmware: `0x300–0x3FE`
+### R3-memory builds: no 2 MiB REU
 
-The Shell loads the optional `/c128/modem.bin` here at startup, before the core runs, as it loads `boot0.rom` and `boot1.rom` into their devices. It writes one byte into the low half of each 16-bit word, so the window holds up to 1,044,480 bytes of firmware; today's is about 52 KB. The modem's NEORV32 reads it through its caches (`CORE/vhdl/modem/modem_hr_bridge.vhd`), a 64-word burst per cache line, on its own port of the core's HyperRAM arbiter. It never writes here. The CPU stays in reset while the modem is switched off, so with the modem off nothing reads this window.
+R3 has no SDRAM, so its cartridge needs the HyperRAM region after the REU, and the REU is 512 KiB at most. The `6r3` build (an R6 with R3's memory map, `G_R3_MEMORY`) is the same. In these builds:
 
-Keep the top window (`0x3FF`) unassigned. The REU's read cache fetches up to 8 words past the address it was asked for, and on the HyperRAM chips that need the write workaround a single-word write becomes a 2-word burst. At the top of HyperRAM those extra words run past the end of the chip. C64MEGA65 hit this with its REU in the last 512 KiB (its issue #214). Elsewhere the extra read words and the masked second write word are harmless.
+- **The menu leaves out "2 MB".** `config.vhd` gets `G_R3_MEMORY` from the framework and drops item `C_MENU_REU_2M` (94) from `OPTM_ITEMS_ALL` and `OPTM_GROUPS_ALL`, so the menu has `OPTM_SIZE_ALL − 1` items and every item after it moves up by one.
+- **The core can't see 2 MB.** `menu_bits` in `mega65.vhd` puts a `'0'` back at bit 94, so `main.vhd` uses the same `C_MENU_*` indices on every board, and the REU can't be set to 2 MiB.
+- **The Shell finds the "CRT file" item** with `CRT_MENU_IDX` in `m2m-rom.asm`, from the menu's item count. One Shell ROM serves every board.
+- **Settings have their own file,** `/c128/c128mega65-<version>-r3.cfg`, one byte shorter. The Shell only uses a settings file whose length matches the menu, so R3 can't share the R4+ file. Make it with `M2M/tools/make_config.sh <file> auto-r3`; `build_release.sh` ships it with the R3 core.
+
+`CORE/sim/tb_config.vhd` (`CORE/scripts/run_config_nvc.sh`, nvc) checks that the R3 menu is the full one without item 94, in every selector the Shell reads.
+
+### Modem firmware: `0x1C0–0x1FF`
+
+The Shell loads the optional `/c128/modem.bin` here at startup, before the core runs, as it loads `boot0.rom` and `boot1.rom` into their devices. It writes one byte into the low half of each 16-bit word, so the window holds up to 262,144 bytes of firmware, its header included; today's is about 70 KB. The firmware's link (`CORE/modem-fw/Makefile`) is limited to that, so a firmware that outgrows the window doesn't link. The Shell doesn't check the file's size, and a larger file would run on into the RISC-V firmware's region. The modem's NEORV32 reads it through its caches (`CORE/vhdl/modem/modem_hr_bridge.vhd`), a 64-word burst per cache line, on its own port of the core's HyperRAM arbiter. It never writes here. The CPU stays in reset while the modem is switched off, so with the modem off nothing reads this window.
+
+### RISC-V firmware: `0x200–0x3FE`
+
+The RISC-V system CPU (`G_RISCV`, `doc/riscv-system-cpu.md`) sees all of HyperRAM at `0x40000000`, two bytes per word, so this region starts at CPU address `0x40400000`. Its boot ROM will load the firmware here from the SD card. QNICE builds leave the region unused.
+
+Keep the top window (`0x3FF`) unassigned. A read cache can fetch past the address it was asked for (the REU's does, up to 8 words), and on the HyperRAM chips that need the write workaround a single-word write becomes a 2-word burst. At the top of HyperRAM those extra words run past the end of the chip. C64MEGA65 hit this with its REU in the last 512 KiB (its issue #214). Elsewhere the extra read words and the masked second write word are harmless.
 
 ## Decisions
 
@@ -42,7 +60,7 @@ When both run:
 ### REU sizes: 512 KiB and 2 MiB
 
 - **512 KiB** is the Commodore 1750, which most REU software expects.
-- **2 MiB** serves newer software that uses larger REUs. This departs from C64MEGA65, which offers only 512 KiB. Larger REUs wait for SDRAM (see Later).
+- **2 MiB** serves newer software that uses larger REUs. This departs from C64MEGA65, which offers only 512 KiB. R4 and later only: on R3 the cartridge needs that HyperRAM. Larger REUs wait for SDRAM (see Later).
 - **128 KiB (1700) and 256 KiB (1764) are left out.** Neither the C64 nor the C128 MiSTer core offers them.
 
 MiSTer's `reu.sv` has four size settings on its 2-bit `cfg` input: none, 512 KiB, 2 MiB and 16 MiB. We use the first three unchanged. `reu_cfg` in `CORE/vhdl/main.vhd` already uses that encoding.
@@ -58,19 +76,21 @@ At both sizes `$DF06` reads its top 5 bits as 1 and the bank in the low 3 bits, 
 
 ### Virtual cartridge region: 2 MiB
 
-This covers the common large cartridges: EasyFlash at 1 MiB and Ocean at up to 512 KiB. As in C64MEGA65, the raw `.crt` file is stored, headers included, so the 2 MiB limit applies to the whole file and a cartridge with a full 2 MiB of ROM won't fit. The Shell refuses a larger file before loading it (`PREP_LOAD_IMAGE` in `m2m-rom.asm`). On R4 and later the file goes to SDRAM instead (see below), and the limit there is 4 MiB, enough for a full-size Magic Desk 16K with its 2 MiB of ROM. The cartridge device reports its limit in CSR `$020`, and the Shell checks the file against that.
+This covers the common large cartridges: EasyFlash at 1 MiB and Ocean at up to 512 KiB. As in C64MEGA65, the raw `.crt` file is stored, headers included, so the 2 MiB limit applies to the whole file and a cartridge with a full 2 MiB of ROM won't fit. The Shell refuses a larger file before loading it (`PREP_LOAD_IMAGE` in `m2m-rom.asm`). On R4 and later the file goes to SDRAM instead, at `C_SMAP_CRT` (see below), and the limit there is 4 MiB, enough for a full-size Magic Desk 16K with its 2 MiB of ROM. The cartridge device reports its limit in CSR `$020`, and the Shell checks the file against that.
 
 On R3 the C128 never reads this region directly. `crt_cacher.vhd` copies the banks a cartridge has switched in into block RAM: 8 slots of 8 KiB each for ROML and for ROMH (a C128 cartridge's 16 KiB windows take two slots), 32 RAMB36 tiles in all, plus 8 for the 32 KiB of cartridge RAM some types have. A slot fills 256 bytes (one HyperRAM burst) at a time, and the C128 waits only when the CPU reads a burst that is not in yet, as it does for DMA. That burst is loaded next, so a wait lasts a few microseconds rather than the whole bank's 100 or so. Whole-bank waits stopped the CPU for several raster lines while the VIC ran on, which broke games' raster effects (Eye of the Beholder's glitches when the party moves). The cartridge device counts the waits of a C64 cycle or more and the longest (CSR $021–$022), which a build can show on the menu's Cartridge line (CSR $023).
 
-On R4 and later the file goes to SDRAM instead, at the same address, and this HyperRAM region stays unused. `crt_reader.vhd` reads each byte the CPU or the VIC asks for straight from the file, as the Ultimate does from its own memory. The request starts as soon as the address is out, and the byte is back about 140 ns later, ahead of FAST mode's 8-clock deadline. Nothing is cached, so the C128 never waits and bank switching costs nothing. SDRAM refreshes are kept to the middle of PHI2, where no request is due. The cartridge RAM stays in block RAM.
+On R4 and later the file goes to SDRAM instead, at `C_SMAP_CRT`, and this HyperRAM region is left to a 2 MiB REU. `crt_reader.vhd` reads each byte the CPU or the VIC asks for straight from the file, as the Ultimate does from its own memory. The request starts as soon as the address is out, and the byte is back about 140 ns later, ahead of FAST mode's 8-clock deadline. Nothing is cached, so the C128 never waits and bank switching costs nothing. SDRAM refreshes are kept to the middle of PHI2, where no request is due. The cartridge RAM stays in block RAM.
 
 An EasyFlash's flash programs and erases change the stored file (`crt_flash.vhd`; `crt_reader.vhd` on R4 and later, `crt_cacher.vhd` on R3, which also updates its cached copy). In SDRAM they use the same mid-PHI2 window as the refreshes, one access per window, so they never hold up a read. Many EasyFlash files leave out banks that are all `$FF`, save areas included. Each such bank has a spare 8 KiB bank in the region's second MiB: base + 1 MiB + (chip × 64 + bank) × 8 KiB, 1 MiB for both chips. The spares are filled with `$FF` right after the file is parsed, while the C128 is still held in reset, and a bank's first program maps its spare in, which is quick: EAPI waits less than 0.5 ms for a byte. An EasyFlash file is at most 1 MiB + 2 KiB, and only when it has all 128 banks, so a file that lacks one always fits below the spares. Changes last until the cartridge is loaded again or the MEGA65 is switched off.
 
 ### The framebuffer region and triple-buffering
 
-ascal reserves 2 MiB at address 0: `RAMSIZE = 2^ceil(log2(720 × 540 × 3))` (`M2M/vhdl/av_pipeline/digital_pipeline.vhd`). Triple-buffering would need three times that, 0–6 MiB. It is switched off in `CORE/vhdl/mega65.vhd` (`qnice_ascal_triplebuf_o <= '0'`). `ASCAL_USAGE = 2` in `config.vhd` keeps ascal's mode in sync with that signal, so ascal only uses buffer 0. This map gives up triple-buffering for good. C64MEGA65 V5.2 makes the same trade: with the same ascal settings, it puts its REU and cartridge at `0x200`, inside the triple-buffer area.
+ascal reserves 1 MiB at address 0 (`RAMSIZE` in `M2M/vhdl/av_pipeline/digital_pipeline.vhd`). It stores the core's own picture, not the HDMI output: at most about 760 pixels a line (the VDC's) at 3 bytes, 2,304 bytes once rounded up to its 128-byte bursts, so the C128's 312 lines take 0.72 MB. It used to reserve 2 MiB, `2^ceil(log2(720 × 540 × 3))`, sized for the output. ascal masks every write address with `RAMSIZE − 1`, so a picture that doesn't fit wraps inside its megabyte and never writes over the REU. Its reads aren't masked, so the lines past the end would show the REU's memory.
 
-**Unexplained:** during virtual-drive bring-up, drive 8's buffer sat at `0x200` and read back as zeros after a mount. With `Empty.d81`, whose only nonzero bytes are on track 40, that shows up as the directory reading `00 00 00 00`. The buffers were then moved above 6 MiB. The comment at the time blamed triple-buffering, but triple-buffering was already off, so the cause is still unknown. `0x200` is now the cartridge's base. If REU or cartridge data ever reads back as zeros, suspect this first.
+Triple-buffering would need three buffers. It is switched off in `CORE/vhdl/mega65.vhd` (`qnice_ascal_triplebuf_o <= '0'`). `ASCAL_USAGE = 2` in `config.vhd` keeps ascal's mode in sync with that signal, so ascal only uses buffer 0. This map gives up triple-buffering for good. C64MEGA65 V5.2 makes the same trade: with the same ascal settings, it puts its REU and cartridge at `0x200`, inside the triple-buffer area.
+
+**Unexplained:** during virtual-drive bring-up, drive 8's buffer sat at `0x200` and read back as zeros after a mount. With `Empty.d81`, whose only nonzero bytes are on track 40, that shows up as the directory reading `00 00 00 00`. The buffers were then moved above 6 MiB. The comment at the time blamed triple-buffering, but triple-buffering was already off, so the cause is still unknown. `0x200` was the cartridge's base until the RISC-V map, and nothing went wrong there; it is now the RISC-V firmware's. If data there ever reads back as zeros, suspect this first.
 
 ## Shared code both features touch
 
@@ -78,7 +98,7 @@ These are the places where the REU and cartridge work meet. They are already set
 
 - **Core HyperRAM port.** In `CORE/vhdl/mega65.vhd`, `i_core_hr_arbit` (`avm_arbit`, 2 ports) shares the core's HyperRAM master between the REU (`reu_hr_*`) and the virtual cartridge (`crt_hr_*`). A second `avm_arbit`, `i_modem_hr_arbit`, puts the modem's firmware reads (`modem_hr_*`) beside the two.
 - **Expansion port.** In `CORE/vhdl/main.vhd`, `cart_source` decodes the Cartridge submenu and `reu_cfg` the REU submenu. `handle_cores_expansion_port_signals_proc` has one `case` arm per cartridge source; the virtual cartridge fills its arm, including its DMA request in `v_dma`. The REU is laid over whichever source is active: it drives `reu_dma_req`, `reu_irq` and `reu_dout`, and `reu_io` selects its registers. The SwiftLink modem goes over both: at its base (`$DE00`, `$DF00` or `$D700`) its 8 registers answer, and its 6551 pulls NMI. At `$DF00` it would share the REU's registers, so `reu_cfg` turns the REU off then.
-- **Menu.** New items go below `CRT file`, the last item with a `C_MENU_*` index, so they shift no index. The cartridge's `CRT:%s` load line is there.
+- **Menu.** New items go below `CRT file`, the last item with a `C_MENU_*` index, so they shift no index. The cartridge's `CRT:%s` load line is there. R3-memory builds leave out the 2 MB REU item (above), so keep `C_MENU_*` indices in the full menu's numbering.
 - **QNICE device IDs.** The virtual cartridge is `0x0106`; the next free ID is `0x0107` (`globals.vhd`).
 - **The CPU's write signal.** The core's `ram_we` only fires for writes to RAM (`ramWE <= systemWe and cs_ram` in `fpga64_sid_iec.vhd`, since 657f411). Writes to `$DFxx` are I/O, and in C128 mode `$FF00` is the MMU, so neither shows on `ram_we`. `fpga64_sid_iec` therefore also brings out the unfiltered `systemWe`, which is `system_we` in `main.vhd`. The REU takes it for its registers at `$DF00` and for the `$FF00` writes that BASIC 7's `STASH`, `FETCH` and `SWAP` use to start a transfer. The hardware slot takes it too, for R/W, the data bus direction and the EasyFlash 3 checks. A virtual cartridge's bank switching needs it as well.
 - **Reset on change.** `exp_change_reset_proc` in `main.vhd` resets the C128 and a hardware cartridge for 50 ms when the REU or Cartridge setting changes, as C64MEGA65 does since its issues #225 and #226, and when a `.crt` file is loaded. If a write-back cache is dirty, the reset waits until it is clean. A virtual cartridge's reset also lasts until the cache holds the banks it starts in. C64MEGA65 resets from the ROM through `M2M$CSR_RESET`, but here that reaches `main.vhd` as `reset_hard_i` and would unmount the virtual drives.
@@ -86,4 +106,4 @@ These are the places where the REU and cartridge work meet. They are already set
 
 ## Later
 
-REUs larger than 2 MiB don't fit in HyperRAM beside a cartridge. R4, R5 and R6 boards have 64 MiB of SDRAM with the same chip and pinout on all three. The framework now drives it (C64MEGA65's controller) for the virtual cartridge, which uses a few MiB at most. An REU there would have to share it without delaying the cartridge's reads.
+REUs larger than 2 MiB don't fit in HyperRAM beside a cartridge and the RISC-V firmware. R4, R5 and R6 boards have 64 MiB of SDRAM with the same chip and pinout on all three. The framework now drives it (C64MEGA65's controller) for the virtual cartridge, which uses 4 MiB at `C_SMAP_CRT`. An REU of up to 16 MiB there (the RISC-V plan's next step) has to share it without delaying the cartridge's reads, and would free `0x080–0x17F` on R4+.

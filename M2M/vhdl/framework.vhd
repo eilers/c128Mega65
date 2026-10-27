@@ -647,6 +647,7 @@ begin
    i_qnice_wrapper : entity work.qnice_wrapper
    generic map (
       G_BOARD => G_BOARD,
+      G_SDRAM => G_SDRAM,
       G_RISCV => G_RISCV
    )
    port map (

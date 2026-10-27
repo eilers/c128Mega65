@@ -19,6 +19,7 @@ use work.sdhost_pkg.all;
 entity qnice_wrapper is
 generic (
    G_BOARD : string;                                        -- Which platform are we running on.
+   G_SDRAM : boolean := true;                               -- false: no SDRAM, as on R3 (config.vhd's menu)
    G_RISCV : boolean := false                               -- RISC-V system CPU (rv/rv_soc.vhd) instead of QNICE
 );
 port (
@@ -386,6 +387,9 @@ begin
 
    -- Shell configuration file config.vhd
    shell_cfg : entity work.config
+      generic map (
+         G_R3_MEMORY             => G_BOARD = "MEGA65_R3" or not G_SDRAM
+      )
       port map (
          clk_i                   => clk_i,
          -- bits 27 .. 12:    select configuration data block; called "Selector" hereafter

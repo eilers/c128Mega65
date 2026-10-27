@@ -80,7 +80,7 @@ _SMS_GROUP      ADD     1, R0
                 XOR     R8, R8
                 CMP     OPTM_G_CART, R1
                 RBRA    _SMS_RET, !Z
-                MOVE    CART_CRT_MENU, R8       ; and is a .crt file the source?
+                RSUB    CRT_MENU_IDX, 1         ; and is a .crt file the source?
                 RSUB    M2M$GET_SETTING, 1
                 XOR     R8, R8
                 CMP     1, R9
@@ -397,7 +397,7 @@ _OSM_PRE_INT    MOVE    R0, R8
                 ; when the source changes, and again once the file is loaded.
 _OSM_PRE_CRT    CMP     OPTM_G_MOUNT_CRT, R8
                 RBRA    _OSM_PRE_RET, !Z
-                MOVE    CART_CRT_MENU, R8
+                RSUB    CRT_MENU_IDX, 1
                 RSUB    M2M$GET_SETTING, 1
                 CMP     1, R9                   ; already selected?
                 RBRA    _OSM_PRE_RET, Z
@@ -439,6 +439,21 @@ CUSTOM_MSG      INCRB
                 MOVE    WRN_NO_DISKIMG, R8      ; yes: name the formats we accept
 
 _CUSTOM_MSG_RET DECRB
+                RET
+
+; ----------------------------------------------------------------------------
+; Core specific helpers
+; ----------------------------------------------------------------------------
+
+; CRT_MENU_IDX: the menu index of the "CRT file" item in the Cartridge submenu.
+; CART_CRT_MENU counts the 2 MB REU item before it, which R3-memory builds
+; leave out of the menu (config.vhd).
+;
+; Output: R8: index
+CRT_MENU_IDX    MOVE    OPTM_ICOUNT, R8
+                MOVE    @R8, R8                 ; R8: items in this menu
+                SUB     OPTM_SIZE_ALL, R8       ; 0, or -1 without 2 MB
+                ADD     CART_CRT_MENU, R8
                 RET
 
 ; ----------------------------------------------------------------------------
