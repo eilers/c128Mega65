@@ -83,8 +83,15 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   as in QNICE's `keyboard.asm`), the SD card (mounted when a card is in, dropped when the
   cards change) and the screen. FatFs R0.16 with its two patches, long names in code page
   437, the menu font's. Everything a user needs to see goes on the screen: the serial
-  port needs a JTAG adapter, so it only gets a banner line, for the testbench. For now the screen browses the SD card's folders;
-  the core stays in reset.
+  port needs a JTAG adapter, so it only gets a banner line, for the testbench.
+- **The Shell** (`fw/shell.c`, step 5, in progress): loads the menu from `config.vhd`, the
+  settings file (or the defaults) and the auto-load ROMs from `globals.vhd`, sets up ascal and
+  its filters, and lets the core out of reset; then Help (or F13) opens the options menu.
+  `fw/menu.c` is QNICE's `menu.asm` (groups, single-select items, submenus, headlines,
+  lines); `fw/cfg.c` reads `config.vhd` and the sysinfo device. The core's callbacks
+  (`m2m-rom.asm`'s) are `CORE/firmware/core.c`, which finds menu items by their group
+  (`config_ids.h`, made from `config.vhd`). Not yet: the file browser, drives, `.crt` files,
+  the 6r3 stall line.
 - **Shared** (`lib/`): the SD card through `sdhost`'s registers (512-byte blocks, a byte
   at a time through its buffer, as QNICE did), FatFs's disk layer, CRC-32, menu text, the
   serial port, a small `printf`, and the trap handler.
@@ -123,6 +130,10 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   committed, so a core builds without the toolchain. Copy `build/firmware.bin` to
   `/c128/firmware.bin` on the SD card.
 - Host tests: `make -C M2M/firmware host-test` (macOS: `hdiutil` makes the FAT images).
+  `test_shell` runs the Shell against `config.vhd` as `run_config_nvc.sh` dumps it (full
+  and R3 menus), with the registers and devices faked in `host/host_m2m.c`. Both nvc
+  scripts need `QNICE_DIR` in a worktree without the QNICE submodule.
 - Bitstream: `CORE/scripts/build_boards.sh 6rv`, an R6 with `G_RISCV`.
 - Simulation: `CORE/scripts/run_rv_soc_nvc.sh` (nvc, about 30 seconds on the Mac): the
-  selftest, then the firmware. Build the firmware first.
+  HyperRAM bridge, the selftest, then the firmware, which reads the real `config.vhd` and
+  stops on its no-SD-card screen. Build the firmware first.

@@ -9,7 +9,9 @@
 --
 -- With G_HR_IMAGE it runs the real firmware instead (M2M/firmware/build/fw_hr.txt, put
 -- into HyperRAM here as the boot ROM would load it; boot ROM test/fwboot.rom jumps to
--- it) and checks that it draws its screen: frame, title, and no SD card.
+-- it). config.vhd is the config device and globals.vhd's ROM list the sysinfo device, so
+-- the Shell reads the real menu; with no SD card it then stops on its fatal screen for
+-- the mandatory ROMs, with the core still in reset.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -20,6 +22,7 @@ use ieee.numeric_std.all;
 use std.textio.all;
 
 use work.sdhost_pkg.all;
+use work.globals.all;
 
 entity tb_rv_soc is
    generic (
@@ -37,8 +40,8 @@ architecture sim of tb_rv_soc is
    constant C_DEV_WAIT   : natural := 3;           -- wait clocks of the test device
    constant C_TIMEOUT    : time    := 50 ms;     -- the firmware: sdhost gives up on no card after 14 ms
    constant C_FIRMWARE   : boolean := G_HR_IMAGE'length > 0;
-   constant C_FW_TITLE   : natural := 1 * 45 + 2;  -- where the firmware's screen has what (fw/browse.c)
-   constant C_FW_CARD    : natural := 29 * 45 + 2;
+   constant C_FW_FATAL   : natural := 1 * 45 + 1;  -- where the Shell's fatal screen has what (fw/shell.c)
+   constant C_FW_MSG     : natural := 3 * 45 + 1;
    constant C_TRAP       : natural := 32 * 45;     -- lib/trap.c
 
    signal clk50   : std_logic := '0';
@@ -57,6 +60,8 @@ architecture sim of tb_rv_soc is
    signal control_m      : std_logic_vector(255 downto 0);
    signal csr_osm        : std_logic;
    signal csr_reset      : std_logic;
+   signal osm_xy         : std_logic_vector(15 downto 0);
+   signal osm_dxdy       : std_logic_vector(15 downto 0);
 
    signal hr_write, hr_read : std_logic;
    signal hr_address        : std_logic_vector(31 downto 0);
@@ -76,6 +81,8 @@ architecture sim of tb_rv_soc is
    signal dev_q     : std_logic_vector(15 downto 0);
    signal dev_count : natural range 0 to C_DEV_WAIT := 0;
    signal dev_done  : std_logic := '0';
+   signal cfg_q     : std_logic_vector(15 downto 0);
+   signal sys_q     : std_logic_vector(15 downto 0);
 
    function str_at(mem : t_words; pos : natural; s : string) return boolean is
    begin
@@ -131,8 +138,8 @@ begin
          csr_keyboard_o     => open,
          csr_joy1_o         => open,
          csr_joy2_o         => open,
-         osm_xy_o           => open,
-         osm_dxdy_o         => open,
+         osm_xy_o           => osm_xy,
+         osm_dxdy_o         => osm_dxdy,
          ascal_mode_i       => "00000",
          ascal_mode_o       => open,
          keys_n_i           => not x"0100",    -- F1 held
@@ -163,8 +170,47 @@ begin
    -----------------------------------------------------------------------------
 
    ramrom_rdata <= x"00" & vram_q(7 downto 0) when ramrom_dev = x"0000" or ramrom_dev = x"0001" else
+                   cfg_q                      when ramrom_dev = x"0002" else
+                   sys_q                      when ramrom_dev = x"00FF" else
                    dev_q                      when ramrom_dev = x"0100" else
                    x"EEEE";
+
+   i_config : entity work.config
+      generic map (G_R3_MEMORY => false)
+      port map (clk_i => clk50, address_i => ramrom_addr, data_o => cfg_q);
+
+   -- Sysinfo: the cartridges and ROMs of globals.vhd, as qnice_wrapper.vhd answers
+   p_sysinfo : process (clk50)
+      variable i : natural;
+   begin
+      if falling_edge(clk50) then
+         i     := to_integer(unsigned(ramrom_addr(7 downto 0)));
+         sys_q <= x"0000";
+         if ramrom_addr(27 downto 12) = x"0020" then
+            case ramrom_addr(11 downto 8) is
+               when x"0" =>
+                  if ramrom_addr(7 downto 0) = x"00" then
+                     sys_q <= std_logic_vector(to_unsigned(C_CRTROMS_MAN_NUM, 16));
+                  elsif ramrom_addr(7 downto 0) = x"01" then
+                     sys_q <= std_logic_vector(to_unsigned(C_CRTROMS_AUTO_NUM, 16));
+                  end if;
+               when x"1" =>
+                  if i <= C_CRTROMS_MAN'high then
+                     sys_q <= C_CRTROMS_MAN(i);
+                  end if;
+               when x"2" =>
+                  if i <= C_CRTROMS_AUTO'high then
+                     sys_q <= C_CRTROMS_AUTO(i);
+                  end if;
+               when x"3" =>
+                  if i < C_CRTROMS_AUTO_NAMES'length then
+                     sys_q <= std_logic_vector(to_unsigned(character'pos(C_CRTROMS_AUTO_NAMES(i + 1)), 16));
+                  end if;
+               when others => null;
+            end case;
+         end if;
+      end if;
+   end process p_sysinfo;
    ramrom_wait  <= '1' when ramrom_dev = x"0100" and ramrom_ce = '1' and dev_done = '0' else '0';
 
    p_vram : process (clk50)
@@ -295,18 +341,19 @@ begin
       if C_FIRMWARE then
          while now < C_TIMEOUT loop
             wait for 10 us;
-            exit when str_at(vram_data, C_FW_CARD, "No SD card") or str_at(vram_data, C_TRAP, "trap");
+            exit when str_at(vram_data, C_FW_FATAL, "FATAL ERROR") or str_at(vram_data, C_TRAP, "trap");
          end loop;
+         wait for 100 us;                       -- the rest of the screen
          assert not str_at(vram_data, C_TRAP, "trap") report "firmware: trap" severity error;
-         assert vram_data(0)(7 downto 0) = x"C9" report "firmware: no frame" severity error;
-         assert str_at(vram_data, C_FW_TITLE, "MiSTer2MEGA65 RISC-V firmware")
-            report "firmware: no title" severity error;
-         assert str_at(vram_data, C_FW_CARD, "No SD card") report "firmware: no card line" severity error;
-         assert csr_osm = '1' report "firmware: menu not shown" severity error;
+         assert str_at(vram_data, C_FW_FATAL, "FATAL ERROR:") report "firmware: no fatal screen" severity error;
+         assert str_at(vram_data, C_FW_MSG, "This core needs to load one or more")
+            report "firmware: not the mandatory ROMs' message" severity error;
+         assert csr_osm = '1' and osm_xy = x"0000" and osm_dxdy = x"2D21"
+            report "firmware: screen not shown in full" severity error;
          assert csr_reset = '1' report "core left reset" severity error;
-         if not str_at(vram_data, C_TRAP, "trap") and vram_data(0)(7 downto 0) = x"C9" and
-            str_at(vram_data, C_FW_TITLE, "MiSTer2MEGA65 RISC-V firmware") and
-            str_at(vram_data, C_FW_CARD, "No SD card") and csr_osm = '1' and csr_reset = '1' then
+         if not str_at(vram_data, C_TRAP, "trap") and str_at(vram_data, C_FW_FATAL, "FATAL ERROR:") and
+            str_at(vram_data, C_FW_MSG, "This core needs to load one or more") and
+            csr_osm = '1' and osm_xy = x"0000" and osm_dxdy = x"2D21" and csr_reset = '1' then
             report "ALL CHECKS PASSED";
          end if;
          done <= true;

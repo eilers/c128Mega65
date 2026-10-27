@@ -1,4 +1,4 @@
-// FatFs's disk layer on the host: a disk image file, read only.
+// FatFs's disk layer on the host: a disk image file.
 #include <stdio.h>
 #include "ff.h"
 #include "diskio.h"
@@ -9,7 +9,7 @@ int disk_file_open(const char *path)
 {
    if (img)
       fclose(img);
-   img = fopen(path, "rb");
+   img = fopen(path, "r+b");
    return img != NULL;
 }
 
@@ -35,13 +35,16 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 #if !FF_FS_READONLY
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
-   (void)pdrv, (void)buff, (void)sector, (void)count;
-   return RES_WRPRT;
+   if (pdrv || !img)
+      return RES_NOTRDY;
+   if (fseek(img, (long)sector * 512, SEEK_SET) || fwrite(buff, 512, count, img) != count)
+      return RES_ERROR;
+   return RES_OK;
 }
 #endif
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 {
    (void)buff;
-   return !pdrv && cmd == CTRL_SYNC ? RES_OK : RES_PARERR;
+   return !pdrv && cmd == CTRL_SYNC && !fflush(img) ? RES_OK : RES_PARERR;
 }

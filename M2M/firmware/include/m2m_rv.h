@@ -9,7 +9,10 @@
 // built for the old one: the boot ROM only starts a firmware built for its own version.
 #define M2M_RV_HW_VERSION    1u
 
+// The host tests (host/) bring their own REG32, device bus and HyperRAM
+#ifndef REG32
 #define REG32(a)             (*(volatile uint32_t *)(a))
+#endif
 
 // Registers (QNICE's 0xFFE0 and up)
 #define M2M_CSR              REG32(0xE0000000u)
@@ -50,8 +53,10 @@
 
 // Device bus: 16-bit word n of the device in M2M_RAMROM_DEV. 16- and 32-bit accesses
 // only; a 32-bit access is words n and n+1.
+#ifndef M2M_DEV16
 #define M2M_DEV16            ((volatile uint16_t *)0xC0000000u)
 #define M2M_DEV32            ((volatile uint32_t *)0xC0000000u)
+#endif
 
 #define M2M_DEV_VRAM_DATA    0x0000u   // On-Screen-Menu characters, row by row
 #define M2M_DEV_VRAM_ATTR    0x0001u   // their attributes, see M2M_SA_*
@@ -85,7 +90,13 @@
 #define M2M_SD_STATUS        M2M_SD(6)
 
 // HyperRAM: byte address A is word A/2, low byte first
+#ifndef M2M_HYPERRAM
 #define M2M_HYPERRAM         0x40000000u
+#endif
+
+#ifndef M2M_HALT
+#define M2M_HALT()           do { } while (1)   // stops the firmware for good
+#endif
 #define M2M_FW_BASE          0x40400000u   // the firmware's region, C_HMAP_FIRMWARE 0x200-0x3FE
 #define M2M_FW_END           0x407FE000u   // (doc/hyperram-map.md)
 
