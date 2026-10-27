@@ -133,6 +133,12 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   polyphase filter entry from four writes in a row, so the two filters have to be written
   one after the other. Neither the host test nor `tb_rv_soc` can see that order.
 - `.crt` files from the file browser (firmware `eb2858f`) pass on the R6.
+- Disk images in drives 8 and 9 (firmware `e0704c2`) pass on the R6, except that a reset
+  with the menu open froze it. A short press of the reset button resets the HyperRAM side
+  with the core; the bridge lost the read it was waiting for, and the CPU waited for ever.
+  Since `b7928f4` the bridge finishes the read, or writes again, once that reset is over,
+  and the CPU's bus timeout outlasts it (`tb_rv_hr_bridge` checks 3 and 4). That passes on
+  the R6 (`6rv` build of `b7928f4`: WNS +0.323 ns, WHS +0.032 ns, 265.5 block RAM tiles).
 
 ## Building and testing
 
