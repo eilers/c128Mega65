@@ -69,7 +69,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   HyperRAM.
 - The boot ROM is a bring-up check: it shows a banner, the keys, the CSR, and whether
   block 0 of the SD card ends in `55AA`. The core stays in reset.
-- `qnice_wrapper` elaborates both ways in nvc. Not yet built in Vivado.
+- `qnice_wrapper` elaborates both ways in nvc and Vivado.
+- R6 build (`build_boards.sh 6rv`): timing met at 100 MHz (the CPU's clock +1.0 ns, the
+  50/100 MHz handshakes +1.9 ns), and 25 fewer block RAM tiles than a QNICE build
+  (265.5 against 290.5). On the R6 the boot ROM shows its banner, the keys, the CSR and the
+  SD card's block 0.
 
 ## Building and testing
 
