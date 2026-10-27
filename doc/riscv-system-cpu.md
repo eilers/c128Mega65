@@ -28,8 +28,15 @@ network stage.
 
 ## Hardware
 
-`rv_soc.vhd` runs on the QNICE clock (50 MHz). NEORV32 v1.13.6 (`CORE/vhdl/neorv32`,
-shared with the modem): rv32imc, 8 KB i-cache, 16 KB data RAM, no d-cache yet.
+NEORV32 v1.13.6 (`CORE/vhdl/neorv32`, shared with the modem): rv32imc, 8 KB i-cache,
+16 KB data RAM, no d-cache yet.
+
+Clocks: the CPU, the boot ROM and the HyperRAM bridge run at 100 MHz, on the HyperRAM
+clock, so the bridge talks to the HyperRAM arbiter directly; the framework leaves out the
+FIFO that QNICE's port crosses through. The device bus, the registers and the SD
+controllers stay at 50 MHz, on the QNICE clock. Both clocks come from one MMCM with phase
+0, so the paths between them are timed: a request crosses as a toggle with its address and
+data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 100 MHz.
 
 | Address      | What                                                                     |
 |--------------|--------------------------------------------------------------------------|
@@ -57,8 +64,9 @@ shared with the modem): rv32imc, 8 KB i-cache, 16 KB data RAM, no d-cache yet.
 
 ## Status
 
-- `tb_rv_soc` passes: registers, keys, the menu RAM, a device with wait states, the SD
-  registers, HyperRAM bytes, halves and words, and code run from HyperRAM.
+- `tb_rv_soc` passes with the CPU at 100 MHz: registers, keys, the menu RAM, a device with
+  wait states, the SD registers, HyperRAM bytes, halves and words, and code run from
+  HyperRAM.
 - The boot ROM is a bring-up check: it shows a banner, the keys, the CSR, and whether
   block 0 of the SD card ends in `55AA`. The core stays in reset.
 - `qnice_wrapper` elaborates both ways in nvc. Not yet built in Vivado.

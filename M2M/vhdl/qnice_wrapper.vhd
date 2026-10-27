@@ -313,7 +313,7 @@ begin
    end generate qnice_gen;
 
    -- RISC-V system CPU with the same ports. It has its own HyperRAM port, so the
-   -- HyperRAM device below answers nothing.
+   -- HyperRAM device below answers nothing; that port (qnice_avm_*) is on clk100_i.
    riscv_gen : if G_RISCV generate
    i_rv_soc : entity work.rv_soc
       generic map (

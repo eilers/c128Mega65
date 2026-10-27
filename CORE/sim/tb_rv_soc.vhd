@@ -25,14 +25,14 @@ end entity tb_rv_soc;
 
 architecture sim of tb_rv_soc is
 
-   constant C_PERIOD     : time    := 20 ns;       -- 50 MHz
+   constant C_PERIOD     : time    := 20 ns;       -- 50 MHz; the CPU and HyperRAM run at twice that
    constant C_HR_WORDS   : natural := 2 ** 18;
-   constant C_HR_LATENCY : natural := 8;           -- clocks before read data
+   constant C_HR_LATENCY : natural := 16;          -- 100 MHz clocks before read data
    constant C_DEV_WAIT   : natural := 3;           -- wait clocks of the test device
    constant C_TIMEOUT    : time    := 5 ms;
 
    signal clk50   : std_logic := '0';
-   signal clk100  : std_logic := '0';
+   signal clk100  : std_logic := '1';      -- so that each rising edge of clk50 is one of clk100
    signal reset_n : std_logic := '0';
    signal done    : boolean := false;
 
@@ -212,7 +212,7 @@ begin
       variable beats  : natural := 0;
       variable count  : natural;
    begin
-      wait until rising_edge(clk50);
+      wait until rising_edge(clk100);
       hr_readdatavalid <= '0';
       lfsr := lfsr(6 downto 0) & (lfsr(7) xor lfsr(5) xor lfsr(4) xor lfsr(3));
 
@@ -243,12 +243,12 @@ begin
          end if;
          hr_waitrequest <= '1';
          for i in 1 to C_HR_LATENCY loop
-            wait until rising_edge(clk50);
+            wait until rising_edge(clk100);
          end loop;
          for i in 0 to count - 1 loop
             hr_readdata      <= mem((a + i) mod C_HR_WORDS);
             hr_readdatavalid <= '1';
-            wait until rising_edge(clk50);
+            wait until rising_edge(clk100);
          end loop;
          hr_readdatavalid <= '0';
       end if;

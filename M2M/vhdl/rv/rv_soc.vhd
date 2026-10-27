@@ -14,8 +14,13 @@
 --   0xE0000100  SD card controller registers 0..7 (sdhost.vhd), one per 32-bit word
 --   0xFFE00000  NEORV32's own: UART0 (the serial port), CLINT
 --
--- The device bus and the SD registers keep QNICE's timing: the devices act on the
--- falling edge of the clock and are read at the next rising edge, after their wait.
+-- Clocks: the CPU, the boot ROM and HyperRAM run at 100 MHz (clk100_i, the HyperRAM
+-- clock). The device bus, the registers and the SD controllers stay at 50 MHz
+-- (clk50_i), where QNICE was. Both come from one MMCM with phase 0, so every 50 MHz
+-- edge is a 100 MHz edge and the paths between them are timed: a request crosses
+-- as a toggle with its address and data beside it, an answer the same way back.
+-- The device bus keeps QNICE's timing: the devices act on the falling edge of the
+-- 50 MHz clock and are read at the next rising edge, after their wait.
 --
 -- C128 core: RISC-V replacement for QNICE, licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -39,9 +44,9 @@ generic (
    G_FONT_DY         : natural                           -- ditto height
 );
 port (
-   clk50_i              : in std_logic;            -- 50 MHz clock
-   clk100_i             : in std_logic;            -- 100 MHz from the same MMCM, phase 0 (SD controllers)
-   reset_n_i            : in std_logic;
+   clk50_i              : in std_logic;            -- 50 MHz: device bus, registers, SD cards
+   clk100_i             : in std_logic;            -- 100 MHz from the same MMCM, phase 0: CPU, HyperRAM
+   reset_n_i            : in std_logic;            -- clk50_i
 
    uart_rxd_i           : in std_logic;            -- serial port: the firmware sets the speed
    uart_txd_o           : out std_logic;
@@ -70,7 +75,7 @@ port (
    sd_eng_i             : in  t_sd_c2q := (others => '0');
    sd_eng_o             : out t_sd_q2c;
 
-   -- The registers QNICE had at 0xFFE0 and up (see M2M/rom/sysdef.asm)
+   -- The registers QNICE had at 0xFFE0 and up (see M2M/rom/sysdef.asm), clk50_i
    csr_reset_o          : out std_logic;
    csr_pause_o          : out std_logic;
    csr_osm_o            : out std_logic;
@@ -87,7 +92,7 @@ port (
    special_i            : in std_logic_vector(15 downto 0);
    general_i            : in std_logic_vector(15 downto 0);
 
-   -- QNICE device bus
+   -- QNICE device bus, clk50_i
    ramrom_dev_o         : out std_logic_vector(15 downto 0);
    ramrom_addr_o        : out std_logic_vector(27 downto 0);
    ramrom_data_o        : out std_logic_vector(15 downto 0);
@@ -96,7 +101,7 @@ port (
    ramrom_wait_i        : in std_logic;
    ramrom_we_o          : out std_logic;
 
-   -- HyperRAM (clk50_i)
+   -- HyperRAM, clk100_i
    hr_write_o           : out std_logic;
    hr_read_o            : out std_logic;
    hr_address_o         : out std_logic_vector(31 downto 0);
@@ -119,8 +124,8 @@ architecture synthesis of rv_soc is
 
    constant C_ROM_WORDS    : natural := 2048;       -- 8 KB
    constant C_LINE_BYTES   : natural := 64;         -- cache line
-   constant C_XBUS_TIMEOUT : natural := 65536;      -- 1.3 ms: HyperRAM can be slow
-   constant C_QBUS_TIMEOUT : natural := 60000;      -- a device that never ends its wait
+   constant C_XBUS_TIMEOUT : natural := 2 ** 17;    -- 1.3 ms at 100 MHz: HyperRAM can be slow
+   constant C_QBUS_TIMEOUT : natural := 50_000;     -- 1 ms at 50 MHz: a device that never ends its wait
 
    type t_rom is array (0 to C_ROM_WORDS - 1) of bit_vector(31 downto 0);
 
@@ -140,7 +145,12 @@ architecture synthesis of rv_soc is
 
    signal rom : t_rom := read_rom(G_BOOT_ROM);
 
-   signal rst        : std_logic;
+   ------------------------------------------------------------------------------
+   -- 100 MHz
+   ------------------------------------------------------------------------------
+
+   signal rst100_m   : std_logic := '1';
+   signal rst100     : std_logic := '1';
 
    -- CPU bus
    signal xbus_adr   : std_ulogic_vector(31 downto 0);
@@ -156,7 +166,8 @@ architecture synthesis of rv_soc is
    signal adr        : std_logic_vector(31 downto 0);
    signal wdat       : std_logic_vector(31 downto 0);
    signal sel        : std_logic_vector(3 downto 0);
-   signal rom_sel, hr_sel, dev_sel, reg_sel, sd_sel : std_logic;
+   signal rom_sel    : std_logic;
+   signal hr_sel     : std_logic;
 
    signal rom_ack    : std_logic := '0';
    signal rom_err    : std_logic := '0';
@@ -165,9 +176,29 @@ architecture synthesis of rv_soc is
    signal hr_ack     : std_logic;
    signal hr_err     : std_logic;
    signal hr_dat     : std_logic_vector(31 downto 0);
-   signal reg_ack    : std_logic := '0';
-   signal reg_err    : std_logic := '0';
-   signal reg_dat    : std_logic_vector(31 downto 0) := (others => '0');
+
+   -- Requests for the 50 MHz side, and its answers
+   signal req_tog    : std_logic := '0';
+   signal req_adr    : std_logic_vector(31 downto 0) := (others => '0');
+   signal req_wdat   : std_logic_vector(31 downto 0) := (others => '0');
+   signal req_sel    : std_logic_vector(3 downto 0) := (others => '0');
+   signal req_we     : std_logic := '0';
+   signal q_taken    : std_logic := '0';
+   signal reg_taken  : std_logic := '0';
+   signal slow_ack   : std_logic := '0';
+   signal slow_err   : std_logic := '0';
+   signal slow_dat   : std_logic_vector(31 downto 0) := (others => '0');
+
+   ------------------------------------------------------------------------------
+   -- 50 MHz
+   ------------------------------------------------------------------------------
+
+   signal rst        : std_logic;
+   signal req_seen   : std_logic := '0';
+   signal req_new    : std_logic;
+   signal r_dev      : std_logic;                              -- the request is for the device bus,
+   signal r_sd       : std_logic;                              -- the SD registers,
+   signal r_reg      : std_logic;                              -- or the registers
 
    -- Device bus and SD registers, accessed as QNICE did
    type t_qstate is (Q_IDLE, Q_ACCESS, Q_GAP);
@@ -180,7 +211,7 @@ architecture synthesis of rv_soc is
    signal q_hi       : std_logic := '0';                       -- this access is the upper half
    signal q_rdata    : std_logic_vector(31 downto 0) := (others => '0');
    signal q_timer    : natural range 0 to C_QBUS_TIMEOUT := 0;
-   signal q_ack      : std_logic := '0';
+   signal q_tog      : std_logic := '0';                       -- toggles with each answer
    signal q_err      : std_logic := '0';
    signal q_dat      : std_logic_vector(31 downto 0) := (others => '0');
    signal q_wdata16  : std_logic_vector(15 downto 0);
@@ -188,6 +219,9 @@ architecture synthesis of rv_soc is
    signal q_rdata16  : std_logic_vector(15 downto 0);
 
    -- Registers
+   signal reg_tog      : std_logic := '0';                     -- toggles with each answer
+   signal reg_err      : std_logic := '0';
+   signal reg_dat      : std_logic_vector(31 downto 0) := (others => '0');
    signal reg_csr      : std_logic_vector(15 downto 0) := C_CSR_DEFAULT;
    signal ascal_usage  : std_logic;
 
@@ -203,13 +237,21 @@ begin
 
    rst <= not reset_n_i;
 
+   p_rst100 : process (clk100_i)
+   begin
+      if rising_edge(clk100_i) then
+         rst100_m <= rst;
+         rst100   <= rst100_m;
+      end if;
+   end process p_rst100;
+
    -----------------------------------------------------------------------------
-   -- CPU
+   -- CPU (100 MHz)
    -----------------------------------------------------------------------------
 
    i_cpu : entity neorv32.neorv32_top
       generic map (
-         CLOCK_FREQUENCY   => 50_000_000,
+         CLOCK_FREQUENCY   => 100_000_000,
          BOOT_MODE_SELECT  => 1,               -- start in the boot ROM
          BOOT_ADDR_CUSTOM  => x"00000000",
          RISCV_ISA_C       => true,
@@ -232,8 +274,8 @@ begin
          IO_UART0_TX_FIFO  => 16
       )
       port map (
-         clk_i       => clk50_i,
-         rstn_i      => reset_n_i,
+         clk_i       => clk100_i,
+         rstn_i      => not rst100,
          xbus_adr_o  => xbus_adr,
          xbus_dat_o  => xbus_dat_o,
          xbus_cti_o  => xbus_cti,
@@ -253,24 +295,20 @@ begin
 
    rom_sel <= '1' when adr(31 downto 28) = x"0" else '0';
    hr_sel  <= '1' when adr(31 downto 24) = x"40" else '0';
-   dev_sel <= '1' when adr(31 downto 29) = "110" else '0';
-   reg_sel <= '1' when adr(31 downto 8) = x"E00000" else '0';
-   sd_sel  <= '1' when adr(31 downto 5) = x"E00001" & "000" else '0';
 
-   xbus_ack   <= rom_ack or hr_ack or q_ack or reg_ack;
-   xbus_err   <= rom_err or hr_err or q_err or reg_err;
+   xbus_ack   <= rom_ack or hr_ack or slow_ack;
+   xbus_err   <= rom_err or hr_err or slow_err;
    xbus_dat_i <= std_ulogic_vector(to_stdlogicvector(rom_dat)) when rom_ack = '1' else
                  std_ulogic_vector(hr_dat)                     when hr_ack = '1' else
-                 std_ulogic_vector(q_dat)                      when q_ack = '1' else
-                 std_ulogic_vector(reg_dat);
+                 std_ulogic_vector(slow_dat);
 
    -----------------------------------------------------------------------------
-   -- Boot ROM
+   -- Boot ROM (100 MHz)
    -----------------------------------------------------------------------------
 
-   p_rom : process (clk50_i)
+   p_rom : process (clk100_i)
    begin
-      if rising_edge(clk50_i) then
+      if rising_edge(clk100_i) then
          rom_ack <= '0';
          rom_err <= '0';
          if xbus_stb = '1' and rom_sel = '1' then
@@ -282,7 +320,7 @@ begin
    end process p_rom;
 
    -----------------------------------------------------------------------------
-   -- HyperRAM
+   -- HyperRAM (100 MHz)
    -----------------------------------------------------------------------------
 
    hr_stb <= xbus_stb and hr_sel;
@@ -292,8 +330,8 @@ begin
          G_LINE_BYTES => C_LINE_BYTES
       )
       port map (
-         clk_i               => clk50_i,
-         rst_i               => rst,
+         clk_i               => clk100_i,
+         rst_i               => rst100,
          stb_i               => hr_stb,
          adr_i               => adr(23 downto 0),
          we_i                => xbus_we,
@@ -315,7 +353,62 @@ begin
       ); -- i_hr_bridge
 
    -----------------------------------------------------------------------------
-   -- Device bus and SD registers
+   -- Everything else goes to the 50 MHz side (100 MHz)
+   -- The CPU waits for each answer, so there is one request at a time.
+   -----------------------------------------------------------------------------
+
+   p_slow100 : process (clk100_i)
+   begin
+      if rising_edge(clk100_i) then
+         slow_ack <= '0';
+         slow_err <= '0';
+
+         if xbus_stb = '1' and rom_sel = '0' and hr_sel = '0' then
+            req_adr  <= adr;
+            req_wdat <= wdat;
+            req_sel  <= sel;
+            req_we   <= xbus_we;
+            req_tog  <= not req_tog;
+         end if;
+
+         if q_tog /= q_taken then
+            q_taken  <= q_tog;
+            slow_ack <= '1';
+            slow_err <= q_err;
+            slow_dat <= q_dat;
+         elsif reg_tog /= reg_taken then
+            reg_taken <= reg_tog;
+            slow_ack  <= '1';
+            slow_err  <= reg_err;
+            slow_dat  <= reg_dat;
+         end if;
+
+         -- An answer to a request from before the reset is dropped
+         if rst100 = '1' then
+            q_taken   <= q_tog;
+            reg_taken <= reg_tog;
+         end if;
+      end if;
+   end process p_slow100;
+
+   -----------------------------------------------------------------------------
+   -- The request, as the 50 MHz side sees it: new for one 50 MHz clock
+   -----------------------------------------------------------------------------
+
+   req_new <= req_tog xor req_seen;
+   r_dev   <= '1' when req_adr(31 downto 29) = "110" else '0';
+   r_sd    <= '1' when req_adr(31 downto 5) = x"E00001" & "000" else '0';
+   r_reg   <= '1' when req_adr(31 downto 8) = x"E00000" else '0';
+
+   p_req50 : process (clk50_i)
+   begin
+      if rising_edge(clk50_i) then
+         req_seen <= req_tog;
+      end if;
+   end process p_req50;
+
+   -----------------------------------------------------------------------------
+   -- Device bus and SD registers (50 MHz)
    -- A 16-bit access is one device access, a 32-bit one two (low half first).
    -- Each access starts at a rising edge, the device acts on the falling edge, and
    -- the next rising edge without wait ends it. Between two accesses ce is low for
@@ -337,39 +430,36 @@ begin
       variable v_rdata : std_logic_vector(31 downto 0);
    begin
       if rising_edge(clk50_i) then
-         q_ack <= '0';
-         q_err <= '0';
-
          case q_state is
             when Q_IDLE =>
-               if xbus_stb = '1' and (dev_sel = '1' or sd_sel = '1') then
-                  q_we    <= xbus_we;
-                  q_wdata <= wdat;
+               if req_new = '1' and (r_dev = '1' or r_sd = '1') then
+                  q_we    <= req_we;
+                  q_wdata <= req_wdat;
                   q_rdata <= (others => '0');
                   q_timer <= 0;
                   q_state <= Q_ACCESS;
-                  if sd_sel = '1' then
+                  q_two   <= '0';
+                  q_hi    <= '0';
+                  if r_sd = '1' then
                      q_sd   <= '1';
-                     q_addr <= x"000000" & '0' & unsigned(adr(4 downto 2));
-                     q_two  <= '0';
-                     q_hi   <= '0';
-                     if sel /= "1111" then
-                        q_ack   <= '1';
+                     q_addr <= x"000000" & '0' & unsigned(req_adr(4 downto 2));
+                     if req_sel /= "1111" then
                         q_err   <= '1';
+                        q_dat   <= (others => '0');
+                        q_tog   <= not q_tog;
                         q_state <= Q_IDLE;
                      end if;
                   else
                      q_sd   <= '0';
-                     q_addr <= unsigned(adr(28 downto 1));
-                     q_two  <= '0';
-                     q_hi   <= '0';
-                     if sel = "1111" then
+                     q_addr <= unsigned(req_adr(28 downto 1));
+                     if req_sel = "1111" then
                         q_two <= '1';
-                     elsif sel = "1100" then
+                     elsif req_sel = "1100" then
                         q_hi  <= '1';
-                     elsif sel /= "0011" then
-                        q_ack   <= '1';              -- bytes are not supported
-                        q_err   <= '1';
+                     elsif req_sel /= "0011" then
+                        q_err   <= '1';              -- bytes are not supported
+                        q_dat   <= (others => '0');
+                        q_tog   <= not q_tog;
                         q_state <= Q_IDLE;
                      end if;
                   end if;
@@ -389,13 +479,15 @@ begin
                      q_addr  <= q_addr + 1;
                      q_state <= Q_GAP;
                   else
-                     q_ack   <= '1';
+                     q_err   <= '0';
                      q_dat   <= v_rdata;
+                     q_tog   <= not q_tog;
                      q_state <= Q_IDLE;
                   end if;
                elsif q_timer = C_QBUS_TIMEOUT then
-                  q_ack   <= '1';
                   q_err   <= '1';
+                  q_dat   <= (others => '0');
+                  q_tog   <= not q_tog;
                   q_state <= Q_IDLE;
                else
                   q_timer <= q_timer + 1;
@@ -413,12 +505,13 @@ begin
    end process p_qbus;
 
    -----------------------------------------------------------------------------
-   -- Registers at 0xE0000000, 32-bit accesses only
+   -- Registers at 0xE0000000, 32-bit accesses only (50 MHz)
    --   0x00 CSR (sysdef.asm M2M$CSR)    0x04 OSM x|y      0x08 OSM dx|dy
    --   0x0C ascal mode                  0x10 special (ro) 0x14 general (ro)
    --   0x18 keys, low active (ro)       0x1C RAMROM_DEV
    --   0x40-0x5C control_d, 32 bits per register (bit 0 of 0x40 is bit 0)
    --   0x60-0x7C control_m, ditto
+   -- Any other address the CPU uses is a bus error.
    -----------------------------------------------------------------------------
 
    csr_reset_o    <= reg_csr(0);
@@ -431,35 +524,34 @@ begin
 
    p_regs : process (clk50_i)
       variable v_idx : natural range 0 to 7;
+      variable v_err : std_logic;
    begin
       if rising_edge(clk50_i) then
-         reg_ack <= '0';
-         reg_err <= '0';
-         v_idx   := to_integer(unsigned(adr(4 downto 2)));
+         v_idx := to_integer(unsigned(req_adr(4 downto 2)));
 
-         if xbus_stb = '1' and rom_sel = '0' and hr_sel = '0' and dev_sel = '0' and sd_sel = '0' then
-            reg_ack <= '1';
+         if req_new = '1' and r_dev = '0' and r_sd = '0' then
+            v_err   := '0';
             reg_dat <= (others => '0');
-            if reg_sel = '0' or sel /= "1111" then
-               reg_err <= '1';
-            elsif xbus_we = '1' then
-               case adr(7 downto 2) is
-                  when "000000" => reg_csr <= wdat(15 downto 0);
-                  when "000001" => osm_xy_o <= wdat(15 downto 0);
-                  when "000010" => osm_dxdy_o <= wdat(15 downto 0);
+            if r_reg = '0' or req_sel /= "1111" then
+               v_err := '1';
+            elsif req_we = '1' then
+               case req_adr(7 downto 2) is
+                  when "000000" => reg_csr <= req_wdat(15 downto 0);
+                  when "000001" => osm_xy_o <= req_wdat(15 downto 0);
+                  when "000010" => osm_dxdy_o <= req_wdat(15 downto 0);
                   when "000011" =>
                      if ascal_usage = '0' then
-                        ascal_mode_o <= wdat(4 downto 0);
+                        ascal_mode_o <= req_wdat(4 downto 0);
                      end if;
-                  when "000111" => ramrom_dev_o <= wdat(15 downto 0);
+                  when "000111" => ramrom_dev_o <= req_wdat(15 downto 0);
                   when "010000" | "010001" | "010010" | "010011" | "010100" | "010101" | "010110" | "010111" =>
-                     control_d_o(32 * v_idx + 31 downto 32 * v_idx) <= wdat;
+                     control_d_o(32 * v_idx + 31 downto 32 * v_idx) <= req_wdat;
                   when "011000" | "011001" | "011010" | "011011" | "011100" | "011101" | "011110" | "011111" =>
-                     control_m_o(32 * v_idx + 31 downto 32 * v_idx) <= wdat;
-                  when others => reg_err <= '1';
+                     control_m_o(32 * v_idx + 31 downto 32 * v_idx) <= req_wdat;
+                  when others => v_err := '1';
                end case;
             else
-               case adr(7 downto 2) is
+               case req_adr(7 downto 2) is
                   when "000000" => reg_dat(15 downto 0) <= "0000" & reg_csr(11) & sd_cd_ext & sd_cd_int & sd_inuse_rd &
                                                            reg_csr(7 downto 0);
                   when "000001" => reg_dat(15 downto 0) <= osm_xy_o;
@@ -473,9 +565,11 @@ begin
                      reg_dat <= control_d_o(32 * v_idx + 31 downto 32 * v_idx);
                   when "011000" | "011001" | "011010" | "011011" | "011100" | "011101" | "011110" | "011111" =>
                      reg_dat <= control_m_o(32 * v_idx + 31 downto 32 * v_idx);
-                  when others => reg_err <= '1';
+                  when others => v_err := '1';
                end case;
             end if;
+            reg_err <= v_err;
+            reg_tog <= not reg_tog;
          end if;
 
          if ascal_usage = '1' then

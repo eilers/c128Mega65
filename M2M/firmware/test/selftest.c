@@ -68,13 +68,15 @@ int main(void)
    check(9, w[0] == 0xBEEF5A44 && w[1] == 0x55C37788);
    check(10, h[0] == 0x5A44 && b[3] == 0xBE && b[4] == 0x88);
 
-   // 11: code in HyperRAM through the i-cache: 100 additions over several cache lines
+   // 11: code in HyperRAM through the i-cache: 100 additions over several cache lines.
+   // Not after a failure: broken code could overwrite what the report needs.
    volatile uint32_t *code = (volatile uint32_t *)(HR_TEST + 0x1000);
    for (int i = 0; i < 100; i++)
       code[i] = 0x00150513;             // addi a0, a0, 1
    code[100] = 0x00008067;              // ret
    asm volatile ("fence.i" ::: "memory");
-   check(11, ((add_fn)(HR_TEST + 0x1000))(7) == 107);
+   if (!failed)
+      check(11, ((add_fn)(HR_TEST + 0x1000))(7) == 107);
 
    if (failed) {
       osm_print(0, 1, M2M_SA_COL_SEL, "FAIL");

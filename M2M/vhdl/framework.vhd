@@ -881,6 +881,7 @@ begin
       ); -- i_qnice2main
 
    -- Clock domain crossing: QNICE to HR
+   qnice_hr_gen : if not G_RISCV generate
    i_avm_fifo_qnice : entity work.avm_fifo
       generic map (
          G_WR_DEPTH     => 16,
@@ -913,6 +914,20 @@ begin
          m_avm_readdata_i      => hr_qnice_readdata,
          m_avm_readdatavalid_i => hr_qnice_readdatavalid
       ); -- i_avm_fifo_qnice
+   end generate qnice_hr_gen;
+
+   -- The RISC-V system CPU's HyperRAM port is on hr_clk already
+   riscv_hr_gen : if G_RISCV generate
+      hr_qnice_write          <= qnice_avm_write;
+      hr_qnice_read           <= qnice_avm_read;
+      hr_qnice_address        <= qnice_avm_address;
+      hr_qnice_writedata      <= qnice_avm_writedata;
+      hr_qnice_byteenable     <= qnice_avm_byteenable;
+      hr_qnice_burstcount     <= qnice_avm_burstcount;
+      qnice_avm_readdata      <= hr_qnice_readdata;
+      qnice_avm_readdatavalid <= hr_qnice_readdatavalid;
+      qnice_avm_waitrequest   <= hr_qnice_waitrequest;
+   end generate riscv_hr_gen;
 
    -- Clock domain crossing: HR to QNICE
    i_hr2qnice: entity work.cdc_stable

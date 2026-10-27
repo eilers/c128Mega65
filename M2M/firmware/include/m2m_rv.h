@@ -3,7 +3,7 @@
 #pragma once
 #include <stdint.h>
 
-#define CPU_HZ               50000000u
+#define CPU_HZ               100000000u
 
 #define REG32(a)             (*(volatile uint32_t *)(a))
 
