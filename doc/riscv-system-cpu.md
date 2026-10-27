@@ -78,6 +78,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 - The HyperRAM map with the firmware region (`doc/hyperram-map.md`) passes on the R6 in
   `6` and `6r3` builds: the REU at 512 KB and 2 MB, virtual cartridges, the modem, HDMI,
   and the R3 menu and settings file.
+- The REU in SDRAM on R4 and later, up to 16 MB (`doc/hyperram-map.md`), passes on the R6:
+  REUTEST at all three sizes and beside a virtual cartridge, the test cartridges with the REU
+  on, and 512 KB only on `6r3`.
 
 ## Building and testing
 
