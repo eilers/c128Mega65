@@ -134,6 +134,16 @@ SETTINGS_FILE="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}.cfg"
 cp -f "$SETTINGS_FILE" "$STAGING_DIR/"
 echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE")"
 
+# SwiftLink modem firmware. The Shell loads this from /c128/modem.bin on the SD card
+# at startup; without it the modem stays silent. Ship it next to the .cor files so it
+# can be copied onto the card with the rest of the release.
+MODEM_FW_FILE="$ROOT_DIR/sdcard/c128/modem.bin"
+[[ -f "$MODEM_FW_FILE" ]] || die "Modem firmware missing: $MODEM_FW_FILE
+     Build it with: cd CORE/modem-fw && make
+     then copy build/modem.bin to sdcard/c128/modem.bin."
+cp -f "$MODEM_FW_FILE" "$STAGING_DIR/modem.bin"
+echo "Modem firmware: $STAGING_DIR/modem.bin"
+
 echo "Building M2M shell ROM..."
 (
   cd "$CORE_DIR/m2m-rom"
