@@ -84,7 +84,7 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   cards change) and the screen. FatFs R0.16 with its two patches, long names in code page
   437, the menu font's. Everything a user needs to see goes on the screen: the serial
   port needs a JTAG adapter, so it only gets a banner line, for the testbench.
-- **The Shell** (`fw/shell.c`, step 5, in progress): loads the menu from `config.vhd`, the
+- **The Shell** (`fw/shell.c`, step 5): loads the menu from `config.vhd`, the
   settings file (or the defaults) and the auto-load ROMs from `globals.vhd`, sets up ascal and
   its filters, and lets the core out of reset; then Help (or F13) opens the options menu.
   `fw/menu.c` is QNICE's `menu.asm` (groups, single-select items, submenus, headlines,
@@ -140,6 +140,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   Since `b7928f4` the bridge finishes the read, or writes again, once that reset is over,
   and the CPU's bus timeout outlasts it (`tb_rv_hr_bridge` checks 3 and 4). That passes on
   the R6 (`6rv` build of `b7928f4`: WNS +0.323 ns, WHS +0.032 ns, 265.5 block RAM tiles).
+- The stall line (`09b9d2e`) passes on the R6 in a `6r3rv` build (WNS +0.246 ns, WHS
+  +0.019 ns, 297.5 block RAM tiles): a `.crt` game's longest bank wait was 7 us, against
+  5 us in the QNICE `6r3` build of the cache fix. So with R3's memory map, the CPU fetching
+  its code from HyperRAM barely adds to the cartridge's waits. With that, the Shell does
+  what the QNICE Shell does (step 5).
 
 ## Building and testing
 
