@@ -5,6 +5,8 @@
 
 volatile uint32_t *host_reg32(uint32_t a);
 volatile uint16_t *host_dev(void);       // the device in M2M_RAMROM_DEV, 2^28 words
+volatile uint16_t *host_dev_at(uint32_t d);
+extern void      (*host_dev_hook)(void); // called on every device access, to play hardware
 void               host_halt(void) __attribute__((noreturn));
 extern volatile uint16_t *host_hr;       // HyperRAM, 2^23 words
 

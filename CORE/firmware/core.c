@@ -64,14 +64,34 @@ int core_filter_file(const char *name, int dir, int ctx, int group)
    return 1;
 }
 
+// D64/D71/D81 are raw sector dumps without a header, so the file size is the only thing
+// that identifies them, and it has to: the image type makes iec_drive a 1541/1571 or a
+// 1581. Only the exact standard sizes are taken.
+//
 // A .crt file must fit the memory behind the cartridge device, which says how much that
 // is: 2 MiB of HyperRAM on R3, 4 MiB of SDRAM on later boards (doc/hyperram-map.md). The
 // parser in crt_parser.vhd checks the rest.
-// @TODO step 5: disk images, by their exact size
 int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **msg)
 {
+   // Image types as vdrives.vhd's img_type, which main.vhd expands for iec_drive
+   static const struct { uint32_t size; int type; } disks[] = {
+      { 174848, 0 },   // D64, 35 tracks: 1541
+      { 196608, 0 },   // D64, 40 tracks
+      { 349696, 1 },   // D71: 1571
+      { 819200, 2 },   // D81: 1581
+   };
    (void)group;
    *type = 0;
+   if (ctx == CTX_MOUNT_DISKIMG) {
+      for (unsigned i = 0; i < sizeof disks / sizeof disks[0]; i++)
+         if (size == disks[i].size) {
+            *type = disks[i].type;
+            return 0;
+         }
+      *msg = "\n\nThis is not a supported disk image. Sizes\nmust be exact: D64 174848 (35 tracks) or\n"
+             "196608 (40 tracks), D71 349696, D81 819200.\n\nPress SPACE to continue.\n";
+      return 1;
+   }
    if (ctx == CTX_LOAD_ROM && size > (uint32_t)crtrom_csr_get(CRT_DEVICE, CRT_CSR_MAX_HI) << 16) {
       *msg = "\n\nThis .crt file is too large. A virtual\ncartridge can be up to 4 MB, or 2 MB on\n"
              "an R3 board.\n\nPress SPACE to continue.\n";

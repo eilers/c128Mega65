@@ -173,20 +173,30 @@ begin
                    cfg_q                      when ramrom_dev = x"0002" else
                    sys_q                      when ramrom_dev = x"00FF" else
                    dev_q                      when ramrom_dev = x"0100" else
+                   x"5D4D"                    when ramrom_dev = C_DEV_MOUNT_D8 or ramrom_dev = C_DEV_MOUNT_D9 else
                    x"EEEE";
 
    i_config : entity work.config
       generic map (G_R3_MEMORY => false)
       port map (clk_i => clk50, address_i => ramrom_addr, data_o => cfg_q);
 
-   -- Sysinfo: the cartridges and ROMs of globals.vhd, as qnice_wrapper.vhd answers
+   -- Sysinfo: the drives, cartridges and ROMs of globals.vhd, as qnice_wrapper.vhd answers.
+   -- The drives' devices say they map their images (vd_sd.vhd), whatever is read.
    p_sysinfo : process (clk50)
       variable i : natural;
    begin
       if falling_edge(clk50) then
          i     := to_integer(unsigned(ramrom_addr(7 downto 0)));
          sys_q <= x"0000";
-         if ramrom_addr(27 downto 12) = x"0020" then
+         if ramrom_addr(27 downto 12) = x"0000" then
+            if ramrom_addr(11 downto 0) = x"000" then
+               sys_q <= std_logic_vector(to_unsigned(C_VDNUM, 16));
+            elsif ramrom_addr(11 downto 0) = x"001" then
+               sys_q <= C_VD_DEVICE;
+            elsif ramrom_addr(11 downto 4) = x"10" and i mod 16 <= C_VD_BUFFER'high then
+               sys_q <= C_VD_BUFFER(i mod 16);
+            end if;
+         elsif ramrom_addr(27 downto 12) = x"0020" then
             case ramrom_addr(11 downto 8) is
                when x"0" =>
                   if ramrom_addr(7 downto 0) = x"00" then

@@ -39,12 +39,20 @@ volatile uint32_t *host_reg32(uint32_t a)
    return &other;
 }
 
-volatile uint16_t *host_dev(void)
+void (*host_dev_hook)(void);
+
+volatile uint16_t *host_dev_at(uint32_t d)
 {
-   uint32_t d = host_regs[7] & 0x1FF;
    if (!devs[d])
       devs[d] = area(DEV_WORDS * 2);
    return devs[d];
+}
+
+volatile uint16_t *host_dev(void)
+{
+   if (host_dev_hook)
+      host_dev_hook();
+   return host_dev_at(host_regs[7] & 0x1FF);
 }
 
 void host_init(void)

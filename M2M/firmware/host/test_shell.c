@@ -22,6 +22,7 @@ extern uint32_t host_regs[];
 static int fails, runs, verbose;
 static char cfg_name[64];
 static const char *image;
+static int cluster;                      // bytes
 
 // The cartridge device (C_DEV_CRT) and its CSR (sw_cartridge_csr.vhd, sd_dma.vhd)
 #define CRT_DEV      0x0106
@@ -38,6 +39,18 @@ static const char *image;
 #define SDL_COUNT    0x034
 #define SDL_LEN_LO   0x037
 #define SDL_LEN_HI   0x038
+
+// The drives: vdrives.vhd and the vd_sd.vhd of drive 8 and 9
+#define VD_DEV       0x0103
+#define D8_DEV       0x0104
+#define D9_DEV       0x0105
+#define VD_IMG_MOUNT 0x000
+#define VD_SIZE_L    0x002
+#define VD_SIZE_H    0x003
+#define VD_TYPE      0x004
+#define VD_DRV_MOUNT 0x00A
+#define MAP_CTRL     0x031
+#define MAP_NBLK     0x032
 
 static void check(int ok, const char *what)
 {
@@ -181,6 +194,36 @@ static uint8_t pattern(int file, int i)
    return (uint8_t)(i * 7 + file * 31 + 1);
 }
 
+// Disk images: the first two bytes of each block are its number
+static uint8_t disk_byte(int file, int i)
+{
+   return i % 512 < 2 ? (uint8_t)(i / 512 >> 8 * (i % 512)) : pattern(file, i);
+}
+
+// With chunk, written a chunk at a time in turn with a filler file, so that its clusters
+// lie in runs of that size on the card
+static void put_disk(const char *name, int file, int size, const char *filler, int chunk)
+{
+   uint8_t b[512];
+   FIL f, g;
+   UINT put;
+   check(f_open(&f, name, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK, name);
+   if (chunk)
+      f_open(&g, filler, FA_WRITE | FA_CREATE_ALWAYS);
+   for (int at = 0; at < size;) {
+      int n = size - at < 512 ? size - at : 512;
+      for (int i = 0; i < n; i++)
+         b[i] = disk_byte(file, at + i);
+      f_write(&f, b, n, &put);
+      at += n;
+      for (int i = 0; chunk && at % chunk == 0 && i < chunk; i += 512)
+         f_write(&g, b, 512, &put);
+   }
+   if (chunk)
+      f_close(&g);
+   f_close(&f);
+}
+
 static void put_file(const char *name, int file, int size)
 {
    uint8_t b[512];
@@ -215,6 +258,12 @@ static void make_card(uint8_t *file)
    put_file("/c128/Sub/x.crt", 5, 3000);
    put_file("/c128/Sub/notes.txt", 6, 10);
    put_file("/c128/Sub/A cartridge with a name far too long for one line.crt", 7, 100);
+   put_disk("/c128/game.d64", 8, 174848, NULL, 0);
+   put_file("/c128/bad.d64", 9, 1000);
+   put_disk("/c128/frag.d71", 10, 349696, "/c128/filler1.bin", 4096);
+   put_disk("/c128/split.d64", 11, 174848, "/c128/filler2.bin", 2048);
+   put_disk("/c128/Sub/disk.d81", 12, 819200, NULL, 0);
+   cluster = fs.csize * 512;
    cfg_str(CFG_CFG_FILE, cfg_name, sizeof cfg_name);
    if (f_open(&f, cfg_name, FA_READ) == FR_OK) {
       f_read(&f, file, MENU_MAX, &got);
@@ -233,6 +282,52 @@ static int device_holds(int dev, int file, int size)
       if (M2M_DEV16[i] != pattern(file, i))
          return 0;
    return 1;
+}
+
+static uint16_t vd_reg(int reg)
+{
+   M2M_RAMROM_DEV = VD_DEV;
+   return M2M_DEV16[reg];
+}
+
+// vdrives.vhd as the core sees it: a strobed drive is mounted if the size is not 0
+static void vdrives_hw(void)
+{
+   volatile uint16_t *vd = host_dev_at(VD_DEV);
+   for (int d = 0; d < 2; d++)
+      if (vd[VD_IMG_MOUNT] >> d & 1)
+         vd[VD_DRV_MOUNT] = (vd[VD_DRV_MOUNT] & ~(1u << d)) | ((vd[VD_SIZE_L] | vd[VD_SIZE_H]) != 0) << d;
+}
+
+static uint32_t piece_at(int dev, int p)
+{
+   M2M_RAMROM_DEV = dev;
+   return M2M_DEV16[2 * p] | (uint32_t)M2M_DEV16[2 * p + 1] << 16;
+}
+
+// Every block of the image on the card where the drive's table says
+static int table_right(int dev, int file, int size)
+{
+   uint8_t blk[512];
+   FILE *img = fopen(image, "rb");
+   int ok = img != NULL;
+   for (int at = 0; ok && at < size; at += 512) {
+      long lba = piece_at(dev, at / 4096) + at % 4096 / 512;
+      ok = !fseek(img, lba * 512, SEEK_SET) && fread(blk, 512, 1, img) == 1;
+      for (int i = 0; ok && i < 512 && at + i < size; i++)
+         ok = blk[i] == disk_byte(file, at + i);
+   }
+   if (img)
+      fclose(img);
+   return ok;
+}
+
+static int in_pieces(int dev, int size)
+{
+   for (int p = 0; (p + 1) * 4096 < size; p++)
+      if (piece_at(dev, p + 1) != piece_at(dev, p) + 8)
+         return 1;
+   return 0;
 }
 
 // The settings file's byte for a menu item, read through the firmware's mount: mounting
@@ -260,7 +355,10 @@ int main(int argc, char **argv)
    verbose = argc > 3;
    image = argv[2];
    host_init();
+   host_dev_hook = vdrives_hw;
    load_dump(argv[1]);
+   crtrom_csr_set(D8_DEV, 0x030, 0x5D4D);             // the drives map their images
+   crtrom_csr_set(D9_DEV, 0x030, 0x5D4D);
    uint8_t file[MENU_MAX];
    make_card(file);
    M2M_CSR |= M2M_CSR_SD_DET_EXT | M2M_CSR_SD_ACTIVE;
@@ -452,10 +550,94 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
 
-   // No disk images yet: the drive items change nothing
+   // A disk image for drive 8. Its drive reads it from the card: its table has the SD
+   // block of each 4 KB piece, vdrives the size and type.
    go_to("8:");
    press(M2M_KEY_RETURN);
-   check(find_row(" 8:<Mount Drive>") > 0 && !setting_get(item(" 8:%s")), "drive item unchanged");
+   dump("disk browser");
+   check(find_row("<..>") == 1 && find_row("<Sub>") == 2 && find_row("bad.d64") == 3 &&
+         find_row("frag.d71") == 4 && find_row("game.d64") == 5 && find_row("split.d64") == 6 &&
+         find_row(".crt") < 0 && find_row(".bin") < 0, "disk browser: /c128, only disk images");
+   for (int i = 0; i < 4; i++)
+      press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   dump("drive 8 mounted");
+   check(find_row("=8:game.d64") > 0 && setting_get(item(" 8:%s")), "menu: 8:game.d64");
+   check(vd_reg(VD_DRV_MOUNT) == 1 && vd_reg(VD_SIZE_L) == (174848 & 0xFFFF) && vd_reg(VD_SIZE_H) == 2 &&
+         vd_reg(VD_TYPE) == 0, "vdrives: drive 8 mounted, D64 size and type");
+   check(crtrom_csr_get(D8_DEV, MAP_CTRL) == 1 && crtrom_csr_get(D8_DEV, MAP_NBLK) == 342 &&
+         table_right(D8_DEV, 8, 174848), "drive 8 on: 342 blocks, every one where the table says");
+
+   // Drive 9: the same image is refused. frag.d71 lies in 4 KB runs.
+   go_to("9:");
+   press(M2M_KEY_RETURN);
+   check(vram(M2M_DEV_VRAM_ATTR, 1, 1) == 0x8B, "drive 9: browsing from the top");
+   for (int i = 0; i < 4; i++)
+      press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   dump("twice");
+   check(find_row("Error code: EE42") == 1 && find_row("This disk image is already") == 2 &&
+         find_row("Press Space to continue.") > 0, "the same image in drive 9 refused");
+   press(M2M_KEY_SPACE);
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   check(find_row("=9:frag.d71") > 0 && vd_reg(VD_DRV_MOUNT) == 3 && vd_reg(VD_SIZE_L) == 0x5600 &&
+         vd_reg(VD_SIZE_H) == 5 && vd_reg(VD_TYPE) == 1, "drive 9: frag.d71, D71 size and type");
+   check(crtrom_csr_get(D9_DEV, MAP_NBLK) == 683 && in_pieces(D9_DEV, 349696) &&
+         table_right(D9_DEV, 10, 349696), "drive 9: an image in pieces, every block found");
+
+   // Not a disk image, and (with clusters under 4 KB) one split on the card: refused, and
+   // drive 9 keeps its image
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   check(find_row("Error code: 0001") == 1 && find_row("This is not a supported disk image") > 0,
+         "wrong size refused");
+   press(M2M_KEY_SPACE);
+   if (cluster < 4096) {
+      for (int i = 0; i < 3; i++)
+         press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      dump("split");
+      check(find_row("Error code: EE44") == 1 && find_row("split into") == 2, "split image refused");
+      press(M2M_KEY_SPACE);
+   } else
+      printf("(%d-byte clusters: no split image)\n", cluster);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row("=9:frag.d71") > 0 && crtrom_csr_get(D9_DEV, MAP_CTRL) == 1 &&
+         table_right(D9_DEV, 10, 349696), "drive 9 still has frag.d71");
+
+   // Space unmounts; a D81 from a folder; the internal floppy's label
+   go_to("8:");
+   press(M2M_KEY_SPACE);
+   check(find_row(" 8:<Mount Drive>") > 0 && !setting_get(item(" 8:%s")) && vd_reg(VD_DRV_MOUNT) == 2 &&
+         crtrom_csr_get(D8_DEV, MAP_CTRL) == 0, "Space unmounts drive 8");
+   press(M2M_KEY_RETURN);                              // drive 9 browsed last: from the top
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   check(find_row("=8:disk.d81") > 0 && vd_reg(VD_TYPE) == 2 && crtrom_csr_get(D8_DEV, MAP_NBLK) == 1600 &&
+         table_right(D8_DEV, 12, 819200), "drive 8: disk.d81 from Sub, a 1581");
+   go_to("Internal 1581");
+   press(M2M_KEY_RETURN);
+   go_to("Drive 8");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row("=8:Internal 1581") > 0, "drive 8 is the internal floppy");
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row("=8:disk.d81") > 0 && find_row(" Internal 1581: Off") > 0,
+         "choosing an image gives drive 8 back to images");
+
+   // A drive unmounted behind the menu's back (a reset)
+   M2M_RAMROM_DEV = VD_DEV;
+   M2M_DEV16[VD_DRV_MOUNT] &= ~2;
+   poll(2);
+   check(find_row(" 9:<Mount Drive>") > 0 && !setting_get(item(" 9:%s")), "unmount by a reset followed");
+   go_to("8:");
+   press(M2M_KEY_SPACE);
 
    // R3-memory builds have no 2 MB and 16 MB REU
    go_to("REU");

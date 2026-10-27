@@ -27,6 +27,7 @@ architecture sim of tb_config_dump is
 
    constant C_DEV_CONFIG   : natural := 16#0002#;
    constant C_DEV_SYS_INFO : natural := 16#00FF#;
+   constant C_SYS_DRIVES   : natural := 16#0000#;
    constant C_SYS_CRTROMS  : natural := 16#0020#;
 
    type nat_array is array (natural range <>) of natural;
@@ -108,7 +109,12 @@ begin
          end if;
       end loop;
 
-      -- Sysinfo: globals.vhd's cartridges and ROMs, as qnice_wrapper.vhd answers
+      -- Sysinfo: globals.vhd's drives, cartridges and ROMs, as qnice_wrapper.vhd answers
+      put(C_DEV_SYS_INFO, C_SYS_DRIVES, 0, C_VDNUM);
+      put(C_DEV_SYS_INFO, C_SYS_DRIVES, 1, to_integer(unsigned(C_VD_DEVICE)));
+      for i in C_VD_BUFFER'range loop
+         put(C_DEV_SYS_INFO, C_SYS_DRIVES, 16#100# + i, to_integer(unsigned(C_VD_BUFFER(i))));
+      end loop;
       put(C_DEV_SYS_INFO, C_SYS_CRTROMS, 0, C_CRTROMS_MAN_NUM);
       put(C_DEV_SYS_INFO, C_SYS_CRTROMS, 1, C_CRTROMS_AUTO_NUM);
       for i in C_CRTROMS_MAN'range loop

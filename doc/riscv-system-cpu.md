@@ -90,8 +90,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   `fw/menu.c` is QNICE's `menu.asm` (groups, single-select items, submenus, headlines,
   lines); `fw/cfg.c` reads `config.vhd` and the sysinfo device. The core's callbacks
   (`m2m-rom.asm`'s) are `CORE/firmware/core.c`, which finds menu items by their group
-  (`config_ids.h`, made from `config.vhd`). Not yet: the file browser, drives, `.crt` files,
-  the 6r3 stall line.
+  (`config_ids.h`, made from `config.vhd`). `fw/browse.c` is the file browser
+  (`selectfile.asm`, `dirbrowse.asm`). `fw/roms.c` loads `.crt` files, by the device's DMA
+  where it has one. `fw/drives.c` mounts disk images: drives 8 and 9 read them straight
+  from the card (`vd_sd.vhd`), so mounting only hands the drive the SD block of each 4 KB
+  piece. Not yet: the 6r3 stall line.
 - **Shared** (`lib/`): the SD card through `sdhost`'s registers (512-byte blocks, a byte
   at a time through its buffer, as QNICE did), FatFs's disk layer, CRC-32, menu text, the
   serial port, a small `printf`, and the trap handler.
@@ -129,6 +132,7 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   The first firmware (`d6e2b46`) drew CRT emulation as a crosshatch: ascal builds each
   polyphase filter entry from four writes in a row, so the two filters have to be written
   one after the other. Neither the host test nor `tb_rv_soc` can see that order.
+- `.crt` files from the file browser (firmware `eb2858f`) pass on the R6.
 
 ## Building and testing
 

@@ -7,6 +7,7 @@
 #include "cfg.h"
 #include "console.h"
 #include "core.h"
+#include "drives.h"
 #include "ff.h"
 #include "filters.h"
 #include "fmt.h"
@@ -37,13 +38,15 @@ static int      help_idx, help_set, help_page, help_pages;
 
 // Choosing and loading a file for a menu item (HANDLE_MOUNTING)
 static struct {
-   int      idx, k;                  // the menu item, its CRT/ROM number
+   int      idx, k;                  // the menu item, its drive or CRT/ROM number
+   int      drive;                   // 1: a drive's disk image, 0: a CRT/ROM
    uint16_t group;                   // the selection, finished once the file is in
    int      item;
    enum { L_MOUNT, L_MOUNT_ERR, L_BROWSE, L_ERROR } step;
 } load;
 static uint8_t crt_loaded[CRTROM_MAX];           // CRTROM_MAN_LDF
 static char    crt_name[CRTROM_MAX][NAME_MAX];   // shown on its line
+static char    drv_name[DRIVES_MAX][NAME_MAX];   // the image in a drive
 
 // The settings file: one byte per menu item, 0 or 1
 static struct {
@@ -107,6 +110,9 @@ static void load_menu(void)
       if (start_idx < 0 && cfg_get(CFG_OPTM_START, i))
          start_idx = i;
    }
+   if (mounts > drives_count())
+      shell_fatal("config.vhd: More menu items have the\nattribute OPTM_G_MOUNT_DRV than there are\n"
+                  "virtual drives configured in globals.vhd\nusing C_VDNUM.\n", mounts);
    if (crtroms > CRTROM_MAX)
       shell_fatal("Too many CRT/ROM items in config.vhd\n", crtroms);
    if (start_idx < 0)
@@ -286,9 +292,14 @@ static void show(int idx, const char *line, char *out)
       shell_fatal("config.vhd: A submenu with a %s in its headline has no menu group.\n", idx);
    }
    if (is_mount[idx]) {
-      if (!(custom = core_mount_label(is_mount[idx] - 1))) {
-         cfg_str(CFG_OPTM_MSTR, with, sizeof with);
-         custom = with;
+      int d = is_mount[idx] - 1;
+      if (!(custom = core_mount_label(d))) {
+         if (drive_mounted(d))
+            custom = drv_name[d];
+         else {
+            cfg_str(CFG_OPTM_MSTR, with, sizeof with);
+            custom = with;
+         }
       }
       replace_s(line, custom, out, max);
       return;
@@ -337,14 +348,18 @@ static void selected(uint16_t group, int item)
 static void select(uint16_t group, int item, enum menu_key key)
 {
    int idx = menu.cursor;
-   (void)key;
 
-   if (is_mount[idx]) {
-      menu_set(idx, 0);   // @TODO step 5: mounting drives
+   core_sel_pre(group & MENU_ID, item);
+   // Space on a mounted drive unmounts it; otherwise a drive gets an image, or another
+   // one in place of its image
+   if (is_mount[idx] && key == MENU_KEY_SELALT && drive_mounted(is_mount[idx] - 1)) {
+      drive_unmount(is_mount[idx] - 1);
+      menu_set(idx, 0);
+      selected(group, item);
+      menu_show();
       return;
    }
-   core_sel_pre(group & MENU_ID, item);
-   if (is_crtrom[idx]) {
+   if (is_mount[idx] || is_crtrom[idx]) {
       load_start(idx, group, item);   // finished by load_done()
       return;
    }
@@ -363,7 +378,8 @@ static void select(uint16_t group, int item, enum menu_key key)
 }
 
 // -------------------------------------------------------------------------------------
-// Loading a cartridge or ROM: the SD card, the file browser, the file (HANDLE_MOUNTING)
+// Mounting a disk image, loading a cartridge or ROM: the SD card, the file browser, the
+// file (HANDLE_MOUNTING)
 // -------------------------------------------------------------------------------------
 
 static void frame_full(void)
@@ -387,10 +403,31 @@ static void load_done(int on)
    menu_again();
 }
 
+// Is there an image in the drive, or a file in the CRT/ROM's device
+static int load_on(void)
+{
+   return load.drive ? drive_mounted(load.k) : crt_loaded[load.k];
+}
+
+static void browse(void)
+{
+   browse_open(load.drive ? CTX_MOUNT_DISKIMG : CTX_LOAD_ROM, load.group & MENU_ID,
+               load.k << 8 | !load.drive);
+   load.step = L_BROWSE;
+}
+
+// A file's name for the menu: one more than fits, so that the menu cuts it with "..."
+static void keep_name(char *to)
+{
+   strncpy(to, browse_name(), menu.dx - 1);
+   to[menu.dx - 1] = 0;
+}
+
 static void load_start(int idx, uint16_t group, int item)
 {
    load.idx   = idx;
-   load.k     = is_crtrom[idx] - 1;
+   load.drive = is_mount[idx] != 0;
+   load.k     = load.drive ? is_mount[idx] - 1 : is_crtrom[idx] - 1;
    load.group = group;
    load.item  = item;
    load.step  = L_MOUNT;
@@ -402,7 +439,7 @@ static void load_start(int idx, uint16_t group, int item)
 
 static void load_poll(uint32_t key)
 {
-   char text[200];
+   char text[400];
    const char *msg;
    int err;
 
@@ -420,8 +457,7 @@ static void load_poll(uint32_t key)
          load.step = L_MOUNT_ERR;
          break;
       }
-      browse_open(CTX_LOAD_ROM, load.group & MENU_ID, load.k << 8 | 1);
-      load.step = L_BROWSE;
+      browse();
       break;
    case L_MOUNT_ERR:
       if (key == M2M_KEY_RETURN) {
@@ -434,11 +470,14 @@ static void load_poll(uint32_t key)
       case BROWSE_BUSY:
          break;
       case BROWSE_FILE: {
-         // Its name for the menu: one more than fits, so that the menu cuts it with "..."
-         strncpy(crt_name[load.k], browse_name(), menu.dx - 1);
-         crt_name[load.k][menu.dx - 1] = 0;
-         err = crtrom_load(load.k, browse_path(), load.group & MENU_ID, &msg);
-         crt_loaded[load.k] = crtrom_loaded(load.k);   // as soon as the parser started
+         if (load.drive) {
+            if (!(err = drive_mount(load.k, browse_path(), load.group & MENU_ID, &msg)))
+               keep_name(drv_name[load.k]);
+         } else {
+            keep_name(crt_name[load.k]);
+            err = crtrom_load(load.k, browse_path(), load.group & MENU_ID, &msg);
+            crt_loaded[load.k] = crtrom_loaded(load.k);   // as soon as the parser started
+         }
          if (!err) {
             load_done(1);
             break;
@@ -446,18 +485,18 @@ static void load_poll(uint32_t key)
          frame_full();
          int n = fmt_snprintf(text, sizeof text, "Error code: %04X", err);
          if (msg)
-            fmt_snprintf(text + n, sizeof text - n, "\n%s\n ", msg);
+            fmt_snprintf(text + n, sizeof text - n, "\n%s\nPress Space to continue.", msg);
          scr_print(1, 1, 1, text);
          load.step = L_ERROR;
          break;
       }
       case BROWSE_CANCEL:
-         load_done(crt_loaded[load.k]);
+         load_done(load_on());
          break;
       case BROWSE_NOTHING:
          browse_reset();
          M2M_CSR &= ~M2M_CSR_SD_MODE;        // the card back to automatic
-         load_done(crt_loaded[load.k]);
+         load_done(load_on());
          break;
       case BROWSE_CHANGED:
          browse_reset();
@@ -469,18 +508,24 @@ static void load_poll(uint32_t key)
    case L_ERROR:
       if (key == M2M_KEY_SPACE) {
          frame_full();
-         browse_open(CTX_LOAD_ROM, load.group & MENU_ID, load.k << 8 | 1);
-         load.step = L_BROWSE;
+         browse();
       }
       break;
    }
 }
 
-// While the menu is open: a cartridge or ROM that comes or goes, as after a core reset
-// (CRTROM_MLST_GET)
-static void follow_crtroms(void)
+// While the menu is open: an image, cartridge or ROM that comes or goes, as after a reset
+// (VD_MNT_ST_GET, CRTROM_MLST_GET)
+static void follow_loads(void)
 {
    int changed = 0;
+   if (drives_changed())
+      for (int i = 0; i < menu.n; i++)
+         if (is_mount[i] && menu.sel[i] != drive_mounted(is_mount[i] - 1)) {
+            menu_set(i, !menu.sel[i]);
+            setting_set(i, menu.sel[i]);
+            changed = 1;
+         }
    for (int i = 0; i < menu.n; i++) {
       int k = is_crtrom[i] - 1;
       if (k < 0 || k >= CRTROM_MAX)
@@ -582,6 +627,7 @@ void shell_start(void)
 {
    menu.select = select;
    menu.show   = show;
+   drives_init();
    load_menu();
 
    // The card the boot ROM read: mounted at once
@@ -615,7 +661,7 @@ void shell_poll(void)
          open_menu();
       break;
    case UI_MENU:
-      follow_crtroms();
+      follow_loads();
       if (k && menu_key(menu_key_of(k)))
          close_menu();
       break;
