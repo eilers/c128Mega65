@@ -1,14 +1,15 @@
 # RISC-V system CPU
 
-Work in progress on branch `riscv-shell`: a NEORV32 replaces QNICE, the M2M framework's
-menu CPU. The goal is an Ultimate-style firmware: the menu, then Gideon's command
-interface (UCI) and REST API, protocol compatible.
+On branch `riscv-shell`: a NEORV32 has replaced QNICE, the M2M framework's menu CPU, on
+every board. The goal is an Ultimate-style firmware: the menu, then Gideon's command
+interface (UCI) and REST API, protocol compatible. The QNICE Shell's sources were removed
+in `a626c1c`; its parent has them, for reference.
 
 ## Plan
 
-1. **Hardware** (done in simulation): `M2M/vhdl/rv/rv_soc.vhd`, a drop-in for the
-   `QNICE` entity with the same ports. A build switch, `G_RISCV`, picks one or the
-   other, so `config.vhd`, the core's devices and the framework stay as they are.
+1. **Hardware** (done): `M2M/vhdl/rv/rv_soc.vhd`, a drop-in for the `QNICE` entity with
+   the same ports, so `config.vhd`, the core's devices and the framework stayed as they
+   were. Until step 4 a build switch, `G_RISCV`, picked one or the other.
 2. **Firmware base**: the boot ROM loads the firmware from the SD card into HyperRAM and
    runs it there, from `C_HMAP_FIRMWARE` (`0x200`–`0x3FE`, CPU address `0x40400000`,
    `doc/hyperram-map.md`). A main loop in C, SD card, FAT32, menu text, keys.
@@ -16,7 +17,7 @@ interface (UCI) and REST API, protocol compatible.
    the menu from `config.vhd`, the callbacks in `m2m-rom.asm`, mounting drives, loading
    cartridges and ROMs (`modem.bin` too), the settings file, the help screens. Each step
    is tested on hardware against a QNICE build.
-4. **Drop QNICE**: make RISC-V the default and delete QNICE.
+4. **Drop QNICE** (`a626c1c`): RISC-V on every board, QNICE deleted.
 
 Then UCI at `$DF1C` (Gideon's REU also decodes `$DF00`–`$DF1F`, so the two need
 sorting out), then networking. The modem's own NEORV32 moves into the system CPU at
@@ -35,7 +36,7 @@ NEORV32 v1.13.6 (`CORE/vhdl/neorv32`, shared with the modem): rv32imc, 8 KB i-ca
 
 Clocks: the CPU, the boot ROM and the HyperRAM bridge run at 100 MHz, on the HyperRAM
 clock, so the bridge talks to the HyperRAM arbiter directly; the framework leaves out the
-FIFO that QNICE's port crosses through. The device bus, the registers and the SD
+FIFO that QNICE's port crossed through. The device bus, the registers and the SD
 controllers stay at 50 MHz, on the QNICE clock. Both clocks come from one MMCM with phase
 0, so the paths between them are timed: a request crosses as a toggle with its address and
 data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 100 MHz.
@@ -57,11 +58,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   a 32-bit access two. Between accesses the select is low for at least one falling
   edge, which `qnice2hyperram`-style devices need to see a new access. There's no
   4K window: the whole 28-bit address is in the CPU's address.
-- **HyperRAM.** The CPU has its own Avalon port in place of `qnice2hyperram`, so the
-  device bus's HyperRAM device answers nothing in a RISC-V build. Cache lines are read
+- **HyperRAM.** The CPU has its own Avalon port in place of QNICE's `qnice2hyperram`
+  device, which is gone from the device bus (the core's devices still use the entity). Cache lines are read
   in 16-word bursts, one after the other, as the modem does since the HDMI sparkles
   (`doc/swiftlink-modem.md`).
-- **Registers.** The same bits as QNICE's `0xFFE0` and up (`M2M/rom/sysdef.asm`). The
+- **Registers.** The same bits as QNICE's `0xFFE0` and up (QNICE's `sysdef.asm`). The
   256 control flags are eight 32-bit registers each, not address/data pairs.
 
 ## Firmware
@@ -148,15 +149,15 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 
 ## Building and testing
 
-- Firmware: `make -C M2M/firmware` (xPack `riscv-none-elf-gcc`). The `.rom` files are
-  committed, so a core builds without the toolchain. Copy `build/firmware.bin` to
-  `/c128/firmware.bin` on the SD card.
+- Firmware: `make -C M2M/firmware` (xPack `riscv-none-elf-gcc`). The `.rom` files and
+  `sdcard/c128/firmware.bin` are committed, so a core builds without the toolchain.
+  After a change, copy `build/firmware.bin` to `sdcard/c128/` (from a clean tree: the
+  release scripts check it is not older than its sources) and to `/c128/` on the card.
 - Host tests: `make -C M2M/firmware host-test` (macOS: `hdiutil` makes the FAT images).
   `test_shell` runs the Shell against `config.vhd` as `run_config_nvc.sh` dumps it (full
-  and R3 menus), with the registers and devices faked in `host/host_m2m.c`. Both nvc
-  scripts need `QNICE_DIR` in a worktree without the QNICE submodule.
-- Bitstream: `CORE/scripts/build_boards.sh 6rv`, an R6 with `G_RISCV`; `6r3rv` adds R3's
-  memory map (`G_R3_MEMORY`), where the CPU shares HyperRAM with everything else.
+  and R3 menus), with the registers and devices faked in `host/host_m2m.c`.
+- Bitstream: `CORE/scripts/build_boards.sh`, any board; `6r3` is an R6 with R3's memory
+  map (`G_R3_MEMORY`), where the CPU shares HyperRAM with everything else.
 - Simulation: `CORE/scripts/run_rv_soc_nvc.sh` (nvc, about 30 seconds on the Mac): the
   HyperRAM bridge, the selftest, then the firmware, which reads the real `config.vhd` and
   stops on its no-SD-card screen. Build the firmware first.
