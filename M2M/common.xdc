@@ -83,7 +83,7 @@ set_max_delay 2 -datapath_only -from [get_clocks hr_rwds] -to [get_clocks hr_clk
 
 
 ################################################################################
-# QNICE
+# System CPU and SD cards
 ################################################################################
 
 ## The SD card controllers (sdhost.vhd) run on qnice_clk and hr_clk; the SD clock is a data
@@ -92,12 +92,6 @@ set_max_delay 2 -datapath_only -from [get_clocks hr_rwds] -to [get_clocks hr_clk
 set_property PULLUP TRUE [get_ports {sd_mosi_o sd_miso_i sd_d1_i sd_d2_i sd_reset_o}]
 set_property PULLUP TRUE [get_ports {sd2_mosi_o sd2_miso_i sd2_d1_i sd2_d2_i sd2_reset_o}]
 
-## QNICE's EAE combinatorial division networks take longer than the regular clock period, so we specify a multicycle path
-## see also the comments in EAE.vhd and explanations in UG903/chapter 5/Multicycle Paths as well as ug911/page 25
-set_multicycle_path -from [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/op*_reg[*]}] \
-   -to [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/res_reg[*]}] -setup 3
-set_multicycle_path -from [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/op*_reg[*]}] \
-   -to [get_cells -include_replicated {i_framework/i_qnice_wrapper/QNICE_SOC/eae_inst/res_reg[*]}] -hold 2
 
 
 ################################################################################

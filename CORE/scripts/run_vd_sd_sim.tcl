@@ -17,7 +17,7 @@ set core_dir [file normalize [file join [file dirname [info script]] ..]]
 set repo_dir [file normalize [file join $core_dir ..]]
 set tb_file  [file join $core_dir sim tb_vd_sd.vhd]
 set dut_files [list \
-    [file join $repo_dir M2M vhdl QNICE sdhost.vhd] \
+    [file join $repo_dir M2M vhdl sd sdhost.vhd] \
     [file join $repo_dir M2M vhdl vdrives.vhd] \
     [file join $core_dir vhdl vd_sd.vhd]]
 

@@ -17,7 +17,7 @@ set core_dir [file normalize [file join [file dirname [info script]] ..]]
 set repo_dir [file normalize [file join $core_dir ..]]
 set tb_file  [file join $core_dir sim tb_sd_dma.vhd]
 set dut_files [list \
-    [file join $repo_dir M2M vhdl QNICE sdhost.vhd] \
+    [file join $repo_dir M2M vhdl sd sdhost.vhd] \
     [file join $core_dir vhdl sd_dma.vhd]]
 
 source [file join [file dirname [info script]] sim_launch.tcl]

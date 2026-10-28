@@ -62,6 +62,7 @@ port (
    main_vic_rd_i       : in  std_logic := '0';               -- SDRAM: the VIC fetches ROMH (Ultimax)
    main_vic_addr_i     : in  std_logic_vector(12 downto 0) := (others => '0');
    main_rfsh_ok_i      : in  std_logic := '1';               -- SDRAM: no read is due soon
+   main_reu_ok_i       : in  std_logic := '1';               -- SDRAM: the REU may start an access
    main_reset_i        : in  std_logic := '0';               -- the C128 is in reset
    main_phi2_i         : in  std_logic := '0';
    main_flash_wr_i     : in  std_logic := '0';               -- a write selects ROML or ROMH (Ultimax)
@@ -87,6 +88,7 @@ port (
 
    -- SDRAM (G_SDRAM), on the HyperRAM clock
    sr_refresh_ok_o     : out std_logic;
+   sr_reu_ok_o         : out std_logic;                      -- main_reu_ok_i, crossed
    sr_write_o          : out std_logic;
    sr_read_o           : out std_logic;
    sr_address_o        : out std_logic_vector(31 downto 0);
@@ -581,6 +583,7 @@ begin
       hr_mem_waitrequest <= hr_waitrequest_i;
 
       sr_refresh_ok_o    <= '1';
+      sr_reu_ok_o        <= '1';
       sr_write_o         <= '0';
       sr_read_o          <= '0';
       sr_address_o       <= (others => '0');
@@ -791,6 +794,8 @@ begin
       signal hr_vic_req           : std_logic_vector( 2 downto 0) := (others => '0');
       signal hr_rfsh_ok_d         : std_logic := '1';
       signal hr_rfsh_ok           : std_logic := '1';
+      signal hr_reu_ok_d          : std_logic := '1';
+      signal hr_reu_ok            : std_logic := '1';
       signal hr_cpu_data          : std_logic_vector( 7 downto 0);
       signal hr_vic_data          : std_logic_vector( 7 downto 0);
       signal hr_cpu_done          : std_logic_vector( 2 downto 0);
@@ -811,6 +816,7 @@ begin
       signal main_cpu_ok          : std_logic := '0';   -- main_cpu_key_r is this cartridge's
       signal main_vic_ok          : std_logic := '0';
       signal main_rfsh_ok_r       : std_logic := '1';
+      signal main_reu_ok_r        : std_logic := '1';
 
       attribute async_reg of hr_cpu_req_d : signal is "true";
       attribute async_reg of hr_cpu_req   : signal is "true";
@@ -818,6 +824,8 @@ begin
       attribute async_reg of hr_vic_req   : signal is "true";
       attribute async_reg of hr_rfsh_ok_d : signal is "true";
       attribute async_reg of hr_rfsh_ok   : signal is "true";
+      attribute async_reg of hr_reu_ok_d  : signal is "true";
+      attribute async_reg of hr_reu_ok    : signal is "true";
 
    begin
 
@@ -962,6 +970,7 @@ begin
                main_vic_ok <= '0';
             end if;
             main_rfsh_ok_r <= main_rfsh_ok_i;
+            main_reu_ok_r  <= main_reu_ok_i;
             main_fl_done_q <= main_fl_done_s;
          end if;
       end process p_request;
@@ -975,10 +984,13 @@ begin
             hr_vic_req   <= hr_vic_req_d;
             hr_rfsh_ok_d <= main_rfsh_ok_r;
             hr_rfsh_ok   <= hr_rfsh_ok_d;
+            hr_reu_ok_d  <= main_reu_ok_r;
+            hr_reu_ok    <= hr_reu_ok_d;
          end if;
       end process p_sync;
 
       sr_refresh_ok_o <= hr_rfsh_ok;
+      sr_reu_ok_o     <= hr_reu_ok;
 
       main_lo_mem     <= hr_cpu_data;
       main_hi_mem     <= hr_cpu_data;

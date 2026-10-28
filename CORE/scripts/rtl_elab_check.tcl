@@ -48,12 +48,13 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/crt_reader.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_flash.vhd"] \
     [file join $repo_dir "M2M/vhdl/controllers/SDRAM/sdram.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sdram_arbit.vhd"] \
     [file join $repo_dir "M2M/vhdl/axi_fifo_small.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_loader.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
-    [file join $repo_dir "M2M/vhdl/QNICE/sdhost.vhd"] \
+    [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
@@ -87,6 +88,8 @@ foreach required_file $required_source_files {
 # The SwiftLink modem: NEORV32 goes in its own library
 source [file join [file dirname [info script]] add_modem_sources.tcl]
 add_modem_sources $repo_dir
+source [file join [file dirname [info script]] add_rv_sources.tcl]
+add_rv_sources $repo_dir
 
 set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]
 foreach sv_file $sv_files {

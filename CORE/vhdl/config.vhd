@@ -10,7 +10,12 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.globals.all;
+
 entity config is
+generic (
+   G_R3_MEMORY : boolean := false   -- no 2 MB or 16 MB REU: the menu leaves out those items
+);
 port (
    clk_i       : in std_logic;
 
@@ -142,7 +147,16 @@ constant DIR_START         : string := "/c128";
 
 -- The saved-settings file carries the core version, so that a menu layout change automatically
 -- retires the old file instead of loading it with a mismatched length. See doc/KNOWN_BUGS.md.
-constant CFG_FILE          : string := "/c128/c128mega65-" & CORE_VERSION & ".cfg";
+-- R3-memory builds have two menu items fewer, so they have their own file.
+function cfg_file_name return string is
+begin
+   if G_R3_MEMORY then
+      return "/c128/c128mega65-" & CORE_VERSION & "-r3.cfg";
+   end if;
+   return "/c128/c128mega65-" & CORE_VERSION & ".cfg";
+end function cfg_file_name;
+
+constant CFG_FILE          : string := cfg_file_name;
 
 --------------------------------------------------------------------------------------------------------------------
 -- General configuration settings: Reset, Pause, OSD behavior, Ascal, etc. (Selector 0x0110)
@@ -282,8 +296,8 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 117; -- amount of items including empty lines:
-                                             -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
+constant OPTM_SIZE_ALL     : natural := 118; -- amount of items including empty lines:
+                                             -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
                                              -- More items or submenus also need more MENU_HEAP_SIZE in m2m-rom.asm. If it is too
@@ -299,7 +313,11 @@ constant OPTM_SIZE         : natural := 117; -- amount of items including empty 
 constant OPTM_DX           : natural := 23;
 constant OPTM_DY           : natural := 28;
 
-constant OPTM_ITEMS        : string :=
+-- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
+-- OPTM_GROUPS are the menu without them
+constant OPTM_SIZE         : natural := OPTM_SIZE_ALL - C_MENU_R3_DROP * boolean'pos(G_R3_MEMORY);
+
+constant OPTM_ITEMS_ALL    : string :=
 
    " Drives\n"              &
    "\n"                     &
@@ -405,6 +423,7 @@ constant OPTM_ITEMS        : string :=
    " Off\n"                 &    -- default
    " 512 KB\n"              &    -- Commodore 1750
    " 2 MB\n"                &
+   " 16 MB\n"               &    -- R4 and later: in SDRAM
    "\n"                     &
    " Back to main menu\n"   &
    " Cartridge: %s\n"       &    -- Cartridge submenu; %s is the selected source
@@ -449,18 +468,18 @@ constant OPTM_G_HELP_F13   : integer := 12;   -- OSM on F13 so C128 can use Help
 constant OPTM_G_HDMI_AUDIO : integer := 13;   -- HDMI audio; off selects DVI output
 constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, and which is Caps Lock
 constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/VS, 15 kHz with CSYNC
-constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB
+constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB, 16 MB
 constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartridge's .crt file
 constant OPTM_G_INT1581    : integer := 18;   -- Internal 1581: Off, Drive 8, Drive 9
 constant OPTM_G_MODEM      : integer := 19;   -- Modem: Off, $DE00, $DF00, $D700
 
--- !!! DO NOT TOUCH !!!
-type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
+-- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
+type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
 
 -- define your menu groups: which menu items are belonging together to form a group?
 -- where are separator lines? which items should be selected by default?
--- make sure that you have exactly the same amount of entries here than in OPTM_ITEMS and defined by OPTM_SIZE
-constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drives
+-- make sure that you have exactly the same amount of entries here than in OPTM_ITEMS_ALL and defined by OPTM_SIZE_ALL
+constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drives
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_MOUNT_D8 + OPTM_G_MOUNT_DRV + OPTM_G_START,   -- 8:%s  (virtual drive 0)
                                              OPTM_G_MOUNT_D9 + OPTM_G_MOUNT_DRV,                  -- 9:%s  (virtual drive 1)
@@ -566,6 +585,7 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_REU + OPTM_G_STDSEL,                          -- Off
                                              OPTM_G_REU,                                          -- 512 KB
                                              OPTM_G_REU,                                          -- 2 MB
+                                             OPTM_G_REU,                                          -- 16 MB
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- Cartridge submenu START
@@ -590,6 +610,58 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
                                              OPTM_G_CLOSE                                         -- Close Menu
                                            );
+
+-- The menu without items n to n + count - 1. Each line of OPTM_ITEMS_ALL ends with the two
+-- characters \n.
+function drop_lines(items : string; n : natural; count : natural) return string is
+   variable lines : natural := 0;           -- lines so far
+   variable first : natural := items'low;   -- where line n starts
+begin
+   for i in items'low to items'high - 1 loop
+      if items(i) = '\' and items(i + 1) = 'n' then
+         lines := lines + 1;
+         if lines = n then
+            first := i + 2;
+         end if;
+         if lines = n + count then
+            return items(items'low to first - 1) & items(i + 2 to items'high);
+         end if;
+      end if;
+   end loop;
+   return items;
+end function drop_lines;
+
+function drop_groups(groups : OPTM_GTYPE; n : natural; count : natural) return OPTM_GTYPE is
+   variable result : OPTM_GTYPE(0 to groups'length - count - 1);
+begin
+   for i in result'range loop
+      if i < n then
+         result(i) := groups(i);
+      else
+         result(i) := groups(i + count);
+      end if;
+   end loop;
+   return result;
+end function drop_groups;
+
+function menu_items return string is
+begin
+   if G_R3_MEMORY then
+      return drop_lines(OPTM_ITEMS_ALL, C_MENU_REU_2M, C_MENU_R3_DROP);
+   end if;
+   return OPTM_ITEMS_ALL;
+end function menu_items;
+
+function menu_groups return OPTM_GTYPE is
+begin
+   if G_R3_MEMORY then
+      return drop_groups(OPTM_GROUPS_ALL, C_MENU_REU_2M, C_MENU_R3_DROP);
+   end if;
+   return OPTM_GROUPS_ALL;
+end function menu_groups;
+
+constant OPTM_ITEMS        : string := menu_items;
+constant OPTM_GROUPS       : OPTM_GTYPE(0 to OPTM_SIZE - 1) := menu_groups;
 
 --------------------------------------------------------------------------------------------------------------------
 -- !!! CAUTION: M2M FRAMEWORK CODE !!! DO NOT TOUCH ANYTHING BELOW THIS LINE !!!

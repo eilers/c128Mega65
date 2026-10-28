@@ -287,6 +287,42 @@ end entity MEGA65_Core;
 
 architecture synthesis of MEGA65_Core is
 
+-- No SDRAM: the cartridge and the REU go in HyperRAM, and the REU is 512 KB at most
+-- (doc/hyperram-map.md)
+constant C_R3_MEMORY : boolean := G_BOARD = "MEGA65_R3" or not G_SDRAM;
+
+-- R3-memory builds leave the 2 MB and 16 MB REU items out of the menu (config.vhd). A '0' in
+-- each place keeps every C_MENU_* index, and the REU can't be bigger than 512 KB there.
+function menu_bits(ctl : std_logic_vector(255 downto 0)) return std_logic_vector is
+begin
+   if C_R3_MEMORY then
+      return ctl(255 - C_MENU_R3_DROP downto C_MENU_REU_2M) &
+             std_logic_vector'(C_MENU_R3_DROP - 1 downto 0 => '0') & ctl(C_MENU_REU_2M - 1 downto 0);
+   end if;
+   return ctl;
+end function menu_bits;
+
+-- Word address of the REU's memory: HyperRAM, or SDRAM where the board has it
+function reu_base return std_logic_vector is
+begin
+   if C_R3_MEMORY then
+      return "0000000" & C_HMAP_REU(12 downto 0) & x"000";
+   end if;
+   return "0000000" & C_SMAP_REU(12 downto 0) & x"000";
+end function reu_base;
+
+-- Word address of the .crt file
+function crt_base return std_logic_vector is
+begin
+   if C_R3_MEMORY then
+      return C_HMAP_CRT(9 downto 0) & x"000";
+   end if;
+   return C_SMAP_CRT(9 downto 0) & x"000";
+end function crt_base;
+
+signal qnice_osm_control   : std_logic_vector(255 downto 0);
+signal main_osm_control    : std_logic_vector(255 downto 0);
+
 ---------------------------------------------------------------------------------------------
 -- Clocks and active high reset signals for each clock domain
 ---------------------------------------------------------------------------------------------
@@ -349,8 +385,8 @@ signal qnice_crt_eng_c2q     : t_sd_c2q;
 signal qnice_crt_eng_q2c     : t_sd_q2c;
 signal qnice_crt_eng_want    : std_logic;
 
--- Two Avalon masters share hr_core_*: the REU (s0) and the virtual cartridge (s1),
--- each in its region of doc/hyperram-map.md.
+-- R3-memory builds: two Avalon masters share hr_core_*, the REU (s0) and the virtual cartridge
+-- (s1), each in its region of doc/hyperram-map.md. Otherwise both are in SDRAM (sr_core_*).
 
 -- REU: main_reu_* on main_clk, reu_hr_* on hr_clk
 signal main_reu_write         : std_logic;
@@ -371,6 +407,15 @@ signal reu_hr_burstcount      : std_logic_vector( 7 downto 0);
 signal reu_hr_readdata        : std_logic_vector(15 downto 0);
 signal reu_hr_readdatavalid   : std_logic;
 signal reu_hr_waitrequest     : std_logic;
+-- REU in HyperRAM (R3-memory builds)
+signal reu_hm_write           : std_logic;
+signal reu_hm_read            : std_logic;
+signal reu_hm_readdata        : std_logic_vector(15 downto 0);
+signal reu_hm_readdatavalid   : std_logic;
+signal reu_hm_waitrequest     : std_logic;
+-- REU in SDRAM: it may start an access while hr_reu_ok is high
+signal main_reu_ok            : std_logic;
+signal hr_reu_ok              : std_logic;
 
 -- Virtual cartridge: the QNICE device that loads the .crt file, and its link to main.vhd
 signal qnice_crt_ce           : std_logic;
@@ -422,6 +467,15 @@ signal crt_hr_burstcount      : std_logic_vector( 7 downto 0);
 signal crt_hr_readdata        : std_logic_vector(15 downto 0);
 signal crt_hr_readdatavalid   : std_logic;
 signal crt_hr_waitrequest     : std_logic;
+signal crt_sr_write           : std_logic;
+signal crt_sr_read            : std_logic;
+signal crt_sr_address         : std_logic_vector(31 downto 0);
+signal crt_sr_writedata       : std_logic_vector(15 downto 0);
+signal crt_sr_byteenable      : std_logic_vector( 1 downto 0);
+signal crt_sr_burstcount      : std_logic_vector( 7 downto 0);
+signal crt_sr_readdata        : std_logic_vector(15 downto 0);
+signal crt_sr_readdatavalid   : std_logic;
+signal crt_sr_waitrequest     : std_logic;
 
 -- SwiftLink modem: the 6551's bus on main_clk, its firmware reads on hr_clk
 signal main_modem_en          : std_logic;
@@ -466,6 +520,9 @@ signal qnice_core_rst        : std_logic;
 signal f9_latched            : std_logic;
 
 begin
+
+   qnice_osm_control <= menu_bits(qnice_osm_control_i);
+   main_osm_control  <= menu_bits(main_osm_control_i);
 
    -- The Expansion Port is a pure pass-through here: every cart_* signal goes straight to
    -- main.vhd, which owns the bus timing and the transceiver directions. The same is true for
@@ -558,7 +615,7 @@ begin
       )
       port map (
          src_clk_i     => main_clk_o,
-         src_data_i(0) => main_osm_control_i(C_MENU_HDMI_FF),
+         src_data_i(0) => main_osm_control(C_MENU_HDMI_FF),
          src_data_i(1) => main_video_sel_vdc,
          dst_clk_i     => hr_clk_i,
          dst_data_o(0) => hr_hdmi_ff,
@@ -597,7 +654,8 @@ begin
    i_main : entity work.main
       generic map (
          G_BOARD              => G_BOARD,   -- Which platform are we running on
-         G_VDNUM              => C_VDNUM
+         G_VDNUM              => C_VDNUM,
+         G_REU_BASE           => reu_base
       )
       port map (
          clk_main_i           => main_clk_o,
@@ -608,7 +666,7 @@ begin
          pause_i              => main_pause_core_i,
 
          clk_main_speed_i     => CORE_CLK_SPEED,
-         osm_control_i        => main_osm_control_i,
+         osm_control_i        => main_osm_control,
          f9_latched_o         => f9_latched,
 
          -- HDMI video output (domain follows video_select_vdc_o / BUFGMUX above)
@@ -716,7 +774,7 @@ begin
          cart_d_i             => cart_d_i,
          cart_d_o             => cart_d_o,
 
-         iec_hardware_port_en_i => main_osm_control_i(C_MENU_IEC),
+         iec_hardware_port_en_i => main_osm_control(C_MENU_IEC),
          iec_reset_n_o        => iec_reset_n_o,
          iec_atn_n_o          => iec_atn_n_o,
          iec_clk_en_o         => iec_clk_en_o,
@@ -813,6 +871,7 @@ begin
          crt_vic_rd_o         => main_crt_vic_rd,
          crt_vic_addr_o       => main_crt_vic_addr,
          crt_rfsh_ok_o        => main_crt_rfsh_ok,
+         crt_reu_ok_o         => main_reu_ok,
          crt_reset_o          => main_crt_reset,
          crt_phi2_o           => main_crt_phi2,
          crt_flash_wr_o       => main_crt_flash_wr,
@@ -840,26 +899,26 @@ begin
    -- The selection is independent of whether the VIC or the VDC is shown: ascal detects the
    -- incoming image geometry on its own (iauto='1'), so both sources are scaled into the very
    -- same output rectangle of the selected HDMI mode.
-   qnice_video_mode_o <= C_VIDEO_SVGA_800_60   when qnice_osm_control_i(C_MENU_HDMI_800_60)      = '1' else
-                         C_VIDEO_HDMI_720_5994 when qnice_osm_control_i(C_MENU_HDMI_720_5994)    = '1' else
-                         C_VIDEO_HDMI_640_60   when qnice_osm_control_i(C_MENU_HDMI_640_60)      = '1' else
-                         C_VIDEO_HDMI_5_4_50   when qnice_osm_control_i(C_MENU_HDMI_576p_50_5_4) = '1' else
-                         C_VIDEO_HDMI_4_3_50   when qnice_osm_control_i(C_MENU_HDMI_576p_50)     = '1' else
-                         C_VIDEO_HDMI_16_9_60  when qnice_osm_control_i(C_MENU_HDMI_720p_60)     = '1' else
+   qnice_video_mode_o <= C_VIDEO_SVGA_800_60   when qnice_osm_control(C_MENU_HDMI_800_60)      = '1' else
+                         C_VIDEO_HDMI_720_5994 when qnice_osm_control(C_MENU_HDMI_720_5994)    = '1' else
+                         C_VIDEO_HDMI_640_60   when qnice_osm_control(C_MENU_HDMI_640_60)      = '1' else
+                         C_VIDEO_HDMI_5_4_50   when qnice_osm_control(C_MENU_HDMI_576p_50_5_4) = '1' else
+                         C_VIDEO_HDMI_4_3_50   when qnice_osm_control(C_MENU_HDMI_576p_50)     = '1' else
+                         C_VIDEO_HDMI_16_9_60  when qnice_osm_control(C_MENU_HDMI_720p_60)     = '1' else
                          C_VIDEO_HDMI_16_9_50;                       -- C_MENU_HDMI_720p_50
 
    -- Use On-Screen-Menu selections to configure several audio and video settings
    -- Video and audio mode control
    -- "HDMI audio" defaults to selected. Clearing it requests a DVI stream:
    -- video only, no audio packets. The 3.5 mm headphone output is unaffected.
-   qnice_dvi_o                <= not qnice_osm_control_i(C_MENU_HDMI_AUDIO);
+   qnice_dvi_o                <= not qnice_osm_control(C_MENU_HDMI_AUDIO);
    -- VGA Standard doubles each line so the VGA connector runs at ~31.3 kHz
    -- instead of the native 40-column and 80-column ~15.6 kHz. Pulse width and
    -- polarity come from VGA_STD_SYNC. The two retro 15 kHz modes send the
    -- native lines unchanged for RGB monitors and SCART. HDMI does not use
    -- this; the ascaler retimes its own output.
-   qnice_scandoubler_o        <= (not qnice_osm_control_i(C_MENU_VGA_15KHZHSVS)) and
-                                 (not qnice_osm_control_i(C_MENU_VGA_15KHZCS));
+   qnice_scandoubler_o        <= (not qnice_osm_control(C_MENU_VGA_15KHZHSVS)) and
+                                 (not qnice_osm_control(C_MENU_VGA_15KHZCS));
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
    -- Audio filtering and HDMI zoom/crop are not offered in the menu yet, see doc/KNOWN_BUGS.md
    qnice_audio_filter_o       <= '0';                                         -- 0 = raw audio, 1 = use filters from globals.vhd
@@ -870,9 +929,9 @@ begin
    -- each line is still the original television line. Composite sync puts
    -- CSYNC on VGA pin 13 and holds pin 14 high, which is what most RGB
    -- monitors (Sony BVM/PVM) and the MiSTer VGA-to-SCART adaptor expect.
-   qnice_retro15kHz_o         <= qnice_osm_control_i(C_MENU_VGA_15KHZHSVS) or
-                                 qnice_osm_control_i(C_MENU_VGA_15KHZCS);
-   qnice_csync_o              <= qnice_osm_control_i(C_MENU_VGA_15KHZCS);
+   qnice_retro15kHz_o         <= qnice_osm_control(C_MENU_VGA_15KHZHSVS) or
+                                 qnice_osm_control(C_MENU_VGA_15KHZCS);
+   qnice_csync_o              <= qnice_osm_control(C_MENU_VGA_15KHZCS);
    qnice_osm_cfg_scaling_o    <= (others => '1');
 
    -- ascal filters that are applied while processing the input
@@ -884,7 +943,7 @@ begin
 
    -- If polyphase is '1' then the ascal filter mode is ignored and polyphase filters are used instead
    -- @TODO: Right now, the filters are hardcoded in the M2M framework, we need to make them changeable inside m2m-rom.asm
-   qnice_ascal_polyphase_o    <= qnice_osm_control_i(C_MENU_CRT_EMULATION);
+   qnice_ascal_polyphase_o    <= qnice_osm_control(C_MENU_CRT_EMULATION);
 
    -- ascal triple-buffering
    -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded
@@ -985,7 +1044,7 @@ begin
          q2c_i    => qnice_sd_eng_i
       ); -- i_sd_eng_arb
 
-   -- REU: cross its HyperRAM port from main_clk to hr_clk
+   -- REU: cross its memory port from main_clk to hr_clk
    i_reu_avm_fifo : entity work.avm_fifo
       generic map (
          G_WR_DEPTH     => 16,
@@ -1023,8 +1082,8 @@ begin
    -- On R3 it goes in its HyperRAM region, its banks cached in block RAM.
    i_sw_cartridge_wrapper : entity work.sw_cartridge_wrapper
       generic map (
-         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000",
-         G_SDRAM        => G_BOARD /= "MEGA65_R3" and G_SDRAM,
+         G_BASE_ADDRESS => crt_base,
+         G_SDRAM        => not C_R3_MEMORY,
          G_STATS        => G_STATS
       )
       port map (
@@ -1061,6 +1120,7 @@ begin
          main_vic_rd_i      => main_crt_vic_rd,
          main_vic_addr_i    => main_crt_vic_addr,
          main_rfsh_ok_i     => main_crt_rfsh_ok,
+         main_reu_ok_i      => main_reu_ok,
          main_reset_i       => main_crt_reset,
          main_phi2_i        => main_crt_phi2,
          main_flash_wr_i    => main_crt_flash_wr,
@@ -1083,18 +1143,76 @@ begin
          hr_readdatavalid_i => crt_hr_readdatavalid,
          hr_waitrequest_i   => crt_hr_waitrequest,
          sr_refresh_ok_o    => sr_core_refresh_ok_o,
-         sr_write_o         => sr_core_write_o,
-         sr_read_o          => sr_core_read_o,
-         sr_address_o       => sr_core_address_o,
-         sr_writedata_o     => sr_core_writedata_o,
-         sr_byteenable_o    => sr_core_byteenable_o,
-         sr_burstcount_o    => sr_core_burstcount_o,
-         sr_readdata_i      => sr_core_readdata_i,
-         sr_readdatavalid_i => sr_core_readdatavalid_i,
-         sr_waitrequest_i   => sr_core_waitrequest_i
+         sr_reu_ok_o        => hr_reu_ok,
+         sr_write_o         => crt_sr_write,
+         sr_read_o          => crt_sr_read,
+         sr_address_o       => crt_sr_address,
+         sr_writedata_o     => crt_sr_writedata,
+         sr_byteenable_o    => crt_sr_byteenable,
+         sr_burstcount_o    => crt_sr_burstcount,
+         sr_readdata_i      => crt_sr_readdata,
+         sr_readdatavalid_i => crt_sr_readdatavalid,
+         sr_waitrequest_i   => crt_sr_waitrequest
       ); -- i_sw_cartridge_wrapper
 
-   -- s0 = REU, s1 = virtual cartridge, taking turns
+   -- With SDRAM, the REU shares it with the virtual cartridge. The cartridge goes first, and the
+   -- REU starts an access only in the window main.vhd opens, so it never makes a cartridge read late.
+   reu_sdram_gen : if not C_R3_MEMORY generate
+      i_sdram_arbit : entity work.sdram_arbit
+         port map (
+            clk_i                  => hr_clk_i,
+            rst_i                  => hr_rst_i,
+            slot_ok_i              => hr_reu_ok,
+            s0_avm_write_i         => crt_sr_write,
+            s0_avm_read_i          => crt_sr_read,
+            s0_avm_address_i       => crt_sr_address,
+            s0_avm_writedata_i     => crt_sr_writedata,
+            s0_avm_byteenable_i    => crt_sr_byteenable,
+            s0_avm_burstcount_i    => crt_sr_burstcount,
+            s0_avm_readdata_o      => crt_sr_readdata,
+            s0_avm_readdatavalid_o => crt_sr_readdatavalid,
+            s0_avm_waitrequest_o   => crt_sr_waitrequest,
+            s1_avm_write_i         => reu_hr_write,
+            s1_avm_read_i          => reu_hr_read,
+            s1_avm_address_i       => reu_hr_address,
+            s1_avm_writedata_i     => reu_hr_writedata,
+            s1_avm_byteenable_i    => reu_hr_byteenable,
+            s1_avm_burstcount_i    => reu_hr_burstcount,
+            s1_avm_readdata_o      => reu_hr_readdata,
+            s1_avm_readdatavalid_o => reu_hr_readdatavalid,
+            s1_avm_waitrequest_o   => reu_hr_waitrequest,
+            m_avm_write_o          => sr_core_write_o,
+            m_avm_read_o           => sr_core_read_o,
+            m_avm_address_o        => sr_core_address_o,
+            m_avm_writedata_o      => sr_core_writedata_o,
+            m_avm_byteenable_o     => sr_core_byteenable_o,
+            m_avm_burstcount_o     => sr_core_burstcount_o,
+            m_avm_readdata_i       => sr_core_readdata_i,
+            m_avm_readdatavalid_i  => sr_core_readdatavalid_i,
+            m_avm_waitrequest_i    => sr_core_waitrequest_i
+         ); -- i_sdram_arbit
+
+      reu_hm_write <= '0';
+      reu_hm_read  <= '0';
+   else generate
+      reu_hm_write         <= reu_hr_write;
+      reu_hm_read          <= reu_hr_read;
+      reu_hr_readdata      <= reu_hm_readdata;
+      reu_hr_readdatavalid <= reu_hm_readdatavalid;
+      reu_hr_waitrequest   <= reu_hm_waitrequest;
+
+      sr_core_write_o      <= crt_sr_write;
+      sr_core_read_o       <= crt_sr_read;
+      sr_core_address_o    <= crt_sr_address;
+      sr_core_writedata_o  <= crt_sr_writedata;
+      sr_core_byteenable_o <= crt_sr_byteenable;
+      sr_core_burstcount_o <= crt_sr_burstcount;
+      crt_sr_readdata      <= sr_core_readdata_i;
+      crt_sr_readdatavalid <= sr_core_readdatavalid_i;
+      crt_sr_waitrequest   <= sr_core_waitrequest_i;
+   end generate reu_sdram_gen;
+
+   -- s0 = REU, s1 = virtual cartridge, taking turns (R3-memory builds; else both are idle)
    i_core_hr_arbit : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => true,
@@ -1105,15 +1223,15 @@ begin
       port map (
          clk_i                  => hr_clk_i,
          rst_i                  => hr_rst_i,
-         s0_avm_write_i         => reu_hr_write,
-         s0_avm_read_i          => reu_hr_read,
+         s0_avm_write_i         => reu_hm_write,
+         s0_avm_read_i          => reu_hm_read,
          s0_avm_address_i       => reu_hr_address,
          s0_avm_writedata_i     => reu_hr_writedata,
          s0_avm_byteenable_i    => reu_hr_byteenable,
          s0_avm_burstcount_i    => reu_hr_burstcount,
-         s0_avm_readdata_o      => reu_hr_readdata,
-         s0_avm_readdatavalid_o => reu_hr_readdatavalid,
-         s0_avm_waitrequest_o   => reu_hr_waitrequest,
+         s0_avm_readdata_o      => reu_hm_readdata,
+         s0_avm_readdatavalid_o => reu_hm_readdatavalid,
+         s0_avm_waitrequest_o   => reu_hm_waitrequest,
          s1_avm_write_i         => crt_hr_write,
          s1_avm_read_i          => crt_hr_read,
          s1_avm_address_i       => crt_hr_address,

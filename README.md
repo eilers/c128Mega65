@@ -16,20 +16,25 @@ Build prerequisites
 
 1. Initialize submodules:
    - `git submodule update --init --recursive`
-2. Build QNICE toolchain:
-   - `cd M2M/QNICE/tools && ./make-toolchain.sh`
-3. Build core shell ROM:
-   - `cd CORE/m2m-rom && ./make_rom.sh`
+2. Build the bitstreams: `CORE/scripts/build_boards.sh` (see [doc/build-and-sim.md](doc/build-and-sim.md)).
+
+The on-screen menu, the drives and the ROM loading run on a RISC-V system CPU (see
+[doc/riscv-system-cpu.md](doc/riscv-system-cpu.md)). Its boot ROM is in the bitstream; its
+firmware is `sdcard/c128/firmware.bin`. Both are committed, so a core builds without the RISC-V
+toolchain. After changing the firmware, rebuild it with `make -C M2M/firmware` (xPack
+`riscv-none-elf-gcc`) and copy `M2M/firmware/build/firmware.bin` to `sdcard/c128/`.
 
 Required SD card files
 ----------------------
 
 Place the following files on the active SD card:
 
+- `/c128/firmware.bin` (firmware of the system CPU, from `sdcard/c128/` or the release zip)
 - `/c128/boot0.rom` (system ROM bundle, 72 KiB)
 - `/c128/boot1.rom` (drive ROM bundle, 512 KiB)
 
-Without these files, the core cannot boot correctly.
+Without these files, the core cannot boot correctly. Without `firmware.bin`, or with one that
+does not fit the core, the core says so on the screen.
 
 Optional:
 

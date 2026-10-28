@@ -1,0 +1,61 @@
+// The Shell's screen, as QNICE's screen.asm draws it.
+#include "screen.h"
+#include "console.h"
+#include "m2m_rv.h"
+
+void scr_clear(void)
+{
+   osm_clear(SCR_COL_STD);
+}
+
+int scr_print(int x, int y, int left, const char *s)
+{
+   M2M_RAMROM_DEV = M2M_DEV_VRAM_DATA;
+   for (; *s; s++) {
+      char c = *s;
+      if (c == '\n' || (c == '\\' && s[1] == 'n')) {
+         s += c == '\\';
+         x = left;
+         y++;
+         continue;
+      }
+      if (x < OSM_DX && y < OSM_DY)
+         M2M_DEV16[y * OSM_DX + x] = c == '<' ? SCR_DIR_L : c == '>' ? SCR_DIR_R : (uint8_t)c;
+      x++;
+   }
+   return y << 8 | x;
+}
+
+void scr_frame(int x, int y, int dx, int dy)
+{
+   osm_frame(x, y, dx, dy, SCR_COL_STD);
+}
+
+void scr_line(int x, int y, int dx)
+{
+   osm_hline(x, y, dx, SCR_COL_STD);
+}
+
+void scr_attr(int x, int y, int dx, uint8_t attr)
+{
+   M2M_RAMROM_DEV = M2M_DEV_VRAM_ATTR;
+   for (int i = 0; i < dx; i++)
+      M2M_DEV16[y * OSM_DX + x + i] = attr;
+}
+
+void scr_window_on(int x, int y, int dx, int dy)
+{
+   M2M_OSM_XY   = (x << 8) | y;
+   M2M_OSM_DXDY = (dx << 8) | dy;
+   M2M_CSR     |= M2M_CSR_OSM;
+}
+
+void scr_full_on(void)
+{
+   scr_window_on(0, 0, OSM_DX, OSM_DY);
+}
+
+void scr_off(void)
+{
+   M2M_CSR &= ~M2M_CSR_OSM;
+}

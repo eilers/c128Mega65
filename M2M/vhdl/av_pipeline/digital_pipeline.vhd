@@ -487,9 +487,11 @@ begin
          MASK      => x"ff",
          RAMBASE   => (others => '0'),
 
-         -- ascal needs an input buffer according to this formula: dx * dy * 3 bytes (RGB) per pixel and then rounded up
-         -- to the next power of two
-         RAMSIZE   => to_unsigned(2**f_log2(G_VGA_DX * G_VGA_DY * 3), 32),
+         -- ascal stores the core's own picture, not the output. The VDC's ~760 pixels at 3 bytes,
+         -- rounded up to a burst, are 2,304 bytes a line, so the C128's 312 lines take 0.72 MB.
+         -- Writes wrap inside RAMSIZE, so a bigger picture can't reach the REU behind it
+         -- (doc/hyperram-map.md).
+         RAMSIZE   => x"0010_0000",   -- 1 MB
 
          INTER     => false,        -- Not needed: Progressive input only
          HEADER    => false,        -- Not needed: Used on MiSTer to read the sampled image back from the ARM side to do screenshots. The header provides informations such as image size.

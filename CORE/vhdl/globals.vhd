@@ -18,20 +18,11 @@ use work.video_modes_pkg.all;
 package globals is
 
 ----------------------------------------------------------------------------------------------------------
--- QNICE Firmware
+-- Firmware
 ----------------------------------------------------------------------------------------------------------
 
--- QNICE Firmware: Use the regular QNICE "operating system" called "Monitor" while developing and
--- debugging the firmware/ROM itself. If you are using the M2M ROM (the "Shell") as provided by the
--- framework, then always use the release version of the M2M firmware: QNICE_FIRMWARE_M2M
---
--- Hint: You need to run QNICE/tools/make-toolchain.sh to obtain "monitor.rom" and
--- you need to run CORE/m2m-rom/make_rom.sh to obtain the .rom file
-constant QNICE_FIRMWARE_MONITOR   : string  := "../../../M2M/QNICE/monitor/monitor.rom";    -- debug/development
-constant QNICE_FIRMWARE_M2M       : string  := "../../../CORE/m2m-rom/m2m-rom.rom";         -- release
-
--- Select firmware here
-constant QNICE_FIRMWARE           : string  := QNICE_FIRMWARE_M2M;
+-- Boot ROM of the system CPU (M2M/firmware), which loads /c128/firmware.bin from the SD card
+constant RV_BOOT_ROM              : string  := "../../../M2M/firmware/boot.rom";
 
 ----------------------------------------------------------------------------------------------------------
 -- Clock Speed(s)
@@ -52,10 +43,12 @@ constant CORE_CLK_SPEED : natural := CORE_CLK_SPEED_PAL;
 -- System clock speed (crystal that is driving the FPGA) and QNICE clock speed
 -- !!! Do not touch !!!
 constant BOARD_CLK_SPEED      : natural := 100_000_000;
-constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has dependencies in qnice_globals.vhd
+constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has dependencies in rv/rv_soc.vhd
 
 ----------------------------------------------------------------------------------------------------------
 -- On-Screen-Menu control bit indices (must match OPTM_ITEMS line order in config.vhd)
+-- R3-memory builds leave C_MENU_R3_DROP items out of the menu from C_MENU_REU_2M on (2 MB, 16 MB);
+-- mega65.vhd moves their later bits back
 ----------------------------------------------------------------------------------------------------------
 
 constant C_MENU_DRV_1541         : natural := 7;   -- 5.25" drive model: 1541
@@ -92,12 +85,14 @@ constant C_MENU_HELP_F13         : natural := 84;  -- OSM trigger on F13 (Help s
 constant C_MENU_IEC              : natural := 88;  -- IEC: Use hardware port
 constant C_MENU_REU_OFF          : natural := 92;  -- REU: off (default)
 constant C_MENU_REU_512K         : natural := 93;  -- REU: 512 KB
-constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB
-constant C_MENU_CART_HW          : natural := 100; -- Cartridge: hardware slot (default)
-constant C_MENU_CART_CRT         : natural := 101; -- Cartridge: virtual cartridge (.crt)
-constant C_MENU_MODEM_DE00       : natural := 109; -- Modem: SwiftLink at $DE00 (Off at 108 is the default)
-constant C_MENU_MODEM_DF00       : natural := 110; -- Modem: SwiftLink at $DF00, REU off
-constant C_MENU_MODEM_D700       : natural := 111; -- Modem: SwiftLink at $D700
+constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB, not on R3-memory builds
+constant C_MENU_REU_16M          : natural := 95;  -- REU: 16 MB, not on R3-memory builds
+constant C_MENU_R3_DROP          : natural := 2;   -- R3-memory builds have neither
+constant C_MENU_CART_HW          : natural := 101; -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 102; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 110; -- Modem: SwiftLink at $DE00 (Off at 109 is the default)
+constant C_MENU_MODEM_DF00       : natural := 111; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 112; -- Modem: SwiftLink at $D700
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -172,11 +167,16 @@ constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- int
 -- Layout and rationale: doc/hyperram-map.md
 ----------------------------------------------------------------------------------------------------------
 
-constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 2 MiB
-constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB or 2 MiB
-constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB
-constant C_HMAP_MODEM         : std_logic_vector(15 downto 0) := x"0300";     -- Modem firmware: up to 1 MB, one byte per word
+constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 1 MiB
+constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0080";     -- REU on R3: 512 KiB
+constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"00C0";     -- Virtual cartridge on R3: 2 MiB
+constant C_HMAP_MODEM         : std_logic_vector(15 downto 0) := x"01C0";     -- Modem firmware: up to 256 KB, one byte per word
+constant C_HMAP_FIRMWARE      : std_logic_vector(15 downto 0) := x"0200";     -- RISC-V system CPU's firmware: up to 0x3FE
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
+
+-- SDRAM (R4 and later), in the same units: 64 MiB, 0x0000-0x1FFF
+constant C_SMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 4 MiB
+constant C_SMAP_REU           : std_logic_vector(15 downto 0) := x"0800";     -- REU: up to 16 MiB
 
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System
