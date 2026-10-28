@@ -23,7 +23,39 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/cartridge_heuristics.vhd"] \
     [file join $repo_dir "CORE/vhdl/mount_buf_wrapper.vhd"] \
     [file join $repo_dir "CORE/vhdl/vd_hr_pump.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sd_eng_arb.vhd"] \
+    [file join $repo_dir "CORE/vhdl/vd_sd.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_crc.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_inputs.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_gaps.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_quantise.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_gaps_to_bits.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_bits_to_bytes.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_decoder.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_mfm_encoder.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_writer.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_wfifo.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_rdfifo.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_controller.vhd"] \
+    [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_diag.vhd"] \
     [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
+    [file join $repo_dir "CORE/vhdl/reu_mapper.vhd"] \
+    [file join $repo_dir "M2M/vhdl/memory/avm_cache.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cartridge.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_parser.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_cacher.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_reader.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_flash.vhd"] \
+    [file join $repo_dir "M2M/vhdl/controllers/SDRAM/sdram.vhd"] \
+    [file join $repo_dir "M2M/vhdl/axi_fifo_small.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_loader.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
+    [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
+    [file join $repo_dir "M2M/vhdl/QNICE/sdhost.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_rom.sv"] \
@@ -51,6 +83,10 @@ foreach required_file $required_source_files {
         set_property file_type {VHDL 2008} [get_files $required_file]
     }
 }
+
+# The SwiftLink modem: NEORV32 goes in its own library
+source [file join [file dirname [info script]] add_modem_sources.tcl]
+add_modem_sources $repo_dir
 
 set sv_files [get_files -all -quiet -filter {NAME =~ "*.sv"}]
 foreach sv_file $sv_files {

@@ -1,0 +1,834 @@
+-- ================================================================================ --
+-- NEORV32 CPU - Trace Generator                                                    --
+-- -------------------------------------------------------------------------------- --
+-- The NEORV32 RISC-V Processor - https://github.com/stnolting/neorv32              --
+-- Copyright (c) NEORV32 contributors.                                              --
+-- Copyright (c) 2020 - 2026 Stephan Nolting. All rights reserved.                  --
+-- Licensed under the BSD-3-Clause license, see LICENSE for details.                --
+-- SPDX-License-Identifier: BSD-3-Clause                                            --
+-- ================================================================================ --
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+library neorv32;
+use neorv32.neorv32_package.all;
+
+entity neorv32_cpu_trace is
+  port (
+    -- global control --
+    clk_i       : in  std_ulogic; -- global clock, rising edge
+    rstn_i      : in  std_ulogic; -- global reset, low-active, async
+    ctrl_i      : in  ctrl_bus_t; -- main control bus
+    -- operands --
+    rs1_rdata_i : in  std_ulogic_vector(31 downto 0); -- rs1 read data
+    rs2_rdata_i : in  std_ulogic_vector(31 downto 0); -- rs2 read data
+    rd_wdata_i  : in  std_ulogic_vector(31 downto 0); -- rd write data
+    mem_ben_i   : in  std_ulogic_vector(3 downto 0);  -- memory byte-enable
+    mem_addr_i  : in  std_ulogic_vector(31 downto 0); -- memory address
+    mem_wdata_i : in  std_ulogic_vector(31 downto 0); -- memory write data
+    -- trace port --
+    trace_o     : out trace_port_t -- execution trace port
+  );
+end entity;
+
+architecture neorv32_cpu_trace_rtl of neorv32_cpu_trace is
+
+  -- trace arbiter
+  type arbiter_t is record
+    state : std_ulogic; -- sampling phase
+    entry : std_ulogic; -- trap entry
+    delta : std_ulogic; -- control flow transfer
+    order : std_ulogic_vector(31 downto 0); -- instruction counter
+  end record;
+  signal arbiter : arbiter_t;  -- FSM
+  signal done    : std_ulogic; -- execution of current instruction completed
+  signal valid   : std_ulogic; -- commit trace data
+
+  -- trace packet buffer --
+  signal trace_buf : trace_port_t;
+
+begin
+
+  -- Trace Arbiter --------------------------------------------------------------------------
+  -- -------------------------------------------------------------------------------------------
+  trace_arbiter: process(rstn_i, clk_i)
+  begin
+    if (rstn_i = '0') then
+      arbiter.state <= '0';
+      arbiter.entry <= '0';
+      arbiter.delta <= '0';
+      arbiter.order <= (others => '0');
+    elsif rising_edge(clk_i) then
+      -- sampling control: start trace cycle when in EXECUTE state --
+      arbiter.state <= (arbiter.state or ctrl_i.cpu_exec) and (not done);
+      -- trap-entry detector: buffer trap entry until trace commit --
+      arbiter.entry <= (arbiter.entry or ctrl_i.cpu_trap) and (not valid);
+      -- delta detector: buffer delta trigger until we are back in EXECUTE stage --
+      arbiter.delta <= (arbiter.delta or ctrl_i.cnt_event(cnt_event_delta_c)) and (not ctrl_i.cpu_exec);
+      -- instruction counter --
+      if (valid = '1') then
+        arbiter.order <= std_ulogic_vector(unsigned(arbiter.order) + 1);
+      end if;
+    end if;
+  end process;
+
+  -- commit trace state when back in DISPATCH stage (or when entering sleep mode) --
+  done  <= '1' when (ctrl_i.if_ready = '1') or (ctrl_i.cnt_event(cnt_event_cy_c) = '0') else '0';
+  valid <= arbiter.state and done;
+
+
+  -- Assemble Trace Packet ------------------------------------------------------------------
+  -- -------------------------------------------------------------------------------------------
+  trace_packet_buffer: process(rstn_i, clk_i)
+  begin
+    if (rstn_i = '0') then
+      trace_buf <= trace_port_terminate_c;
+    elsif rising_edge(clk_i) then
+
+      -- trace data is valid --
+      trace_buf.valid <= valid;
+
+      -- instruction metadata --
+      trace_buf.order <= x"00000000" & arbiter.order;
+      trace_buf.trap  <= ctrl_i.cpu_sync_exc;
+      trace_buf.halt  <= not ctrl_i.cnt_event(cnt_event_cy_c);
+      trace_buf.intr  <= arbiter.entry;
+      trace_buf.ixl   <= "01"; -- XLEN = 32-bit
+      if (ctrl_i.cpu_exec = '1') then
+        trace_buf.mode  <= ctrl_i.cpu_priv & ctrl_i.cpu_priv;
+        trace_buf.debug <= ctrl_i.cpu_debug;
+        trace_buf.compr <= ctrl_i.cnt_event(cnt_event_ci_c);
+        if (ctrl_i.cnt_event(cnt_event_ci_c) = '1') then
+          trace_buf.insn <= x"0000" & ctrl_i.ir_rvc;
+        else
+          trace_buf.insn <= ctrl_i.ir_funct12 & ctrl_i.rf_rs1 & ctrl_i.ir_funct3 & ctrl_i.rf_rd & ctrl_i.ir_opcode;
+        end if;
+        trace_buf.cmd32 <= ctrl_i.ir_funct12 & ctrl_i.rf_rs1 & ctrl_i.ir_funct3 & ctrl_i.rf_rd & ctrl_i.ir_opcode;
+      end if;
+      if (arbiter.delta = '1') then
+        trace_buf.delta <= '1';
+      elsif (trace_buf.valid = '1') then
+        trace_buf.delta <= '0';
+      end if;
+
+      -- integer register --
+      trace_buf.rs1_addr  <= ctrl_i.rf_rs1;
+      trace_buf.rs2_addr  <= ctrl_i.rf_rs2;
+      trace_buf.rs1_rdata <= rs1_rdata_i;
+      trace_buf.rs2_rdata <= rs2_rdata_i;
+      if (ctrl_i.rf_wb_en = '1') and (or_reduce_f(ctrl_i.rf_rd) = '1') then
+        trace_buf.rd_rdata <= rd_wdata_i;
+        trace_buf.rd_addr  <= ctrl_i.rf_rd;
+      elsif (trace_buf.valid = '1') then
+        trace_buf.rd_rdata <= (others => '0');
+        trace_buf.rd_addr  <= (others => '0');
+      end if;
+
+      -- program counter --
+      trace_buf.pc_rdata <= ctrl_i.pc_cur;
+      trace_buf.pc_wdata <= ctrl_i.pc_nxt;
+
+      -- control and status register --
+      if (ctrl_i.csr_we = '1') or (ctrl_i.csr_re = '1') then
+        trace_buf.csr_addr <= ctrl_i.csr_addr;
+      elsif (trace_buf.valid = '1') then
+        trace_buf.csr_addr <= (others => '0');
+      end if;
+      trace_buf.csr_rdata <= rd_wdata_i;
+      trace_buf.csr_wdata <= ctrl_i.csr_wdata;
+
+      -- memory access --
+      if (ctrl_i.lsu_req = '1') then
+        if (ctrl_i.lsu_rd = '1') then
+          trace_buf.mem_rmask <= std_ulogic_vector(shift_right(unsigned(mem_ben_i),to_integer(unsigned(mem_addr_i(1 downto 0)))));
+        end if;
+        if (ctrl_i.lsu_wr = '1') then
+          trace_buf.mem_wmask <= std_ulogic_vector(shift_right(unsigned(mem_ben_i),to_integer(unsigned(mem_addr_i(1 downto 0)))));
+        end if;
+      elsif (trace_buf.valid = '1') then
+        trace_buf.mem_rmask <= (others => '0');
+        trace_buf.mem_wmask <= (others => '0');
+      end if;
+      trace_buf.mem_addr  <= mem_addr_i;
+      trace_buf.mem_rdata <= rd_wdata_i;
+      trace_buf.mem_wdata <= mem_wdata_i;
+
+    end if;
+  end process;
+
+  -- trace output --
+  trace_o <= trace_buf;
+
+end architecture;
+
+
+-- ================================================================================ --
+-- NEORV32 CPU - Trace Logger (simulation-only)                                     --
+-- -------------------------------------------------------------------------------- --
+-- The NEORV32 RISC-V Processor - https://github.com/stnolting/neorv32              --
+-- Copyright (c) NEORV32 contributors.                                              --
+-- Copyright (c) 2020 - 2025 Stephan Nolting. All rights reserved.                  --
+-- Licensed under the BSD-3-Clause license, see LICENSE for details.                --
+-- SPDX-License-Identifier: BSD-3-Clause                                            --
+-- ================================================================================ --
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+-- pragma translate_off
+-- RTL_SYNTHESIS OFF
+use std.textio.all;
+-- RTL_SYNTHESIS ON
+-- pragma translate_on
+
+library neorv32;
+use neorv32.neorv32_package.all;
+
+entity neorv32_cpu_trace_simlog is
+  generic (
+    LOG_FILE : string -- trace log file
+  );
+  port (
+    clk_i   : in std_ulogic;  -- global clock line
+    rstn_i  : in std_ulogic;  -- global reset line, low-active, async
+    trace_i : in trace_port_t -- CPU trace port
+  );
+end entity;
+
+architecture neorv32_cpu_trace_simlog_rtl of neorv32_cpu_trace_simlog is
+
+-- pragma translate_off
+-- RTL_SYNTHESIS OFF
+
+  -- Check if vector matches binary pattern (skip elements compared with '-')
+  function match_f(input : std_ulogic_vector; pattern : std_ulogic_vector) return boolean is
+    variable match_v : boolean;
+  begin
+    if (input'length /= pattern'length) then -- no match if different sizes
+      return false;
+    else
+      match_v := true;
+      for i in input'length-1 downto 0 loop
+        if (pattern(i) = '1') or (pattern(i) = '0') then -- valid pattern value, skip everything else
+          match_v := match_v and boolean(pattern(i) = input(i));
+        end if;
+      end loop;
+      return match_v;
+    end if;
+  end function;
+
+  -- list of all currently supported instructions --
+  type inst_touple_c is record
+    machine  : std_ulogic_vector(31 downto 0); -- instruction word
+    mnemonic : string(1 to 11); -- according assembly mnemonic
+  end record;
+  type inst_t is array (230 downto 0) of inst_touple_c;
+  constant inst_c : inst_t := (
+    0   => ("-------------------------0110111", "lui        "), -- base ISA
+    1   => ("-------------------------0010111", "auipc      "),
+    2   => ("-------------------------1101111", "jal        "),
+    3   => ("-----------------000-----1100111", "jalr       "),
+    4   => ("-----------------000-----1100011", "beq        "),
+    5   => ("-----------------001-----1100011", "bne        "),
+    6   => ("-----------------100-----1100011", "blt        "),
+    7   => ("-----------------101-----1100011", "bge        "),
+    8   => ("-----------------110-----1100011", "bltu       "),
+    9   => ("-----------------111-----1100011", "bgeu       "),
+    10  => ("-----------------000-----0000011", "lb         "),
+    11  => ("-----------------001-----0000011", "lh         "),
+    12  => ("-----------------010-----0000011", "lw         "),
+    13  => ("-----------------100-----0000011", "lbu        "),
+    14  => ("-----------------101-----0000011", "lhu        "),
+    15  => ("-----------------000-----0100011", "sb         "),
+    16  => ("-----------------001-----0100011", "sh         "),
+    17  => ("-----------------010-----0100011", "sw         "),
+    18  => ("-----------------000-----0010011", "addi       "),
+    19  => ("-----------------010-----0010011", "slti       "),
+    20  => ("-----------------011-----0010011", "sltiu      "),
+    21  => ("-----------------100-----0010011", "xori       "),
+    22  => ("-----------------110-----0010011", "ori        "),
+    23  => ("-----------------111-----0010011", "andi       "),
+    24  => ("0000000----------001-----0010011", "slli       "),
+    25  => ("0000000----------101-----0010011", "srli       "),
+    26  => ("0100000----------101-----0010011", "srai       "),
+    27  => ("0000000----------000-----0110011", "add        "),
+    28  => ("0100000----------000-----0110011", "sub        "),
+    29  => ("0000000----------001-----0110011", "sll        "),
+    30  => ("0000000----------010-----0110011", "slt        "),
+    31  => ("0000000----------011-----0110011", "sltu       "),
+    32  => ("0000000----------100-----0110011", "xor        "),
+    33  => ("0000000----------101-----0110011", "srl        "),
+    34  => ("0100000----------101-----0110011", "sra        "),
+    35  => ("0000000----------110-----0110011", "or         "),
+    36  => ("0000000----------111-----0110011", "and        "),
+    37  => ("-----------------000-----0001111", "fence      "),
+    38  => ("00000000000000000000000001110011", "ecall      "),
+    39  => ("00000000000100000000000001110011", "ebreak     "),
+    40  => ("00010000010100000000000001110011", "wfi        "),
+    41  => ("00110000001000000000000001110011", "mret       "),
+    42  => ("01111011001000000000000001110011", "dret       "),
+    43  => ("-----------------010-----1100011", "beqi       "), -- Zibi
+    44  => ("-----------------011-----1100011", "bnei       "),
+    45  => ("-------------------------0001011", "custom0    "), -- custom instructions
+    46  => ("-------------------------0101011", "custom1    "),
+    47  => ("-------------------------1011011", "custom2    "),
+    48  => ("-------------------------1111011", "custom3    "),
+    49  => ("-----------------001-----0001111", "fence.i    "), -- Zifencei
+    50  => ("-----------------001-----1110011", "csrrw      "), -- Zicsr
+    51  => ("-----------------010-----1110011", "csrrs      "),
+    52  => ("-----------------011-----1110011", "csrrc      "),
+    53  => ("-----------------101-----1110011", "csrrwi     "),
+    54  => ("-----------------110-----1110011", "csrrsi     "),
+    55  => ("-----------------111-----1110011", "csrrci     "),
+    56  => ("100000011100-----100-----1110011", "mop.r.0    "), -- Zimop
+    57  => ("100000011101-----100-----1110011", "mop.r.1    "),
+    58  => ("100000011110-----100-----1110011", "mop.r.2    "),
+    59  => ("100000011111-----100-----1110011", "mop.r.3    "),
+    60  => ("100001011100-----100-----1110011", "mop.r.4    "),
+    61  => ("100001011101-----100-----1110011", "mop.r.5    "),
+    62  => ("100001011110-----100-----1110011", "mop.r.6    "),
+    63  => ("100001011111-----100-----1110011", "mop.r.7    "),
+    64  => ("100010011100-----100-----1110011", "mop.r.8    "),
+    65  => ("100010011101-----100-----1110011", "mop.r.9    "),
+    66  => ("100010011110-----100-----1110011", "mop.r.10   "),
+    67  => ("100010011111-----100-----1110011", "mop.r.11   "),
+    68  => ("100011011100-----100-----1110011", "mop.r.12   "),
+    69  => ("100011011101-----100-----1110011", "mop.r.13   "),
+    70  => ("100011011110-----100-----1110011", "mop.r.14   "),
+    71  => ("100011011111-----100-----1110011", "mop.r.15   "),
+    72  => ("110000011100-----100-----1110011", "mop.r.16   "),
+    73  => ("110000011101-----100-----1110011", "mop.r.17   "),
+    74  => ("110000011110-----100-----1110011", "mop.r.18   "),
+    75  => ("110000011111-----100-----1110011", "mop.r.19   "),
+    76  => ("110001011100-----100-----1110011", "mop.r.20   "),
+    77  => ("110001011101-----100-----1110011", "mop.r.21   "),
+    78  => ("110001011110-----100-----1110011", "mop.r.22   "),
+    79  => ("110001011111-----100-----1110011", "mop.r.23   "),
+    80  => ("110010011100-----100-----1110011", "mop.r.24   "),
+    81  => ("110010011101-----100-----1110011", "mop.r.25   "),
+    82  => ("110010011110-----100-----1110011", "mop.r.26   "),
+    83  => ("110010011111-----100-----1110011", "mop.r.27   "),
+    84  => ("110011011100-----100-----1110011", "mop.r.28   "),
+    85  => ("110011011101-----100-----1110011", "mop.r.29   "),
+    86  => ("110011011110-----100-----1110011", "mop.r.30   "),
+    87  => ("110011011111-----100-----1110011", "mop.r.31   "),
+    88  => ("1000001----------100-----1110011", "mop.rr.0   "),
+    89  => ("1000011----------100-----1110011", "mop.rr.1   "),
+    90  => ("1000101----------100-----1110011", "mop.rr.2   "),
+    91  => ("1000111----------100-----1110011", "mop.rr.3   "),
+    92  => ("1100001----------100-----1110011", "mop.rr.4   "),
+    93  => ("1100011----------100-----1110011", "mop.rr.5   "),
+    94  => ("1100101----------100-----1110011", "mop.rr.6   "),
+    95  => ("1100111----------100-----1110011", "mop.rr.7   "),
+    96  => ("0000111----------101-----0110011", "czero.eqz  "), -- Zicond
+    97  => ("0000111----------111-----0110011", "czero.nez  "),
+    98  => ("0000001----------000-----0110011", "mul        "), -- M / Zm*
+    99  => ("0000001----------001-----0110011", "mulh       "),
+    100 => ("0000001----------010-----0110011", "mulhsu     "),
+    101 => ("0000001----------011-----0110011", "mulhu      "),
+    102 => ("0000001----------100-----0110011", "div        "),
+    103 => ("0000001----------101-----0110011", "divu       "),
+    104 => ("0000001----------110-----0110011", "rem        "),
+    105 => ("0000001----------111-----0110011", "remu       "),
+    106 => ("00010--00000-----010-----0101111", "lr.w       "), -- A / Za*
+    107 => ("00011------------010-----0101111", "sc.w       "),
+    108 => ("00001------------010-----0101111", "amoswap.w  "),
+    109 => ("00000------------010-----0101111", "amoadd.w   "),
+    110 => ("00100------------010-----0101111", "amoxor.w   "),
+    111 => ("01100------------010-----0101111", "amoand.w   "),
+    112 => ("01000------------010-----0101111", "amoor.w    "),
+    113 => ("10000------------010-----0101111", "amomin.w   "),
+    114 => ("10100------------010-----0101111", "amomax.w   "),
+    115 => ("11000------------010-----0101111", "amominu.w  "),
+    116 => ("11100------------010-----0101111", "amomaxu.w  "),
+    117 => ("0100000----------111-----0110011", "andn       "), -- B / Zb*
+    118 => ("011000000000-----001-----0010011", "clz        "),
+    119 => ("011000000010-----001-----0010011", "cpop       "),
+    120 => ("011000000001-----001-----0010011", "ctz        "),
+    121 => ("0000101----------110-----0110011", "max        "),
+    122 => ("0000101----------111-----0110011", "maxu       "),
+    123 => ("0000101----------100-----0110011", "min        "),
+    124 => ("0000101----------101-----0110011", "minu       "),
+    125 => ("001010000111-----101-----0010011", "orc.b      "),
+    126 => ("0100000----------110-----0110011", "orn        "),
+    127 => ("0000100----------100-----0110011", "pack       "),
+    128 => ("0000100----------111-----0110011", "packh      "),
+    129 => ("011010011000-----101-----0010011", "rev8       "),
+    130 => ("011010000111-----101-----0010011", "brev8      "),
+    131 => ("0110000----------001-----0110011", "rol        "),
+    132 => ("0110000----------101-----0110011", "ror        "),
+    133 => ("0110000----------101-----0010011", "rori       "),
+    134 => ("011000000100-----001-----0010011", "sext.b     "),
+    135 => ("011000000101-----001-----0010011", "sext.h     "),
+    136 => ("0010000----------010-----0110011", "sh1add     "),
+    137 => ("0010000----------100-----0110011", "sh2add     "),
+    138 => ("0010000----------110-----0110011", "sh3add     "),
+    139 => ("000010001111-----101-----0010011", "unzip      "),
+    140 => ("0100000----------100-----0110011", "xnor       "),
+    141 => ("000010000000-----100-----0110011", "zext.h     "),
+    142 => ("000010001111-----001-----0010011", "zip        "),
+    143 => ("0100100----------001-----0110011", "bclr       "),
+    144 => ("0100100----------001-----0010011", "bclri      "),
+    145 => ("0100100----------101-----0110011", "bext       "),
+    146 => ("0100100----------101-----0010011", "bexti      "),
+    147 => ("0110100----------001-----0110011", "binv       "),
+    148 => ("0110100----------001-----0010011", "binvi      "),
+    149 => ("0010100----------001-----0110011", "bset       "),
+    150 => ("0010100----------001-----0010011", "bseti      "),
+    151 => ("0000101----------001-----0110011", "clmul      "),
+    152 => ("0000101----------011-----0110011", "clmulh     "),
+    153 => ("0000101----------010-----0110011", "clmulr     "),
+    154 => ("--10101----------000-----0110011", "aes32dsi   "), -- Zk*
+    155 => ("--10111----------000-----0110011", "aes32dsmi  "),
+    156 => ("--10001----------000-----0110011", "aes32esi   "),
+    157 => ("--10011----------000-----0110011", "aes32esmi  "),
+    158 => ("000100000010-----001-----0010011", "sha256sig0 "),
+    159 => ("000100000011-----001-----0010011", "sha256sig1 "),
+    160 => ("000100000000-----001-----0010011", "sha256sum0 "),
+    161 => ("000100000001-----001-----0010011", "sha256sum1 "),
+    162 => ("0101110----------000-----0110011", "sha512sig0h"),
+    163 => ("0101010----------000-----0110011", "sha512sig0l"),
+    164 => ("0101111----------000-----0110011", "sha512sig1h"),
+    165 => ("0101011----------000-----0110011", "sha512sig1l"),
+    166 => ("0101000----------000-----0110011", "sha512sum0r"),
+    167 => ("0101001----------000-----0110011", "sha512sum1r"),
+    168 => ("000100001000-----001-----0010011", "sm3p0      "),
+    169 => ("000100001001-----001-----0010011", "sm3p1      "),
+    170 => ("--11000----------000-----0110011", "sm4ed      "),
+    171 => ("--11010----------000-----0110011", "sm4ks      "),
+    172 => ("0010100----------100-----0110011", "xperm8     "),
+    173 => ("0010100----------010-----0110011", "xperm4     "),
+    174 => ("0000000------------------1010011", "fadd.s     "), -- Zfinx
+    175 => ("0000100------------------1010011", "fsub.s     "),
+    176 => ("0001000------------------1010011", "fmul.s     "),
+    177 => ("0001100------------------1010011", "fdiv.s     "),
+    178 => ("010110000000-------------1010011", "fsqrt.s    "),
+    179 => ("0010000----------000-----1010011", "fsgnj.s    "),
+    180 => ("0010000----------001-----1010011", "fsgnjn.s   "),
+    181 => ("0010000----------010-----1010011", "fsgnjx.s   "),
+    182 => ("0010100----------000-----1010011", "fmin.s     "),
+    183 => ("0010100----------001-----1010011", "fmax.s     "),
+    184 => ("110000000000-------------1010011", "fcvt.w.s   "),
+    185 => ("110000000001-------------1010011", "fcvt.wu.s  "),
+    186 => ("1010000----------010-----1010011", "feq.s      "),
+    187 => ("1010000----------001-----1010011", "flt.s      "),
+    188 => ("1010000----------000-----1010011", "fle.s      "),
+    189 => ("111000000000-----001-----1010011", "fclass.s   "),
+    190 => ("110100000000-------------1010011", "fcvt.s.w   "),
+    191 => ("110100000001-------------1010011", "fcvt.s.wu  "),
+    192 => ("----------------0000000000000000", "c.illegal  "), -- C / Zca
+    193 => ("----------------000-----------00", "c.addi4spn "),
+    194 => ("----------------010-----------00", "c.lw       "),
+    195 => ("----------------110-----------00", "c.sw       "),
+    196 => ("----------------000-----------01", "c.addi     "),
+    197 => ("----------------001-----------01", "c.jal      "),
+    198 => ("----------------010-----------01", "c.li       "),
+    199 => ("----------------011-00010-----01", "c.addi16sp "),
+    200 => ("----------------011-----------01", "c.lui      "),
+    201 => ("----------------100-00--------01", "c.srli     "),
+    202 => ("----------------100-01--------01", "c.srai     "),
+    203 => ("----------------100-10--------01", "c.andi     "),
+    204 => ("----------------100011---00---01", "c.sub      "),
+    205 => ("----------------100011---01---01", "c.xor      "),
+    206 => ("----------------100011---10---01", "c.or       "),
+    207 => ("----------------100011---11---01", "c.and      "),
+    208 => ("----------------101-----------01", "c.j        "),
+    209 => ("----------------110-----------01", "c.beqz     "),
+    210 => ("----------------111-----------01", "c.bnez     "),
+    211 => ("----------------000-----------10", "c.slli     "),
+    212 => ("----------------010-----------10", "c.lwsp     "),
+    213 => ("----------------1001000000000010", "c.ebreak   "),
+    214 => ("----------------1001-----0000010", "c.jalr     "),
+    215 => ("----------------1000-----0000010", "c.jr       "),
+    216 => ("----------------1001----------10", "c.add      "),
+    217 => ("----------------1000----------10", "c.mv       "),
+    218 => ("----------------110-----------10", "c.swsp     "),
+    219 => ("----------------100000--------00", "c.lbu      "), -- Zcb
+    220 => ("----------------100001---0----00", "c.lhu      "),
+    221 => ("----------------100001---1----00", "c.lh       "),
+    222 => ("----------------100010--------00", "c.sb       "),
+    223 => ("----------------100011---0----00", "c.sh       "),
+    224 => ("----------------100111---1100001", "c.zext.b   "),
+    225 => ("----------------100111---1100101", "c.sext.b   "),
+    226 => ("----------------100111---1101001", "c.zext.h   "),
+    227 => ("----------------100111---1101101", "c.sext.h   "),
+    228 => ("----------------100111---1110101", "c.not      "),
+    229 => ("----------------100111---10---01", "c.mul      "),
+    230 => ("--------------------------------", "INVALID    ") -- last entry matches all: invalid
+  );
+
+  -- decode instruction mnemonic --
+  function decode_mnemonic_f(inst : std_ulogic_vector(31 downto 0)) return string is
+  begin
+    for i in 0 to inst_c'length-1 loop
+      if match_f(inst, inst_c(i).machine) then
+        return inst_c(i).mnemonic;
+      end if;
+    end loop;
+    return "DECODE_FAIL";
+  end function;
+
+  -- decode CSR name --
+  function decode_csr_f(addr : std_ulogic_vector(11 downto 0)) return string is
+  begin
+    case addr is
+      -- user floating-point CSRs --
+      when csr_fflags_c         => return "fflags";
+      when csr_frm_c            => return "frm";
+      when csr_fcsr_c           => return "fcsr";
+      -- machine trap setup --
+      when csr_mstatus_c        => return "mstatus";
+      when csr_misa_c           => return "misa";
+      when csr_mie_c            => return "mie";
+      when csr_mtvec_c          => return "mtvec";
+      when csr_mcounteren_c     => return "mcounteren";
+      when csr_mstatush_c       => return "mstatush";
+      -- machine configuration --
+      when csr_menvcfg_c        => return "menvcfg";
+      when csr_menvcfgh_c       => return "menvcfgh";
+      -- machine counter setup --
+      when csr_mcountinhibit_c  => return "mcountinhibit";
+      when csr_mcyclecfg_c      => return "csr_mcyclecfg";
+      when csr_minstretcfg_c    => return "csr_minstretcfg";
+      when csr_mhpmevent3_c     => return "mhpmevent3";
+      when csr_mhpmevent4_c     => return "mhpmevent4";
+      when csr_mhpmevent5_c     => return "mhpmevent5";
+      when csr_mhpmevent6_c     => return "mhpmevent6";
+      when csr_mhpmevent7_c     => return "mhpmevent7";
+      when csr_mhpmevent8_c     => return "mhpmevent8";
+      when csr_mhpmevent9_c     => return "mhpmevent9";
+      when csr_mhpmevent10_c    => return "mhpmevent10";
+      when csr_mhpmevent11_c    => return "mhpmevent11";
+      when csr_mhpmevent12_c    => return "mhpmevent12";
+      when csr_mhpmevent13_c    => return "mhpmevent13";
+      when csr_mhpmevent14_c    => return "mhpmevent14";
+      when csr_mhpmevent15_c    => return "mhpmevent15";
+      when csr_mhpmevent16_c    => return "mhpmevent16";
+      when csr_mhpmevent17_c    => return "mhpmevent17";
+      when csr_mhpmevent18_c    => return "mhpmevent18";
+      when csr_mhpmevent19_c    => return "mhpmevent19";
+      when csr_mhpmevent20_c    => return "mhpmevent20";
+      when csr_mhpmevent21_c    => return "mhpmevent21";
+      when csr_mhpmevent22_c    => return "mhpmevent22";
+      when csr_mhpmevent23_c    => return "mhpmevent23";
+      when csr_mhpmevent24_c    => return "mhpmevent24";
+      when csr_mhpmevent25_c    => return "mhpmevent25";
+      when csr_mhpmevent26_c    => return "mhpmevent26";
+      when csr_mhpmevent27_c    => return "mhpmevent27";
+      when csr_mhpmevent28_c    => return "mhpmevent28";
+      when csr_mhpmevent29_c    => return "mhpmevent29";
+      when csr_mhpmevent30_c    => return "mhpmevent30";
+      when csr_mhpmevent31_c    => return "mhpmevent31";
+      -- machine trap handling --
+      when csr_mscratch_c       => return "mscratch";
+      when csr_mepc_c           => return "mepc";
+      when csr_mcause_c         => return "mcause";
+      when csr_mtval_c          => return "mtval";
+      when csr_mip_c            => return "mip";
+      -- physical memory protection - configuration --
+      when csr_pmpcfg0_c        => return "pmpcfg0";
+      when csr_pmpcfg1_c        => return "pmpcfg1";
+      when csr_pmpcfg2_c        => return "pmpcfg2";
+      when csr_pmpcfg3_c        => return "pmpcfg3";
+      -- physical memory protection - address --
+      when csr_pmpaddr0_c       => return "pmpaddr0";
+      when csr_pmpaddr1_c       => return "pmpaddr1";
+      when csr_pmpaddr2_c       => return "pmpaddr2";
+      when csr_pmpaddr3_c       => return "pmpaddr3";
+      when csr_pmpaddr4_c       => return "pmpaddr4";
+      when csr_pmpaddr5_c       => return "pmpaddr5";
+      when csr_pmpaddr6_c       => return "pmpaddr6";
+      when csr_pmpaddr7_c       => return "pmpaddr7";
+      when csr_pmpaddr8_c       => return "pmpaddr8";
+      when csr_pmpaddr9_c       => return "pmpaddr9";
+      when csr_pmpaddr10_c      => return "pmpaddr10";
+      when csr_pmpaddr11_c      => return "pmpaddr11";
+      when csr_pmpaddr12_c      => return "pmpaddr12";
+      when csr_pmpaddr13_c      => return "pmpaddr13";
+      when csr_pmpaddr14_c      => return "pmpaddr14";
+      when csr_pmpaddr15_c      => return "pmpaddr15";
+      -- machine counter setup - continued --
+      when csr_mcyclecfgh_c     => return "mcyclecfgh";
+      when csr_minstretcfgh_c   => return "minstretcfgh";
+      -- trigger module registers --
+      when csr_tselect_c        => return "tselect";
+      when csr_tdata1_c         => return "tdata1";
+      when csr_tdata2_c         => return "tdata2";
+      when csr_tinfo_c          => return "tinfo";
+      -- debug-mode registers --
+      when csr_dcsr_c           => return "dcsr";
+      when csr_dpc_c            => return "dpc";
+      when csr_dscratch0_c      => return "dscratch0";
+      -- machine counters/timers --
+      when csr_mcycle_c         => return "mcycle";
+      when csr_minstret_c       => return "minstret";
+      when csr_mhpmcounter3_c   => return "mhpmcounter3";
+      when csr_mhpmcounter4_c   => return "mhpmcounter4";
+      when csr_mhpmcounter5_c   => return "mhpmcounter5";
+      when csr_mhpmcounter6_c   => return "mhpmcounter6";
+      when csr_mhpmcounter7_c   => return "mhpmcounter7";
+      when csr_mhpmcounter8_c   => return "mhpmcounter8";
+      when csr_mhpmcounter9_c   => return "mhpmcounter9";
+      when csr_mhpmcounter10_c  => return "mhpmcounter10";
+      when csr_mhpmcounter11_c  => return "mhpmcounter11";
+      when csr_mhpmcounter12_c  => return "mhpmcounter12";
+      when csr_mhpmcounter13_c  => return "mhpmcounter13";
+      when csr_mhpmcounter14_c  => return "mhpmcounter14";
+      when csr_mhpmcounter15_c  => return "mhpmcounter15";
+      when csr_mhpmcounter16_c  => return "mhpmcounter16";
+      when csr_mhpmcounter17_c  => return "mhpmcounter17";
+      when csr_mhpmcounter18_c  => return "mhpmcounter18";
+      when csr_mhpmcounter19_c  => return "mhpmcounter19";
+      when csr_mhpmcounter20_c  => return "mhpmcounter20";
+      when csr_mhpmcounter21_c  => return "mhpmcounter21";
+      when csr_mhpmcounter22_c  => return "mhpmcounter22";
+      when csr_mhpmcounter23_c  => return "mhpmcounter23";
+      when csr_mhpmcounter24_c  => return "mhpmcounter24";
+      when csr_mhpmcounter25_c  => return "mhpmcounter25";
+      when csr_mhpmcounter26_c  => return "mhpmcounter26";
+      when csr_mhpmcounter27_c  => return "mhpmcounter27";
+      when csr_mhpmcounter28_c  => return "mhpmcounter28";
+      when csr_mhpmcounter29_c  => return "mhpmcounter29";
+      when csr_mhpmcounter30_c  => return "mhpmcounter30";
+      when csr_mhpmcounter31_c  => return "mhpmcounter31";
+      when csr_mcycleh_c        => return "mcycleh";
+      when csr_minstreth_c      => return "minstreth";
+      when csr_mhpmcounter3h_c  => return "mhpmcounter3h";
+      when csr_mhpmcounter4h_c  => return "mhpmcounter4h";
+      when csr_mhpmcounter5h_c  => return "mhpmcounter5h";
+      when csr_mhpmcounter6h_c  => return "mhpmcounter6h";
+      when csr_mhpmcounter7h_c  => return "mhpmcounter7h";
+      when csr_mhpmcounter8h_c  => return "mhpmcounter8h";
+      when csr_mhpmcounter9h_c  => return "mhpmcounter9h";
+      when csr_mhpmcounter10h_c => return "mhpmcounter10h";
+      when csr_mhpmcounter11h_c => return "mhpmcounter11h";
+      when csr_mhpmcounter12h_c => return "mhpmcounter12h";
+      when csr_mhpmcounter13h_c => return "mhpmcounter13h";
+      when csr_mhpmcounter14h_c => return "mhpmcounter14h";
+      when csr_mhpmcounter15h_c => return "mhpmcounter15h";
+      when csr_mhpmcounter16h_c => return "mhpmcounter16h";
+      when csr_mhpmcounter17h_c => return "mhpmcounter17h";
+      when csr_mhpmcounter18h_c => return "mhpmcounter18h";
+      when csr_mhpmcounter19h_c => return "mhpmcounter19h";
+      when csr_mhpmcounter20h_c => return "mhpmcounter20h";
+      when csr_mhpmcounter21h_c => return "mhpmcounter21h";
+      when csr_mhpmcounter22h_c => return "mhpmcounter22h";
+      when csr_mhpmcounter23h_c => return "mhpmcounter23h";
+      when csr_mhpmcounter24h_c => return "mhpmcounter24h";
+      when csr_mhpmcounter25h_c => return "mhpmcounter25h";
+      when csr_mhpmcounter26h_c => return "mhpmcounter26h";
+      when csr_mhpmcounter27h_c => return "mhpmcounter27h";
+      when csr_mhpmcounter28h_c => return "mhpmcounter28h";
+      when csr_mhpmcounter29h_c => return "mhpmcounter29h";
+      when csr_mhpmcounter30h_c => return "mhpmcounter30h";
+      when csr_mhpmcounter31h_c => return "mhpmcounter31h";
+      -- user counters/timers --
+      when csr_cycle_c          => return "cycle";
+      when csr_time_c           => return "time";
+      when csr_instret_c        => return "instret";
+      when csr_hpmcounter3_c    => return "hpmcounter3";
+      when csr_hpmcounter4_c    => return "hpmcounter4";
+      when csr_hpmcounter5_c    => return "hpmcounter5";
+      when csr_hpmcounter6_c    => return "hpmcounter6";
+      when csr_hpmcounter7_c    => return "hpmcounter7";
+      when csr_hpmcounter8_c    => return "hpmcounter8";
+      when csr_hpmcounter9_c    => return "hpmcounter9";
+      when csr_hpmcounter10_c   => return "hpmcounter10";
+      when csr_hpmcounter11_c   => return "hpmcounter11";
+      when csr_hpmcounter12_c   => return "hpmcounter12";
+      when csr_hpmcounter13_c   => return "hpmcounter13";
+      when csr_hpmcounter14_c   => return "hpmcounter14";
+      when csr_hpmcounter15_c   => return "hpmcounter15";
+      when csr_hpmcounter16_c   => return "hpmcounter16";
+      when csr_hpmcounter17_c   => return "hpmcounter17";
+      when csr_hpmcounter18_c   => return "hpmcounter18";
+      when csr_hpmcounter19_c   => return "hpmcounter19";
+      when csr_hpmcounter20_c   => return "hpmcounter20";
+      when csr_hpmcounter21_c   => return "hpmcounter21";
+      when csr_hpmcounter22_c   => return "hpmcounter22";
+      when csr_hpmcounter23_c   => return "hpmcounter23";
+      when csr_hpmcounter24_c   => return "hpmcounter24";
+      when csr_hpmcounter25_c   => return "hpmcounter25";
+      when csr_hpmcounter26_c   => return "hpmcounter26";
+      when csr_hpmcounter27_c   => return "hpmcounter27";
+      when csr_hpmcounter28_c   => return "hpmcounter28";
+      when csr_hpmcounter29_c   => return "hpmcounter29";
+      when csr_hpmcounter30_c   => return "hpmcounter30";
+      when csr_hpmcounter31_c   => return "hpmcounter31";
+      when csr_cycleh_c         => return "cycleh";
+      when csr_timeh_c          => return "timeh";
+      when csr_instreth_c       => return "instreth";
+      when csr_hpmcounter3h_c   => return "hpmcounter3h";
+      when csr_hpmcounter4h_c   => return "hpmcounter4h";
+      when csr_hpmcounter5h_c   => return "hpmcounter5h";
+      when csr_hpmcounter6h_c   => return "hpmcounter6h";
+      when csr_hpmcounter7h_c   => return "hpmcounter7h";
+      when csr_hpmcounter8h_c   => return "hpmcounter8h";
+      when csr_hpmcounter9h_c   => return "hpmcounter9h";
+      when csr_hpmcounter10h_c  => return "hpmcounter10h";
+      when csr_hpmcounter11h_c  => return "hpmcounter11h";
+      when csr_hpmcounter12h_c  => return "hpmcounter12h";
+      when csr_hpmcounter13h_c  => return "hpmcounter13h";
+      when csr_hpmcounter14h_c  => return "hpmcounter14h";
+      when csr_hpmcounter15h_c  => return "hpmcounter15h";
+      when csr_hpmcounter16h_c  => return "hpmcounter16h";
+      when csr_hpmcounter17h_c  => return "hpmcounter17h";
+      when csr_hpmcounter18h_c  => return "hpmcounter18h";
+      when csr_hpmcounter19h_c  => return "hpmcounter19h";
+      when csr_hpmcounter20h_c  => return "hpmcounter20h";
+      when csr_hpmcounter21h_c  => return "hpmcounter21h";
+      when csr_hpmcounter22h_c  => return "hpmcounter22h";
+      when csr_hpmcounter23h_c  => return "hpmcounter23h";
+      when csr_hpmcounter24h_c  => return "hpmcounter24h";
+      when csr_hpmcounter25h_c  => return "hpmcounter25h";
+      when csr_hpmcounter26h_c  => return "hpmcounter26h";
+      when csr_hpmcounter27h_c  => return "hpmcounter27h";
+      when csr_hpmcounter28h_c  => return "hpmcounter28h";
+      when csr_hpmcounter29h_c  => return "hpmcounter29h";
+      when csr_hpmcounter30h_c  => return "hpmcounter30h";
+      when csr_hpmcounter31h_c  => return "hpmcounter31h";
+      -- machine information registers --
+      when csr_mvendorid_c      => return "mvendorid";
+      when csr_marchid_c        => return "marchid";
+      when csr_mimpid_c         => return "mimpid";
+      when csr_mhartid_c        => return "mhartid";
+      when csr_mconfigptr_c     => return "mconfigptr";
+      -- NEORV32-specific machine registers --
+      when csr_mxisa_c          => return "mxisa";
+      -- unknown; just print address --
+      when others               => return "0x" & to_hexstring_f(addr);
+    end case;
+  end function;
+
+  -- decode instruction operands --
+  function decode_operands_f(inst : std_ulogic_vector(31 downto 0)) return string is
+    variable is_v, ib_v, iu_v, ij_v, ii_v : std_ulogic_vector(31 downto 0);
+    variable rs1_iv, rs2_iv, rd_iv, is_iv, ib_iv, iu_iv, ij_iv, ii_iv : integer;
+  begin
+    -- registers --
+    rs1_iv := to_integer(unsigned(inst(instr_rs1_msb_c downto instr_rs1_lsb_c)));
+    rs2_iv := to_integer(unsigned(inst(instr_rs2_msb_c downto instr_rs2_lsb_c)));
+    rd_iv  := to_integer(unsigned(inst(instr_rd_msb_c downto instr_rd_lsb_c)));
+    -- immediates --
+    is_v  := replicate_f(inst(31), 21) & inst(30 downto 25) & inst(11 downto 7);
+    ib_v  := replicate_f(inst(31), 20) & inst(7) & inst(30 downto 25) & inst(11 downto 8) & '0';
+    iu_v  := inst(31 downto 12) & x"000";
+    ij_v  := replicate_f(inst(31), 12) & inst(19 downto 12) & inst(20) & inst(30 downto 21) & '0';
+    ii_v  := replicate_f(inst(31), 21) & inst(30 downto 21) & inst(20);
+    is_iv := to_integer(signed(is_v));
+    ib_iv := to_integer(signed(ib_v));
+    iu_iv := to_integer(signed(iu_v));
+    ij_iv := to_integer(signed(ij_v));
+    ii_iv := to_integer(signed(ii_v));
+    -- instruction types --
+    case inst(instr_opcode_msb_c downto instr_opcode_lsb_c) is
+      when opcode_alui_c   => return "x" & integer'image(rd_iv)  & ", x"  & integer'image(rs1_iv) & ", "  & integer'image(ii_iv);
+      when opcode_alu_c    => return "x" & integer'image(rd_iv)  & ", x"  & integer'image(rs1_iv) & ", x" & integer'image(rs2_iv);
+      when opcode_lui_c    => return "x" & integer'image(rd_iv)  & ", 0x" & to_hexstring_f(iu_v);
+      when opcode_auipc_c  => return "x" & integer'image(rd_iv)  & ", 0x" & to_hexstring_f(iu_v);
+      when opcode_jal_c    => return "x" & integer'image(rd_iv)  & ", "   & integer'image(ij_iv);
+      when opcode_jalr_c   => return "x" & integer'image(rd_iv)  & ", "   & integer'image(ii_iv)  & "(x"  & integer'image(rs1_iv) & ")";
+      when opcode_branch_c => return "x" & integer'image(rs1_iv) & ", x"  & integer'image(rs2_iv) & ", "  & integer'image(ib_iv);
+      when opcode_load_c   => return "x" & integer'image(rd_iv)  & ", "   & integer'image(ii_iv)  & "(x"  & integer'image(rs1_iv) & ")";
+      when opcode_store_c  => return "x" & integer'image(rs2_iv) & ", "   & integer'image(is_iv)  & "(x"  & integer'image(rs1_iv) & ")";
+      when opcode_amo_c    =>
+        if (inst(28 downto 27) = "10") then -- zalrsc LR
+          return "x" & integer'image(rd_iv) & ", (x" & integer'image(rs1_iv) & ")";
+        elsif (inst(28 downto 27) = "11") then -- zalrsc SC
+          return "x" & integer'image(rd_iv) & ", x" & integer'image(rs2_iv) & ", (x" & integer'image(rs1_iv) & ")";
+        else -- zaamo
+          return "x" & integer'image(rd_iv) & ", x" & integer'image(rs2_iv) & ", (x" & integer'image(rs1_iv) & ")";
+        end if;
+      when opcode_system_c =>
+        if (inst(instr_funct3_msb_c downto instr_funct3_lsb_c) = funct3_env_c) then -- environment
+          return "";
+        elsif (inst(instr_funct3_msb_c downto instr_funct3_lsb_c) = funct3_zimop_c) then -- zimop may-be-operations
+          if (inst(25) = '0') then -- mop.r
+            return "x" & integer'image(rd_iv) & ", x" & integer'image(rs1_iv);
+          else -- mop.rr
+            return "x" & integer'image(rd_iv) & ", x" & integer'image(rs1_iv) & ", x" & integer'image(rs2_iv);
+          end if;
+        elsif (inst(instr_funct3_msb_c) = '0') then -- csr-register
+          return "x" & integer'image(rd_iv) & ", " & decode_csr_f(inst(31 downto 20)) & ", x" & integer'image(rs1_iv);
+        else -- csr-immediate
+          return "x" & integer'image(rd_iv) & ", " & decode_csr_f(inst(31 downto 20)) & ", " & integer'image(rs1_iv);
+        end if;
+      when others => return "";
+    end case;
+  end function;
+
+  -- time stamp counter --
+  signal cycle_cnt : std_ulogic_vector(31 downto 0);
+
+-- RTL_SYNTHESIS ON
+-- pragma translate_on
+
+begin
+
+-- pragma translate_off
+-- RTL_SYNTHESIS OFF
+
+  -- Write Trace to Log File (SIMULATION ONLY) ----------------------------------------------
+  -- -------------------------------------------------------------------------------------------
+  sim_trace_gen:
+  if is_simulation_c generate
+    sim_trace: process(rstn_i, clk_i)
+      file     file_v : text open write_mode is LOG_FILE;
+      variable line_v : line;
+    begin
+      if (rstn_i = '0') then
+        cycle_cnt <= (others => '0');
+      elsif rising_edge(clk_i) then
+        cycle_cnt <= std_ulogic_vector(unsigned(cycle_cnt) + 1);
+        if (trace_i.valid = '1') then
+          -- [1] index --
+          write(line_v, integer'(to_integer(unsigned(trace_i.order(31 downto 0)))));
+          write(line_v, string'(" "));
+          -- [2] timestamp --
+          write(line_v, integer'(to_integer(unsigned(cycle_cnt))));
+          write(line_v, string'(" "));
+          -- [3] instruction address --
+          write(line_v, string'("0x"));
+          write(line_v, string'(to_hexstring_f(trace_i.pc_rdata)));
+          write(line_v, string'(" "));
+          -- [4] instruction word --
+          write(line_v, string'("0x"));
+          if (trace_i.compr = '1') then -- compressed instruction
+            write(line_v, string'(to_hexstring_f(trace_i.insn(15 downto 0))));
+            write(line_v, string'("     "));
+          else
+            write(line_v, string'(to_hexstring_f(trace_i.insn)));
+            write(line_v, string'(" "));
+          end if;
+          -- [5] privilege level --
+          if (trace_i.debug = '1') then
+            write(line_v, string'("D "));
+          elsif (trace_i.mode = "11") then
+            write(line_v, string'("M "));
+          elsif (trace_i.mode = "00") then
+            write(line_v, string'("U "));
+          else
+            write(line_v, string'("? "));
+          end if;
+          -- [6] decoded instruction --
+          write(line_v, string'(decode_mnemonic_f(trace_i.insn)));
+          write(line_v, string'(" "));
+          write(line_v, string'(decode_operands_f(trace_i.cmd32)));
+          -- [7] annotations --
+          if (trace_i.intr = '1') then -- exception/interrupt
+            write(line_v, string'(" <TRAP_ENTRY>"));
+          end if;
+          -- flush line --
+          writeline(file_v, line_v);
+        end if;
+      end if;
+    end process;
+  end generate;
+
+-- RTL_SYNTHESIS ON
+-- pragma translate_on
+
+end architecture;

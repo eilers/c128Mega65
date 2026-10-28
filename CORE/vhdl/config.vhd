@@ -79,13 +79,15 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 -- Version of this core. It ends up inside a FAT32 path (see CFG_FILE), so keep it to characters
 -- that are legal there and use "_" instead of spaces. CORE/scripts/build_release.sh refuses to
 -- build unless this matches the release name that is being packaged.
-constant CORE_VERSION : string := "V1.0_Beta3";
+constant CORE_VERSION : string := "V1.1_Beta1";
 
 constant SCR_CREDITS : string :=
 
    "\n Commodore 128 for MEGA65 " & CORE_VERSION & "\n\n" &
    " Core port to the MEGA65\n" &
    "   Stefan Eilers\n\n" &
+   " Special thanks for contributions:\n" &
+   "   Jeff Flitton\n\n" &
    " MiSTer C128 core\n" &
    "   Erik Scheffers, based on C64_MiSTer\n" &
    "   by sorgelig and on FPGA64 by\n" &
@@ -280,7 +282,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE         : natural := 83;  -- amount of items including empty lines:
+constant OPTM_SIZE         : natural := 117; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS and amount of items in OPTM_GROUPS
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -289,13 +291,13 @@ constant OPTM_SIZE         : natural := 83;  -- amount of items including empty 
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 25 rows. The Video submenu is
+-- tallest page. The main menu is the tallest at 28 rows. The Video submenu is
 -- 20 rows and the HDMI submenu 14 (headline through Back to main menu; the "%s"
 -- opener is hidden inside the submenu); both leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 25;
+constant OPTM_DY           : natural := 28;
 
 constant OPTM_ITEMS        : string :=
 
@@ -308,6 +310,16 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
    " 1541\n"                &    -- ignored while a .D71 is mounted (always 1571)
    " 1571\n"                &
+   "\n"                     &
+   " Back to main menu\n"   &
+   " Internal 1581: %s\n"   &    -- internal floppy submenu; longest summary " Internal 1581: Drive 8" is exactly OPTM_DX
+   " Internal 1581\n"       &
+   "\n"                     &
+   " Off\n"                 &    -- default
+   " Drive 8\n"             &
+   " Drive 9\n"             &
+   "\n"                     &
+   " MEGA65 floppy as 1581\n" &
    "\n"                     &
    " Back to main menu\n"   &
    "\n"                     &
@@ -386,8 +398,32 @@ constant OPTM_ITEMS        : string :=
    "\n"                     &
    " External Hardware\n"   &
    "\n"                     &
-   " Use cartridge slot\n"  &
    " Use IEC port\n"        &
+   " REU: %s\n"             &    -- REU submenu; %s is the size or Off
+   " RAM Expansion Unit\n"  &
+   "\n"                     &
+   " Off\n"                 &    -- default
+   " 512 KB\n"              &    -- Commodore 1750
+   " 2 MB\n"                &
+   "\n"                     &
+   " Back to main menu\n"   &
+   " Cartridge: %s\n"       &    -- Cartridge submenu; %s is the selected source
+   " Cartridge\n"           &
+   "\n"                     &
+   " Hardware\n"            &    -- default: the physical cartridge slot
+   " CRT file\n"            &    -- virtual cartridge
+   " CRT:%s\n"              &    -- the .crt file; loading one selects CRT file
+   "\n"                     &
+   " Back to main menu\n"   &
+   " Modem: %s\n"           &    -- Modem submenu; %s is the SwiftLink's address or Off
+   " SwiftLink Modem\n"     &
+   "\n"                     &
+   " Off\n"                 &    -- default
+   " $DE00\n"               &    -- SwiftLink's usual address
+   " $DF00\n"               &    -- switches the REU off
+   " $D700\n"               &    -- the C128's internal I/O slot
+   "\n"                     &
+   " Back to main menu\n"   &
    "\n"                     &
 
    " Credits\n"             &
@@ -404,7 +440,7 @@ constant OPTM_G_FF         : integer := 3;
 constant OPTM_G_CRT        : integer := 4;
 constant OPTM_G_JAILBARS   : integer := 5;
 constant OPTM_G_CREDITS    : integer := 6;
-constant OPTM_G_EXP_PORT   : integer := 7;
+constant OPTM_G_CART       : integer := 7;    -- Cartridge source: hardware slot or virtual cartridge
 constant OPTM_G_MOUNT_D8   : integer := 8;
 constant OPTM_G_MOUNT_D9   : integer := 9;
 constant OPTM_G_DRV_MODEL  : integer := 10;
@@ -413,6 +449,10 @@ constant OPTM_G_HELP_F13   : integer := 12;   -- OSM on F13 so C128 can use Help
 constant OPTM_G_HDMI_AUDIO : integer := 13;   -- HDMI audio; off selects DVI output
 constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, and which is Caps Lock
 constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/VS, 15 kHz with CSYNC
+constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB
+constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartridge's .crt file
+constant OPTM_G_INT1581    : integer := 18;   -- Internal 1581: Off, Drive 8, Drive 9
+constant OPTM_G_MODEM      : integer := 19;   -- Modem: Off, $DE00, $DF00, $D700
 
 -- !!! DO NOT TOUCH !!!
 type OPTM_GTYPE is array (0 to OPTM_SIZE - 1) of integer range 0 to 2**OPTM_GTC- 1;
@@ -430,6 +470,17 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_DRV_MODEL,                                    -- 1541
                                              OPTM_G_DRV_MODEL + OPTM_G_STDSEL,                    -- 1571
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_SUBMENU,                                      -- Internal 1581 submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Internal 1581
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_INT1581 + OPTM_G_STDSEL,                      -- Off
+                                             OPTM_G_INT1581,                                      -- Drive 8
+                                             OPTM_G_INT1581,                                      -- Drive 9
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- MEGA65 floppy as 1581
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
@@ -508,8 +559,32 @@ constant OPTM_GROUPS       : OPTM_GTYPE := ( OPTM_G_TEXT + OPTM_G_HEADLINE,     
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_EXP_PORT + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- Use hardware slot
                                              OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
+                                             OPTM_G_SUBMENU,                                      -- REU submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- RAM Expansion Unit
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_REU + OPTM_G_STDSEL,                          -- Off
+                                             OPTM_G_REU,                                          -- 512 KB
+                                             OPTM_G_REU,                                          -- 2 MB
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_SUBMENU,                                      -- Cartridge submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Cartridge
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CART + OPTM_G_STDSEL,                         -- Hardware
+                                             OPTM_G_CART,                                         -- CRT file
+                                             OPTM_G_MOUNT_CRT + OPTM_G_LOAD_ROM,                  -- CRT:%s
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_SUBMENU,                                      -- Modem submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- SwiftLink Modem
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_MODEM + OPTM_G_STDSEL,                        -- Off
+                                             OPTM_G_MODEM,                                        -- $DE00
+                                             OPTM_G_MODEM,                                        -- $DF00
+                                             OPTM_G_MODEM,                                        -- $D700
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))

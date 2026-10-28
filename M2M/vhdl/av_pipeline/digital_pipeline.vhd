@@ -161,6 +161,29 @@ architecture synthesis of digital_pipeline is
          G_VIDEO_MODE_VECTOR, G_HDMI_VIEW.CROPPED, G_HDMI_VIEW.CROPPED_SIZES(3)
       );
 
+   -- CRT emulation scales by whole HDMI rows per line (see scanline_fit.vhd), with enough
+   -- rows to show about as many lines as a TV did: 3 at 720p, 2 at 480p to 600p.
+   constant C_SCANLINE_MIN_LINES : natural := 240;
+
+   type hdmi_scanline_mode_vector_t is array(natural range <>) of hdmi_scanline_mode_t;
+
+   -- The width per line keeps the shape of the uncropped view
+   pure function make_scanline_modes (
+      video_modes : video_modes_vector;
+      rects       : hdmi_output_rect_vector_t
+   ) return hdmi_scanline_mode_vector_t is
+      variable result : hdmi_scanline_mode_vector_t(video_modes'range);
+   begin
+      for i in video_modes'range loop
+         result(i) := make_hdmi_scanline_mode(video_modes(i), rects(i), C_SCANLINE_MIN_LINES);
+      end loop;
+
+      return result;
+   end function make_scanline_modes;
+
+   constant C_SCANLINE_MODES : hdmi_scanline_mode_vector_t(G_VIDEO_MODE_VECTOR'range) :=
+      make_scanline_modes(G_VIDEO_MODE_VECTOR, C_HDMI_UNCROPPED_RECTS);
+
    -- HDMI PCM sampling rate hardcoded to 48 kHz (should be the most compatible mode)
    -- If this should ever be switchable, don't forget that the signal "select_44100" in
    -- i_vga_to_hdmi would need to be adjusted, too
@@ -196,6 +219,31 @@ architecture synthesis of digital_pipeline is
    signal hdmi_vsend             : integer;
    signal hdmi_vdisp             : integer;
    signal hdmi_shift             : integer;
+
+   -- CRT emulation (scanline_fit): the input stream after cropping and its output rectangle
+   signal hdmi_mode_index        : std_logic_vector(2 downto 0);
+   signal video_scanlines        : std_logic_vector(0 downto 0);
+   signal video_mode_index       : std_logic_vector(2 downto 0);
+   signal video_mode_num         : natural range 0 to 7;
+   signal video_scanline_mode    : hdmi_scanline_mode_t;
+   signal video_fit_ce           : std_logic;
+   signal video_fit_red          : std_logic_vector(7 downto 0);
+   signal video_fit_green        : std_logic_vector(7 downto 0);
+   signal video_fit_blue         : std_logic_vector(7 downto 0);
+   signal video_fit_hs           : std_logic;
+   signal video_fit_vs           : std_logic;
+   signal video_fit_hblank       : std_logic;
+   signal video_fit_vblank       : std_logic;
+   signal video_fit_valid        : std_logic;
+   signal video_fit_mode         : natural range 0 to 7;
+   signal video_fit_hmin         : natural range 0 to 4095;
+   signal video_fit_hmax         : natural range 0 to 4095;
+   signal video_fit_vmin         : natural range 0 to 4095;
+   signal video_fit_vmax         : natural range 0 to 4095;
+   signal video_fit              : std_logic_vector(51 downto 0);
+   signal hdmi_fit               : std_logic_vector(51 downto 0);
+   signal hdmi_fit_rect          : hdmi_output_rect_t;
+   signal hdmi_fit_ok            : std_logic;
 
    signal hdmi_cropped_rect      : hdmi_output_rect_t;
    signal hdmi_output_rect       : hdmi_output_rect_t;
@@ -275,7 +323,108 @@ begin
       hdmi_cropped_rect <= C_HDMI_CROPPED_RECTS_0(video_mode_to_index(hdmi_video_mode_i));
    end generate gen_legacy_view_size;
 
-   hdmi_output_rect <= hdmi_cropped_rect
+   -- CRT emulation: scanline_fit measures and crops the input, so it needs the mode and
+   -- the polyphase bit on the video clock. Its rectangle comes back to the HDMI clock.
+   i_cdc_scanlines : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 1,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i     => qnice_poly_clk_i,
+         src_data_i(0) => qnice_ascal_mode_i(2),
+         dst_clk_i     => video_clk_i,
+         dst_data_o    => video_scanlines
+      ); -- i_cdc_scanlines
+
+   hdmi_mode_index <= std_logic_vector(to_unsigned(video_mode_to_index(hdmi_video_mode_i), 3));
+
+   i_cdc_mode : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 3,
+         G_REGISTER_SRC => true
+      )
+      port map (
+         src_clk_i  => hdmi_clk_i,
+         src_data_i => hdmi_mode_index,
+         dst_clk_i  => video_clk_i,
+         dst_data_o => video_mode_index
+      ); -- i_cdc_mode
+
+   video_mode_num      <= to_integer(unsigned(video_mode_index));
+   video_scanline_mode <= C_SCANLINE_MODES(video_mode_num) when video_mode_num <= G_VIDEO_MODE_VECTOR'high else
+                          C_SCANLINE_MODES(0);
+
+   i_scanline_fit : entity work.scanline_fit
+      port map (
+         video_clk_i     => video_clk_i,
+         video_enable_i  => video_scanlines(0),
+         video_mode_i    => video_mode_num,
+         video_hdisp_i   => video_scanline_mode.HDISP,
+         video_vdisp_i   => video_scanline_mode.VDISP,
+         video_scale_i   => video_scanline_mode.SCALE,
+         video_lines_i   => video_scanline_mode.LINES,
+         video_hfactor_i => video_scanline_mode.HFACTOR,
+         video_ce_i      => video_ce_i,
+         video_red_i     => video_red_i,
+         video_green_i   => video_green_i,
+         video_blue_i    => video_blue_i,
+         video_hs_i      => video_hs_i,
+         video_vs_i      => video_vs_i,
+         video_hblank_i  => video_hblank_i,
+         video_vblank_i  => video_vblank_i,
+         video_ce_o      => video_fit_ce,
+         video_red_o     => video_fit_red,
+         video_green_o   => video_fit_green,
+         video_blue_o    => video_fit_blue,
+         video_hs_o      => video_fit_hs,
+         video_vs_o      => video_fit_vs,
+         video_hblank_o  => video_fit_hblank,
+         video_vblank_o  => video_fit_vblank,
+         video_valid_o   => video_fit_valid,
+         video_mode_o    => video_fit_mode,
+         video_hmin_o    => video_fit_hmin,
+         video_hmax_o    => video_fit_hmax,
+         video_vmin_o    => video_fit_vmin,
+         video_vmax_o    => video_fit_vmax
+      ); -- i_scanline_fit
+
+   video_fit <= video_fit_valid &
+                std_logic_vector(to_unsigned(video_fit_mode, 3)) &
+                std_logic_vector(to_unsigned(video_fit_hmin, 12)) &
+                std_logic_vector(to_unsigned(video_fit_hmax, 12)) &
+                std_logic_vector(to_unsigned(video_fit_vmin, 12)) &
+                std_logic_vector(to_unsigned(video_fit_vmax, 12));
+
+   i_cdc_fit : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE    => 52,
+         G_REGISTER_SRC => false   -- scanline_fit's outputs are registers
+      )
+      port map (
+         src_clk_i  => video_clk_i,
+         src_data_i => video_fit,
+         dst_clk_i  => hdmi_clk_i,
+         dst_data_o => hdmi_fit
+      ); -- i_cdc_fit
+
+   hdmi_fit_rect <= (
+      H_MIN => to_integer(unsigned(hdmi_fit(47 downto 36))),
+      H_MAX => to_integer(unsigned(hdmi_fit(35 downto 24))),
+      V_MIN => to_integer(unsigned(hdmi_fit(23 downto 12))),
+      V_MAX => to_integer(unsigned(hdmi_fit(11 downto  0)))
+   );
+
+   -- Only a rectangle made for the current mode: ascal needs hmax < hdisp and vmax < vdisp
+   hdmi_fit_ok <= '1' when hdmi_fit(51) = '1' and
+                           to_integer(unsigned(hdmi_fit(50 downto 48))) = video_mode_to_index(hdmi_video_mode_i) and
+                           hdmi_fit_rect.H_MAX < hdmi_video_mode.H_PIXELS and
+                           hdmi_fit_rect.V_MAX < hdmi_video_mode.V_PIXELS else
+                  '0';
+
+   hdmi_output_rect <= hdmi_fit_rect
+                       when hdmi_fit_ok = '1' else
+                       hdmi_cropped_rect
                        when hdmi_crop_mode_i = '1' else
                        C_HDMI_UNCROPPED_RECTS(video_mode_to_index(hdmi_video_mode_i));
 
@@ -362,14 +511,14 @@ begin
       )
       port map (
          -- Input video
-         i_r               => unsigned(video_red_i),        -- input
-         i_g               => unsigned(video_green_i),      -- input
-         i_b               => unsigned(video_blue_i),       -- input
-         i_hs              => video_hs_i,                   -- input
-         i_vs              => video_vs_i,                   -- input
+         i_r               => unsigned(video_fit_red),      -- input
+         i_g               => unsigned(video_fit_green),    -- input
+         i_b               => unsigned(video_fit_blue),     -- input
+         i_hs              => video_fit_hs,                 -- input
+         i_vs              => video_fit_vs,                 -- input
          i_fl              => '0',                          -- input
-         i_de              => not (video_hblank_i or video_vblank_i), -- input
-         i_ce              => video_ce_i,                   -- input
+         i_de              => not (video_fit_hblank or video_fit_vblank), -- input
+         i_ce              => video_fit_ce,                 -- input
          i_clk             => video_clk_i,                  -- input
 
          -- Output video

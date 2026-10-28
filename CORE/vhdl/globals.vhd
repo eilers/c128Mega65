@@ -60,34 +60,44 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 
 constant C_MENU_DRV_1541         : natural := 7;   -- 5.25" drive model: 1541
 constant C_MENU_DRV_1571         : natural := 8;   -- 5.25" drive model: 1571
-constant C_MENU_VIDEO_FOLLOW     : natural := 17;  -- Video Output: Follow 40/80 on both ports
-constant C_MENU_VIDEO_40         : natural := 18;  -- Video Output: 40 columns on both ports
-constant C_MENU_VIDEO_80         : natural := 19;  -- Video Output: 80 columns on both ports
-constant C_MENU_VIDEO_H40_V80    : natural := 23;  -- Dual screen: HDMI 40, VGA 80
-constant C_MENU_VIDEO_H80_V40    : natural := 24;  -- Dual screen: HDMI 80, VGA 40
-constant C_MENU_VIDEO_SWAP       : natural := 25;  -- Dual screen: HDMI follows 40/80, VGA shows the other
-constant C_MENU_JAILBARS_OFF     : natural := 29;
-constant C_MENU_JAILBARS_LOW     : natural := 30;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 31;
-constant C_MENU_JAILBARS_HIGH    : natural := 32;
-constant C_MENU_HDMI_720p_50     : natural := 38;
-constant C_MENU_HDMI_720p_60     : natural := 39;
-constant C_MENU_HDMI_576p_50     : natural := 40;
-constant C_MENU_HDMI_576p_50_5_4 : natural := 41;
-constant C_MENU_HDMI_640_60      : natural := 42;
-constant C_MENU_HDMI_720_5994    : natural := 43;
-constant C_MENU_HDMI_800_60      : natural := 44;
-constant C_MENU_HDMI_FF          : natural := 46;  -- HDMI: Flicker-free
-constant C_MENU_HDMI_AUDIO       : natural := 47;  -- HDMI audio (default on); off selects DVI
-constant C_MENU_CRT_EMULATION    : natural := 50;
-constant C_MENU_VGA_STD          : natural := 54;  -- VGA: Standard, scandoubled ~31 kHz (default)
-constant C_MENU_VGA_15KHZHSVS    : natural := 58;  -- VGA: native 15 kHz, separate HS/VS
-constant C_MENU_VGA_15KHZCS      : natural := 59;  -- VGA: native 15 kHz, composite sync on pin 13
-constant C_MENU_KEYS_4080        : natural := 68;  -- real Caps Lock is the 40/80 key (default)
-constant C_MENU_KEYS_ASCII       : natural := 69;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
-constant C_MENU_HELP_F13         : natural := 74;  -- OSM trigger on F13 (Help stays C128 Help)
-constant C_MENU_EXP_PORT_HW      : natural := 78;  -- Expansion Port: Use hardware slot
-constant C_MENU_IEC              : natural := 79;  -- IEC: Use hardware port
+constant C_MENU_INT1581_OFF      : natural := 14;  -- Internal 1581: off (default)
+constant C_MENU_INT1581_D8       : natural := 15;  -- Internal 1581: the internal floppy is drive 8
+constant C_MENU_INT1581_D9       : natural := 16;  -- Internal 1581: the internal floppy is drive 9
+constant C_MENU_VIDEO_FOLLOW     : natural := 27;  -- Video Output: Follow 40/80 on both ports
+constant C_MENU_VIDEO_40         : natural := 28;  -- Video Output: 40 columns on both ports
+constant C_MENU_VIDEO_80         : natural := 29;  -- Video Output: 80 columns on both ports
+constant C_MENU_VIDEO_H40_V80    : natural := 33;  -- Dual screen: HDMI 40, VGA 80
+constant C_MENU_VIDEO_H80_V40    : natural := 34;  -- Dual screen: HDMI 80, VGA 40
+constant C_MENU_VIDEO_SWAP       : natural := 35;  -- Dual screen: HDMI follows 40/80, VGA shows the other
+constant C_MENU_JAILBARS_OFF     : natural := 39;
+constant C_MENU_JAILBARS_LOW     : natural := 40;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 41;
+constant C_MENU_JAILBARS_HIGH    : natural := 42;
+constant C_MENU_HDMI_720p_50     : natural := 48;
+constant C_MENU_HDMI_720p_60     : natural := 49;
+constant C_MENU_HDMI_576p_50     : natural := 50;
+constant C_MENU_HDMI_576p_50_5_4 : natural := 51;
+constant C_MENU_HDMI_640_60      : natural := 52;
+constant C_MENU_HDMI_720_5994    : natural := 53;
+constant C_MENU_HDMI_800_60      : natural := 54;
+constant C_MENU_HDMI_FF          : natural := 56;  -- HDMI: Flicker-free
+constant C_MENU_HDMI_AUDIO       : natural := 57;  -- HDMI audio (default on); off selects DVI
+constant C_MENU_CRT_EMULATION    : natural := 60;
+constant C_MENU_VGA_STD          : natural := 64;  -- VGA: Standard, scandoubled ~31 kHz (default)
+constant C_MENU_VGA_15KHZHSVS    : natural := 68;  -- VGA: native 15 kHz, separate HS/VS
+constant C_MENU_VGA_15KHZCS      : natural := 69;  -- VGA: native 15 kHz, composite sync on pin 13
+constant C_MENU_KEYS_4080        : natural := 78;  -- real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 79;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
+constant C_MENU_HELP_F13         : natural := 84;  -- OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_IEC              : natural := 88;  -- IEC: Use hardware port
+constant C_MENU_REU_OFF          : natural := 92;  -- REU: off (default)
+constant C_MENU_REU_512K         : natural := 93;  -- REU: 512 KB
+constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB
+constant C_MENU_CART_HW          : natural := 100; -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 101; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 109; -- Modem: SwiftLink at $DE00 (Off at 108 is the default)
+constant C_MENU_MODEM_DF00       : natural := 110; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 111; -- Modem: SwiftLink at $D700
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -152,31 +162,20 @@ constant C_DEV_RAM            : std_logic_vector(15 downto 0) := x"0100"; -- RAM
 constant C_DEV_SYSTEM_ROM     : std_logic_vector(15 downto 0) := x"0101"; -- boot0.rom
 constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boot1.rom
 constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
-constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- disk image of drive 8, staged in HyperRAM
-constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- disk image of drive 9, staged in HyperRAM
+constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- drive 8: block table of its image on the SD card (vd_sd.vhd)
+constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- drive 9: block table of its image on the SD card (vd_sd.vhd)
+constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- virtual cartridge (.crt), loaded into HyperRAM
+constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- internal floppy diagnostics (physical_1581_diag), same id as C64MEGA65
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)
+-- Layout and rationale: doc/hyperram-map.md
 ----------------------------------------------------------------------------------------------------------
 
--- The disk image buffers live in HyperRAM instead of BRAM because a single D81 is
--- 819,200 bytes, which is more block RAM than this design has left. 100 windows are
--- exactly one D81; the guard window after each buffer absorbs a write one byte past
--- the end of the image.
---
--- Placement must stay above the HDMI ascal framebuffer. With VGA_DX x VGA_DY =
--- 720x540, RAMSIZE rounds up to 2 MiB; triple-buffering (even if currently off in
--- mega65.vhd) would then occupy 0..6 MiB. C64MEGA65 therefore puts its D81 buffer
--- at 0x035A (~6.7 MiB). We used to start VD0 at 0x0200 (4 MiB), which sits inside
--- that triple-buffer window and can be wiped to video black (zeros) after mount —
--- Empty.d81 only has nonzero bytes at T40 (~offset 399360), so a wiped buffer
--- looks exactly like "directory cylinder reads as 00 00 00 00".
--- Layout (8 KiB windows): VD0 0x0300..0x0363, guard, VD1 0x0365..0x03C8, guard.
-constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- Low HyperRAM: ascal framebuffer
-constant C_HMAP_VD0           : std_logic_vector(15 downto 0) := x"0300";     -- Drive 8 disk image: 100 windows
-constant C_HMAP_VD0_GUARD     : std_logic_vector(15 downto 0) := x"0364";
-constant C_HMAP_VD1           : std_logic_vector(15 downto 0) := x"0365";     -- Drive 9 disk image: 100 windows
-constant C_HMAP_VD1_GUARD     : std_logic_vector(15 downto 0) := x"03C9";
+constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 2 MiB
+constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU: 512 KiB or 2 MiB
+constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge: 2 MiB
+constant C_HMAP_MODEM         : std_logic_vector(15 downto 0) := x"0300";     -- Modem firmware: up to 1 MB, one byte per word
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 
 ----------------------------------------------------------------------------------------------------------
@@ -225,8 +224,9 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 --       else it is a 4k window in HyperRAM or in SDRAM
 -- In case we are loading to a QNICE device, then the control and status register is located at the 4k window 0xFFFF.
 -- @TODO: See @TODO for more details about the control and status register
-constant C_CRTROMS_MAN_NUM       : natural := 0;                                       -- amount of manually loadable ROMs and carts; maximum is 16
-constant C_CRTROMS_MAN           : crtrom_buf_array := ( x"EEEE", x"EEEE", x"EEEE");   -- Always finish the array using x"EEEE"
+constant C_CRTROMS_MAN_NUM       : natural := 1;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_CRT,  -- the CRT:%s menu item
+                                                         x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts
 --
@@ -249,14 +249,17 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( x"EEEE", x"EEEE", x"EEE
 -- C128 core specific ROMs
 constant BOOT_0 : string := "/c128/boot0.rom" & ENDSTR;
 constant BOOT_1 : string := "/c128/boot1.rom" & ENDSTR;
+constant MODEM_FW : string := "/c128/modem.bin" & ENDSTR;      -- optional: without it the modem stays silent
 constant BOOT_0_START : std_logic_vector(15 downto 0) := x"0000";
 constant BOOT_1_START : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(BOOT_0'length, 16));
+constant MODEM_FW_START : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(BOOT_0'length + BOOT_1'length, 16));
 
 -- M2M framework constants
-constant C_CRTROMS_AUTO_NUM      : natural := 2;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
-constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1;
+constant C_CRTROMS_AUTO_NUM      : natural := 3;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
+constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1 & MODEM_FW;
 constant C_CRTROMS_AUTO          : crtrom_buf_array := (C_CRTROMTYPE_DEVICE, C_DEV_SYSTEM_ROM, C_CRTROMTYPE_MANDATORY, BOOT_0_START, 
                                                         C_CRTROMTYPE_DEVICE, C_DEV_DRIVE_ROM, C_CRTROMTYPE_MANDATORY, BOOT_1_START, 
+                                                        C_CRTROMTYPE_HYPERRAM, C_HMAP_MODEM, C_CRTROMTYPE_OPTIONAL, MODEM_FW_START,
                                                         x"EEEE");                     -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------

@@ -16,6 +16,7 @@ library work;
 use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
+use work.sdhost_pkg.all;
 
 library unisim;
 use unisim.vcomponents.all;
@@ -25,7 +26,8 @@ use xpm.vcomponents.all;
 
 entity MEGA65_Core is
 generic (
-   G_BOARD           : string                              -- Which platform we are running on.
+   G_BOARD           : string;                             -- Which platform we are running on.
+   G_STATS           : boolean := false                    -- the menu shows a virtual cartridge's bank waits
 );
 port (
    --------------------------------------------------------------------------------------------------------
@@ -69,6 +71,10 @@ port (
    qnice_dev_we_i          : in  std_logic;
    qnice_dev_wait_o        : out std_logic;
 
+   -- Block transfers to and from the active SD card (sdhost.vhd's engine port)
+   qnice_sd_eng_o          : out t_sd_c2q;
+   qnice_sd_eng_i          : in  t_sd_q2c;
+
    --------------------------------------------------------------------------------------------------------
    -- HyperRAM Clock Domain
    --------------------------------------------------------------------------------------------------------
@@ -86,6 +92,18 @@ port (
    hr_core_waitrequest_i   : in  std_logic;
    hr_high_i               : in  std_logic;  -- Core is too fast
    hr_low_i                : in  std_logic;  -- Core is too slow
+
+   -- SDRAM (R4 and later), also on the HyperRAM clock: the virtual cartridge's file
+   sr_core_refresh_ok_o    : out std_logic;
+   sr_core_write_o         : out std_logic;
+   sr_core_read_o          : out std_logic;
+   sr_core_address_o       : out std_logic_vector(31 downto 0);
+   sr_core_writedata_o     : out std_logic_vector(15 downto 0);
+   sr_core_byteenable_o    : out std_logic_vector( 1 downto 0);
+   sr_core_burstcount_o    : out std_logic_vector( 7 downto 0);
+   sr_core_readdata_i      : in  std_logic_vector(15 downto 0);
+   sr_core_readdatavalid_i : in  std_logic;
+   sr_core_waitrequest_i   : in  std_logic;
 
    --------------------------------------------------------------------------------------------------------
    -- Video Clock Domain
@@ -194,6 +212,21 @@ port (
    iec_srq_n_i             : in  std_logic;
    iec_srq_n_o             : out std_logic;
 
+   -- MEGA65 internal floppy drive (drive A of the connector), used as a 1581
+   f_rdata_i               : in  std_logic;
+   f_index_i               : in  std_logic;
+   f_track0_i              : in  std_logic;
+   f_writeprotect_i        : in  std_logic;
+   f_diskchanged_i         : in  std_logic;
+   f_motora_o              : out std_logic;
+   f_selecta_o             : out std_logic;
+   f_side1_o               : out std_logic;
+   f_stepdir_o             : out std_logic;
+   f_step_o                : out std_logic;
+   f_density_o             : out std_logic;
+   f_wgate_o               : out std_logic;
+   f_wdata_o               : out std_logic;
+
    -- C64 Expansion Port (aka Cartridge Port)
    cart_en_o               : out std_logic;  -- Enable port, active high
    cart_phi2_o             : out std_logic;
@@ -234,7 +267,20 @@ port (
    cart_a_o                : out unsigned(15 downto 0);
    cart_data_oe_o          : out std_logic; -- 0 : tristate (i.e. input), 1 : output
    cart_d_i                : in  unsigned( 7 downto 0);
-   cart_d_o                : out unsigned( 7 downto 0)
+   cart_d_o                : out unsigned( 7 downto 0);
+
+   -- SwiftLink modem: its 50 MHz clock (CPU and Ethernet) and the Ethernet PHY
+   modem_clk_i             : in    std_logic;
+   modem_rst_i             : in    std_logic;
+   eth_clock_o             : out   std_logic;
+   eth_reset_o             : out   std_logic;
+   eth_mdc_o               : out   std_logic;
+   eth_mdio_io             : inout std_logic;
+   eth_rxd_i               : in    std_logic_vector(1 downto 0);
+   eth_rxdv_i              : in    std_logic;
+   eth_rxer_i              : in    std_logic;
+   eth_txd_o               : out   std_logic_vector(1 downto 0);
+   eth_txen_o              : out   std_logic
 );
 end entity MEGA65_Core;
 
@@ -288,33 +334,124 @@ signal qnice_vd_ce           : std_logic;
 signal qnice_vd_we           : std_logic;
 signal qnice_vd_data         : std_logic_vector(15 downto 0);
 
--- Disk image staging buffers in HyperRAM (mount_buf_wrapper)
-signal qnice_mount_ce        : std_logic;
-signal qnice_mount_we        : std_logic;
-signal qnice_mount_data      : std_logic_vector(15 downto 0);
-signal qnice_mount_wait      : std_logic;
-signal qnice_mount_base      : std_logic_vector(21 downto 0);
+-- Mounted disk images, straight from the SD card (vd_sd.vhd inside main.vhd)
+signal qnice_vdsd_ce         : std_logic;
+signal qnice_vdsd_we         : std_logic;
+signal qnice_vdsd_data       : std_logic_vector(15 downto 0);
+signal qnice_vdsd_drive      : natural range 0 to 1;
 
--- Two Avalon masters share hr_core_*: QNICE still stages the image through
--- mount_buf_wrapper (s0), the hardware pump fills the drive buffer (s1).
-signal mount_hr_write         : std_logic;
-signal mount_hr_read          : std_logic;
-signal mount_hr_address       : std_logic_vector(31 downto 0);
-signal mount_hr_writedata     : std_logic_vector(15 downto 0);
-signal mount_hr_byteenable    : std_logic_vector( 1 downto 0);
-signal mount_hr_burstcount    : std_logic_vector( 7 downto 0);
-signal mount_hr_readdata      : std_logic_vector(15 downto 0);
-signal mount_hr_readdatavalid : std_logic;
-signal mount_hr_waitrequest   : std_logic;
-signal pump_hr_write          : std_logic;
-signal pump_hr_read           : std_logic;
-signal pump_hr_address        : std_logic_vector(31 downto 0);
-signal pump_hr_writedata      : std_logic_vector(15 downto 0);
-signal pump_hr_byteenable     : std_logic_vector( 1 downto 0);
-signal pump_hr_burstcount     : std_logic_vector( 7 downto 0);
-signal pump_hr_readdata       : std_logic_vector(15 downto 0);
-signal pump_hr_readdatavalid  : std_logic;
-signal pump_hr_waitrequest    : std_logic;
+-- The SD controller's engine port, shared by the drives (A) and the .crt loader (B)
+signal qnice_drv_eng_c2q     : t_sd_c2q;
+signal qnice_drv_eng_q2c     : t_sd_q2c;
+signal qnice_drv_eng_want    : std_logic;
+signal qnice_crt_eng_c2q     : t_sd_c2q;
+signal qnice_crt_eng_q2c     : t_sd_q2c;
+signal qnice_crt_eng_want    : std_logic;
+
+-- Two Avalon masters share hr_core_*: the REU (s0) and the virtual cartridge (s1),
+-- each in its region of doc/hyperram-map.md.
+
+-- REU: main_reu_* on main_clk, reu_hr_* on hr_clk
+signal main_reu_write         : std_logic;
+signal main_reu_read          : std_logic;
+signal main_reu_address       : std_logic_vector(31 downto 0);
+signal main_reu_writedata     : std_logic_vector(15 downto 0);
+signal main_reu_byteenable    : std_logic_vector( 1 downto 0);
+signal main_reu_burstcount    : std_logic_vector( 7 downto 0);
+signal main_reu_readdata      : std_logic_vector(15 downto 0);
+signal main_reu_readdatavalid : std_logic;
+signal main_reu_waitrequest   : std_logic;
+signal reu_hr_write           : std_logic;
+signal reu_hr_read            : std_logic;
+signal reu_hr_address         : std_logic_vector(31 downto 0);
+signal reu_hr_writedata       : std_logic_vector(15 downto 0);
+signal reu_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal reu_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal reu_hr_readdata        : std_logic_vector(15 downto 0);
+signal reu_hr_readdatavalid   : std_logic;
+signal reu_hr_waitrequest     : std_logic;
+
+-- Virtual cartridge: the QNICE device that loads the .crt file, and its link to main.vhd
+signal qnice_crt_ce           : std_logic;
+signal qnice_crt_we           : std_logic;
+signal qnice_crt_data         : std_logic_vector(15 downto 0);
+
+-- internal floppy diagnostics (physical_1581_diag)
+signal qnice_p1581_ce         : std_logic;
+signal qnice_p1581_we         : std_logic;
+signal qnice_p1581_data       : std_logic_vector(15 downto 0);
+signal qnice_crt_wait         : std_logic;
+signal main_crt_loaded        : std_logic;
+signal main_crt_loading       : std_logic;
+signal main_crt_id            : std_logic_vector(15 downto 0);
+signal main_crt_exrom         : std_logic_vector( 7 downto 0);
+signal main_crt_game          : std_logic_vector( 7 downto 0);
+signal main_crt_size          : std_logic_vector(22 downto 0);
+signal main_crt_c128          : std_logic;
+signal main_crt_subtype       : std_logic_vector( 7 downto 0);
+signal main_crt_bank_lo       : std_logic_vector( 6 downto 0);
+signal main_crt_bank_hi       : std_logic_vector( 6 downto 0);
+signal main_crt_wait          : std_logic;
+signal main_crt_addr          : std_logic_vector(15 downto 0);
+signal main_crt_data          : std_logic_vector( 7 downto 0);
+signal main_crt_lo_data       : std_logic_vector( 7 downto 0);
+signal main_crt_hi_data       : std_logic_vector( 7 downto 0);
+signal main_crt_vic_data      : std_logic_vector( 7 downto 0);
+signal main_crt_rd_lo         : std_logic;
+signal main_crt_rd_hi         : std_logic;
+signal main_crt_vic_rd        : std_logic;
+signal main_crt_vic_addr      : std_logic_vector(12 downto 0);
+signal main_crt_rfsh_ok       : std_logic;
+signal main_crt_reset         : std_logic;
+signal main_crt_phi2          : std_logic;
+signal main_crt_flash_wr      : std_logic;
+signal main_crt_flash_rd      : std_logic;
+signal main_crt_ioe_we        : std_logic;
+signal main_crt_iof_we        : std_logic;
+signal main_crt_ram_we        : std_logic;
+signal main_crt_ioe_data      : std_logic_vector( 7 downto 0);
+signal main_crt_iof_data      : std_logic_vector( 7 downto 0);
+signal main_crt_ram_data      : std_logic_vector( 7 downto 0);
+signal crt_hr_write           : std_logic;
+signal crt_hr_read            : std_logic;
+signal crt_hr_address         : std_logic_vector(31 downto 0);
+signal crt_hr_writedata       : std_logic_vector(15 downto 0);
+signal crt_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal crt_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal crt_hr_readdata        : std_logic_vector(15 downto 0);
+signal crt_hr_readdatavalid   : std_logic;
+signal crt_hr_waitrequest     : std_logic;
+
+-- SwiftLink modem: the 6551's bus on main_clk, its firmware reads on hr_clk
+signal main_modem_en          : std_logic;
+signal main_modem_rst         : std_logic;
+signal main_modem_cs          : std_logic;
+signal main_modem_we          : std_logic;
+signal main_modem_addr        : std_logic_vector(2 downto 0);
+signal main_modem_wdata       : std_logic_vector(7 downto 0);
+signal main_modem_rdata       : std_logic_vector(7 downto 0);
+signal main_modem_irq         : std_logic;
+
+signal modem_hr_write         : std_logic;
+signal modem_hr_read          : std_logic;
+signal modem_hr_address       : std_logic_vector(31 downto 0);
+signal modem_hr_writedata     : std_logic_vector(15 downto 0);
+signal modem_hr_byteenable    : std_logic_vector( 1 downto 0);
+signal modem_hr_burstcount    : std_logic_vector( 7 downto 0);
+signal modem_hr_readdata      : std_logic_vector(15 downto 0);
+signal modem_hr_readdatavalid : std_logic;
+signal modem_hr_waitrequest   : std_logic;
+
+-- REU and cartridge, after their arbiter
+signal exp_hr_write           : std_logic;
+signal exp_hr_read            : std_logic;
+signal exp_hr_address         : std_logic_vector(31 downto 0);
+signal exp_hr_writedata       : std_logic_vector(15 downto 0);
+signal exp_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal exp_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal exp_hr_readdata        : std_logic_vector(15 downto 0);
+signal exp_hr_readdatavalid   : std_logic;
+signal exp_hr_waitrequest     : std_logic;
 
 -- Drive ROM server: hands boot1.rom to iec_drive byte by byte (QNICE clock domain)
 signal qnice_drvrom_b_addr   : std_logic_vector(17 downto 0) := (others => '0');
@@ -362,8 +499,8 @@ begin
       ); -- clk_gen
 
 
-   -- Dedicated 32.000 MHz VDC clock (MiSTer pll_vdc). Bus CDC to main stays unconstrained
-   -- (see CORE.xdc); do not add set_clock_groups on this crossing.
+   -- Dedicated 32.000 MHz VDC clock (MiSTer pll_vdc). CORE.xdc explains why the crossing
+   -- to main_clk is safe and how it is constrained.
    clk_vdc_gen: entity work.vdc_clk
       port map (
          refclk       => clk_i,
@@ -604,19 +741,87 @@ begin
          drv_rom_data_i       => qnice_drvrom_b_data,
          drv_rom_wr_i         => qnice_drv_rom_wr,
 
-         hr_clk_i             => hr_clk_i,
-         hr_rst_i             => hr_rst_i,
-         hr_write_o           => pump_hr_write,
-         hr_read_o            => pump_hr_read,
-         hr_address_o         => pump_hr_address,
-         hr_writedata_o       => pump_hr_writedata,
-         hr_byteenable_o      => pump_hr_byteenable,
-         hr_burstcount_o      => pump_hr_burstcount,
-         hr_readdata_i        => pump_hr_readdata,
-         hr_readdatavalid_i   => pump_hr_readdatavalid,
-         hr_waitrequest_i     => pump_hr_waitrequest,
-         hr_base_d8_i         => C_HMAP_VD0(9 downto 0) & x"000",
-         hr_base_d9_i         => C_HMAP_VD1(9 downto 0) & x"000"
+         rst_sd_i             => qnice_rst_i,
+         qnice_vdsd_drive_i   => qnice_vdsd_drive,
+         qnice_vdsd_addr_i    => qnice_dev_addr_i,
+         qnice_vdsd_data_i    => qnice_dev_data_i,
+         qnice_vdsd_data_o    => qnice_vdsd_data,
+         qnice_vdsd_ce_i      => qnice_vdsd_ce,
+         qnice_vdsd_we_i      => qnice_vdsd_we,
+         qnice_sd_want_o      => qnice_drv_eng_want,
+         qnice_sd_eng_o       => qnice_drv_eng_c2q,
+         qnice_sd_eng_i       => qnice_drv_eng_q2c,
+
+         f_rdata_i            => f_rdata_i,
+         f_index_i            => f_index_i,
+         f_track0_i           => f_track0_i,
+         f_writeprotect_i     => f_writeprotect_i,
+         f_diskchanged_i      => f_diskchanged_i,
+         f_motora_o           => f_motora_o,
+         f_selecta_o          => f_selecta_o,
+         f_side1_o            => f_side1_o,
+         f_stepdir_o          => f_stepdir_o,
+         f_step_o             => f_step_o,
+         f_density_o          => f_density_o,
+         f_wgate_o            => f_wgate_o,
+         f_wdata_o            => f_wdata_o,
+
+         qnice_p1581_ce_i     => qnice_p1581_ce,
+         qnice_p1581_we_i     => qnice_p1581_we,
+         qnice_p1581_addr_i   => qnice_dev_addr_i(7 downto 0),
+         qnice_p1581_data_i   => qnice_dev_data_i,
+         qnice_p1581_data_o   => qnice_p1581_data,
+
+         reu_avm_write_o         => main_reu_write,
+         reu_avm_read_o          => main_reu_read,
+         reu_avm_address_o       => main_reu_address,
+         reu_avm_writedata_o     => main_reu_writedata,
+         reu_avm_byteenable_o    => main_reu_byteenable,
+         reu_avm_burstcount_o    => main_reu_burstcount,
+         reu_avm_readdata_i      => main_reu_readdata,
+         reu_avm_readdatavalid_i => main_reu_readdatavalid,
+         reu_avm_waitrequest_i   => main_reu_waitrequest,
+
+         modem_en_o           => main_modem_en,
+         modem_rst_o          => main_modem_rst,
+         modem_cs_o           => main_modem_cs,
+         modem_we_o           => main_modem_we,
+         modem_addr_o         => main_modem_addr,
+         modem_data_o         => main_modem_wdata,
+         modem_data_i         => main_modem_rdata,
+         modem_irq_i          => main_modem_irq,
+
+         crt_loaded_i         => main_crt_loaded,
+         crt_loading_i        => main_crt_loading,
+         crt_id_i             => main_crt_id,
+         crt_exrom_i          => main_crt_exrom,
+         crt_game_i           => main_crt_game,
+         crt_size_i           => main_crt_size,
+         crt_c128_i           => main_crt_c128,
+         crt_subtype_i        => main_crt_subtype,
+         crt_bank_lo_o        => main_crt_bank_lo,
+         crt_bank_hi_o        => main_crt_bank_hi,
+         crt_wait_i           => main_crt_wait,
+         crt_addr_o           => main_crt_addr,
+         crt_data_o           => main_crt_data,
+         crt_lo_data_i        => main_crt_lo_data,
+         crt_hi_data_i        => main_crt_hi_data,
+         crt_vic_data_i       => main_crt_vic_data,
+         crt_rd_lo_o          => main_crt_rd_lo,
+         crt_rd_hi_o          => main_crt_rd_hi,
+         crt_vic_rd_o         => main_crt_vic_rd,
+         crt_vic_addr_o       => main_crt_vic_addr,
+         crt_rfsh_ok_o        => main_crt_rfsh_ok,
+         crt_reset_o          => main_crt_reset,
+         crt_phi2_o           => main_crt_phi2,
+         crt_flash_wr_o       => main_crt_flash_wr,
+         crt_flash_rd_o       => main_crt_flash_rd,
+         crt_ioe_we_o         => main_crt_ioe_we,
+         crt_iof_we_o         => main_crt_iof_we,
+         crt_ram_we_o         => main_crt_ram_we,
+         crt_ioe_data_i       => main_crt_ioe_data,
+         crt_iof_data_i       => main_crt_iof_data,
+         crt_ram_data_i       => main_crt_ram_data
       ); -- i_main
 
    ---------------------------------------------------------------------------------------------
@@ -707,8 +912,12 @@ begin
       qnice_drvrom_we      <= '0';
       qnice_vd_ce          <= '0';
       qnice_vd_we          <= '0';
-      qnice_mount_ce       <= '0';
-      qnice_mount_we       <= '0';
+      qnice_vdsd_ce        <= '0';
+      qnice_vdsd_we        <= '0';
+      qnice_crt_ce         <= '0';
+      qnice_crt_we         <= '0';
+      qnice_p1581_ce       <= '0';
+      qnice_p1581_we       <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -734,53 +943,160 @@ begin
             qnice_vd_we       <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_vd_data;
 
-        -- Mounted disk images, staged in HyperRAM. One wrapper serves both drives: QNICE is
-        -- single-threaded, so the two devices are never accessed at the same time.
+        -- Mounted disk images: the block tables and controls of vd_sd (inside main.vhd)
         when C_DEV_MOUNT_D8 | C_DEV_MOUNT_D9 =>
-            qnice_mount_ce    <= qnice_dev_ce_i;
-            qnice_mount_we    <= qnice_dev_we_i;
-            qnice_dev_data_o  <= qnice_mount_data;
-            qnice_dev_wait_o  <= qnice_mount_wait;
+            qnice_vdsd_ce     <= qnice_dev_ce_i;
+            qnice_vdsd_we     <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_vdsd_data;
+
+        -- Virtual cartridge: the .crt file goes to HyperRAM, the CSRs start the parser
+        when C_DEV_CRT =>
+            qnice_crt_ce      <= qnice_dev_ce_i;
+            qnice_crt_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_crt_data;
+            qnice_dev_wait_o  <= qnice_crt_wait;
+
+        -- Internal floppy diagnostics (physical_1581_diag inside main.vhd), read-only
+        -- except for its precompensation override
+        when C_DEV_PHYS1581 =>
+            qnice_p1581_ce    <= qnice_dev_ce_i;
+            qnice_p1581_we    <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_p1581_data;
 
          when others => null;
       end case;
    end process core_specific_devices;
 
-   qnice_mount_base <= C_HMAP_VD1(9 downto 0) & x"000" when qnice_dev_id_i = C_DEV_MOUNT_D9 else
-                       C_HMAP_VD0(9 downto 0) & x"000";
+   qnice_vdsd_drive <= 1 when qnice_dev_id_i = C_DEV_MOUNT_D9 else 0;
 
-   i_mount_buf_wrapper : entity work.mount_buf_wrapper
+   -- The drives get the SD controller first; a .crt load waits between its DMAs
+   i_sd_eng_arb : entity work.sd_eng_arb
+      port map (
+         clk_i    => qnice_clk_i,
+         rst_i    => qnice_rst_i,
+         a_want_i => qnice_drv_eng_want,
+         a_c2q_i  => qnice_drv_eng_c2q,
+         a_q2c_o  => qnice_drv_eng_q2c,
+         b_want_i => qnice_crt_eng_want,
+         b_c2q_i  => qnice_crt_eng_c2q,
+         b_q2c_o  => qnice_crt_eng_q2c,
+         c2q_o    => qnice_sd_eng_o,
+         q2c_i    => qnice_sd_eng_i
+      ); -- i_sd_eng_arb
+
+   -- REU: cross its HyperRAM port from main_clk to hr_clk
+   i_reu_avm_fifo : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => main_clk_o,
+         s_rst_i               => main_reset_m2m_i,
+         s_avm_waitrequest_o   => main_reu_waitrequest,
+         s_avm_write_i         => main_reu_write,
+         s_avm_read_i          => main_reu_read,
+         s_avm_address_i       => main_reu_address,
+         s_avm_writedata_i     => main_reu_writedata,
+         s_avm_byteenable_i    => main_reu_byteenable,
+         s_avm_burstcount_i    => main_reu_burstcount,
+         s_avm_readdata_o      => main_reu_readdata,
+         s_avm_readdatavalid_o => main_reu_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => reu_hr_waitrequest,
+         m_avm_write_o         => reu_hr_write,
+         m_avm_read_o          => reu_hr_read,
+         m_avm_address_o       => reu_hr_address,
+         m_avm_writedata_o     => reu_hr_writedata,
+         m_avm_byteenable_o    => reu_hr_byteenable,
+         m_avm_burstcount_o    => reu_hr_burstcount,
+         m_avm_readdata_i      => reu_hr_readdata,
+         m_avm_readdatavalid_i => reu_hr_readdatavalid
+      ); -- i_reu_avm_fifo
+
+   -- Virtual cartridge: the .crt file in SDRAM where the board has it, read for each access.
+   -- On R3 it goes in its HyperRAM region, its banks cached in block RAM.
+   i_sw_cartridge_wrapper : entity work.sw_cartridge_wrapper
+      generic map (
+         G_BASE_ADDRESS => C_HMAP_CRT(9 downto 0) & x"000",
+         G_SDRAM        => G_BOARD /= "MEGA65_R3",
+         G_STATS        => G_STATS
+      )
       port map (
          qnice_clk_i        => qnice_clk_i,
          qnice_rst_i        => qnice_rst_i,
          qnice_addr_i       => qnice_dev_addr_i,
          qnice_data_i       => qnice_dev_data_i,
-         qnice_ce_i         => qnice_mount_ce,
-         qnice_we_i         => qnice_mount_we,
-         qnice_data_o       => qnice_mount_data,
-         qnice_wait_o       => qnice_mount_wait,
-
-         hr_base_addr_i     => qnice_mount_base,
-
+         qnice_ce_i         => qnice_crt_ce,
+         qnice_we_i         => qnice_crt_we,
+         qnice_data_o       => qnice_crt_data,
+         qnice_wait_o       => qnice_crt_wait,
+         qnice_sd_want_o    => qnice_crt_eng_want,
+         qnice_sd_eng_o     => qnice_crt_eng_c2q,
+         qnice_sd_eng_i     => qnice_crt_eng_q2c,
+         main_clk_i         => main_clk_o,
+         main_loaded_o      => main_crt_loaded,
+         main_loading_o     => main_crt_loading,
+         main_id_o          => main_crt_id,
+         main_exrom_o       => main_crt_exrom,
+         main_game_o        => main_crt_game,
+         main_size_o        => main_crt_size,
+         main_c128_o        => main_crt_c128,
+         main_subtype_o     => main_crt_subtype,
+         main_bank_lo_i     => main_crt_bank_lo,
+         main_bank_hi_i     => main_crt_bank_hi,
+         main_wait_o        => main_crt_wait,
+         main_addr_i        => main_crt_addr,
+         main_data_i        => main_crt_data,
+         main_lo_data_o     => main_crt_lo_data,
+         main_hi_data_o     => main_crt_hi_data,
+         main_vic_data_o    => main_crt_vic_data,
+         main_rd_lo_i       => main_crt_rd_lo,
+         main_rd_hi_i       => main_crt_rd_hi,
+         main_vic_rd_i      => main_crt_vic_rd,
+         main_vic_addr_i    => main_crt_vic_addr,
+         main_rfsh_ok_i     => main_crt_rfsh_ok,
+         main_reset_i       => main_crt_reset,
+         main_phi2_i        => main_crt_phi2,
+         main_flash_wr_i    => main_crt_flash_wr,
+         main_flash_rd_i    => main_crt_flash_rd,
+         main_ioe_we_i      => main_crt_ioe_we,
+         main_iof_we_i      => main_crt_iof_we,
+         main_ram_we_i      => main_crt_ram_we,
+         main_ioe_data_o    => main_crt_ioe_data,
+         main_iof_data_o    => main_crt_iof_data,
+         main_ram_data_o    => main_crt_ram_data,
          hr_clk_i           => hr_clk_i,
          hr_rst_i           => hr_rst_i,
-         hr_write_o         => mount_hr_write,
-         hr_read_o          => mount_hr_read,
-         hr_address_o       => mount_hr_address,
-         hr_writedata_o     => mount_hr_writedata,
-         hr_byteenable_o    => mount_hr_byteenable,
-         hr_burstcount_o    => mount_hr_burstcount,
-         hr_readdata_i      => mount_hr_readdata,
-         hr_readdatavalid_i => mount_hr_readdatavalid,
-         hr_waitrequest_i   => mount_hr_waitrequest
-      ); -- i_mount_buf_wrapper
+         hr_write_o         => crt_hr_write,
+         hr_read_o          => crt_hr_read,
+         hr_address_o       => crt_hr_address,
+         hr_writedata_o     => crt_hr_writedata,
+         hr_byteenable_o    => crt_hr_byteenable,
+         hr_burstcount_o    => crt_hr_burstcount,
+         hr_readdata_i      => crt_hr_readdata,
+         hr_readdatavalid_i => crt_hr_readdatavalid,
+         hr_waitrequest_i   => crt_hr_waitrequest,
+         sr_refresh_ok_o    => sr_core_refresh_ok_o,
+         sr_write_o         => sr_core_write_o,
+         sr_read_o          => sr_core_read_o,
+         sr_address_o       => sr_core_address_o,
+         sr_writedata_o     => sr_core_writedata_o,
+         sr_byteenable_o    => sr_core_byteenable_o,
+         sr_burstcount_o    => sr_core_burstcount_o,
+         sr_readdata_i      => sr_core_readdata_i,
+         sr_readdatavalid_i => sr_core_readdatavalid_i,
+         sr_waitrequest_i   => sr_core_waitrequest_i
+      ); -- i_sw_cartridge_wrapper
 
-   -- s0 = QNICE mount (image staging, including writes). s1 = hardware fill of
-   -- the drive's sector buffer. Round-robin; the Shell and the pump never hold
-   -- the HyperRAM for a whole cylinder at once.
-   i_vd_hr_arbit : entity work.avm_arbit
+   -- s0 = REU, s1 = virtual cartridge, taking turns
+   i_core_hr_arbit : entity work.avm_arbit
       generic map (
-         G_PREFER_SWAP  => false,
+         G_PREFER_SWAP  => true,
          G_FREQ_HZ      => 100_000_000,
          G_ADDRESS_SIZE => 32,
          G_DATA_SIZE    => 16
@@ -788,24 +1104,64 @@ begin
       port map (
          clk_i                  => hr_clk_i,
          rst_i                  => hr_rst_i,
-         s0_avm_write_i         => mount_hr_write,
-         s0_avm_read_i          => mount_hr_read,
-         s0_avm_address_i       => mount_hr_address,
-         s0_avm_writedata_i     => mount_hr_writedata,
-         s0_avm_byteenable_i    => mount_hr_byteenable,
-         s0_avm_burstcount_i    => mount_hr_burstcount,
-         s0_avm_readdata_o      => mount_hr_readdata,
-         s0_avm_readdatavalid_o => mount_hr_readdatavalid,
-         s0_avm_waitrequest_o   => mount_hr_waitrequest,
-         s1_avm_write_i         => pump_hr_write,
-         s1_avm_read_i          => pump_hr_read,
-         s1_avm_address_i       => pump_hr_address,
-         s1_avm_writedata_i     => pump_hr_writedata,
-         s1_avm_byteenable_i    => pump_hr_byteenable,
-         s1_avm_burstcount_i    => pump_hr_burstcount,
-         s1_avm_readdata_o      => pump_hr_readdata,
-         s1_avm_readdatavalid_o => pump_hr_readdatavalid,
-         s1_avm_waitrequest_o   => pump_hr_waitrequest,
+         s0_avm_write_i         => reu_hr_write,
+         s0_avm_read_i          => reu_hr_read,
+         s0_avm_address_i       => reu_hr_address,
+         s0_avm_writedata_i     => reu_hr_writedata,
+         s0_avm_byteenable_i    => reu_hr_byteenable,
+         s0_avm_burstcount_i    => reu_hr_burstcount,
+         s0_avm_readdata_o      => reu_hr_readdata,
+         s0_avm_readdatavalid_o => reu_hr_readdatavalid,
+         s0_avm_waitrequest_o   => reu_hr_waitrequest,
+         s1_avm_write_i         => crt_hr_write,
+         s1_avm_read_i          => crt_hr_read,
+         s1_avm_address_i       => crt_hr_address,
+         s1_avm_writedata_i     => crt_hr_writedata,
+         s1_avm_byteenable_i    => crt_hr_byteenable,
+         s1_avm_burstcount_i    => crt_hr_burstcount,
+         s1_avm_readdata_o      => crt_hr_readdata,
+         s1_avm_readdatavalid_o => crt_hr_readdatavalid,
+         s1_avm_waitrequest_o   => crt_hr_waitrequest,
+         m_avm_write_o          => exp_hr_write,
+         m_avm_read_o           => exp_hr_read,
+         m_avm_address_o        => exp_hr_address,
+         m_avm_writedata_o      => exp_hr_writedata,
+         m_avm_byteenable_o     => exp_hr_byteenable,
+         m_avm_burstcount_o     => exp_hr_burstcount,
+         m_avm_readdata_i       => exp_hr_readdata,
+         m_avm_readdatavalid_i  => exp_hr_readdatavalid,
+         m_avm_waitrequest_i    => exp_hr_waitrequest
+      ); -- i_core_hr_arbit
+
+   -- s0 = REU and cartridge, s1 = the modem's firmware reads (16 words at a time)
+   i_modem_hr_arbit : entity work.avm_arbit
+      generic map (
+         G_PREFER_SWAP  => true,
+         G_FREQ_HZ      => 100_000_000,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                  => hr_clk_i,
+         rst_i                  => hr_rst_i,
+         s0_avm_write_i         => exp_hr_write,
+         s0_avm_read_i          => exp_hr_read,
+         s0_avm_address_i       => exp_hr_address,
+         s0_avm_writedata_i     => exp_hr_writedata,
+         s0_avm_byteenable_i    => exp_hr_byteenable,
+         s0_avm_burstcount_i    => exp_hr_burstcount,
+         s0_avm_readdata_o      => exp_hr_readdata,
+         s0_avm_readdatavalid_o => exp_hr_readdatavalid,
+         s0_avm_waitrequest_o   => exp_hr_waitrequest,
+         s1_avm_write_i         => modem_hr_write,
+         s1_avm_read_i          => modem_hr_read,
+         s1_avm_address_i       => modem_hr_address,
+         s1_avm_writedata_i     => modem_hr_writedata,
+         s1_avm_byteenable_i    => modem_hr_byteenable,
+         s1_avm_burstcount_i    => modem_hr_burstcount,
+         s1_avm_readdata_o      => modem_hr_readdata,
+         s1_avm_readdatavalid_o => modem_hr_readdatavalid,
+         s1_avm_waitrequest_o   => modem_hr_waitrequest,
          m_avm_write_o          => hr_core_write_o,
          m_avm_read_o           => hr_core_read_o,
          m_avm_address_o        => hr_core_address_o,
@@ -815,7 +1171,50 @@ begin
          m_avm_readdata_i       => hr_core_readdata_i,
          m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
          m_avm_waitrequest_i    => hr_core_waitrequest_i
-      ); -- i_vd_hr_arbit
+      ); -- i_modem_hr_arbit
+
+   ---------------------------------------------------------------------------------------------
+   -- SwiftLink modem: a 6551 on the C128's bus, a NEORV32 with lwIP on the Ethernet port
+   ---------------------------------------------------------------------------------------------
+
+   i_modem : entity work.modem
+      generic map (
+         G_MAIN_CLK_HZ => CORE_CLK_SPEED,
+         G_HR_BASE     => to_integer(unsigned(C_HMAP_MODEM)) * 4096   -- 4 KW windows
+      )
+      port map (
+         clk_i              => modem_clk_i,
+         rst_i              => modem_rst_i,
+         main_clk_i         => main_clk_o,
+         main_rst_i         => main_modem_rst,
+         enable_i           => main_modem_en,
+         cs_i               => main_modem_cs,
+         we_i               => main_modem_we,
+         addr_i             => main_modem_addr,
+         data_i             => main_modem_wdata,
+         data_o             => main_modem_rdata,
+         irq_o              => main_modem_irq,
+         hr_clk_i           => hr_clk_i,
+         hr_rst_i           => hr_rst_i,
+         hr_write_o         => modem_hr_write,
+         hr_read_o          => modem_hr_read,
+         hr_address_o       => modem_hr_address,
+         hr_writedata_o     => modem_hr_writedata,
+         hr_byteenable_o    => modem_hr_byteenable,
+         hr_burstcount_o    => modem_hr_burstcount,
+         hr_readdata_i      => modem_hr_readdata,
+         hr_readdatavalid_i => modem_hr_readdatavalid,
+         hr_waitrequest_i   => modem_hr_waitrequest,
+         eth_clock_o        => eth_clock_o,
+         eth_reset_o        => eth_reset_o,
+         eth_mdc_o          => eth_mdc_o,
+         eth_mdio_io        => eth_mdio_io,
+         eth_rxd_i          => eth_rxd_i,
+         eth_rxdv_i         => eth_rxdv_i,
+         eth_rxer_i         => eth_rxer_i,
+         eth_txd_o          => eth_txd_o,
+         eth_txen_o         => eth_txen_o
+      ); -- i_modem
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)

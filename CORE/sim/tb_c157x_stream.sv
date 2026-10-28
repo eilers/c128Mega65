@@ -116,7 +116,10 @@ module tb_c157x_stream;
 		.rom_req(rom_req),
 		.rom_addr(rom_addr),
 		.rom_data(rom_data),
-		.rom_wr(rom_wr)
+		.rom_wr(rom_wr),
+
+		// no internal floppy; the other phys_* inputs only matter when this is set
+		.phys_mode('0)
 	);
 
 	// ---------------------------------------------------------------------------

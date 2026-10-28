@@ -384,6 +384,22 @@ package video_modes_pkg is
       scale         : hdmi_scale_t := C_HDMI_SCALE_FULL
    ) return hdmi_output_rect_t;
 
+   -- CRT emulation on HDMI scales by whole HDMI rows per input line (scanline_fit.vhd)
+   type hdmi_scanline_mode_t is record
+      HDISP   : natural;   -- active width
+      VDISP   : natural;   -- active height
+      SCALE   : natural;   -- HDMI rows per input line
+      LINES   : natural;   -- most input lines shown: VDISP / SCALE
+      HFACTOR : natural;   -- output width per input line, 8.8 fixed point
+   end record hdmi_scanline_mode_t;
+
+   -- Enough rows per line to show at least min_lines lines. The width keeps the shape of rect.
+   pure function make_hdmi_scanline_mode (
+      video_mode : video_modes_t;
+      rect       : hdmi_output_rect_t;
+      min_lines  : positive
+   ) return hdmi_scanline_mode_t;
+
    pure function video_mode_to_slv(video_mode : video_mode_type) return std_logic_vector;
 
    pure function slv_to_video_mode(video_mode_slv : std_logic_vector) return video_mode_type;
@@ -604,6 +620,24 @@ package body video_modes_pkg is
 
       return result;
    end function make_hdmi_output_rect;
+
+   pure function make_hdmi_scanline_mode (
+      video_mode : video_modes_t;
+      rect       : hdmi_output_rect_t;
+      min_lines  : positive
+   ) return hdmi_scanline_mode_t is
+      constant C_SCALE  : positive := maximum(1, video_mode.V_PIXELS / min_lines);
+      constant C_WIDTH  : positive := rect.H_MAX - rect.H_MIN + 1;
+      constant C_HEIGHT : positive := rect.V_MAX - rect.V_MIN + 1;
+   begin
+      return (
+         HDISP   => video_mode.H_PIXELS,
+         VDISP   => video_mode.V_PIXELS,
+         SCALE   => C_SCALE,
+         LINES   => video_mode.V_PIXELS / C_SCALE,
+         HFACTOR => (256 * C_WIDTH * C_SCALE + C_HEIGHT / 2) / C_HEIGHT
+      );
+   end function make_hdmi_scanline_mode;
 
    pure function video_mode_to_slv(video_mode : video_mode_type) return std_logic_vector is
    begin

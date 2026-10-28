@@ -61,8 +61,138 @@ START_FIRMWARE  RBRA    START_SHELL, 1
 ;   R8: 0, if no custom SUBMENU_SUMMARY, else:
 ;       string pointer to completely new headline (do not modify/re-use R8)
 ;   R9, R10: unchanged
+;
+; In a build that asks for it (CSR $023, the 6r3 build), while a .crt file is the source, the
+; Cartridge line shows how often the C128 waited a C64 cycle or more for a bank of the cache
+; since the menu was last drawn, and the longest wait. Drawing the menu clears both
+; (CSR $021-$022 of the cartridge device).
 
-SUBMENU_SUMMARY XOR     R8, R8                  ; R8 = 0 = no custom string
+SUBMENU_SUMMARY INCRB
+                MOVE    R9, R6                  ; R6/R7: R9/R10, kept for the caller
+                MOVE    R10, R7
+
+                ; Is this the Cartridge submenu? Its first menu group is the cartridge source.
+                MOVE    R9, R0
+_SMS_GROUP      ADD     1, R0
+                MOVE    @R0, R1
+                AND     0x00FF, R1              ; R1: menu group, 0 for text and lines
+                RBRA    _SMS_GROUP, Z
+                XOR     R8, R8
+                CMP     OPTM_G_CART, R1
+                RBRA    _SMS_RET, !Z
+                MOVE    CART_CRT_MENU, R8       ; and is a .crt file the source?
+                RSUB    M2M$GET_SETTING, 1
+                XOR     R8, R8
+                CMP     1, R9
+                RBRA    _SMS_RET, !Z
+
+                ; The caller reads the menu through the RAM/ROM window, so put it back after
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    @R0, R4
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    @R0, R5
+
+                MOVE    CRT_DEVICE, R8
+                MOVE    CRT_CSR_STATS, R9
+                RSUB    CRTROM_CSR_R, 1         ; R10: 1 = show the waits
+                CMP     1, R10
+                RBRA    _SMS_NONE, !Z
+                MOVE    CRT_CSR_STALLS, R9
+                RSUB    CRTROM_CSR_R, 1
+                MOVE    R10, R2                 ; R2: waits
+                MOVE    CRT_CSR_STALL_MAX, R9
+                RSUB    CRTROM_CSR_R, 1
+                MOVE    R10, R3                 ; R3: longest wait in C64 cycles
+                MOVE    CRT_CSR_STALLS, R9
+                RSUB    CRTROM_CSR_W, 1         ; clear both
+
+                ; At most 4 digits each, so the line fits OPTM_DX. A PAL C64 cycle is
+                ; 1.015 us: us = cycles + cycles / 64.
+                CMP     9999, R2                ; unsigned: N <=> 9999 > R2
+                RBRA    _SMS_CNT_OK, N
+                MOVE    9999, R2
+_SMS_CNT_OK     CMP     9999, R3
+                RBRA    _SMS_LEN_OK, N
+                MOVE    9999, R3
+_SMS_LEN_OK     MOVE    R3, R0
+                AND     0xFFFB, SR              ; clear Carry, which SHR shifts in
+                SHR     6, R0
+                ADD     R0, R3
+                CMP     9999, R3
+                RBRA    _SMS_US_OK, N
+                MOVE    9999, R3
+
+                ; " Stalls <waits> max <longest>us"
+_SMS_US_OK      MOVE    STALL_LINE, R1
+                MOVE    STR_STALLS, R8
+                RSUB    _SMS_CAT, 1
+                MOVE    R2, R8
+                RSUB    _SMS_DEC, 1
+                MOVE    STR_STALL_MAX, R8
+                RSUB    _SMS_CAT, 1
+                MOVE    R3, R8
+                RSUB    _SMS_DEC, 1
+                MOVE    STR_STALL_US, R8
+                RSUB    _SMS_CAT, 1
+
+                MOVE    M2M$RAMROM_DEV, R0
+                MOVE    R4, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    R5, @R0
+                MOVE    STALL_LINE, R8
+                RBRA    _SMS_RET, 1
+
+_SMS_NONE       MOVE    M2M$RAMROM_DEV, R0
+                MOVE    R4, @R0
+                MOVE    M2M$RAMROM_4KWIN, R0
+                MOVE    R5, @R0
+                XOR     R8, R8
+
+_SMS_RET        MOVE    R6, R9
+                MOVE    R7, R10
+                DECRB
+                RET
+
+; Appends the string at R8 to the line that ends at R1, and moves R1 to its new end
+_SMS_CAT        MOVE    @R8++, @R1++
+                RBRA    _SMS_CAT, !Z
+                SUB     1, R1
+                RET
+
+; Appends R8 in decimal to the line that ends at R1, and moves R1 to its new end
+_SMS_DEC        XOR     R9, R9
+                MOVE    STALL_DEC, R10
+                SYSCALL(h2dstr, 1)              ; R11: the digits without leading spaces
+                MOVE    R11, R8
+                RBRA    _SMS_CAT, 1
+
+; MOUNT_LABEL callback function:
+;
+; Called when the main menu shows the line of a virtual drive. Return a text
+; to show in place of the name of the disk image or OPTM_S_MOUNT. The framework
+; builds the line in MOUNT_LABEL_BUF (OSM_O_DX + 2 words, see the variables).
+;
+; Input:
+;   R8: virtual drive number
+; Output:
+;   R8: 0 = standard semantics, else pointer to the text that replaces "%s"
+;   R9: changed
+
+MOUNT_LABEL     INCRB
+                MOVE    R8, R0
+                XOR     R8, R8
+                CMP     R0, 1                   ; only drives 8 and 9
+                RBRA    _MNTLBL_RET, N          ; R0 > 1
+                MOVE    INT1581_D8_MENU, R8
+                CMP     0, R0
+                RBRA    _MNTLBL_1, Z
+                MOVE    INT1581_D9_MENU, R8
+_MNTLBL_1       RSUB    M2M$GET_SETTING, 1
+                XOR     R8, R8
+                CMP     1, R9                   ; drive is the internal floppy?
+                RBRA    _MNTLBL_RET, !Z
+                MOVE    STR_INT1581, R8
+_MNTLBL_RET     DECRB
                 RET
 
 ; ----------------------------------------------------------------------------
@@ -88,13 +218,15 @@ FILTER_FILES    INCRB
                 CMP     1, R9                   ; directories are always shown
                 RBRA    _FFILES_SHOW, Z
 
-                ; Mounting a disk image is the only context this core browses for, but be
-                ; explicit about it so that adding a second context later cannot silently
-                ; inherit the disk-image extension list.
+                ; Disk images for the drives, .crt files for the cartridge. Be explicit about
+                ; both, so that a new context cannot silently inherit either list.
+                MOVE    DISKIMG_EXT, R1         ; R1: 0-terminated table of ext. pointers
                 CMP     CTX_MOUNT_DISKIMG, R10
+                RBRA    _FFILES_EXT, Z
+                MOVE    CRTFILE_EXT, R1
+                CMP     CTX_LOAD_ROM, R10
                 RBRA    _FFILES_SHOW, !Z
 
-                MOVE    DISKIMG_EXT, R1         ; R1: 0-terminated table of ext. pointers
 _FFILES_EXT     MOVE    @R1++, R9               ; R9: next extension (0 = end of table)
                 RBRA    _FFILES_HIDE, Z         ; end of table: no extension matched
                 RSUB    M2M$CHK_EXT, 1          ; leaves R8/R9/R10 and our R1 alone
@@ -134,15 +266,35 @@ _FFILES_RET     MOVE    R0, R9
 ; therefore stays at 0: the whole file is payload.
 PREP_LOAD_IMAGE INCRB
 
-                CMP     CTX_MOUNT_DISKIMG, R9   ; other contexts pass through unchecked
-                RBRA    _PREP_LI_OTHER, !Z
-
                 MOVE    R8, R0
                 MOVE    R8, R1
                 ADD     FAT32$FDH_SIZE_LO, R0
                 MOVE    @R0, R0                 ; R0: low word of the file size
                 ADD     FAT32$FDH_SIZE_HI, R1
                 MOVE    @R1, R1                 ; R1: high word of the file size
+
+                ; A .crt file must fit the memory behind the cartridge device, which says how
+                ; much that is: 2 MiB of HyperRAM on R3, 4 MiB of SDRAM on later boards
+                ; (doc/hyperram-map.md). The parser in crt_parser.vhd checks the rest.
+                CMP     CTX_LOAD_ROM, R9
+                RBRA    _PREP_LI_DISK, !Z
+                MOVE    R10, R7                 ; R7: menu group id, kept for the caller
+                MOVE    CRT_DEVICE, R8
+                MOVE    CRT_CSR_MAX_HI, R9
+                RSUB    CRTROM_CSR_R, 1         ; R10: largest file, high word
+                MOVE    R10, R2
+                MOVE    R7, R10
+                CMP     R2, R1                  ; CMP X,Y: N <=> Y<X, Z <=> Y==X
+                RBRA    _PREP_LI_OTHER, N       ; well under the limit
+                RBRA    _PREP_LI_BIG, !Z        ; over it
+                CMP     0, R0
+                RBRA    _PREP_LI_OTHER, Z       ; exactly the limit
+_PREP_LI_BIG    MOVE    1, R8
+                MOVE    WRN_CRT_TOO_BIG, R9
+                RBRA    _PREP_LI_RET, 1
+
+_PREP_LI_DISK   CMP     CTX_MOUNT_DISKIMG, R9   ; other contexts pass through unchecked
+                RBRA    _PREP_LI_OTHER, !Z
 
                 MOVE    IMGSIZE_TBL, R2         ; R2: table of (lo, hi, image type)
 _PREP_LI_CMP    MOVE    @R2++, R3               ; R3: expected low word
@@ -223,7 +375,36 @@ OSM_SEL_POST    INCRB
 ; called before the functionality and semantics associated with a certain
 ; menu item has been handled by the framework.
 OSM_SEL_PRE     INCRB
-                XOR     R8, R8
+
+                ; Choosing an image for the drive that is the internal floppy
+                ; gives the drive back to images first.
+                MOVE    INT1581_D8_MENU, R0
+                CMP     OPTM_G_MOUNT_D8, R8
+                RBRA    _OSM_PRE_INT, Z
+                MOVE    INT1581_D9_MENU, R0
+                CMP     OPTM_G_MOUNT_D9, R8
+                RBRA    _OSM_PRE_CRT, !Z
+_OSM_PRE_INT    MOVE    R0, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     1, R9                   ; internal floppy?
+                RBRA    _OSM_PRE_RET, !Z
+                MOVE    INT1581_OFF_MENU, R8
+                MOVE    1, R9
+                RSUB    M2M$FORCE_MENU, 1
+                RBRA    _OSM_PRE_RET, 1
+
+                ; Loading a .crt file selects the virtual cartridge. main.vhd resets the C128
+                ; when the source changes, and again once the file is loaded.
+_OSM_PRE_CRT    CMP     OPTM_G_MOUNT_CRT, R8
+                RBRA    _OSM_PRE_RET, !Z
+                MOVE    CART_CRT_MENU, R8
+                RSUB    M2M$GET_SETTING, 1
+                CMP     1, R9                   ; already selected?
+                RBRA    _OSM_PRE_RET, Z
+                MOVE    1, R9
+                RSUB    M2M$FORCE_MENU, 1
+
+_OSM_PRE_RET    XOR     R8, R8
                 XOR     R9, R9
                 DECRB
                 RET
@@ -249,6 +430,10 @@ CUSTOM_MSG      INCRB
 
                 CMP     CMSG_BROWSENOTHING, R0  ; "the folder has nothing to show"?
                 RBRA    _CUSTOM_MSG_RET, !Z
+                MOVE    WRN_NO_CRT, R8          ; while browsing for a .crt file?
+                CMP     CTX_LOAD_ROM, R9
+                RBRA    _CUSTOM_MSG_RET, Z
+                XOR     R8, R8
                 CMP     CTX_MOUNT_DISKIMG, R9   ; while browsing for a disk image?
                 RBRA    _CUSTOM_MSG_RET, !Z
                 MOVE    WRN_NO_DISKIMG, R8      ; yes: name the formats we accept
@@ -260,12 +445,30 @@ _CUSTOM_MSG_RET DECRB
 ; Core specific constants and strings
 ; ----------------------------------------------------------------------------
 
+; MOUNT_LABEL: shown on the line of the drive that is the internal floppy
+STR_INT1581     .ASCII_W "Internal 1581"
+
 ; Disk image file extensions offered by the file browser. The list is
 ; 0-terminated, and the strings are compared against an upper-cased filename.
 IMGEXT_D64      .ASCII_W ".D64"
 IMGEXT_D71      .ASCII_W ".D71"
 IMGEXT_D81      .ASCII_W ".D81"
 DISKIMG_EXT     .DW      IMGEXT_D64, IMGEXT_D71, IMGEXT_D81, 0
+
+; Virtual cartridge files. The cartridge device (C_DEV_CRT in globals.vhd) reports the largest
+; file it takes, in 64 kB, in its CSR at 0x7020 (sw_cartridge_csr.vhd).
+IMGEXT_CRT      .ASCII_W ".CRT"
+CRTFILE_EXT     .DW      IMGEXT_CRT, 0
+CRT_DEVICE      .EQU    0x0106
+CRT_CSR_MAX_HI  .EQU    0x7020
+CRT_CSR_STALLS  .EQU    0x7021                  ; R: bank waits, W: clear
+CRT_CSR_STALL_MAX .EQU  0x7022                  ; R: longest wait, in C64 cycles
+CRT_CSR_STATS   .EQU    0x7023                  ; R: 1 = show them in the menu
+
+; SUBMENU_SUMMARY: the Cartridge line while the banks of a .crt file are cached
+STR_STALLS      .ASCII_W " Stalls "
+STR_STALL_MAX   .ASCII_W " max "
+STR_STALL_US    .ASCII_W "us"
 
 ; Image types as expected by the 2-bit img_type of vdrives.vhd, which main.vhd expands
 ; into the {img_hd, img_mfm, img_gcr, img_ds} vector of iec_drive. Raw GCR images (G64,
@@ -306,6 +509,19 @@ WRN_NO_DISKIMG  .ASCII_P "This core uses D64, D71 and D81 disk\n"
                 .ASCII_P "Nothing to browse.\n\n"
                 .ASCII_W "Press Space to continue."
 
+; Warning: the selected .crt file is too large for the memory behind the cartridge
+WRN_CRT_TOO_BIG .ASCII_P "\n\nThis .crt file is too large. A virtual\n"
+                .ASCII_P "cartridge can be up to 4 MB, or 2 MB on\n"
+                .ASCII_P "an R3 board.\n"
+                .ASCII_W "\nPress SPACE to continue.\n"
+
+; Warning: the folder the user browsed into holds no .crt file
+WRN_NO_CRT      .ASCII_P "No .crt cartridge files here.\n\n"
+                .ASCII_P "Copy C64 or C128 .crt files to any\n"
+                .ASCII_P "folder of this SD card, for example\n"
+                .ASCII_P "/c128.\n\n"
+                .ASCII_W "Press Space to continue."
+
 ; This needs to be the last thing before the "Variables" sections starts
 END_OF_ROM      .DW 0
 
@@ -321,6 +537,15 @@ END_OF_ROM      .DW 0
 ; add your own variables here
 ;
 
+; The line of a drive whose MOUNT_LABEL is custom: OSM_O_DX + 2 = 25 words
+; hold the line and its zero terminator
+MOUNT_LABEL_BUF .BLOCK 32
+
+; The Cartridge line of SUBMENU_SUMMARY (at most OPTM_DX = 23 characters), and the digits
+; of a number
+STALL_LINE      .BLOCK 32
+STALL_DEC       .BLOCK 11
+
 ; M2M Shell variables (only include, if you included "shell.asm" above)
 #include "../../M2M/rom/shell_vars.asm"
 
@@ -333,7 +558,7 @@ END_OF_ROM      .DW 0
 ; You need to deduct MENU_HEAP_SIZE from the actual heap size below.
 ; Example: If your HEAP_SIZE would be 29696, then you write 29696-1024=28672
 ; instead, but when doing the sanity check calculations, you use 29696
-MENU_HEAP_SIZE  .EQU 1536
+MENU_HEAP_SIZE  .EQU 2048
 
 #ifndef RELEASE
 
@@ -341,14 +566,14 @@ MENU_HEAP_SIZE  .EQU 1536
 ; this needs to be the last variable before the monitor variables as it is
 ; only defined as "BLOCK 1" to avoid a large amount of null-values in
 ; the ROM file
-HEAP_SIZE       .EQU 5632                       ; 7168 - 1536 = 5632
+HEAP_SIZE       .EQU 5120                       ; 7168 - 2048 = 5120
 HEAP            .BLOCK 1
 
 ; in RELEASE mode: 28k of heap which leads to a better user experience when
 ; it comes to folders with a lot of files
 #else
 
-HEAP_SIZE       .EQU 28160                      ; 29696 - 1536 = 28160
+HEAP_SIZE       .EQU 27648                      ; 29696 - 2048 = 27648
 HEAP            .BLOCK 1
 
 ; The monitor variables use 22 words, round to 32 for being safe and subtract

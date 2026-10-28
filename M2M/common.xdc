@@ -86,9 +86,11 @@ set_max_delay 2 -datapath_only -from [get_clocks hr_rwds] -to [get_clocks hr_clk
 # QNICE
 ################################################################################
 
-## Clock divider sdcard_clk that creates the 25 MHz used by sd_spi.vhd
-create_generated_clock -name sdcard_clk -source [get_pins i_framework/i_clk_m2m/i_clk_qnice/CLKOUT0] -divide_by 2 \
-   [get_pins i_framework/i_qnice_wrapper/QNICE_SOC/sd_card/Slow_Clock_25MHz_reg/Q]
+## The SD card controllers (sdhost.vhd) run on qnice_clk and hr_clk; the SD clock is a data
+## output, so there is no divided clock. CMD and DAT0..3 float between native-mode transfers
+## and need pull-ups (port names are the SPI ones: mosi = CMD, miso = DAT0, reset = DAT3).
+set_property PULLUP TRUE [get_ports {sd_mosi_o sd_miso_i sd_d1_i sd_d2_i sd_reset_o}]
+set_property PULLUP TRUE [get_ports {sd2_mosi_o sd2_miso_i sd2_d1_i sd2_d2_i sd2_reset_o}]
 
 ## QNICE's EAE combinatorial division networks take longer than the regular clock period, so we specify a multicycle path
 ## see also the comments in EAE.vhd and explanations in UG903/chapter 5/Multicycle Paths as well as ug911/page 25

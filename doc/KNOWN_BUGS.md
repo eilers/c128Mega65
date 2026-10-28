@@ -12,7 +12,20 @@
   `.D64`, `.D71`, and `.D81` images have FPGA-side sector paths. The menu picks 1541 or
   1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless
   of the menu. Raw `.G64`/`.G71` and MFM/CP-M images are not supported.
-* Real cartridges in the expansion port (C64 and C128 cartridges)
+* The MEGA65's internal 3.5" drive as a 1581 on device 8 or 9 (**Internal 1581** in
+  the menu): reads, writes and formats DD disks at the speed of a real 1581. See
+  [internal-floppy.md](internal-floppy.md).
+* Real cartridges in the expansion port (C64 and C128 cartridges), including ones that
+  take the bus with `/DMA`, such as the Ultimate II+ (menu, REU and command interface)
+* Virtual cartridges: a `.crt` file of up to 2 MB, loaded with **Cartridge > CRT:** in
+  the menu, runs as a cartridge in the expansion port. C128 function ROMs (generic) and
+  these C64 types: generic 8K/16K/Ultimax, Action Replay, Final Cartridge III, Simons'
+  BASIC, Ocean, Fun Play, Super Games, C64 Game System, Dinamic, Magic Desk (8K and 16K),
+  Super Snapshot 5, COMAL 80, Structured BASIC, Mikro Assembler, EasyFlash, GMod2 and
+  Turbo 2000. Other types are refused with "Unsupported type". Action Replay, Final
+  Cartridge III, Super Games, Mikro Assembler and EasyFlash use the REU's registers at
+  $DF00-$DF1F, so the REU is off while one of them runs, as on an Ultimate.
+* REU (RAM Expansion Unit) of 512 KB or 2 MB, set in the menu (off by default)
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
   (default), 40 columns and 80 columns put the same picture on both ports. HDMI 40, VGA 80
@@ -33,6 +46,13 @@
   EasyFlash, and C64 modes — Kernal mode is refused on purpose, because the EF3
   drives A14 itself and would fight the MEGA65's address transceiver. R5/R6 sense
   the real RESET and need none of this.
+* During a cartridge DMA, BA and R/W share a level shifter, so the core drives R/W
+  high while it shows the cartridge BA: in PHI1, and while BA is low, until ~190 ns
+  into PHI2. An Ultimate II+ DMA write while BA is low fights it for ~130 ns, and a
+  cartridge that drives R/W low in PHI1 fights it there.
+* A DMA cartridge gets only the first two cycles after BA falls, as the Ultimate II+
+  uses them. A VIC-II leaves the CPU three, but the core ignores a cartridge's access
+  in the third and drives R/W high through it.
 
 # Planned
 
@@ -60,7 +80,14 @@
   would need a framework change. Also missing: the MiSTer "Always" and "Never" drive
   enable modes (a drive is enabled exactly while an image is mounted) and the
   track-number overlay (`drv_overlay.sv`).
-* Expansion port: only real cartridges are supported. Emulated cartridges (`.crt`
-  files), a simulated 1750 REU and cartridges that want to become bus master
-  (`/DMA` is ignored) are not implemented.
-* Supporting the internal drive as 1581.
+* Virtual cartridges: freezers (Action Replay, Final Cartridge III, Super Snapshot 5)
+  run, but there is no freeze button yet. EasyFlash saves to its flash last until the
+  cartridge is loaded again or the MEGA65 is switched off; they are not written back to
+  the SD card yet. The banked C128 types (Warp Speed 128, COMAL 80 128, Magic Desk 128,
+  GMod2-C128) are not supported.
+* Expansion port: a cartridge can take the bus with `/DMA` (for example the Ultimate
+  II+ menu) only while the 8502 runs. A real C128 stops its Z80 (CP/M mode) for `/DMA`
+  too (PRG p. 636), but the core's Z80 keeps running and the cartridge's accesses are
+  ignored.
+  DMA to another cartridge's I/O area ($DE00-$DFFF) does not reach it, because
+  IO1/IO2 share a level shifter with R/W, which the cartridge drives.

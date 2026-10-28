@@ -11,8 +11,12 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+library unisim;
+use unisim.vcomponents.all;
+
 library work;
 use work.video_modes_pkg.all;
+use work.sdhost_pkg.all;
 
 entity mega65_r6 is
 port (
@@ -62,23 +66,25 @@ port (
    kb_jtagen_o             : out   std_logic;
 
    -- Micro SD Connector (external slot at back of the cover)
-   sd_reset_o              : out   std_logic;
+   -- CMD and DAT3..0 are bidirectional (native 4-bit SD); the names stay the SPI ones
+   -- of the XDC: reset = DAT3/CS, mosi = CMD, miso = DAT0
+   sd_reset_o              : inout std_logic;
    sd_clk_o                : out   std_logic;
-   sd_mosi_o               : out   std_logic;
-   sd_miso_i               : in    std_logic;
+   sd_mosi_o               : inout std_logic;
+   sd_miso_i               : inout std_logic;
    sd_cd_i                 : in    std_logic;
-   sd_d1_i                 : in    std_logic;
-   sd_d2_i                 : in    std_logic;
+   sd_d1_i                 : inout std_logic;
+   sd_d2_i                 : inout std_logic;
 
    -- SD Connector (this is the slot at the bottom side of the case under the cover)
-   sd2_reset_o             : out   std_logic;
+   sd2_reset_o             : inout std_logic;
    sd2_clk_o               : out   std_logic;
-   sd2_mosi_o              : out   std_logic;
-   sd2_miso_i              : in    std_logic;
+   sd2_mosi_o              : inout std_logic;
+   sd2_miso_i              : inout std_logic;
    sd2_cd_i                : in    std_logic;
    sd2_wp_i                : in    std_logic;
-   sd2_d1_i                : in    std_logic;
-   sd2_d2_i                : in    std_logic;
+   sd2_d1_i                : inout std_logic;
+   sd2_d2_i                : inout std_logic;
 
    -- Audio DAC. U37 = AK4432VT
    -- I2C address 0x19
@@ -396,6 +402,8 @@ architecture synthesis of mega65_r6 is
 
    signal audio_clk              : std_logic;
    signal audio_reset            : std_logic;
+   signal modem_clk              : std_logic;
+   signal modem_rst              : std_logic;
    signal audio_left             : signed(15 downto 0);
    signal audio_right            : signed(15 downto 0);
 
@@ -415,6 +423,16 @@ architecture synthesis of mega65_r6 is
    signal hr_core_readdatavalid  : std_logic;
    signal hr_core_waitrequest    : std_logic;
    signal hr_low                 : std_logic;
+   signal sr_core_refresh_ok     : std_logic;
+   signal sr_core_write          : std_logic;
+   signal sr_core_read           : std_logic;
+   signal sr_core_address        : std_logic_vector(31 downto 0);
+   signal sr_core_writedata      : std_logic_vector(15 downto 0);
+   signal sr_core_byteenable     : std_logic_vector(1 downto 0);
+   signal sr_core_burstcount     : std_logic_vector(7 downto 0);
+   signal sr_core_readdata       : std_logic_vector(15 downto 0);
+   signal sr_core_readdatavalid  : std_logic;
+   signal sr_core_waitrequest    : std_logic;
    signal hr_high                : std_logic;
 
    ---------------------------------------------------------------------------------------------
@@ -455,7 +473,40 @@ architecture synthesis of mega65_r6 is
    signal qnice_ramrom_we        : std_logic;
    signal qnice_ramrom_wait      : std_logic;
 
+   -- SD lines of the framework and the engine port between framework and core
+   signal sd_cmd_out, sd_cmd_oe, sd_cmd_in    : std_logic;
+   signal sd_dat_out, sd_dat_oe, sd_dat_in    : std_logic_vector(3 downto 0);
+   signal sd2_cmd_out, sd2_cmd_oe, sd2_cmd_in : std_logic;
+   signal sd2_dat_out, sd2_dat_oe, sd2_dat_in : std_logic_vector(3 downto 0);
+   signal sd_eng_c2q                          : t_sd_c2q;
+   signal sd_eng_q2c                          : t_sd_q2c;
+
+   -- the board clock on a global buffer: it clocks fabric as well as several MMCMs
+   signal clk_bufg : std_logic;
+
 begin
+
+   i_clk_bufg : BUFG
+      port map (
+         I => clk_i,
+         O => clk_bufg
+      );
+
+   -- SD card lines: tri-state drivers of the controllers' outputs
+   sd_mosi_o   <= sd_cmd_out     when sd_cmd_oe     = '1' else 'Z';
+   sd_miso_i   <= sd_dat_out(0)  when sd_dat_oe(0)  = '1' else 'Z';
+   sd_d1_i     <= sd_dat_out(1)  when sd_dat_oe(1)  = '1' else 'Z';
+   sd_d2_i     <= sd_dat_out(2)  when sd_dat_oe(2)  = '1' else 'Z';
+   sd_reset_o  <= sd_dat_out(3)  when sd_dat_oe(3)  = '1' else 'Z';
+   sd_cmd_in   <= sd_mosi_o;
+   sd_dat_in   <= sd_reset_o & sd_d2_i & sd_d1_i & sd_miso_i;
+   sd2_mosi_o  <= sd2_cmd_out    when sd2_cmd_oe    = '1' else 'Z';
+   sd2_miso_i  <= sd2_dat_out(0) when sd2_dat_oe(0) = '1' else 'Z';
+   sd2_d1_i    <= sd2_dat_out(1) when sd2_dat_oe(1) = '1' else 'Z';
+   sd2_d2_i    <= sd2_dat_out(2) when sd2_dat_oe(2) = '1' else 'Z';
+   sd2_reset_o <= sd2_dat_out(3) when sd2_dat_oe(3) = '1' else 'Z';
+   sd2_cmd_in  <= sd2_mosi_o;
+   sd2_dat_in  <= sd2_reset_o & sd2_d2_i & sd2_d1_i & sd2_miso_i;
 
    -- Driver for the audio DAC (AK4432VT).
    i_audio : entity work.audio
@@ -537,23 +588,13 @@ begin
    hdmi_ls_oe_n_o        <= '0'; -- Enable HDMI output
    dbg_io_11             <= 'Z';
 
-   eth_clock_o           <= '0';
    eth_led2_o            <= '0';
-   eth_mdc_o             <= '0';
-   eth_mdio_io           <= 'Z';
-   eth_reset_o           <= '1';
-   eth_txd_o             <= (others => '0');
-   eth_txen_o            <= '0';
-   f_density_o           <= '1';
-   f_motora_o            <= '1';
+   -- The other Ethernet pins belong to the C128 core's modem
+
+   -- Drive A of the internal floppy connector goes to the core (the
+   -- internal drive as a 1581); drive B stays inactive.
    f_motorb_o            <= '1';
-   f_selecta_o           <= '1';
    f_selectb_o           <= '1';
-   f_side1_o             <= '1';
-   f_stepdir_o           <= '1';
-   f_step_o              <= '1';
-   f_wdata_o             <= '1';
-   f_wgate_o             <= '1';
    joystick_5v_disable_o <= '0'; -- Enable 5V power supply to joysticks
    led_g_n_o             <= '1'; -- Off
    led_r_n_o             <= '1'; -- Off
@@ -566,17 +607,6 @@ begin
    pmod2_en_o            <= '0';
    qspidb_io             <= (others => 'Z');
    qspicsn_o             <= '1';
-   sdram_clk_o           <= '0';
-   sdram_cke_o           <= '0';
-   sdram_ras_n_o         <= '1';
-   sdram_cas_n_o         <= '1';
-   sdram_we_n_o          <= '1';
-   sdram_cs_n_o          <= '1';
-   sdram_ba_o            <= (others => '0');
-   sdram_a_o             <= (others => '0');
-   sdram_dqml_o          <= '0';
-   sdram_dqmh_o          <= '0';
-   sdram_dq_io           <= (others => 'Z');
 
 
    -----------------------------------------------------------------------------------------
@@ -589,7 +619,7 @@ begin
    )
    port map (
       -- Connect to I/O ports
-      clk_i                   => clk_i,
+      clk_i                   => clk_bufg,
       reset_n_i               => not reset_button_i,
       uart_rxd_i              => uart_rxd_i,
       uart_txd_o              => uart_txd_o,
@@ -608,15 +638,21 @@ begin
       kb_io0_o                => kb_io0_o,
       kb_io1_o                => kb_io1_o,
       kb_io2_i                => kb_io2_i,
-      sd_reset_o              => sd_reset_o,
       sd_clk_o                => sd_clk_o,
-      sd_mosi_o               => sd_mosi_o,
-      sd_miso_i               => sd_miso_i,
+      sd_cmd_o                => sd_cmd_out,
+      sd_cmd_oe_o             => sd_cmd_oe,
+      sd_cmd_i                => sd_cmd_in,
+      sd_dat_o                => sd_dat_out,
+      sd_dat_oe_o             => sd_dat_oe,
+      sd_dat_i                => sd_dat_in,
       sd_cd_i                 => sd_cd_i,
-      sd2_reset_o             => sd2_reset_o,
       sd2_clk_o               => sd2_clk_o,
-      sd2_mosi_o              => sd2_mosi_o,
-      sd2_miso_i              => sd2_miso_i,
+      sd2_cmd_o               => sd2_cmd_out,
+      sd2_cmd_oe_o            => sd2_cmd_oe,
+      sd2_cmd_i               => sd2_cmd_in,
+      sd2_dat_o               => sd2_dat_out,
+      sd2_dat_oe_o            => sd2_dat_oe,
+      sd2_dat_i               => sd2_dat_in,
       sd2_cd_i                => sd2_cd_i,
       joy_1_up_n_i            => fa_up_n_i,
       joy_1_down_n_i          => fa_down_n_i,
@@ -645,6 +681,17 @@ begin
       hr_reset_o              => hr_reset_o,
       hr_clk_p_o              => hr_clk_p_o,
       hr_cs0_o                => hr_cs0_o,
+      sdram_clk_o             => sdram_clk_o,
+      sdram_cke_o             => sdram_cke_o,
+      sdram_ras_n_o           => sdram_ras_n_o,
+      sdram_cas_n_o           => sdram_cas_n_o,
+      sdram_we_n_o            => sdram_we_n_o,
+      sdram_cs_n_o            => sdram_cs_n_o,
+      sdram_ba_o              => sdram_ba_o,
+      sdram_a_o               => sdram_a_o,
+      sdram_dqml_o            => sdram_dqml_o,
+      sdram_dqmh_o            => sdram_dqmh_o,
+      sdram_dq_io             => sdram_dq_io,
 
       -- Connect to CORE
       qnice_clk_o             => qnice_clk,
@@ -727,10 +774,22 @@ begin
       hr_core_waitrequest_o   => hr_core_waitrequest,
       hr_high_o               => hr_high,
       hr_low_o                => hr_low,
+      sr_core_refresh_ok_i    => sr_core_refresh_ok,
+      sr_core_write_i         => sr_core_write,
+      sr_core_read_i          => sr_core_read,
+      sr_core_address_i       => sr_core_address,
+      sr_core_writedata_i     => sr_core_writedata,
+      sr_core_byteenable_i    => sr_core_byteenable,
+      sr_core_burstcount_i    => sr_core_burstcount,
+      sr_core_readdata_o      => sr_core_readdata,
+      sr_core_readdatavalid_o => sr_core_readdatavalid,
+      sr_core_waitrequest_o   => sr_core_waitrequest,
 
       -- Audio
       audio_clk_o             => audio_clk,
       audio_reset_o           => audio_reset,
+      modem_clk_o             => modem_clk,
+      modem_rst_o             => modem_rst,
       audio_left_o            => audio_left,
       audio_right_o           => audio_right,
 
@@ -758,6 +817,8 @@ begin
       qnice_ramrom_ce_o       => qnice_ramrom_ce,
       qnice_ramrom_we_o       => qnice_ramrom_we,
       qnice_ramrom_wait_i     => qnice_ramrom_wait,
+      qnice_sd_eng_i          => sd_eng_c2q,
+      qnice_sd_eng_o          => sd_eng_q2c,
 
       hdmi_scl_io             => hdmi_scl_io,
       hdmi_sda_io             => hdmi_sda_io,
@@ -783,7 +844,7 @@ begin
          G_BOARD => "MEGA65_R6"
       )
       port map (
-         clk_i                   => clk_i,
+         clk_i                   => clk_bufg,
 
          -- Share clock and reset with the framework
          main_clk_o              => main_clk,            -- CORE's 54 MHz clock
@@ -829,6 +890,10 @@ begin
          qnice_dev_ce_i          => qnice_ramrom_ce,
          qnice_dev_we_i          => qnice_ramrom_we,
          qnice_dev_wait_o        => qnice_ramrom_wait,
+
+         -- block transfers to and from the active SD card
+         qnice_sd_eng_o          => sd_eng_c2q,
+         qnice_sd_eng_i          => sd_eng_q2c,
 
          --------------------------------------------------------------------------------------------------------
          -- Core Clock Domain
@@ -929,6 +994,16 @@ begin
          hr_core_waitrequest_i   => hr_core_waitrequest,
          hr_high_i               => hr_high,
          hr_low_i                => hr_low,
+         sr_core_refresh_ok_o    => sr_core_refresh_ok,
+         sr_core_write_o         => sr_core_write,
+         sr_core_read_o          => sr_core_read,
+         sr_core_address_o       => sr_core_address,
+         sr_core_writedata_o     => sr_core_writedata,
+         sr_core_byteenable_o    => sr_core_byteenable,
+         sr_core_burstcount_o    => sr_core_burstcount,
+         sr_core_readdata_i      => sr_core_readdata,
+         sr_core_readdatavalid_i => sr_core_readdatavalid,
+         sr_core_waitrequest_i   => sr_core_waitrequest,
 
          --------------------------------------------------------------------
          -- C64 specific ports that are not supported by the M2M framework
@@ -946,6 +1021,21 @@ begin
          iec_srq_en_o            => iec_srq_en,
          iec_srq_n_i             => iec_srq_n_i,
          iec_srq_n_o             => iec_srq_n_o,
+
+         -- MEGA65 internal floppy drive (drive A)
+         f_rdata_i               => f_rdata_i,
+         f_index_i               => f_index_i,
+         f_track0_i              => f_track0_i,
+         f_writeprotect_i        => f_writeprotect_i,
+         f_diskchanged_i         => f_diskchanged_i,
+         f_motora_o              => f_motora_o,
+         f_selecta_o             => f_selecta_o,
+         f_side1_o               => f_side1_o,
+         f_stepdir_o             => f_stepdir_o,
+         f_step_o                => f_step_o,
+         f_density_o             => f_density_o,
+         f_wgate_o               => f_wgate_o,
+         f_wdata_o               => f_wdata_o,
 
          -- C64 Expansion Port (aka Cartridge Port)
          cart_en_o               => cart_en,      -- Enable port, active high
@@ -997,7 +1087,19 @@ begin
          --
          cart_addr_oe_o          => cart_addr_oe, -- 0 : tristate (i.e. input), 1 : output
          cart_a_i                => cart_a_in,
-         cart_a_o                => cart_a_out
+         cart_a_o                => cart_a_out,
+         --
+         modem_clk_i             => modem_clk,
+         modem_rst_i             => modem_rst,
+         eth_clock_o             => eth_clock_o,
+         eth_reset_o             => eth_reset_o,
+         eth_mdc_o               => eth_mdc_o,
+         eth_mdio_io             => eth_mdio_io,
+         eth_rxd_i               => eth_rxd_i,
+         eth_rxdv_i              => eth_rxdv_i,
+         eth_rxer_i              => eth_rxer_i,
+         eth_txd_o               => eth_txd_o,
+         eth_txen_o              => eth_txen_o
       ); -- CORE
 
 end architecture synthesis;

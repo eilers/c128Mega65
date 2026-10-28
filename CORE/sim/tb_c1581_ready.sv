@@ -174,7 +174,10 @@ module tb_c1581_ready;
       .sd_din        (sd_din),
       .sd_dout_strobe(sd_dout_strobe),
       .out_track     (out_track),
-      .out_we        ()
+      .out_we        (),
+
+      // image mode only; the other phys_* inputs only matter when this is set
+      .phys_mode     (1'b0)
    );
 
    // ------------------------------------------------------------------------

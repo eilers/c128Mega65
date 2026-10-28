@@ -15,6 +15,7 @@ library work;
 use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
+use work.sdhost_pkg.all;
 
 library xpm;
 use xpm.vcomponents.all;
@@ -56,17 +57,24 @@ port (
    kb_io2_i                : in    std_logic;                 -- data input from keyboard
 
    -- Micro SD Connector (external slot at back of the cover)
-   sd_reset_o              : out   std_logic;
+   -- CMD and DAT3..0 with output enables: the top drives the pins (native 4-bit SD or SPI)
    sd_clk_o                : out   std_logic;
-   sd_mosi_o               : out   std_logic;
-   sd_miso_i               : in    std_logic;
+   sd_cmd_o                : out   std_logic;
+   sd_cmd_oe_o             : out   std_logic;
+   sd_cmd_i                : in    std_logic;
+   sd_dat_o                : out   std_logic_vector(3 downto 0);
+   sd_dat_oe_o             : out   std_logic_vector(3 downto 0);
+   sd_dat_i                : in    std_logic_vector(3 downto 0);
    sd_cd_i                 : in    std_logic;
 
    -- SD Connector (this is the slot at the bottom side of the case under the cover)
-   sd2_reset_o             : out   std_logic;
    sd2_clk_o               : out   std_logic;
-   sd2_mosi_o              : out   std_logic;
-   sd2_miso_i              : in    std_logic;
+   sd2_cmd_o               : out   std_logic;
+   sd2_cmd_oe_o            : out   std_logic;
+   sd2_cmd_i               : in    std_logic;
+   sd2_dat_o               : out   std_logic_vector(3 downto 0);
+   sd2_dat_oe_o            : out   std_logic_vector(3 downto 0);
+   sd2_dat_i               : in    std_logic_vector(3 downto 0);
    sd2_cd_i                : in    std_logic;
 
    -- Joysticks and Paddles
@@ -101,6 +109,19 @@ port (
    hr_reset_o              : out   std_logic;                 -- Active low RESET line to HyperRAM
    hr_clk_p_o              : out   std_logic;
    hr_cs0_o                : out   std_logic;
+
+   -- SDRAM - 32M x 16 bit, 3.3V VCC. U44 = IS42S16320F-6BL. R4 and later only.
+   sdram_clk_o             : out   std_logic;
+   sdram_cke_o             : out   std_logic;
+   sdram_ras_n_o           : out   std_logic;
+   sdram_cas_n_o           : out   std_logic;
+   sdram_we_n_o            : out   std_logic;
+   sdram_cs_n_o            : out   std_logic;
+   sdram_ba_o              : out   std_logic_vector(1 downto 0);
+   sdram_a_o               : out   std_logic_vector(12 downto 0);
+   sdram_dqml_o            : out   std_logic;
+   sdram_dqmh_o            : out   std_logic;
+   sdram_dq_io             : inout std_logic_vector(15 downto 0);
 
    -- Connect to CORE
    qnice_clk_o             : out   std_logic;
@@ -170,6 +191,10 @@ port (
    main_rtc_o              : out   std_logic_vector(64 downto 0);
 
 
+   -- C128 core: the modem's 50 MHz clock (CPU and Ethernet)
+   modem_clk_o             : out   std_logic;
+   modem_rst_o             : out   std_logic;
+
    -- Audio
    audio_clk_o             : out   std_logic;
    audio_reset_o           : out   std_logic;
@@ -190,6 +215,18 @@ port (
    hr_core_waitrequest_o   : out   std_logic;
    hr_high_o               : out   std_logic; -- Core is too fast
    hr_low_o                : out   std_logic; -- Core is too slow
+
+   -- Provide SDRAM to core (in HyperRAM clock domain). R4 and later; on R3 it reads nothing.
+   sr_core_refresh_ok_i    : in    std_logic := '1';  -- the core may keep refreshes out of its way
+   sr_core_write_i         : in    std_logic := '0';
+   sr_core_read_i          : in    std_logic := '0';
+   sr_core_address_i       : in    std_logic_vector(31 downto 0) := (others => '0');
+   sr_core_writedata_i     : in    std_logic_vector(15 downto 0) := (others => '0');
+   sr_core_byteenable_i    : in    std_logic_vector(1 downto 0) := (others => '0');
+   sr_core_burstcount_i    : in    std_logic_vector(7 downto 0) := (others => '0');
+   sr_core_readdata_o      : out   std_logic_vector(15 downto 0);
+   sr_core_readdatavalid_o : out   std_logic;
+   sr_core_waitrequest_o   : out   std_logic;
 
    -- QNICE control signals
    qnice_dvi_i             : in    std_logic;
@@ -217,6 +254,10 @@ port (
    qnice_ramrom_ce_o       : out   std_logic;
    qnice_ramrom_we_o       : out   std_logic;
    qnice_ramrom_wait_i     : in    std_logic;
+
+   -- Block transfers to and from the active SD card (QNICE clock, see sdhost.vhd)
+   qnice_sd_eng_i          : in    t_sd_c2q := (others => '0');
+   qnice_sd_eng_o          : out   t_sd_q2c;
 
    hdmi_scl_io             : inout std_logic;
    hdmi_sda_io             : inout std_logic;
@@ -439,6 +480,9 @@ signal hr_rwds_oe_n           : std_logic;   -- Output enable for RWDS
 signal hr_dq_in               : std_logic_vector(7 downto 0);
 signal hr_dq_out              : std_logic_vector(7 downto 0);
 signal hr_dq_oe_n             : std_logic_vector(7 downto 0);   -- Output enable for DQ
+signal sdram_dq_in            : std_logic_vector(15 downto 0);
+signal sdram_dq_out           : std_logic_vector(15 downto 0);
+signal sdram_dq_oe_n          : std_logic_vector(15 downto 0);  -- Output enable for DQ
 
 signal scl_out                : std_logic_vector(7 downto 0);
 signal sda_out                : std_logic_vector(7 downto 0);
@@ -462,6 +506,8 @@ begin
          hr_rst_o          => hr_rst,
          audio_clk_o       => audio_clk,
          audio_rst_o       => audio_rst,
+         modem_clk_o       => modem_clk_o,
+         modem_rst_o       => modem_rst_o,
          sys_pps_o         => sys_pps
       ); -- i_clk_m2m
 
@@ -602,19 +648,28 @@ begin
    )
    port map (
       clk_i                     => qnice_clk,
+      clk100_i                  => hr_clk,     -- same MMCM as qnice_clk, phase 0
       rst_i                     => qnice_rst,
       uart_rxd_i                => uart_rxd_i,
       uart_txd_o                => uart_txd_o,
-      sd_reset_o                => sd_reset_o,
       sd_clk_o                  => sd_clk_o,
-      sd_mosi_o                 => sd_mosi_o,
-      sd_miso_i                 => sd_miso_i,
+      sd_cmd_o                  => sd_cmd_o,
+      sd_cmd_oe_o               => sd_cmd_oe_o,
+      sd_cmd_i                  => sd_cmd_i,
+      sd_dat_o                  => sd_dat_o,
+      sd_dat_oe_o               => sd_dat_oe_o,
+      sd_dat_i                  => sd_dat_i,
       sd_cd_i                   => sd_cd_i,
-      sd2_reset_o               => sd2_reset_o,
       sd2_clk_o                 => sd2_clk_o,
-      sd2_mosi_o                => sd2_mosi_o,
-      sd2_miso_i                => sd2_miso_i,
+      sd2_cmd_o                 => sd2_cmd_o,
+      sd2_cmd_oe_o              => sd2_cmd_oe_o,
+      sd2_cmd_i                 => sd2_cmd_i,
+      sd2_dat_o                 => sd2_dat_o,
+      sd2_dat_oe_o              => sd2_dat_oe_o,
+      sd2_dat_i                 => sd2_dat_i,
       sd2_cd_i                  => sd2_cd_i,
+      sd_eng_i                  => qnice_sd_eng_i,
+      sd_eng_o                  => qnice_sd_eng_o,
       paddle_i                  => paddle_i,
       paddle_drain_o            => paddle_drain_o,
       qnice_osm_cfg_enable_o    => qnice_osm_cfg_enable,
@@ -1030,6 +1085,70 @@ begin
    end generate hr_d_gen;
    hr_rwds_in <= hr_rwds_io;
    hr_dq_in   <= hr_d_io;
+
+
+   ---------------------------------------------------------------------------------------------------------------
+   -- SDRAM controller (R4 and later), for the core alone, on the HyperRAM clock as in C64MEGA65
+   ---------------------------------------------------------------------------------------------------------------
+
+   sdram_gen : if G_BOARD /= "MEGA65_R3" generate
+
+      sdram_inst : entity work.sdram
+         generic map (
+            G_CLOCK_SPEED_MHZ => 100,
+            G_REFRESH_HOLD    => 200          -- 2 us: the core's refresh window comes once per C64 cycle
+         )
+         port map (
+            clk_i               => hr_clk,
+            rst_i               => hr_rst,
+            refresh_ok_i        => sr_core_refresh_ok_i,
+            avm_waitrequest_o   => sr_core_waitrequest_o,
+            avm_write_i         => sr_core_write_i,
+            avm_read_i          => sr_core_read_i,
+            avm_address_i       => sr_core_address_i,
+            avm_writedata_i     => sr_core_writedata_i,
+            avm_byteenable_i    => sr_core_byteenable_i,
+            avm_burstcount_i    => sr_core_burstcount_i,
+            avm_readdata_o      => sr_core_readdata_o,
+            avm_readdatavalid_o => sr_core_readdatavalid_o,
+            sdram_a_o           => sdram_a_o,
+            sdram_ba_o          => sdram_ba_o,
+            sdram_cas_n_o       => sdram_cas_n_o,
+            sdram_cke_o         => sdram_cke_o,
+            sdram_clk_o         => sdram_clk_o,
+            sdram_cs_n_o        => sdram_cs_n_o,
+            sdram_dq_in_i       => sdram_dq_in,
+            sdram_dqmh_o        => sdram_dqmh_o,
+            sdram_dqml_o        => sdram_dqml_o,
+            sdram_dq_oe_n_o     => sdram_dq_oe_n,
+            sdram_dq_out_o      => sdram_dq_out,
+            sdram_ras_n_o       => sdram_ras_n_o,
+            sdram_we_n_o        => sdram_we_n_o
+         ); -- sdram_inst
+
+      sdram_dq_gen : for i in sdram_dq_io'range generate
+         sdram_dq_io(i) <= sdram_dq_out(i) when sdram_dq_oe_n(i) = '0' else 'Z';
+      end generate sdram_dq_gen;
+      sdram_dq_in <= sdram_dq_io;
+
+   else generate
+
+      sr_core_readdata_o      <= (others => '0');
+      sr_core_readdatavalid_o <= '0';
+      sr_core_waitrequest_o   <= '0';
+      sdram_clk_o             <= '0';
+      sdram_cke_o             <= '0';
+      sdram_ras_n_o           <= '1';
+      sdram_cas_n_o           <= '1';
+      sdram_we_n_o            <= '1';
+      sdram_cs_n_o            <= '1';
+      sdram_ba_o              <= (others => '0');
+      sdram_a_o               <= (others => '0');
+      sdram_dqml_o            <= '0';
+      sdram_dqmh_o            <= '0';
+      sdram_dq_io             <= (others => 'Z');
+
+   end generate sdram_gen;
 
 
    ---------------------------------------------------------------------------------------------------------------
