@@ -146,6 +146,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   5 us in the QNICE `6r3` build of the cache fix. So with R3's memory map, the CPU fetching
   its code from HyperRAM barely adds to the cartridge's waits. With that, the Shell does
   what the QNICE Shell does (step 5).
+- Without QNICE (`a626c1c`), every board meets timing (WNS / WHS: R6 +0.282 / +0.035 ns,
+  `6r3` +0.376 / +0.017, R3 +0.275 / +0.010, R4 +0.202 / +0.036, R5 +0.391 / +0.023), with
+  265.5 block RAM tiles, or 297.5 with R3's memory map, of 365. The boot simulation gate
+  passes, and the R6 and `6r3` builds pass on the R6: menu, `.crt` files, drives, a reset
+  with the menu open, the stall line. R3, R4 and R5 are untested on hardware.
 
 ## Building and testing
 
