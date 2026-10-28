@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Makes FAT images with macOS's own formatter (hdiutil, no root needed), with an MBR as
-# on a MEGA65 card, puts the test files on them, and runs test_boot and test_fw; then
-# test_shell against config.vhd as CORE/scripts/run_config_nvc.sh dumps it (nvc).
+# on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw and
+# test_mon; then test_shell against config.vhd as CORE/scripts/run_config_nvc.sh dumps it
+# (nvc).
 # usage: run.sh build-dir   (holds test_boot and test_fw; ../build/firmware.bin must exist)
 set -euo pipefail
 
@@ -36,6 +37,7 @@ head -c 1048576 /dev/zero > "$files/blank.img"
 
 "$out/test_boot" "$files"
 "$out/test_fw" "$files/fat32.img"
+"$out/test_mon"
 "$here/../../../CORE/scripts/run_config_nvc.sh" "$out/config_nvc" > "$out/config_nvc.log" 2>&1 ||
    { cat "$out/config_nvc.log"; exit 1; }
 for dump in config_dump.txt config_dump_r3.txt; do

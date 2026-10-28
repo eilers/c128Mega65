@@ -4,7 +4,7 @@
 HOSTCC ?= cc
 CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -I../include -I../lib -I../fatfs
 
-all: build/test_boot build/test_fw build/test_shell
+all: build/test_boot build/test_fw build/test_shell build/test_mon
 	./run.sh build
 
 build/test_boot: test_boot.c diskio_file.c ../boot/load.c ../lib/crc32.c ../fatfs/ff.c \
@@ -25,6 +25,10 @@ SHELL_SRC := test_shell.c host_m2m.c diskio_file.c ../fw/browse.c ../fw/cfg.c ..
 build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/config_ids.h
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -include host_m2m.h $(filter %.c,$^) -o $@
+
+build/test_mon: test_mon.c ../fw/monitor.c ../fw/monitor.h
+	@mkdir -p build
+	$(HOSTCC) $(CFLAGS) -I../fw $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build

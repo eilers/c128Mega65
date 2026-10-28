@@ -84,7 +84,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   as in QNICE's `keyboard.asm`), the SD card (mounted when a card is in, dropped when the
   cards change) and the screen. FatFs R0.16 with its two patches, long names in code page
   437, the menu font's. Everything a user needs to see goes on the screen: the serial
-  port needs a JTAG adapter, so it only gets a banner line, for the testbench.
+  port needs a JTAG adapter. It gets a banner line, and a monitor (`fw/monitor.c`,
+  `tools/mon.py`, see `M2M/firmware/README.md`) that reads and writes memory, devices and
+  registers while the core runs.
 - **The Shell** (`fw/shell.c`, step 5): loads the menu from `config.vhd`, the
   settings file (or the defaults) and the auto-load ROMs from `globals.vhd`, sets up ascal and
   its filters, and lets the core out of reset; then Help (or F13) opens the options menu.
