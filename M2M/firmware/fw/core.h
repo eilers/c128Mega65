@@ -26,9 +26,15 @@ const char *core_custom_msg(int situation, int ctx);
 const char *core_prep_start(void);
 // The key that opens the menu: M2M_KEY_HELP, or another one for a core that uses Help
 uint32_t    core_menu_key(void);
+// Called from the main loop, for the core's own modules; must not wait
+void        core_poll(void);
 
 // What the Shell offers the core
 int  shell_group(int idx);                    // menu item idx's group (0: text, line), or -1
 int  shell_item(int group, int pos);          // menu index of a group's item, or -1
 int  shell_setting(int group, int pos);       // that item's setting bit (M2M$GET_SETTING)
 void shell_force(int group, int pos, int on); // M2M$FORCE_MENU
+// A disk image (a path on the card) into drive d, or out of it, as the menu does it: 0,
+// or drive_mount's error and maybe *msg; -1 for a drive the menu doesn't have
+int  shell_mount(int d, const char *path, const char **msg);
+void shell_unmount(int d);

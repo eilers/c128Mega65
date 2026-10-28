@@ -10,7 +10,8 @@
 -- 1581-style 512-byte reads, a track write (the blocks at its ends are read first and
 -- merged), reading it back from the cache, the write-back after the quiet time, a full
 -- cache that has to write back to take more, a drive switched off (its changes reach the
--- card first, then it reads zeros), and a changed card (nothing reaches it).
+-- card first, then it reads zeros), a changed card (nothing reaches it), and the drives'
+-- disk_ready in every drive's CSR.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -55,6 +56,7 @@ architecture sim of tb_vd_sd is
    signal buff_wr      : std_logic;
    signal buff_din     : vd_vec_array(1 downto 0)(7 downto 0);
    signal dirty        : std_logic_vector(1 downto 0);
+   signal ready        : std_logic := '1';
 
    type t_dbuf is array (0 to 16383) of std_logic_vector(7 downto 0);
    type t_dbufs is array (0 to 1) of t_dbuf;
@@ -121,6 +123,7 @@ begin
          sd_buff_wr_o   => buff_wr,
          sd_buff_din_i  => buff_din,
          dirty_o        => dirty,
+         ready_i        => ready,
          eng_want_o     => want,
          eng_o          => c2q,
          eng_i          => q2c
@@ -430,6 +433,21 @@ begin
          report "5a card change: drive lost: ok";
       end if;
       check_card("5b nothing written to the other card");
+
+      -- 6. iec_drive's disk_ready, from the core's clock, in bit 5 of both drives' CSR
+      for want in std_logic range '0' to '1' loop
+         ready <= want;
+         wait for 5 * C_CLK;
+         for d in 0 to 1 loop
+            status(d, st);
+            if st(5) /= want then
+               report "6: drive " & integer'image(8 + d) & " shows ready " & std_logic'image(st(5)) &
+                      ", not " & std_logic'image(want) severity error;
+               errors := errors + 1;
+            end if;
+         end loop;
+      end loop;
+      report "6 disk_ready in the CSR: done";
 
       if errors = 0 then
          report "ALL CHECKS PASSED";

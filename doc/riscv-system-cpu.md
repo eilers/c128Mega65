@@ -19,8 +19,7 @@ in `a626c1c`; its parent has them, for reference.
    is tested on hardware against a QNICE build.
 4. **Drop QNICE** (`a626c1c`): RISC-V on every board, QNICE deleted.
 
-Then UCI at `$DF1C` (Gideon's REU also decodes `$DF00`–`$DF1F`, so the two need
-sorting out), then networking. The modem's own NEORV32 moves into the system CPU at
+Then UCI at `$DF1C` (`doc/uci.md`), then networking. The modem's own NEORV32 moves into the system CPU at
 that stage.
 
 Decisions: the firmware runs from HyperRAM behind the i-cache, loaded from the SD card by

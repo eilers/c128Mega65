@@ -93,6 +93,7 @@ constant C_MENU_CART_CRT         : natural := 102; -- Cartridge: virtual cartrid
 constant C_MENU_MODEM_DE00       : natural := 110; -- Modem: SwiftLink at $DE00 (Off at 109 is the default)
 constant C_MENU_MODEM_DF00       : natural := 111; -- Modem: SwiftLink at $DF00, REU off
 constant C_MENU_MODEM_D700       : natural := 112; -- Modem: SwiftLink at $D700
+constant C_MENU_UCI              : natural := 115; -- UCI at $DF1C: Ultimate Command Interface (default off)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -161,6 +162,7 @@ constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- dri
 constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- drive 9: block table of its image on the SD card (vd_sd.vhd)
 constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- virtual cartridge (.crt), loaded into HyperRAM
 constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- internal floppy diagnostics (physical_1581_diag), same id as C64MEGA65
+constant C_DEV_UCI            : std_logic_vector(15 downto 0) := x"0109"; -- Ultimate Command Interface: registers and buffer (uci.vhd)
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)

@@ -16,7 +16,8 @@ ROM_WORDS  := 2048
 FW_BASE    := 0x40400000
 HW_VERSION := $(shell sed -n 's/^\#define M2M_RV_HW_VERSION *\([0-9]*\)u.*/\1/p' include/m2m_rv.h)
 FW_VERSION ?= $(shell git describe --always --dirty --match=NONE 2>/dev/null || echo unknown)
-# The core's part of the firmware (the callbacks of QNICE's m2m-rom.asm) and its config.vhd
+# The core's part of the firmware (the callbacks of QNICE's m2m-rom.asm, its own modules)
+# and its config.vhd
 CORE_DIR   ?= ../../CORE/firmware
 CONFIG_VHD ?= ../../CORE/vhdl/config.vhd
 FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.asm
@@ -35,7 +36,8 @@ COMMON  := build/common/lib/console.o build/common/lib/trap.o build/common/lib/c
            build/common/lib/sd.o build/crt0.o
 # FatFs and its disk layer are built twice, once with each ffconf.h
 BOOT    := build/rom/boot/boot.o build/rom/boot/load.o build/rom/fatfs/ff.o build/rom/lib/diskio.o
-FW      := $(patsubst %.c,build/fw/%.o,$(wildcard fw/*.c)) build/fw/core.o build/fw/lib/fmt.o \
+CORE_OBJ := $(patsubst $(CORE_DIR)/%.c,build/fw/core/%.o,$(wildcard $(CORE_DIR)/*.c))
+FW      := $(patsubst %.c,build/fw/%.o,$(wildcard fw/*.c)) $(CORE_OBJ) build/fw/lib/fmt.o \
            build/fw/fatfs/ff.o build/fw/fatfs/ffunicode.o build/fw/lib/diskio.o
 
 all: boot.rom build/firmware.bin test/selftest.rom test/fwboot.rom
@@ -54,7 +56,7 @@ build/fw/%.o: %.c | $(FW_GEN)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Ifw -Ibuild/fw -c $< -o $@
 
-build/fw/core.o: $(CORE_DIR)/core.c | $(FW_GEN)
+build/fw/core/%.o: $(CORE_DIR)/%.c | $(FW_GEN)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Ifw -Ibuild/fw -c $< -o $@
 

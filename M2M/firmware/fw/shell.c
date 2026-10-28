@@ -578,6 +578,54 @@ void shell_force(int group, int pos, int on)
       setting_set(old, 0);
 }
 
+// The menu item of drive d, or -1
+static int mount_item(int d)
+{
+   for (int i = 0; i < menu.n; i++)
+      if (is_mount[i] == d + 1)
+         return i;
+   return -1;
+}
+
+// What the menu shows and saves follows, at once if it is open
+static void mount_shown(int i, int on)
+{
+   setting_set(i, on);
+   if (ui == UI_MENU) {
+      menu_set(i, on);
+      menu_show();
+      menu_cursor_on();
+   }
+}
+
+int shell_mount(int d, const char *path, const char **msg)
+{
+   int i = mount_item(d), err;
+   *msg = 0;
+   if (i < 0)
+      return -1;
+   uint16_t group = menu.group[i] & MENU_ID;
+   core_sel_pre(group, 0);
+   if ((err = drive_mount(d, path, group, msg)))
+      return err;
+   const char *name = strrchr(path, '/');
+   strncpy(drv_name[d], name ? name + 1 : path, menu.dx - 1);
+   drv_name[d][menu.dx - 1] = 0;
+   mount_shown(i, 1);
+   core_sel_post(group, 0);
+   return 0;
+}
+
+void shell_unmount(int d)
+{
+   int i = mount_item(d);
+   if (i < 0)
+      return;
+   if (drive_mounted(d))
+      drive_unmount(d);
+   mount_shown(i, 0);
+}
+
 // -------------------------------------------------------------------------------------
 // Opening and closing the menu (HELP_MENU)
 // -------------------------------------------------------------------------------------

@@ -2,6 +2,7 @@ CORE/*.cache
 CORE/CORE-R6R3-vivado2022.xpr
 CORE/rv_soc_nvc
 CORE/config_nvc
+CORE/uci_nvc
 M2M/firmware/build
 M2M/firmware/host/build
 CORE/*.hw

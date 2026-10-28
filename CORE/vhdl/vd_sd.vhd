@@ -27,7 +27,9 @@
 --     0x030  R: 0x5D4D (the Shell maps disk images instead of loading them)
 --     0x031  W: 1 = on (mount, after the table), 0 = off (writes back, then forgets)
 --            R: bit 0 on, 1 dirty, 2 busy (off or write-back pending), 3 fault (a
---               write failed and was dropped), 4 lost (the card changed)
+--               write failed and was dropped), 4 lost (the card changed), 5 ready:
+--               every 1541/1571 that is out of reset has its disk (iec_drive's
+--               disk_ready; low while one acts out a disk change, 2.1 s after a mount)
 --     0x032  W: size of the image in 512-byte blocks
 --     0x033  W: write back now
 --
@@ -70,6 +72,7 @@ port (
    sd_buff_din_i  : in  vd_vec_array(G_VDNUM - 1 downto 0)(7 downto 0);  -- one clock after the address
 
    dirty_o        : out std_logic_vector(G_VDNUM - 1 downto 0);         -- writes not on the card yet
+   ready_i        : in  std_logic := '1';                               -- iec_drive's disk_ready, core clock
 
    eng_want_o     : out std_logic;
    eng_o          : out t_sd_c2q;
@@ -129,6 +132,10 @@ architecture synthesis of vd_sd is
    signal d_nblk         : t_nblk_arr := (others => (others => '0'));
    signal d_fault        : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
    signal d_lost         : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+   signal ready_m        : std_logic := '1';
+   signal ready_s        : std_logic := '1';
+   attribute ASYNC_REG : string;
+   attribute ASYNC_REG of ready_m, ready_s : signal is "TRUE";
    signal d_dirty        : std_logic_vector(G_VDNUM - 1 downto 0);
 
    -- commands from QNICE: toggles written on the falling edge, seen on the rising edge
@@ -295,6 +302,15 @@ begin
    -- QNICE
    ------------------------------------------------------------------------------------
 
+   -- From the core's clock: a level, so two flip-flops do
+   p_ready : process (clk_i)
+   begin
+      if rising_edge(clk_i) then
+         ready_m <= ready_i;
+         ready_s <= ready_m;
+      end if;
+   end process p_ready;
+
    p_qnice_wr : process (clk_i)
    begin
       if falling_edge(clk_i) then
@@ -334,6 +350,7 @@ begin
                                   (q_fl_req(d) xor fl_seen(d));
                qnice_data_o(3) <= d_fault(d);
                qnice_data_o(4) <= d_lost(d);
+               qnice_data_o(5) <= ready_s;
             when others => null;
          end case;
       end if;

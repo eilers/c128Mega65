@@ -25,7 +25,8 @@
 // vd_sd.vhd: the block table in window 0, the CSR in window 0xFFFF
 #define MAP_MAGIC     0x5D4D
 #define MAP_CSR_MAGIC 0x030
-#define MAP_CSR_CTRL  0x031        // W: 1 on, 0 off; R: bit 0 on, bit 2 busy
+#define MAP_CSR_CTRL  0x031        // W: 1 on, 0 off; R: bit 0 on, bit 2 busy, bit 5 ready
+#define MAP_READY     0x20         // every 1541/1571 out of reset has its disk (iec_drive)
 #define MAP_CSR_NBLK  0x032        // blocks of the image
 #define MAP_PIECE     8            // blocks per table entry
 #define MAP_MAX       2048         // blocks a table holds
@@ -83,6 +84,11 @@ int drives_count(void)
 int drive_mounted(int d)
 {
    return d < num && (vd_get(VD_DRV_MOUNT) >> d & 1);
+}
+
+int drives_ready(void)
+{
+   return num && (crtrom_csr_get(map_dev[0], MAP_CSR_CTRL) & MAP_READY);
 }
 
 int drives_changed(void)

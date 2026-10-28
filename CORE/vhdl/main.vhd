@@ -244,6 +244,16 @@ entity main is
       modem_data_i            : in  std_logic_vector(7 downto 0) := x"FF";
       modem_irq_i             : in  std_logic := '0';             -- to NMI, as on a SwiftLink
 
+      -- Ultimate Command Interface at $DF1C (clk_main_i domain); uci.vhd is in mega65.vhd
+      uci_rst_o               : out std_logic;                    -- C128 reset
+      uci_cs_o                : out std_logic;                    -- select strobe, CPU4-7
+      uci_we_o                : out std_logic;                    -- every write, $FF00 included
+      uci_addr_o              : out std_logic_vector(15 downto 0);
+      uci_data_o              : out std_logic_vector(7 downto 0);
+      uci_data_i              : in  std_logic_vector(7 downto 0) := x"FF";
+      uci_irq_i               : in  std_logic := '0';
+      uci_dma_i               : in  std_logic := '0';             -- hold the CPU, as /DMA does
+
       -- Virtual cartridge: the .crt file and its bank cache (sw_cartridge_wrapper in mega65.vhd)
       crt_loaded_i            : in  std_logic := '0';
       crt_loading_i           : in  std_logic := '0';
@@ -461,6 +471,8 @@ signal reu_cs               : std_logic;                      -- reu_io's strobe
 signal io_phi2              : std_logic;                      -- PHI2 of an I/O access: CPU4-6
 signal modem_base           : std_logic_vector(1 downto 0);   -- "00" off, "01" $DE00, "10" $DF00, "11" $D700
 signal modem_sel            : std_logic;                      -- the 6551's 8 bytes at its base
+signal uci_on               : std_logic;                      -- switched on, and the cartridge leaves IO2 free
+signal uci_sel              : std_logic;                      -- $DF18-$DF1F
 signal reu_dma_req          : std_logic;
 signal reu_irq              : std_logic;
 signal reu_dout             : std_logic_vector(7 downto 0);
@@ -593,6 +605,7 @@ signal iec_drive_ce  : std_logic;
 signal iec_dce_sum   : integer := 0;   -- 32-bit integer, initialized to 0
 
 signal iec_img_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
+signal iec_disk_ready   : std_logic;   -- every 1541/1571 out of reset has its disk
 signal iec_img_readonly : std_logic;
 signal iec_img_size     : std_logic_vector(31 downto 0);
 signal iec_img_type     : std_logic_vector(1 downto 0);
@@ -886,6 +899,18 @@ modem_cs_o   <= modem_sel and io_phi2;
 modem_we_o   <= system_we;
 modem_addr_o <= std_logic_vector(core_ram_addr(2 downto 0));
 modem_data_o <= std_logic_vector(core_ram_data_out);
+
+-- Ultimate Command Interface: $DF18-$DF1F, laid over the REU's unused $DF18-$DF1F (they read
+-- $FF there) as on the Ultimate. Off while the virtual cartridge uses IO2, as Gideon's firmware
+-- does for a cartridge that rules it out.
+uci_on  <= '1' when osm_control_i(C_MENU_UCI) = '1' and crt_io2 = '0' else '0';
+uci_sel <= '1' when uci_on = '1' and core_iof = '1' and core_ram_addr(7 downto 3) = "00011" else '0';
+
+uci_rst_o  <= not reset_core_n;
+uci_cs_o   <= uci_sel and io_phi2;
+uci_we_o   <= system_we;
+uci_addr_o <= std_logic_vector(core_ram_addr(15 downto 0));
+uci_data_o <= std_logic_vector(core_ram_data_out);
 
 -- Low-active chip selects as the expansion port expects them. The core reports these accesses
 -- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
@@ -1425,6 +1450,17 @@ begin
       end if;
       v_irq_n := v_irq_n and not reu_irq;
       v_dma   := v_dma or reu_dma_req;
+   end if;
+
+   -- The command interface answers over the REU's $DF18-$DF1F and a cartridge's
+   if uci_sel = '1' then
+      core_io_rom  <= '0';
+      core_io_ext  <= '1';
+      core_io_data <= unsigned(uci_data_i);
+   end if;
+   if uci_on = '1' then
+      v_irq_n := v_irq_n and not uci_irq_i;
+      v_dma   := v_dma or (uci_dma_i and core_z80_n);
    end if;
 
    -- The SwiftLink answers its registers ahead of a cartridge, and its 6551 pulls NMI
@@ -2343,7 +2379,7 @@ iec_drive_inst : entity work.iec_drive
     img_type     => iec_img_type4,
 
     led          => iec_drive_led,
-    disk_ready   => open,
+    disk_ready   => iec_disk_ready,   -- the firmware's MOUNT_DISK waits for it (vd_sd's CSR)
     -- The track-number display (MiSTer's drv_overlay.sv) is out of scope, but these two
     -- cannot be left open: xsim refuses a VHDL-to-Verilog binding with an unconnected
     -- vector or array output, even though synthesis accepts it.
@@ -2815,6 +2851,7 @@ i_vd_sd : entity work.vd_sd
     sd_buff_din_i  => vd_sd_buf_data_out,
 
     dirty_o        => cache_dirty,
+    ready_i        => iec_disk_ready,
 
     eng_want_o     => qnice_sd_want_o,
     eng_o          => qnice_sd_eng_o,

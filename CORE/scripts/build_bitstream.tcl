@@ -71,6 +71,11 @@ set required_source_files [list \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
     [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/io_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/slot_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_if_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_protocol.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/uci.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \

@@ -2,6 +2,7 @@
 // HyperRAM. A main loop polls each module in turn, and none of them waits for anything,
 // as in the QNICE Shell.
 #include "console.h"
+#include "core.h"
 #include "fmt.h"
 #include "keys.h"
 #include "m2m_rv.h"
@@ -23,6 +24,7 @@ int main(void)
       keys_poll();
       sdcard_poll();
       shell_poll();
+      core_poll();
       monitor_poll();
    }
 }

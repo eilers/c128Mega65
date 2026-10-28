@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cfg.h"
+#include "core.h"
 #include "ff.h"
 #include "keys.h"
 #include "m2m_rv.h"
@@ -395,7 +396,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 30), "menu window 25x30 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 31), "menu window 25x31 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:<Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive 8 (the start item)");
@@ -654,6 +655,15 @@ int main(int argc, char **argv)
    check(find_row(" 9:<Mount Drive>") > 0 && !setting_get(item(" 9:%s")), "unmount by a reset followed");
    go_to("8:");
    press(M2M_KEY_SPACE);
+
+   // A mount from a C128 program (the UCI's DOS target) while the menu is open: the
+   // drive's line and setting follow at once
+   const char *msg;
+   check(shell_mount(1, "/c128/game.d64", &msg) == 0 && (vd_reg(VD_DRV_MOUNT) & 2) &&
+         find_row("=9:game.d64") > 0 && setting_get(item(" 9:%s")), "shell_mount: drive 9, shown");
+   shell_unmount(1);
+   check(!(vd_reg(VD_DRV_MOUNT) & 2) && find_row(" 9:<Mount Drive>") > 0 && !setting_get(item(" 9:%s")),
+         "shell_unmount: drive 9, shown");
 
    // R3-memory builds have no 2 MB and 16 MB REU
    go_to("REU");

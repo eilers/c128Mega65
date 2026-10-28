@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Makes FAT images with macOS's own formatter (hdiutil, no root needed), with an MBR as
-# on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw and
-# test_mon; then test_shell against config.vhd as CORE/scripts/run_config_nvc.sh dumps it
-# (nvc).
+# on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw, test_mon,
+# test_uci and test/uci's programs (test_prg); then test_shell against config.vhd as
+# CORE/scripts/run_config_nvc.sh dumps it (nvc).
 # usage: run.sh build-dir   (holds test_boot and test_fw; ../build/firmware.bin must exist)
 set -euo pipefail
 
@@ -38,6 +38,22 @@ head -c 1048576 /dev/zero > "$files/blank.img"
 "$out/test_boot" "$files"
 "$out/test_fw" "$files/fat32.img"
 "$out/test_mon"
+cp "$files/fat32.img" "$files/uci.img"
+"$out/test_uci" "$files/uci.img"
+for prg in ucitest ucitest64 ucidos ucidos64; do   # test/uci's programs, on a 6502
+   cp "$files/fat32.img" "$files/prg.img"
+   "$out/test_prg" "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg.log" ||
+      { cat "$out/$prg.log"; exit 1; }
+   t=$(tail -n 1 "$out/$prg.log")
+   echo "test_prg $prg: ALL PASSED, ${t#test_prg: }"
+done
+for prg in ucidos ucidos64; do   # a run cut short after the D64, as by a reset, then a whole one
+   cp "$files/fat32.img" "$files/prg.img"
+   "$out/test_prg" "$files/prg.img" "$here/../../../test/uci/$prg.prg" "WRITE UCITEST.D64 PASS" \
+      > "$out/$prg-cut.log" && "$out/test_prg" "$files/prg.img" \
+      "$here/../../../test/uci/$prg.prg" >> "$out/$prg-cut.log" || { cat "$out/$prg-cut.log"; exit 1; }
+   echo "test_prg $prg after a run cut short: ALL PASSED"
+done
 "$here/../../../CORE/scripts/run_config_nvc.sh" "$out/config_nvc" > "$out/config_nvc.log" 2>&1 ||
    { cat "$out/config_nvc.log"; exit 1; }
 for dump in config_dump.txt config_dump_r3.txt; do

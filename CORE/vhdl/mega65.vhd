@@ -487,6 +487,20 @@ signal main_modem_wdata       : std_logic_vector(7 downto 0);
 signal main_modem_rdata       : std_logic_vector(7 downto 0);
 signal main_modem_irq         : std_logic;
 
+-- Ultimate Command Interface: the C128's side on main_clk, the firmware's on the device bus
+signal main_uci_rst           : std_logic;
+signal main_uci_cs            : std_logic;
+signal main_uci_we            : std_logic;
+signal main_uci_addr          : std_logic_vector(15 downto 0);
+signal main_uci_wdata         : std_logic_vector(7 downto 0);
+signal main_uci_rdata         : std_logic_vector(7 downto 0);
+signal main_uci_irq           : std_logic;
+signal main_uci_dma           : std_logic;
+signal qnice_uci_ce           : std_logic;
+signal qnice_uci_we           : std_logic;
+signal qnice_uci_data         : std_logic_vector(15 downto 0);
+signal qnice_uci_wait         : std_logic;
+
 signal modem_hr_write         : std_logic;
 signal modem_hr_read          : std_logic;
 signal modem_hr_address       : std_logic_vector(31 downto 0);
@@ -850,6 +864,15 @@ begin
          modem_data_i         => main_modem_rdata,
          modem_irq_i          => main_modem_irq,
 
+         uci_rst_o            => main_uci_rst,
+         uci_cs_o             => main_uci_cs,
+         uci_we_o             => main_uci_we,
+         uci_addr_o           => main_uci_addr,
+         uci_data_o           => main_uci_wdata,
+         uci_data_i           => main_uci_rdata,
+         uci_irq_i            => main_uci_irq,
+         uci_dma_i            => main_uci_dma,
+
          crt_loaded_i         => main_crt_loaded,
          crt_loading_i        => main_crt_loading,
          crt_id_i             => main_crt_id,
@@ -978,6 +1001,8 @@ begin
       qnice_crt_we         <= '0';
       qnice_p1581_ce       <= '0';
       qnice_p1581_we       <= '0';
+      qnice_uci_ce         <= '0';
+      qnice_uci_we         <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -1022,6 +1047,13 @@ begin
             qnice_p1581_ce    <= qnice_dev_ce_i;
             qnice_p1581_we    <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_p1581_data;
+
+        -- Ultimate Command Interface: its registers wait while they cross to the core's clock
+        when C_DEV_UCI =>
+            qnice_uci_ce      <= qnice_dev_ce_i;
+            qnice_uci_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_uci_data;
+            qnice_dev_wait_o  <= qnice_uci_wait;
 
          when others => null;
       end case;
@@ -1334,6 +1366,33 @@ begin
          eth_txd_o          => eth_txd_o,
          eth_txen_o         => eth_txen_o
       ); -- i_modem
+
+   ---------------------------------------------------------------------------------------------
+   -- Ultimate Command Interface at $DF1C: the protocol on the core's clock, the firmware's side
+   -- on the device bus (CORE/vhdl/uci)
+   ---------------------------------------------------------------------------------------------
+
+   i_uci : entity work.uci
+      port map (
+         main_clk_i      => main_clk_o,
+         main_rst_i      => main_rst_o or main_reset_m2m_i,
+         main_c128_rst_i => main_uci_rst,
+         main_cs_i       => main_uci_cs,
+         main_we_i       => main_uci_we,
+         main_addr_i     => main_uci_addr,
+         main_data_i     => main_uci_wdata,
+         main_data_o     => main_uci_rdata,
+         main_irq_o      => main_uci_irq,
+         main_dma_o      => main_uci_dma,
+         qnice_clk_i     => qnice_clk_i,
+         qnice_rst_i     => qnice_rst_i,
+         qnice_addr_i    => qnice_dev_addr_i(11 downto 0),
+         qnice_data_i    => qnice_dev_data_i,
+         qnice_ce_i      => qnice_uci_ce,
+         qnice_we_i      => qnice_uci_we,
+         qnice_data_o    => qnice_uci_data,
+         qnice_wait_o    => qnice_uci_wait
+      ); -- i_uci
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)

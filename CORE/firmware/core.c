@@ -7,6 +7,7 @@
 #include "fmt.h"
 #include "m2m_rv.h"
 #include "roms.h"
+#include "uci.h"
 
 // Internal 1581: Off, Drive 8, Drive 9. Cartridge: Hardware, CRT file.
 #define INT1581_OFF 0
@@ -156,4 +157,10 @@ const char *core_prep_start(void)
 uint32_t core_menu_key(void)
 {
    return shell_setting(OPTM_G_HELP_F13, 0) ? M2M_KEY_F13 : M2M_KEY_HELP;
+}
+
+// The Ultimate Command Interface (uci.c)
+void core_poll(void)
+{
+   uci_poll();
 }

@@ -296,7 +296,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 118; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 119; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -305,13 +305,13 @@ constant OPTM_SIZE_ALL     : natural := 118; -- amount of items including empty 
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 28 rows. The Video submenu is
+-- tallest page. The main menu is the tallest at 29 rows. The Video submenu is
 -- 20 rows and the HDMI submenu 14 (headline through Back to main menu; the "%s"
 -- opener is hidden inside the submenu); both leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 28;
+constant OPTM_DY           : natural := 29;
 
 -- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
@@ -443,6 +443,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " $D700\n"               &    -- the C128's internal I/O slot
    "\n"                     &
    " Back to main menu\n"   &
+   " UCI at $DF1C\n"        &    -- default off: Ultimate Command Interface
    "\n"                     &
 
    " Credits\n"             &
@@ -472,6 +473,7 @@ constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB, 16 MB
 constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartridge's .crt file
 constant OPTM_G_INT1581    : integer := 18;   -- Internal 1581: Off, Drive 8, Drive 9
 constant OPTM_G_MODEM      : integer := 19;   -- Modem: Off, $DE00, $DF00, $D700
+constant OPTM_G_UCI        : integer := 20;   -- Ultimate Command Interface at $DF1C
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -605,6 +607,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_MODEM,                                        -- $D700
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_UCI + OPTM_G_SINGLESEL,                       -- UCI at $DF1C (default off)
                                              OPTM_G_LINE,                                         -- Line
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
