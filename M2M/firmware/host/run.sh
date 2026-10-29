@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Makes FAT images with macOS's own formatter (hdiutil, no root needed), with an MBR as
 # on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw, test_mon,
-# test_modem, test_uci and test/uci's programs (test_prg, UCINET against host_net.c's peer);
+# test_http, test_modem, test_uci and test/uci's programs (test_prg, UCINET against host_net.c's peer);
 # then test_shell against config.vhd as
 # CORE/scripts/run_config_nvc.sh dumps it (nvc).
 # usage: run.sh build-dir   (holds test_boot and test_fw; ../build/firmware.bin must exist)
@@ -39,6 +39,7 @@ head -c 1048576 /dev/zero > "$files/blank.img"
 "$out/test_boot" "$files"
 "$out/test_fw" "$files/fat32.img"
 "$out/test_mon"
+"$out/test_http"
 for c in at http bulk telnet download download-pause bulk-stall download-stall; do
    "$out/test_modem" $c > "$out/modem-$c.log" || { cat "$out/modem-$c.log"; exit 1; }
    tail -n 1 "$out/modem-$c.log"

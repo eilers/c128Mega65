@@ -34,7 +34,7 @@
 #define E_BADF    9                     // newlib's errno values
 #define E_AGAIN   11
 
-static const uint8_t identification[] = "MEGA128 NETWORK INTERFACE V1.0";
+static const uint8_t identification[] = "C128MEGA65 NETWORK INTERFACE V1.0";
 static const char ok[]           = "00,OK";
 static const char unknown[]      = "21,UNKNOWN COMMAND";
 static const char invalid[]      = "81,INVALID PARAMS";

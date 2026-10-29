@@ -98,11 +98,11 @@ copy, so never stops the loop.
 
 | Target | What | State |
 |---|---|---|
-| 1, 2 | MEGA128 DOS (`uci_dos.c`, identifies as `MEGA128 DOS V1.0`), with the commands, replies and status texts of Gideon's Ultimate DOS | see below |
-| 3 | Network (`net/uci_net.c`, identifies as `MEGA128 NETWORK INTERFACE V1.0`), with the commands, replies and status texts of Gideon's `network_target.cc` | see below |
-| 4 | Control (`uci_ctrl.c`, identifies as `MEGA128 CONTROL V1.0`), with the commands, replies and status texts of Gideon's `control_target.cc` | see below |
+| 1, 2 | C128MEGA65 DOS (`uci_dos.c`, identifies as `C128MEGA65 DOS V1.0`), with the commands, replies and status texts of Gideon's Ultimate DOS | see below |
+| 3 | Network (`net/uci_net.c`, identifies as `C128MEGA65 NETWORK INTERFACE V1.0`), with the commands, replies and status texts of Gideon's `network_target.cc` | see below |
+| 4 | Control (`uci_ctrl.c`, identifies as `C128MEGA65 CONTROL V1.0`), with the commands, replies and status texts of Gideon's `control_target.cc` | see below |
 
-### MEGA128 DOS
+### C128MEGA65 DOS
 
 The card looks as an Ultimate shows its storage: `/` holds one folder, `SD`, the active card.
 Each target has its own folder, open file and open folder. A C128 reset closes their files,
@@ -152,7 +152,7 @@ closed connection and closes the socket.
 
 | Command | |
 |---|---|
-| `$01` IDENTIFY | `MEGA128 CONTROL V1.0` |
+| `$01` IDENTIFY | `C128MEGA65 CONTROL V1.0` |
 | `$03` FINISH_CAPTURE | `00,OK`: there is no tape capture to finish. |
 | `$05` FREEZE | Opens the menu, as the Help key does; no status. |
 | `$06` REBOOT | Resets the C128 as the reset button does (his `start_cartridge`: a cartridge starts again); no status. |
@@ -206,7 +206,7 @@ allow for that gap on an Ultimate: `test/uci`'s library checks `$DF1D` around ea
 UCITEST line. On his Ultimate II+L (firmware 3.14d) every line matched the core's except IRQ
 BIT: `$DF1D` read `$C9` both times, because the IRQ came in 3.14e.
 
-7b (MEGA128 DOS) passes on the R6 (Jeff, 2026-10-28): every UCIDOS line, on the core and on
+7b (C128MEGA65 DOS) passes on the R6 (Jeff, 2026-10-28): every UCIDOS line, on the core and on
 the II+L (drive B on), with core UCI2-CB59269 and firmware `cb59269`. On the core also in C64
 mode (UCITEST64, UCIDOS64), in FAST mode, and with the 6r3 core. With drive 9 empty, DRIVE 9
 HEADER needed no retries: the drive starts at the mount and is ready when MOUNT answers.

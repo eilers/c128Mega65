@@ -406,7 +406,7 @@ static void ctrl_tests(void)
    mounted_d = -1;
 
    dos(4, 0x01, NULL, 0, NULL);
-   want_data("CONTROL IDENTIFY", "00,OK", "MEGA128 CONTROL V1.0");
+   want_data("CONTROL IDENTIFY", "00,OK", "C128MEGA65 CONTROL V1.0");
    dos(4, 0x03, NULL, 0, NULL);
    want_data("FINISH_CAPTURE", "00,OK", "");
    int m = menu_opens;
@@ -938,7 +938,7 @@ int main(int argc, char **argv)
    check(!(uci_status() & 0x08), "CLR_ERR clears it");
    int n = drain(data, text);
    c128_control(0x02);
-   check(n == 16 && !memcmp(data, "MEGA128 DOS V1.0", 16) && !strcmp(text, "00,OK"),
+   check(n == 19 && !memcmp(data, "C128MEGA65 DOS V1.0", 19) && !strcmp(text, "00,OK"),
          "the pending reply survives the rejected push");
    check(uci_status() == 0, "idle after recovering from a state error");
 
@@ -954,10 +954,10 @@ int main(int argc, char **argv)
    check(uci_status() == 0, "ABORT releases a pending reply back to Idle");
 
    // Ultimate DOS
-   expect("DOS 1 IDENTIFY", (uint8_t[]){ 0x01, 0x01 }, 2, "00,OK", "MEGA128 DOS V1.0", 16);
-   expect("DOS 2 IDENTIFY", (uint8_t[]){ 0x02, 0x01 }, 2, "00,OK", "MEGA128 DOS V1.0", 16);
+   expect("DOS 1 IDENTIFY", (uint8_t[]){ 0x01, 0x01 }, 2, "00,OK", "C128MEGA65 DOS V1.0", 19);
+   expect("DOS 2 IDENTIFY", (uint8_t[]){ 0x02, 0x01 }, 2, "00,OK", "C128MEGA65 DOS V1.0", 19);
    expect("DOS unknown command", (uint8_t[]){ 0x01, 0x7F }, 2, "21,UNKNOWN COMMAND", "", 0);
-   expect("network IDENTIFY", (uint8_t[]){ 0x03, 0x01 }, 2, "00,OK", "MEGA128 NETWORK INTERFACE V1.0", 30);
+   expect("network IDENTIFY", (uint8_t[]){ 0x03, 0x01 }, 2, "00,OK", "C128MEGA65 NETWORK INTERFACE V1.0", 33);
    big[0] = 0x01;
    big[1] = 0xF0;
    for (int i = 2; i < 900; i++)

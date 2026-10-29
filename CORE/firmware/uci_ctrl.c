@@ -36,7 +36,7 @@
 #define CRT_CSR_ERASE        0x024          // a sector: bit 6 ROMH's chip, bits 5-0 a bank of it
 #define CRT_CSR_ERASE_GO     0x025          // W: start, R: bit 0 busy
 
-static const uint8_t identification[] = "MEGA128 CONTROL V1.0";
+static const uint8_t identification[] = "C128MEGA65 CONTROL V1.0";
 static const uint8_t product[]        = "C128 for MEGA65";
 static const char ok[]           = "00,OK";
 static const char unknown[]      = "21,UNKNOWN COMMAND";

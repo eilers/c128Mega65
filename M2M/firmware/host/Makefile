@@ -8,10 +8,10 @@ CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -I../include -I../lib -I../
 # loopback
 NET      := ../../../CORE/firmware/net
 LWIP     := $(wildcard $(NET)/lwip/core/*.c) $(wildcard $(NET)/lwip/core/ipv4/*.c) $(NET)/lwip/netif/ethernet.c
-NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/log.c $(LWIP)
+NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(NET)/rest.c $(NET)/log.c $(LWIP)
 NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
 
-all: build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon build/test_modem
+all: build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon build/test_modem build/test_http
 	./run.sh build
 
 build/test_boot: test_boot.c diskio_file.c ../boot/load.c ../lib/crc32.c ../fatfs/ff.c \
@@ -59,6 +59,12 @@ build/test_mon: test_mon.c ../fw/monitor.c ../fw/monitor.h
 build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h)
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) $(NET_FLAGS) $(filter %.c,$^) -o $@
+
+# The REST server with lwIP, against clients on a loopback (-serve: on a port of this Mac)
+build/test_http: test_http.c $(NET)/http.c $(NET)/rest.c $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h) \
+                 ../build/fw/config_ids.h ../build/fw/version.h
+	@mkdir -p build
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../include $(NET_FLAGS) -DMEMP_NUM_TCP_PCB=32 $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build

@@ -1,4 +1,4 @@
-// Ultimate Command Interface: the DOS targets 1 and 2, MEGA128 DOS, with the commands,
+// Ultimate Command Interface: the DOS targets 1 and 2, C128MEGA65 DOS, with the commands,
 // replies and status texts of Gideon's Ultimate DOS (filemanager/dos.cc): files and folders
 // on the SD card, disk images in drives 8 and 9, the clock. Paths look like an Ultimate's:
 // '/' holds one folder, SD, which is the active card. Each target has its own folder, open
@@ -59,7 +59,7 @@
 #define RTC_BUSY   0x01
 #define RTC_TO_CHIP 0x0C           // copy into the chip, then run again
 
-static const uint8_t identification[] = "MEGA128 DOS V1.0";
+static const uint8_t identification[] = "C128MEGA65 DOS V1.0";
 static const char ok[]           = "00,OK";
 static const char dir_empty[]    = "01,DIRECTORY EMPTY";
 static const char truncated[]    = "02,REQUEST TRUNCATED";

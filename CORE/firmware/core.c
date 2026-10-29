@@ -5,6 +5,7 @@
 #include "config_ids.h"
 #include "core.h"
 #include "fmt.h"
+#include "http.h"
 #include "m2m_rv.h"
 #include "reu.h"
 #include "roms.h"
@@ -205,8 +206,9 @@ uint32_t core_menu_key(void)
    return shell_setting(OPTM_G_HELP_F13, 0) ? M2M_KEY_F13 : M2M_KEY_HELP;
 }
 
-// The Ultimate Command Interface (uci.c)
+// The Ultimate Command Interface (uci.c) and the REST API (net/http.c)
 void core_poll(void)
 {
    uci_poll();
+   http_poll();
 }

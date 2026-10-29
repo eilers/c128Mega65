@@ -7,6 +7,7 @@
 #include "acia.h"
 #include "core.h"
 #include "eth.h"
+#include "http.h"
 #include "log.h"
 #include "modem.h"
 #include "net.h"
@@ -68,6 +69,7 @@ static void start(void)
    eth_init();
    netif_set_status_callback(&eth_netif, on_status);
    modem_init();
+   http_start();
    started = true;
 }
 

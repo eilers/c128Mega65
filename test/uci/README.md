@@ -17,7 +17,7 @@ ahead of a cartridge), **Cartridge: Hardware**, and the Ultimate's own Command I
 | Line | What it checks |
 |------|----------------|
 | EMPTY COMMAND | A push with no bytes gets an empty reply and an empty status. |
-| DOS 1 / DOS 2 IDENTIFY | The DOS's name, shown: `MEGA128 DOS V1.0` on the core, `ULTIMATE-II DOS V1.2` on an Ultimate. Status `00,OK`, and target 2 gives target 1's name. |
+| DOS 1 / DOS 2 IDENTIFY | The DOS's name, shown: `C128MEGA65 DOS V1.0` on the core, `ULTIMATE-II DOS V1.2` on an Ultimate. Status `00,OK`, and target 2 gives target 1's name. |
 | CONTROL IDENTIFY | Target 4's answer, shown. The core has no control target yet, so it says `NO TARGET`. |
 | TARGET $0F IDENTIFY | A target nobody registered says `NO TARGET`, `00,OK`. |
 | UNKNOWN COMMAND | `$01 $7F`: no data, `21,UNKNOWN COMMAND`. |
@@ -66,7 +66,7 @@ the REU's image file). Drives A and B are the core's 8 and 9; on an Ultimate, it
 
 | Line | What it checks |
 |---|---|
-| IDENTIFY | The target's name, shown: `MEGA128 CONTROL V1.0` on the core, `CONTROL TARGET V1.1` on an Ultimate. |
+| IDENTIFY | The target's name, shown: `C128MEGA65 CONTROL V1.0` on the core, `CONTROL TARGET V1.1` on an Ultimate. |
 | GET_HWINFO: THE PRODUCT | The product, shown: `C128 for MEGA65` on the core. |
 | GET_HWINFO 1: ITS SIDS | The cartridge's own SIDs (an Ultimate's UltiSIDs): a count, then 5 bytes each, shown in hex. The core has none. |
 | GET_HWINFO 2 | `81,INVALID PARAMS`. |
@@ -166,7 +166,7 @@ past `$4000`, so it maps RAM over BASIC's ROM there while it runs (`$FF00` = `$0
 
 | Line | What it checks |
 |---|---|
-| IDENTIFY | The name, shown: `MEGA128 NETWORK INTERFACE V1.0` on the core, `ULTIMATE-II NETWORK INTERFACE V1.0` on an Ultimate. |
+| IDENTIFY | The name, shown: `C128MEGA65 NETWORK INTERFACE V1.0` on the core, `ULTIMATE-II NETWORK INTERFACE V1.0` on an Ultimate. |
 | GET_INTERFACE_COUNT | At least one: 1 on the core, 2 on the II+L. |
 | GET_IPADDR, EACH | Each interface's address, netmask and gateway, shown; one must have an address (none means no DHCP lease yet). The II+L's interface 0 has none: its Ethernet is 1. |
 | GET_IPADDR PAST THE LAST, GET_NETADDR, THAT ONE | `82,PARAMETER(S) OUT OF RANGE`; the MAC address of the interface with the address. |

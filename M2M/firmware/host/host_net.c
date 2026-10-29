@@ -30,6 +30,7 @@
 extern uint64_t host_time;                // host_m2m.c's CLINT timer, in CPU clocks
 
 struct netif eth_netif;
+char eth_unique_id[7] = "C12800";
 long hn_pool_drops;
 static long packets, big_drops;
 

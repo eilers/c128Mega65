@@ -67,10 +67,12 @@ build/fw/filters.h: $(FILTERS) tools/asm_dw.py
 	@mkdir -p $(dir $@)
 	python3 -I tools/asm_dw.py $@ $(FILTERS)
 
-# config.vhd's menu groups, OPTM_G_<name> = <number>, for the core's callbacks
+# config.vhd's menu groups, OPTM_G_<name> = <number>, for the core's callbacks, and its
+# CORE_VERSION
 build/fw/config_ids.h: $(CONFIG_VHD)
 	@mkdir -p $(dir $@)
-	sed -n 's/^constant \(OPTM_G_[A-Z0-9_]*\) *: *integer *:= *\([0-9][0-9]*\);.*/#define \1 \2/p' $< > $@
+	sed -n -e 's/^constant \(OPTM_G_[A-Z0-9_]*\) *: *integer *:= *\([0-9][0-9]*\);.*/#define \1 \2/p' \
+	       -e 's/^constant CORE_VERSION *: *string *:= *\("[^"]*"\);.*/#define CORE_VERSION \1/p' $< > $@
 
 # Rewritten only when the version changes, so only then the files that show it rebuild
 build/fw/version.h: FORCE

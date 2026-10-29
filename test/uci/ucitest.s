@@ -48,7 +48,7 @@ found:
         jsr transact
         EXPECT nothing, 0, nothing
 
-        ; 2. the DOS on both targets: shown, its name differs between firmwares (MEGA128
+        ; 2. the DOS on both targets: shown, its name differs between firmwares (C128MEGA65
         ; DOS, ULTIMATE-II DOS); target 2 must give target 1's
         PRINT t_dos1
         CMD cmd_dos1_id, 2

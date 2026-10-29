@@ -14,8 +14,11 @@
 #define MEMP_NUM_PBUF               8
 #define MEMP_NUM_RAW_PCB            0
 #define MEMP_NUM_UDP_PCB            6      // DHCP, DNS, UCI's sockets
+#ifndef MEMP_NUM_TCP_PCB                   // test_http adds its clients' share
 #define MEMP_NUM_TCP_PCB            12     // the call, UCI's sockets, HTTP clients, closing ones
+#endif
 #define MEMP_NUM_TCP_PCB_LISTEN     3      // the modem, HTTP, one spare
+#define TCP_LISTEN_BACKLOG          1      // HTTP queues 2, as his listen()
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          4
 #define PBUF_POOL_SIZE              8      // one pool pbuf holds a whole frame

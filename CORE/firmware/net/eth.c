@@ -2,6 +2,7 @@
 // byte through the network device (net_hw.h); the hardware buffers whole frames both ways.
 #include <string.h>
 #include "eth.h"
+#include "fmt.h"
 #include "net.h"
 #include "net_hw.h"
 #include "lwip/dhcp.h"
@@ -9,6 +10,7 @@
 #include "netif/ethernet.h"
 
 struct netif eth_netif;
+char         eth_unique_id[7];
 static uint32_t no_buffer, tx_stuck;   // frames lost: no pool pbuf for one, the MAC never ready
 
 static err_t linkoutput(struct netif *nif, struct pbuf *p)
@@ -45,6 +47,13 @@ static err_t netif_setup(struct netif *nif)
       h ^= (i < 4 ? lo >> (8 * i) : hi >> (8 * (i - 4))) & 0xFF;
       h *= 16777619u;
    }
+   // His unique_id: 24 bits from the same serial as the MAC, mixed another way
+   uint32_t u = 2166136261u;
+   for (int i = 7; i >= 0; i--) {
+      u ^= (i < 4 ? lo >> (8 * i) : hi >> (8 * (i - 4))) & 0xFF;
+      u *= 16777619u;
+   }
+   fmt_snprintf(eth_unique_id, sizeof eth_unique_id, "%06X", (u ^ u >> 24) & 0xFFFFFF);
    nif->hwaddr[0] = 0x02;
    nif->hwaddr[1] = 0xC1;
    nif->hwaddr[2] = 0x28;
