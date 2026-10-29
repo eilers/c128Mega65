@@ -164,6 +164,7 @@ constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- vir
 constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- internal floppy diagnostics (physical_1581_diag), same id as C64MEGA65
 constant C_DEV_UCI            : std_logic_vector(15 downto 0) := x"0109"; -- Ultimate Command Interface: registers and buffer (uci.vhd)
 constant C_DEV_REU_SD         : std_logic_vector(15 downto 0) := x"010A"; -- the REU's SD card DMA and cache drop (reu_sd.vhd)
+constant C_DEV_NET            : std_logic_vector(15 downto 0) := x"010B"; -- network: the 6551's FIFOs, the Ethernet MAC, the device DNA (net.vhd)
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)
@@ -173,7 +174,7 @@ constant C_DEV_REU_SD         : std_logic_vector(15 downto 0) := x"010A"; -- the
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 1 MiB
 constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0080";     -- REU on R3: 512 KiB
 constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"00C0";     -- Virtual cartridge on R3: 2 MiB
-constant C_HMAP_MODEM         : std_logic_vector(15 downto 0) := x"01C0";     -- Modem firmware: up to 256 KB, one byte per word
+-- 0x01C0-0x01FF: free (the modem's firmware window until the modem moved into the system firmware)
 constant C_HMAP_FIRMWARE      : std_logic_vector(15 downto 0) := x"0200";     -- RISC-V system CPU's firmware: up to 0x3FE
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 
@@ -255,17 +256,14 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"00
 -- C128 core specific ROMs
 constant BOOT_0 : string := "/c128/boot0.rom" & ENDSTR;
 constant BOOT_1 : string := "/c128/boot1.rom" & ENDSTR;
-constant MODEM_FW : string := "/c128/modem.bin" & ENDSTR;      -- optional: without it the modem stays silent
 constant BOOT_0_START : std_logic_vector(15 downto 0) := x"0000";
 constant BOOT_1_START : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(BOOT_0'length, 16));
-constant MODEM_FW_START : std_logic_vector(15 downto 0) := std_logic_vector(to_unsigned(BOOT_0'length + BOOT_1'length, 16));
 
 -- M2M framework constants
-constant C_CRTROMS_AUTO_NUM      : natural := 3;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
-constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1 & MODEM_FW;
+constant C_CRTROMS_AUTO_NUM      : natural := 2;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
+constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1;
 constant C_CRTROMS_AUTO          : crtrom_buf_array := (C_CRTROMTYPE_DEVICE, C_DEV_SYSTEM_ROM, C_CRTROMTYPE_MANDATORY, BOOT_0_START, 
                                                         C_CRTROMTYPE_DEVICE, C_DEV_DRIVE_ROM, C_CRTROMTYPE_MANDATORY, BOOT_1_START, 
-                                                        C_CRTROMTYPE_HYPERRAM, C_HMAP_MODEM, C_CRTROMTYPE_OPTIONAL, MODEM_FW_START,
                                                         x"EEEE");                     -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------

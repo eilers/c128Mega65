@@ -36,9 +36,7 @@ Place the following files on the active SD card:
 Without these files, the core cannot boot correctly. Without `firmware.bin`, or with one that
 does not fit the core, the core says so on the screen.
 
-Optional:
-
-- `/c128/modem.bin` (firmware of the SwiftLink modem, see [doc/swiftlink-modem.md](doc/swiftlink-modem.md))
+The SwiftLink modem is part of the system firmware (see [doc/swiftlink-modem.md](doc/swiftlink-modem.md)).
 
 Contributing
 ------------

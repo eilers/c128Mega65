@@ -25,10 +25,10 @@ FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.a
 ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -Os -g -std=gnu11 -ffunction-sections -fdata-sections -MMD -MP \
            -Wall -Wextra -Iinclude -Ilib -Ifatfs
-# Data and stack in the 16 KB data RAM; code and constants in the boot ROM, or for the
+# Data and stack in the 64 KB data RAM; code and constants in the boot ROM, or for the
 # firmware in its HyperRAM region
 LD      := $(ARCH) -nostartfiles -Wl,--gc-sections -T neorv32/neorv32.ld --specs=nano.specs \
-           -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=16K
+           -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=64K
 ROM_LD  := $(LD) -Wl,--defsym,__neorv32_rom_base=0x0 -Wl,--defsym,__neorv32_rom_size=8K
 FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv32_rom_size=4088K
 
@@ -36,7 +36,10 @@ COMMON  := build/common/lib/console.o build/common/lib/trap.o build/common/lib/c
            build/common/lib/sd.o build/crt0.o
 # FatFs and its disk layer are built twice, once with each ffconf.h
 BOOT    := build/rom/boot/boot.o build/rom/boot/load.o build/rom/fatfs/ff.o build/rom/lib/diskio.o
-CORE_OBJ := $(patsubst $(CORE_DIR)/%.c,build/fw/core/%.o,$(wildcard $(CORE_DIR)/*.c))
+# The core's other sources (CORE_SRC, paths in CORE_DIR) and their flags (CORE_CFLAGS)
+-include $(CORE_DIR)/core.mk
+CORE_OBJ := $(patsubst $(CORE_DIR)/%.c,build/fw/core/%.o,$(wildcard $(CORE_DIR)/*.c) \
+            $(addprefix $(CORE_DIR)/,$(CORE_SRC)))
 FW      := $(patsubst %.c,build/fw/%.o,$(wildcard fw/*.c)) $(CORE_OBJ) build/fw/lib/fmt.o \
            build/fw/fatfs/ff.o build/fw/fatfs/ffunicode.o build/fw/lib/diskio.o
 
@@ -58,7 +61,7 @@ build/fw/%.o: %.c | $(FW_GEN)
 
 build/fw/core/%.o: $(CORE_DIR)/%.c | $(FW_GEN)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Ifw -Ibuild/fw -c $< -o $@
+	$(CC) $(CFLAGS) -Ifw -Ibuild/fw $(CORE_CFLAGS) -c $< -o $@
 
 build/fw/filters.h: $(FILTERS) tools/asm_dw.py
 	@mkdir -p $(dir $@)

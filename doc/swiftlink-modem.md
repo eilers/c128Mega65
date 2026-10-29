@@ -7,11 +7,11 @@ the connection. Callers can also reach the C128 on TCP port 6400, so it can run 
 
 ## Using it
 
-1. Put `modem.bin` (from `sdcard/c128/`) on the SD card as `/c128/modem.bin`.
-2. Connect the MEGA65 to a network with DHCP.
-3. In the menu, set **Modem** to the address your program expects: `$DE00` is
+1. Connect the MEGA65 to a network with DHCP. The modem is part of the system firmware
+   (`/c128/firmware.bin`); it needs no file of its own.
+2. In the menu, set **Modem** to the address your program expects: `$DE00` is
    SwiftLink's usual one. The modem uses NMI, as a SwiftLink does.
-4. In the terminal program, pick SwiftLink at that address, at up to 38400 baud.
+3. In the terminal program, pick SwiftLink at that address, at up to 38400 baud.
 
 | Command            | What it does                                                                     |
 |--------------------|----------------------------------------------------------------------------------|
@@ -21,7 +21,7 @@ the connection. Callers can also reach the C128 on TCP port 6400, so it can run 
 | `+++`              | Back to commands while staying connected (one second of quiet before and after)  |
 | `ATO`              | Back online                                                                      |
 | `ATH`              | Hang up. Dropping DTR does the same, unless `AT&D0`.                             |
-| `ATI`, `ATI1`, `ATI2` | Version; network status (MAC, IP, gateway, DNS); the modem's debug log       |
+| `ATI`, `ATI1`, `ATI2` | Version; network status (MAC, IP, gateway, DNS, counters); the network's debug log |
 | `ATZ`, `AT&F`      | Back to the defaults                                                             |
 | `ATE`, `ATV`, `ATQ`, `AT&C` | Echo, word or number results, quiet, DCD always on (`&C0`) or with the carrier |
 | `ATS50=n`          | Telnet: 0 = use it when the far end does or the port is 23 (default), 1 = never, 2 = always |
@@ -41,12 +41,12 @@ terminal program sees the timing of a real line.
 ## How it is built
 
 ```
-C128 bus ── 6551 (acia6551) ── 64-byte FIFOs ── NEORV32 ── RMII MAC ── Ethernet PHY
-              main_clk              │            modem_clk (50 MHz)
-                                    └── firmware from HyperRAM (hr_clk)
+C128 bus ── 6551 (acia6551) ── 64-byte FIFOs ──┐
+              main_clk                          ├── net.vhd, device 0x010B ── system CPU:
+Ethernet PHY ── RMII MAC (eth_wrapper) ─────────┘   modem_clk, 50 MHz           lwIP, the modem
 ```
 
-- **The 6551** (`CORE/vhdl/modem/acia6551.vhd`) follows the Ultimate's `acia6551.vhd`,
+- **The 6551** (`CORE/vhdl/net/acia6551.vhd`) follows the Ultimate's `acia6551.vhd`,
   whose author measured a real 6551: DTR gates the receiver and the IRQs, the transmit
   IRQ is a level, a status read clears the IRQ, a status write is the programmed reset.
   Unlike a 6551 it never overruns: the next byte waits until the C128 has read the last
@@ -61,79 +61,73 @@ C128 bus ── 6551 (acia6551) ── 64-byte FIFOs ── NEORV32 ── RMII 
   receiver would stay full for good. `ATI1` counts these as `MISSED NMIS`.
 - **A C128 reset** resets the 6551 and makes the modem hang up and drop anything it was
   still sending. Its settings stay, as on an external modem.
-- **The modem** is a NEORV32 RISC-V (`CORE/vhdl/neorv32`, v1.13.6) running lwIP 2.2.1
-  and a Hayes command set (`CORE/modem-fw`). The command set follows the Ultimate's
-  `modem.cc`; telnet negotiation is new. The Ultimate relays raw TCP, which corrupts
-  XMODEM blocks containing `$FF` on BBSes that speak the telnet protocol.
+- **The modem** runs in the RISC-V system firmware (`CORE/firmware/net`): lwIP 2.2.1 and
+  a Hayes command set. The command set follows the Ultimate's `modem.cc`; telnet
+  negotiation is new. The Ultimate relays raw TCP, which corrupts XMODEM blocks containing
+  `$FF` on BBSes that speak the telnet protocol. Until RISC-V step 8 the modem had a
+  NEORV32 of its own, with its firmware in `/c128/modem.bin`.
 - **The Ethernet MAC** is C64MEGA65's `eth_rmii.vhd` (`M2M/vhdl/controllers/ethernet`),
-  with a transmit frame buffer added to its `eth_wrapper.vhd`.
+  with a transmit frame buffer added to its `eth_wrapper.vhd`. It stays in reset until the
+  firmware starts the network.
 
-### Block RAM
+### Turns
 
-The modem was laid out to use as little block RAM as possible: 6.5 RAMB36 tiles (R6
-build: 292 of 365, from 285.5 without the modem), and about 6,100 LUTs.
+The network gets a turn in every round of the firmware's main loop (`core_net`): up to
+four frames from the MAC into lwIP, lwIP's timers, then the modem moves bytes between the
+FIFOs and TCP. Long disk work, a big UCI copy or a folder the menu draws, also gives it a
+turn between sectors (`core_idle`, at most every millisecond), so the FIFOs and the MAC's
+buffer don't wait for the round to end. lwIP's callbacks only change the network's own
+state, so a turn in the middle of a FatFs call is safe; a turn never runs inside another.
+`ATI1`'s `LONGEST WAIT` is the longest time without a turn since the last `ATI1`.
 
-| What                         | Tiles | Why                                                              |
-|------------------------------|-------|------------------------------------------------------------------|
-| CPU data RAM, 16 KB          | 4     | lwIP's buffers and the stack (13.5 KB used)                      |
-| Instruction cache, 8 KB      | 2.5   | four byte lanes of a RAMB18 each, and the tags; the firmware itself, 68 KB, stays in HyperRAM |
-| No data cache                | 0     | NEORV32's would take 2 tiles at any size up to 8 KB; constants come from HyperRAM a word at a time |
-| Register file, boot code     | 0     | flip-flops and LUTs; NEORV32's RAM styles took 1.5 tiles          |
-| MAC frame buffers, 4 + 2 KB  | 0     | LUTRAM (Vivado can't put `axis_dropper`'s buffer in block RAM)   |
-| 6551 FIFOs, 64 + 64 bytes    | 0     | LUTRAM                                                           |
-
-Running the firmware from block RAM instead would have cost 13 more tiles. From
-HyperRAM it also updates without a new core: copy a new `modem.bin` and reset.
-
-**Short HyperRAM bursts.** HDMI's scaler keeps its frame buffer in HyperRAM and takes
-turns with the core, and it only has room for two bursts of the incoming picture. So
-`modem_hr_bridge.vhd` reads a cache line in four 16-word bursts. As one 64-word burst it
-made the scaler miss its deadlines on the 80-column screen while the modem was busy,
-and HDMI showed sparkles (VGA doesn't go through the scaler).
-
-**No big receive buffer.** The FIFOs only cover the CPU's gaps (64 bytes is 11 ms at
-57600 baud). When the C128 falls behind, for example while it writes an XMODEM block to
+**No big receive buffer.** The FIFOs only cover the gaps between turns (64 bytes is 16.7 ms
+at 38400 baud). When the C128 falls behind, for example while it writes an XMODEM block to
 disk, it drops RTS. The FIFO fills, the firmware stops taking data from lwIP, the TCP
 window closes, and the sender waits. The data waits on the server, so nothing needs to
 buffer it here. XMODEM itself never has more than one block in flight. A 2-segment TCP
-window covers a round trip of up to about 500 ms at 57600 baud.
+window covers a round trip of up to about 500 ms at 57600 baud, and fits in the MAC's 4 KB.
 
-### Booting
+**Failures.** A trap (a bus error, say) stops the whole firmware on its trap screen, and so
+does a main loop stuck for a second (the watchdog, marked `stuck`, with the address it was
+stuck at). The core needs a reset then. `AT*T` and `AT*W` test the two.
 
-The Shell loads `/c128/modem.bin` into HyperRAM at startup (`0x1C0`–`0x1FF`, see
-`hyperram-map.md`), one byte per 16-bit word, so the image can be up to 256 KB. The CPU is held in reset while the menu
-has the modem off. Once released, it starts in its boot code (`CORE/modem-fw/boot/boot.S`,
-104 bytes, served by `modem.vhd` at `0xF0003000`), which checks the image's header and
-checksum every 100 ms and jumps to it once both are right. Without the file the modem stays silent, and the 6551 still answers.
+### Resources
 
-A trap (a bus error, say) or a main loop stuck for a second restarts the firmware. The
-C128 sees `MODEM RESTARTED` with the cause, the call is dropped, and the settings go back
-to the defaults. `ATI2`'s log keeps what came before, and `ATI1` counts the restarts.
+The modem's own CPU took 6.5 RAMB36 tiles (16 KB of data RAM, 8 KB of i-cache). Instead
+the system CPU's data RAM grew from 16 to 64 KB (12 tiles), for lwIP sized for the modem,
+UCI's network target and the REST server (about 28 KB) beside the rest of the firmware.
+The MAC's frame buffers (4 + 2 KB) and the 6551's FIFOs are LUTRAM.
 
-### Addresses
+**Short HyperRAM bursts.** HDMI's scaler keeps its frame buffer in HyperRAM and takes
+turns with the core, and it only has room for two bursts of the incoming picture. So the
+system CPU's bridge reads a cache line in four 16-word bursts, as the modem's did: as one
+64-word burst it made the scaler miss its deadlines on the 80-column screen while the
+modem was busy, and HDMI showed sparkles (VGA doesn't go through the scaler).
 
-| CPU address    | What                                             |
-|----------------|--------------------------------------------------|
-| `0x40000000`   | firmware in HyperRAM, cached                     |
-| `0x80000000`   | 16 KB data RAM                                   |
-| `0xF0000000`   | 6551 FIFOs and lines (`CORE/modem-fw/src/hw.h`)  |
-| `0xF0001000`   | Ethernet MAC                                     |
-| `0xF0002000`   | FPGA device DNA, for the MAC address             |
-| `0xF0003000`   | boot code, where the CPU starts                  |
+### Registers
+
+16-bit words of device `0x010B` (`C_DEV_NET`) on the system CPU's device bus;
+`CORE/firmware/net/net_hw.h` and the header of `CORE/vhdl/net/net.vhd` list them: the
+6551's FIFOs, lines and events, the MAC's receive and transmit bytes and status, and the
+FPGA's device DNA.
 
 The MAC address is `02:C1:28:xx:xx:xx`, with the last three bytes from the FPGA's DNA,
-so every MEGA65 gets its own.
+so every MEGA65 gets its own (the same one as before step 8).
 
 ## Testing
 
-- `CORE/sim/tb_modem.vhd` (`CORE/scripts/run_modem_sim.tcl`): the real firmware boots
-  from a HyperRAM model; the testbench programs the 6551, types AT commands and checks
-  the echo, `OK`, `ATI`, `ERROR`, `NO DIALTONE` and the 6551's IRQ. It also plays
-  CCGMS's start (DTR on with the receive IRQ off, then on), a status read that clears
-  the IRQ before the NMI is taken, DTR off, a C128 reset in the middle of an answer, and
-  restarts after a trap and after a HyperRAM read that takes too long. A HyperRAM burst
-  longer than 16 words is an error.
+- `CORE/sim/tb_net.vhd` (`CORE/scripts/run_net_nvc.sh`, nvc, a few seconds): a firmware
+  model on the device bus reads the DNA, sends two frames through an RMII loopback and
+  reads them back, then echoes the C128's bytes. A C128 bus model programs the 6551 and
+  plays CCGMS's start (DTR on with the receive IRQ off, then on), a status read that clears
+  the IRQ before the NMI is taken, DTR off, a C128 reset in the middle of a line, and the
+  modem switched off.
+- `M2M/firmware/host/test_modem.c` (`make -C M2M/firmware host-test`): the real `modem.c`
+  and lwIP on the Mac, against a C128 that sends and reads at 38400 baud through 64-byte
+  FIFOs and a server behind a 4 KB MAC buffer: AT commands, uploads (HTTP, bulk, telnet),
+  pkg-style downloads with disk pauses, and both with the firmware stalling 66 ms out of
+  every 250.
 - CCGMS Future (github.com/mist64/ccgmsterm) has an automated transfer test: `test/xfer.c`
   behind socat on a PC drives the terminal through every XMODEM variant and Punter. Its
   regular build supports SwiftLink at `$DE00`, `$DF00` and `$D700`. The EasyFlash build
-  leaves SwiftLink out.
+  leaves SwiftLink out. See `test/modem/README.md`.

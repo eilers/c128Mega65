@@ -1,8 +1,12 @@
 // The serial monitor's commands, one per line, numbers in hex:
 //   rb|rh|rw ADDR [N]    read N bytes, halfwords or words (1 if no N)
 //   wb|wh|ww ADDR V...   write them, one after the other
+//   tr ADDR [N]          time N reads of the words from ADDR on (400 if no N)
+//   tw ADDR V [N]        time N writes of V to them
+//   lt                   the main loop's timing since the last lt
 // ADDR is a CPU address, or DEV:WORD, word WORD of core device DEV (rb and wb: its low
 // byte). A command is echoed, then come its lines, "ok" or "? why", and the prompt.
+#include <string.h>
 #include "monitor.h"
 
 #define LINE_MAX       128   // mon.py sends up to about 110
@@ -35,6 +39,17 @@ static char *hex(char *p, uint32_t v, int digits)
    while (digits--)
       *p++ = "0123456789ABCDEF"[(v >> (4 * digits)) & 15];
    return p;
+}
+
+static void dec(uint32_t v)
+{
+   char t[10];
+   int n = 0;
+   do
+      t[n++] = '0' + v % 10;
+   while (v /= 10);
+   while (n)
+      mon_putc(t[--n]);
 }
 
 static void end(const char *why)   // why = 0: ok
@@ -124,7 +139,68 @@ static const char *help(void)
          "wb|wh|ww ADDR V...  write them\r\n"
          "ADDR: a CPU address, or DEV:WORD, a word of a device (rb, wb: its low byte)\r\n"
          "40000000 HyperRAM, C0000000 device bus, E0000000 registers\r\n"
-         "Ctrl-C stops a read\r\n");
+         "Ctrl-C stops a read\r\n"
+         "tr ADDR [N]         time N reads of the words from ADDR on (tw ADDR V [N]: writes)\r\n"
+         "lt                  the main loop's timing since the last lt\r\n");
+   return 0;
+}
+
+// N accesses (default 400), 32-bit words at a CPU address or a device's 16-bit words
+static const char *time_access(bool write, char **tok, int n)
+{
+   uint32_t dev, a, v = 0, count = 0x400, clocks;
+   int at = write ? 3 : 2;   // the count's place
+   if (n < 2 || !parse_addr(tok[1], &dev, &a))
+      return "address";
+   if (write && (n < 3 || !parse_hex(tok[2], &v) || (dev != NO_DEV && v >> 16)))
+      return "value";
+   if (n > at + 1 || (n == at + 1 && (!parse_hex(tok[at], &count) || count == 0)))
+      return "count";
+   if (dev == NO_DEV && a % 4)
+      return "alignment";
+   if (!fits(dev, a, count, dev == NO_DEV ? 4 : 1))
+      return "past the end";
+
+   uint32_t old;
+   if (!dev_select(dev, &old))
+      return bus_error(REG_RAMROM_DEV);
+   bool ok = mon_time(cpu_addr(dev, a), dev == NO_DEV ? 4 : 2, write, v, count, &clocks);
+   dev_restore(dev, old);
+   if (!ok)
+      return "bus error";
+   dec(count);
+   puts_(write ? " writes in " : " reads in ");
+   dec(clocks / (1000 / MON_CLOCK_NS));
+   puts_(" us, ");
+   dec((uint64_t)clocks * MON_CLOCK_NS / count);
+   puts_(" ns each\r\n");
+   return 0;
+}
+
+static const char *loop_times(void)
+{
+   static const char *const under[MON_BUCKETS] = {
+      "10 us", "100 us", "1 ms", "10 ms", "100 ms", "1 s", "longer"
+   };
+   puts_("rounds ");
+   dec(mon_loop.rounds);
+   puts_("\r\nlongest call:");
+   for (int i = 0; i < MON_MODULES; i++) {
+      puts_(i ? ", " : " ");
+      puts_(mon_module[i]);
+      mon_putc(' ');
+      dec(mon_loop.max[i] / (1000 / MON_CLOCK_NS));
+      puts_(" us");
+   }
+   puts_("\r\nrounds under");
+   for (int i = 0; i < MON_BUCKETS; i++) {
+      puts_(i ? ", " : " ");
+      puts_(under[i]);
+      mon_putc(' ');
+      dec(mon_loop.hist[i]);
+   }
+   puts_("\r\n");
+   memset(&mon_loop, 0, sizeof mon_loop);
    return 0;
 }
 
@@ -146,6 +222,10 @@ static const char *run(void)
    char op = tok[0][0] | 0x20, w = tok[0][1] | 0x20;
    if ((op == 'h' || op == '?') && !tok[0][1])
       return help();
+   if (op == 't' && (w == 'r' || w == 'w') && !tok[0][2])
+      return time_access(w == 'w', tok, n);
+   if (op == 'l' && w == 't' && !tok[0][2])
+      return n == 1 ? loop_times() : "what? h for help";
    int width = w == 'b' ? 1 : w == 'h' ? 2 : w == 'w' ? 4 : 0;
    if ((op != 'r' && op != 'w') || !width || tok[0][2])
       return "what? h for help";

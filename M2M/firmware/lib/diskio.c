@@ -5,6 +5,11 @@
 
 static DSTATUS status = STA_NOINIT;
 
+// Called at every sector; the firmware has its own (fw/main.c)
+__attribute__((weak)) void disk_idle(void)
+{
+}
+
 DSTATUS disk_status(BYTE pdrv)
 {
    return pdrv ? STA_NOINIT : status;
@@ -23,9 +28,11 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
    if (pdrv || (status & STA_NOINIT))
       return RES_NOTRDY;
-   for (; count; count--, sector++, buff += 512)
+   for (; count; count--, sector++, buff += 512) {
       if (sd_read(sector, buff))
          return RES_ERROR;
+      disk_idle();
+   }
    return RES_OK;
 }
 
@@ -34,9 +41,11 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
    if (pdrv || (status & STA_NOINIT))
       return RES_NOTRDY;
-   for (; count; count--, sector++, buff += 512)
+   for (; count; count--, sector++, buff += 512) {
       if (sd_write(sector, buff))
          return RES_ERROR;
+      disk_idle();
+   }
    return RES_OK;
 }
 #endif

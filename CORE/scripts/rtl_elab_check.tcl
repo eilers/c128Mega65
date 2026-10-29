@@ -91,9 +91,9 @@ foreach required_file $required_source_files {
     }
 }
 
-# The SwiftLink modem: NEORV32 goes in its own library
-source [file join [file dirname [info script]] add_modem_sources.tcl]
-add_modem_sources $repo_dir
+# The network device; NEORV32 goes in its own library with the system CPU
+source [file join [file dirname [info script]] add_net_sources.tcl]
+add_net_sources $repo_dir
 source [file join [file dirname [info script]] add_rv_sources.tcl]
 add_rv_sources $repo_dir
 

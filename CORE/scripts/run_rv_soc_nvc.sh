@@ -12,7 +12,7 @@ work=${1:-"$repo/CORE/rv_soc_nvc"}
 mkdir -p "$work"
 cd "$work"
 
-neo=("$repo/CORE/vhdl/modem/neorv32_bootrom_image.vhd")
+neo=("$repo/M2M/vhdl/rv/neorv32_bootrom_image.vhd")
 while read -r f; do neo+=("$repo/CORE/vhdl/neorv32/$f"); done < "$repo/CORE/vhdl/neorv32/file_list.txt"
 
 nvc --std=2008 --work=neorv32 -a "${neo[@]}"

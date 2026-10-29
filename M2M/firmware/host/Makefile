@@ -4,7 +4,7 @@
 HOSTCC ?= cc
 CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -I../include -I../lib -I../fatfs
 
-all: build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon
+all: build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon build/test_modem
 	./run.sh build
 
 build/test_boot: test_boot.c diskio_file.c ../boot/load.c ../lib/crc32.c ../fatfs/ff.c \
@@ -47,6 +47,13 @@ build/test_prg: $(PRG_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h 
 build/test_mon: test_mon.c ../fw/monitor.c ../fw/monitor.h
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw $(filter %.c,$^) -o $@
+
+# The SwiftLink modem with lwIP, against a C128 and a server (CORE/firmware/net)
+NET   := ../../../CORE/firmware/net
+LWIP  := $(wildcard $(NET)/lwip/core/*.c) $(wildcard $(NET)/lwip/core/ipv4/*.c) $(NET)/lwip/netif/ethernet.c
+build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h)
+	@mkdir -p build
+	$(HOSTCC) $(CFLAGS) -I$(NET) -I$(NET)/lwip/include $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build

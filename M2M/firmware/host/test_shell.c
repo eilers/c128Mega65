@@ -259,7 +259,6 @@ static void make_card(uint8_t *file)
    f_mkdir("/c128");
    put_file("/c128/boot0.rom", 0, 4100);
    put_file("/c128/boot1.rom", 1, 600);
-   put_file("/c128/modem.bin", 2, 1000);
    put_file("/c128/game.crt", 3, 70000);
    put_file("/c128/big.crt", 4, 140000);
    f_mkdir("/c128/Sub");
@@ -378,10 +377,6 @@ int main(int argc, char **argv)
    check((M2M_CSR & (M2M_CSR_KBD | M2M_CSR_JOY1 | M2M_CSR_JOY2)) == 0x38, "keyboard and joysticks on");
    check(device_holds(0x101, 0, 4100), "boot0.rom in its device");
    check(device_holds(0x102, 1, 600), "boot1.rom in its device");
-   int modem = 1;
-   for (int i = 0; i < 1000; i++)
-      modem &= host_hr[0x1C0 * 4096 + i] == pattern(2, i);
-   check(modem, "modem.bin in HyperRAM, a byte per word");
    M2M_RAMROM_DEV = M2M_DEV_ASCAL_PPHASE;
    check(M2M_DEV16[0] == 0x03E8 && M2M_DEV16[0x100] != 0, "ascal filters loaded");
    check(M2M_CSR & M2M_CSR_ASCAL_AUTO, "ascal follows the core");

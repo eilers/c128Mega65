@@ -45,6 +45,20 @@ bool mon_access(uint32_t a, int width, bool write, uint32_t *v)
    return false;
 }
 
+// Each access takes 7 clocks; a bus error stops the run
+static uint32_t timed_n;   // accesses made
+bool mon_time(uint32_t addr, int width, bool write, uint32_t v, uint32_t n, uint32_t *clocks)
+{
+   bool ok = true;
+   for (timed_n = 0; timed_n < n && ok; timed_n++, addr += width)
+      ok = mon_access(addr, width, write, &v);
+   *clocks = 7 * timed_n;
+   return ok;
+}
+
+struct mon_loop mon_loop;
+const char *const mon_module[MON_MODULES] = { "keys", "sdcard", "shell", "core", "net", "monitor" };
+
 static char out[1 << 20];
 static int  out_n, room = 1 << 20;
 
@@ -179,7 +193,46 @@ int main(void)
           "wb|wh|ww ADDR V...  write them\r\n"
           "ADDR: a CPU address, or DEV:WORD, a word of a device (rb, wb: its low byte)\r\n"
           "40000000 HyperRAM, C0000000 device bus, E0000000 registers\r\n"
-          "Ctrl-C stops a read\r\nok\r\n> ");
+          "Ctrl-C stops a read\r\n"
+          "tr ADDR [N]         time N reads of the words from ADDR on (tw ADDR V [N]: writes)\r\n"
+          "lt                  the main loop's timing since the last lt\r\nok\r\n> ");
+
+   // Timed accesses: words of the CPU, or of a device behind the window, which is put back
+   expect("tr 40000000 10\r", "tr 40000000 10\r\n16 reads in 1 us, 70 ns each\r\nok\r\n> ");
+   check(timed_n == 16, "tr makes N reads");
+   expect("tr 40000000\r", "tr 40000000\r\n1024 reads in 71 us, 70 ns each\r\nok\r\n> ");
+   expect("tw 40000400 A5A5A5A5 3\r", "tw 40000400 A5A5A5A5 3\r\n3 writes in 0 us, 70 ns each\r\nok\r\n> ");
+   check(hr[0x400] == 0xA5 && hr[0x40B] == 0xA5 && hr[0x40C] == 0x0C, "tw writes N words, no more");
+   ramrom_dev = 7;
+   expect("tw 100:20 BEEF 2\r", "tw 100:20 BEEF 2\r\n2 writes in 0 us, 70 ns each\r\nok\r\n> ");
+   check(ram[0x20] == 0xBEEF && ram[0x21] == 0xBEEF && ram[0x22] == 0 && ramrom_dev == 7,
+         "tw on a device writes its words and puts the window back");
+   expect("tr 4000FFF8 4\r", "tr 4000FFF8 4\r\n? bus error\r\n> ");
+   check(timed_n == 3, "a bus error stops the run");
+   expect("tr 40000002\r", "tr 40000002\r\n? alignment\r\n> ");
+   expect("tr 40000000 0\r", "tr 40000000 0\r\n? count\r\n> ");
+   expect("tr 40000000 1 2\r", "tr 40000000 1 2\r\n? count\r\n> ");
+   expect("tw 40000000\r", "tw 40000000\r\n? value\r\n> ");
+   expect("tw 100:0 10000\r", "tw 100:0 10000\r\n? value\r\n> ");
+   expect("tr FFFFFFFC 2\r", "tr FFFFFFFC 2\r\n? past the end\r\n> ");
+   expect("trr 0\r", "trr 0\r\n? what? h for help\r\n> ");
+
+   // The main loop's timing, then cleared
+   mon_loop.rounds = 123456;
+   mon_loop.max[0] = 250;
+   mon_loop.max[2] = 45000000;
+   mon_loop.max[4] = 1300;
+   mon_loop.hist[0] = 120000;
+   mon_loop.hist[6] = 2;
+   expect("lt\r", "lt\r\nrounds 123456\r\n"
+          "longest call: keys 2 us, sdcard 0 us, shell 450000 us, core 0 us, net 13 us, monitor 0 us\r\n"
+          "rounds under 10 us 120000, 100 us 0, 1 ms 0, 10 ms 0, 100 ms 0, 1 s 0, longer 2\r\n"
+          "ok\r\n> ");
+   expect("lt\r", "lt\r\nrounds 0\r\n"
+          "longest call: keys 0 us, sdcard 0 us, shell 0 us, core 0 us, net 0 us, monitor 0 us\r\n"
+          "rounds under 10 us 0, 100 us 0, 1 ms 0, 10 ms 0, 100 ms 0, 1 s 0, longer 0\r\n"
+          "ok\r\n> ");
+   expect("lt 1\r", "lt 1\r\n? what? h for help\r\n> ");
 
    // A read waits for room to send its next line, and Ctrl-C stops it
    out_n = 0;

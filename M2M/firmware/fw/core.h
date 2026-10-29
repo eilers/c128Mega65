@@ -33,6 +33,11 @@ const char *core_prep_start(void);
 uint32_t    core_menu_key(void);
 // Called from the main loop, for the core's own modules; must not wait
 void        core_poll(void);
+// The core's network, from the main loop after core_poll; must not wait
+void        core_net(void);
+// Called during long disk work, about every sector, for what must not wait long (the
+// network); must not touch the card
+void        core_idle(void);
 
 // What the Shell offers the core
 int  shell_group(int idx);                    // menu item idx's group (0: text, line), or -1

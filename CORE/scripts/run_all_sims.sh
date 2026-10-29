@@ -62,7 +62,6 @@ run_tcl "Cartridge DMA (tb_cart_dma)" CORE/scripts/run_cart_dma_sim.tcl
 run_tcl "REU and SwiftLink in FAST mode (tb_fast_io)" CORE/scripts/run_fast_io_sim.tcl
 run_tcl "Virtual cartridges (tb_crt)" CORE/scripts/run_crt_sim.tcl
 run_tcl "Virtual cartridges in SDRAM (tb_crt_sdram)" CORE/scripts/run_crt_sim.tcl tb_crt_sdram
-run_tcl "SwiftLink modem (tb_modem)" CORE/scripts/run_modem_sim.tcl
 run_tcl "1541/1571 bring-up on D64 (tb_c157x_boot)" CORE/scripts/run_c157x_boot_sim.tcl "" d64
 if [[ -f "$ROOT_DIR/test/157x-rw/157x-rw-test.d71" ]]; then
   run_tcl "1571 bring-up on D71 (tb_c157x_boot)" CORE/scripts/run_c157x_boot_sim.tcl "" d71

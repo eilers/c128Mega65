@@ -7,7 +7,8 @@
 
 // Version of this hardware interface. Bump it when a change here would break a firmware
 // built for the old one: the boot ROM only starts a firmware built for its own version.
-#define M2M_RV_HW_VERSION    1u
+// 2: 64 KB data RAM (was 16 KB)
+#define M2M_RV_HW_VERSION    2u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32
@@ -100,7 +101,7 @@
 #endif
 
 #ifndef M2M_HALT
-#define M2M_HALT()           do { } while (1)   // stops the firmware for good
+#define M2M_HALT()           do { asm volatile ("csrci mstatus, 8"); } while (1)   // stops the firmware for good, the watchdog too
 #endif
 #define M2M_FW_BASE          0x40400000u   // the firmware's region, C_HMAP_FIRMWARE 0x200-0x3FE
 #define M2M_FW_END           0x407FE000u   // (doc/hyperram-map.md)
@@ -110,3 +111,5 @@
 #define UART0_DATA           REG32(0xFFF50004u)
 #define MTIME_LO             REG32(0xFFF4BFF8u)
 #define MTIME_HI             REG32(0xFFF4BFFCu)
+#define MTIMECMP_LO          REG32(0xFFF44000u)
+#define MTIMECMP_HI          REG32(0xFFF44004u)

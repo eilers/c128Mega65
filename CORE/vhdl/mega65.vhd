@@ -280,7 +280,7 @@ port (
    cart_d_i                : in  unsigned( 7 downto 0);
    cart_d_o                : out unsigned( 7 downto 0);
 
-   -- SwiftLink modem: its 50 MHz clock (CPU and Ethernet) and the Ethernet PHY
+   -- Network (SwiftLink modem, Ethernet): its 50 MHz clock and the Ethernet PHY
    modem_clk_i             : in    std_logic;
    modem_rst_i             : in    std_logic;
    eth_clock_o             : out   std_logic;
@@ -506,7 +506,7 @@ signal crt_sr_readdata        : std_logic_vector(15 downto 0);
 signal crt_sr_readdatavalid   : std_logic;
 signal crt_sr_waitrequest     : std_logic;
 
--- SwiftLink modem: the 6551's bus on main_clk, its firmware reads on hr_clk
+-- SwiftLink modem: the 6551's bus on main_clk; the network device on the device bus
 signal main_modem_en          : std_logic;
 signal main_modem_rst         : std_logic;
 signal main_modem_cs          : std_logic;
@@ -515,6 +515,9 @@ signal main_modem_addr        : std_logic_vector(2 downto 0);
 signal main_modem_wdata       : std_logic_vector(7 downto 0);
 signal main_modem_rdata       : std_logic_vector(7 downto 0);
 signal main_modem_irq         : std_logic;
+signal qnice_net_ce           : std_logic;
+signal qnice_net_we           : std_logic;
+signal qnice_net_data         : std_logic_vector(15 downto 0);
 
 -- Ultimate Command Interface: the C128's side on main_clk, the firmware's on the device bus
 signal main_uci_rst           : std_logic;
@@ -568,27 +571,6 @@ signal dma_hm_read            : std_logic;
 signal dma_hm_readdata        : std_logic_vector(15 downto 0);
 signal dma_hm_readdatavalid   : std_logic;
 signal dma_hm_waitrequest     : std_logic;
-
-signal modem_hr_write         : std_logic;
-signal modem_hr_read          : std_logic;
-signal modem_hr_address       : std_logic_vector(31 downto 0);
-signal modem_hr_writedata     : std_logic_vector(15 downto 0);
-signal modem_hr_byteenable    : std_logic_vector( 1 downto 0);
-signal modem_hr_burstcount    : std_logic_vector( 7 downto 0);
-signal modem_hr_readdata      : std_logic_vector(15 downto 0);
-signal modem_hr_readdatavalid : std_logic;
-signal modem_hr_waitrequest   : std_logic;
-
--- The modem and the REU's DMA, after their arbiter (R3 memory; else just the modem)
-signal modem_hm_write         : std_logic;
-signal modem_hm_read          : std_logic;
-signal modem_hm_address       : std_logic_vector(31 downto 0);
-signal modem_hm_writedata     : std_logic_vector(15 downto 0);
-signal modem_hm_byteenable    : std_logic_vector( 1 downto 0);
-signal modem_hm_burstcount    : std_logic_vector( 7 downto 0);
-signal modem_hm_readdata      : std_logic_vector(15 downto 0);
-signal modem_hm_readdatavalid : std_logic;
-signal modem_hm_waitrequest   : std_logic;
 
 -- REU and cartridge, after their arbiter
 signal exp_hr_write           : std_logic;
@@ -1088,6 +1070,8 @@ begin
       qnice_uci_we         <= '0';
       qnice_reusd_ce       <= '0';
       qnice_reusd_we       <= '0';
+      qnice_net_ce         <= '0';
+      qnice_net_we         <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -1145,6 +1129,12 @@ begin
             qnice_reusd_ce    <= qnice_dev_ce_i;
             qnice_reusd_we    <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_reusd_data;
+
+        -- Network: the 6551's FIFOs, the Ethernet MAC, the device DNA (net.vhd)
+        when C_DEV_NET =>
+            qnice_net_ce      <= qnice_dev_ce_i;
+            qnice_net_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_net_data;
 
          when others => null;
       end case;
@@ -1487,64 +1477,8 @@ begin
          m_avm_waitrequest_i    => exp_hr_waitrequest
       ); -- i_core_hr_arbit
 
-   -- R3 memory: the REU's DMA shares the modem's turn (the REU's own path keeps its timing)
-   dma_hm_gen : if C_R3_MEMORY generate
-      i_dma_hr_arbit : entity work.avm_arbit
-         generic map (
-            G_PREFER_SWAP  => true,
-            G_FREQ_HZ      => 100_000_000,
-            G_ADDRESS_SIZE => 32,
-            G_DATA_SIZE    => 16
-         )
-         port map (
-            clk_i                  => hr_clk_i,
-            rst_i                  => hr_rst_i,
-            s0_avm_write_i         => modem_hr_write,
-            s0_avm_read_i          => modem_hr_read,
-            s0_avm_address_i       => modem_hr_address,
-            s0_avm_writedata_i     => modem_hr_writedata,
-            s0_avm_byteenable_i    => modem_hr_byteenable,
-            s0_avm_burstcount_i    => modem_hr_burstcount,
-            s0_avm_readdata_o      => modem_hr_readdata,
-            s0_avm_readdatavalid_o => modem_hr_readdatavalid,
-            s0_avm_waitrequest_o   => modem_hr_waitrequest,
-            s1_avm_write_i         => dma_hm_write,
-            s1_avm_read_i          => dma_hm_read,
-            s1_avm_address_i       => dma_hr_address,
-            s1_avm_writedata_i     => dma_hr_writedata,
-            s1_avm_byteenable_i    => dma_hr_byteenable,
-            s1_avm_burstcount_i    => dma_hr_burstcount,
-            s1_avm_readdata_o      => dma_hm_readdata,
-            s1_avm_readdatavalid_o => dma_hm_readdatavalid,
-            s1_avm_waitrequest_o   => dma_hm_waitrequest,
-            m_avm_write_o          => modem_hm_write,
-            m_avm_read_o           => modem_hm_read,
-            m_avm_address_o        => modem_hm_address,
-            m_avm_writedata_o      => modem_hm_writedata,
-            m_avm_byteenable_o     => modem_hm_byteenable,
-            m_avm_burstcount_o     => modem_hm_burstcount,
-            m_avm_readdata_i       => modem_hm_readdata,
-            m_avm_readdatavalid_i  => modem_hm_readdatavalid,
-            m_avm_waitrequest_i    => modem_hm_waitrequest
-         ); -- i_dma_hr_arbit
-   else generate
-      modem_hm_write         <= modem_hr_write;
-      modem_hm_read          <= modem_hr_read;
-      modem_hm_address       <= modem_hr_address;
-      modem_hm_writedata     <= modem_hr_writedata;
-      modem_hm_byteenable    <= modem_hr_byteenable;
-      modem_hm_burstcount    <= modem_hr_burstcount;
-      modem_hr_readdata      <= modem_hm_readdata;
-      modem_hr_readdatavalid <= modem_hm_readdatavalid;
-      modem_hr_waitrequest   <= modem_hm_waitrequest;
-      dma_hm_readdata        <= (others => '0');
-      dma_hm_readdatavalid   <= '0';
-      dma_hm_waitrequest     <= '1';
-   end generate dma_hm_gen;
-
-   -- s0 = REU and cartridge, s1 = the modem's firmware reads (16 words at a time) and the
-   -- REU's DMA on R3 memory
-   i_modem_hr_arbit : entity work.avm_arbit
+   -- s0 = REU and cartridge, s1 = the REU's DMA on R3 memory (else idle)
+   i_dma_hr_arbit : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => true,
          G_FREQ_HZ      => 100_000_000,
@@ -1563,15 +1497,15 @@ begin
          s0_avm_readdata_o      => exp_hr_readdata,
          s0_avm_readdatavalid_o => exp_hr_readdatavalid,
          s0_avm_waitrequest_o   => exp_hr_waitrequest,
-         s1_avm_write_i         => modem_hm_write,
-         s1_avm_read_i          => modem_hm_read,
-         s1_avm_address_i       => modem_hm_address,
-         s1_avm_writedata_i     => modem_hm_writedata,
-         s1_avm_byteenable_i    => modem_hm_byteenable,
-         s1_avm_burstcount_i    => modem_hm_burstcount,
-         s1_avm_readdata_o      => modem_hm_readdata,
-         s1_avm_readdatavalid_o => modem_hm_readdatavalid,
-         s1_avm_waitrequest_o   => modem_hm_waitrequest,
+         s1_avm_write_i         => dma_hm_write,
+         s1_avm_read_i          => dma_hm_read,
+         s1_avm_address_i       => dma_hr_address,
+         s1_avm_writedata_i     => dma_hr_writedata,
+         s1_avm_byteenable_i    => dma_hr_byteenable,
+         s1_avm_burstcount_i    => dma_hr_burstcount,
+         s1_avm_readdata_o      => dma_hm_readdata,
+         s1_avm_readdatavalid_o => dma_hm_readdatavalid,
+         s1_avm_waitrequest_o   => dma_hm_waitrequest,
          m_avm_write_o          => hr_core_write_o,
          m_avm_read_o           => hr_core_read_o,
          m_avm_address_o        => hr_core_address_o,
@@ -1581,50 +1515,44 @@ begin
          m_avm_readdata_i       => hr_core_readdata_i,
          m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
          m_avm_waitrequest_i    => hr_core_waitrequest_i
-      ); -- i_modem_hr_arbit
+      ); -- i_dma_hr_arbit
 
    ---------------------------------------------------------------------------------------------
-   -- SwiftLink modem: a 6551 on the C128's bus, a NEORV32 with lwIP on the Ethernet port
+   -- Network: the SwiftLink's 6551 on the C128's bus, the Ethernet MAC and the device DNA on
+   -- the device bus; lwIP and the modem run in the system firmware
    ---------------------------------------------------------------------------------------------
 
-   i_modem : entity work.modem
+   i_net : entity work.net
       generic map (
-         G_MAIN_CLK_HZ => CORE_CLK_SPEED,
-         G_HR_BASE     => to_integer(unsigned(C_HMAP_MODEM)) * 4096   -- 4 KW windows
+         G_MAIN_CLK_HZ => CORE_CLK_SPEED
       )
       port map (
-         clk_i              => modem_clk_i,
-         rst_i              => modem_rst_i,
-         main_clk_i         => main_clk_o,
-         main_rst_i         => main_modem_rst,
-         enable_i           => main_modem_en,
-         cs_i               => main_modem_cs,
-         we_i               => main_modem_we,
-         addr_i             => main_modem_addr,
-         data_i             => main_modem_wdata,
-         data_o             => main_modem_rdata,
-         irq_o              => main_modem_irq,
-         hr_clk_i           => hr_clk_i,
-         hr_rst_i           => hr_rst_i,
-         hr_write_o         => modem_hr_write,
-         hr_read_o          => modem_hr_read,
-         hr_address_o       => modem_hr_address,
-         hr_writedata_o     => modem_hr_writedata,
-         hr_byteenable_o    => modem_hr_byteenable,
-         hr_burstcount_o    => modem_hr_burstcount,
-         hr_readdata_i      => modem_hr_readdata,
-         hr_readdatavalid_i => modem_hr_readdatavalid,
-         hr_waitrequest_i   => modem_hr_waitrequest,
-         eth_clock_o        => eth_clock_o,
-         eth_reset_o        => eth_reset_o,
-         eth_mdc_o          => eth_mdc_o,
-         eth_mdio_io        => eth_mdio_io,
-         eth_rxd_i          => eth_rxd_i,
-         eth_rxdv_i         => eth_rxdv_i,
-         eth_rxer_i         => eth_rxer_i,
-         eth_txd_o          => eth_txd_o,
-         eth_txen_o         => eth_txen_o
-      ); -- i_modem
+         clk_i          => modem_clk_i,
+         rst_i          => modem_rst_i,
+         main_clk_i     => main_clk_o,
+         main_rst_i     => main_modem_rst,
+         enable_i       => main_modem_en,
+         cs_i           => main_modem_cs,
+         we_i           => main_modem_we,
+         addr_i         => main_modem_addr,
+         data_i         => main_modem_wdata,
+         data_o         => main_modem_rdata,
+         irq_o          => main_modem_irq,
+         dev_ce_i       => qnice_net_ce,
+         dev_we_i       => qnice_net_we,
+         dev_addr_i     => qnice_dev_addr_i(11 downto 0),
+         dev_data_i     => qnice_dev_data_i,
+         dev_data_o     => qnice_net_data,
+         eth_clock_o    => eth_clock_o,
+         eth_reset_o    => eth_reset_o,
+         eth_mdc_o      => eth_mdc_o,
+         eth_mdio_io    => eth_mdio_io,
+         eth_rxd_i      => eth_rxd_i,
+         eth_rxdv_i     => eth_rxdv_i,
+         eth_rxer_i     => eth_rxer_i,
+         eth_txd_o      => eth_txd_o,
+         eth_txen_o     => eth_txen_o
+      ); -- i_net
 
    ---------------------------------------------------------------------------------------------
    -- Ultimate Command Interface at $DF1C: the protocol on the core's clock, the firmware's side
