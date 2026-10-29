@@ -1,9 +1,10 @@
 # UCI tests
 
-`uci-test.d64` holds five tests of the Ultimate Command Interface at `$DF1C`-`$DF1F`, each
+`uci-test.d64` holds six tests of the Ultimate Command Interface at `$DF1C`-`$DF1F`, each
 for C128 mode and for C64 mode: `UCITEST` / `UCITEST64` (the transport), `UCIDOS` /
 `UCIDOS64` (the DOS target), `UCICTRL` / `UCICTRL64` (the control target), `UCIREU` /
-`UCIREU64` (LOAD_REU and SAVE_REU) and `UCICFG` / `UCICFG64` (LOAD_CONFIG). They talk to the interface the way a program does. Each line
+`UCIREU64` (LOAD_REU and SAVE_REU), `UCICFG` / `UCICFG64` (LOAD_CONFIG) and `UCINET` /
+`UCINET64` (the network target). They talk to the interface the way a program does. Each line
 ends in PASS or FAIL, and names, paths and times are shown, so a run on a real Ultimate and
 a run on the core can be compared line by line.
 
@@ -150,8 +151,51 @@ before and after it, and UCICFG shows `NO INTERFACE FOR $n POLLS` under a line w
 happened. The core doesn't do this: it changes the settings with the interface on, and shows
 no such line.
 
+## UCINET
+
+The network target, 3. Its second half needs `ucinet_peer.py` running on a computer on the
+same network (`python3 test/uci/ucinet_peer.py`; it shows the computer's address, listens
+on TCP and UDP port 6464, and logs what it does). Port 6465 must be closed there, and a
+firewall must let 6464 in. UCINET asks for the peer's address after the first half; RETURN
+alone skips the peer. The last two lines need the internet (a name server and
+`example.com`). It ends by leaving four UDP sockets open, which a reset must close: after a
+reset, a second run's UDP SOCKETS line must show as many as the first run's did (with no
+reset in between, the core's shows 0 and fails). `GO64` is no reset here: it doesn't pull the
+C128's reset line, so neither the core nor an Ultimate sees it. In C128 mode its buffers reach
+past `$4000`, so it maps RAM over BASIC's ROM there while it runs (`$FF00` = `$0E`).
+
+| Line | What it checks |
+|---|---|
+| IDENTIFY | The name, shown: `MEGA128 NETWORK INTERFACE V1.0` on the core, `ULTIMATE-II NETWORK INTERFACE V1.0` on an Ultimate. |
+| GET_INTERFACE_COUNT | At least one: 1 on the core, 2 on the II+L. |
+| GET_IPADDR, EACH | Each interface's address, netmask and gateway, shown; one must have an address (none means no DHCP lease yet). The II+L's interface 0 has none: its Ethernet is 1. |
+| GET_IPADDR PAST THE LAST, GET_NETADDR, THAT ONE | `82,PARAMETER(S) OUT OF RANGE`; the MAC address of the interface with the address. |
+| GET_IPADDR, NO INTERFACE, SET_IPADDR, NO ADDRESSES, SET_INTERFACE | `81,INVALID PARAMS`, `81`, `21,UNKNOWN COMMAND`. |
+| SET_IPADDR, THE SAME; GET_IPADDR: UNCHANGED | That interface's three addresses, set again: `00,OK`, and nothing changed. |
+| READ $7F, NEVER OPENED; READ OF 1473 BYTES; READ, NO LENGTH | A socket nobody opened: -1 (`$FF $FF`) and `02,NO DATA: 9` (EBADF); a length over 1472 (a whole UDP datagram in one Ethernet frame): `82` and no data; `81`. |
+| WRITE $7F, CLOSE $7F, OPEN_TCP, NO NAME | `12,SEND ERROR: 9` with -1, `12,ERROR ON CLOSE: 9`, `81`. |
+| UDP SOCKETS | UDP sockets to 127.0.0.1 opened until one fails, then closed: how many, and the failure (4 and `85,ERROR OPENING SOCKET` on the core, 5 on the II+L: 16 less its own). |
+| OPEN_TCP PEER:6465, CLOSED | `11,ERROR ON CONNECT: 104`, refused. |
+| OPEN_TCP PEER:6464 | The socket, shown: 1 on the core, a higher number on an Ultimate. |
+| 10 READS, NOTHING SENT | Each `02,NO DATA: 11` (EAGAIN) after waiting for data: at least 10 jiffies for ten. The core waits 40 ms (22-25 jiffies for ten); the II+L's 40 ms comes out shorter (17-20). |
+| TCP 200 BYTES, READS OF 64 | Asks the peer for 200 bytes of its pattern (byte i is i mod 251), read 64 at a time: each reply `00,OK`, its 2-byte header the bytes it carries, the pattern unbroken. How many reads, and the most blocks a reply took. |
+| TCP 1420 BYTES, READS OF 1472 | The same, in replies of two blocks (893 bytes after the header, then the rest). |
+| TCP WRITE 8000 BYTES | The pattern in WRITEs of 892 bytes; each answers its length. The peer reads them only after 1.5 s, with a small receive buffer, so the last WRITEs wait for room; then it answers `OK 8000`. The rate, shown, is mostly that wait. |
+| TCP READ 32768 BYTES | The pattern, read 1472 at a time, and the rate. |
+| CLOSED BY THE PEER, READ AFTER THAT | The peer closes: `01,CONNECTION CLOSED BY HOST` with 0, which closes the socket, so the next READ is `02,NO DATA: 9`. |
+| OPEN_UDP PEER:6464, UDP 64 BYTES | A datagram of 64 bytes, whole. |
+| UDP 200 BYTES, READ OF 64, THE REST IS GONE | 64 bytes and `04,DATAGRAM TRUNCATED: 200`; the next READ finds nothing (`02,NO DATA: 11`). |
+| UDP 1420, 1472 BYTES | Whole, in two blocks (the first 895 bytes with its header). |
+| UDP 1473 BYTES: DROPPED | It comes in two fragments, and neither the core nor an Ultimate puts fragments together: ten READs find nothing. |
+| READ GIVEN UP AFTER A BLOCK, THE NEXT COMMAND, THE NEXT DATAGRAM | Two datagrams of 1420 bytes; the first READ takes its first block (895 bytes, Data More) and ABORTs: the interface is idle, IDENTIFY answers, and the next READ is the second datagram whole, not the first one's rest. |
+| UDP WRITE 892 BYTES, ECHOED | The peer sends it back, whole. |
+| CLOSE | `00,OK`. |
+| OPEN_TCP NOSUCH.INVALID | `84,UNRESOLVED HOST` (`.invalid` never resolves). |
+| OPEN_TCP EXAMPLE.COM:80, HEAD | A name looked up, a connection, a HEAD request: the reply's first line, shown, starts with `HTTP/`. |
+| LEAVE 4 UDP SOCKETS OPEN | For the reset (above). |
+
 If `$DF1D` doesn't read `$C9`, a program says so and stops. That is all it can show in
-VICE, which has no command interface; all ten get there in `x128` and `x64sc`. UCICFG's REU
+VICE, which has no command interface; all twelve get there in `x128` and `x64sc`. UCICFG's REU
 probe ran alone in VICE (`-D PROBETEST`): no REU and 128 KB to 16 MB in `x128`, 256 KB in
 `x64sc`, each found, and its bytes back; one whose bytes don't go back fails. UCICTRL's
 bus check was also tried there on its own, with and without a drive 9, in both modes, and with
@@ -163,7 +207,13 @@ counts the 6502's cycles and logs each program's time at 1 MHz, holds DATA for a
 a drive is switched on (an OPEN then fails the run), runs the REU's STASH and FETCH at once
 for UCIREU and UCICFG (with `-reu`, a 512 KB REU; the REU answers at `$DF00` only while it is
 on, wraps at its size, and a change of it the core would reset for fails the run; with `-blink` the interface is off the bus for 5 ms after each REU change, as on an Ultimate, which the old `wait_reply` failed), and it also runs UCIDOS
-again after a run cut short once the D64 is written, as a reset would.
+again after a run cut short once the D64 is written, as a reset would. UCINET runs against
+`host_net.c`, the firmware's lwIP on a loopback with the same peer, a DNS server and a web
+server at 10.0.0.1, twice with a reset of the C128 between, and once without a peer; a frame
+for the firmware that finds lwIP's pool empty fails the run. In C128 mode `test_prg` puts a
+stand-in for BASIC's ROM at `$4000`-`$BFFF` unless `$FF00` maps RAM there, as the C128 does:
+UCINET's first hardware run read its replies back from BASIC's ROM, and the flat RAM the
+harness had then didn't show it.
 
 Rebuild with `python3 test/uci/make_image.py`. It needs `ca65` and `ld65` from cc65.
 `ucilib.inc` and `ucilib.s` hold what the tests share.

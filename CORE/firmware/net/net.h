@@ -7,3 +7,7 @@
 uint32_t net_millis(void);
 uint32_t net_rand(void);
 uint32_t net_gap_max(void);   // the longest time without a turn since the last call, in ms
+// lwIP from outside a turn (UCI's network target): selects the network device and keeps
+// turns out until net_unlock, which puts back the device net_lock returned
+uint32_t net_lock(void);
+void     net_unlock(uint32_t dev);

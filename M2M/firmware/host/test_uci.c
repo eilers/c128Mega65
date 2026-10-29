@@ -957,7 +957,7 @@ int main(int argc, char **argv)
    expect("DOS 1 IDENTIFY", (uint8_t[]){ 0x01, 0x01 }, 2, "00,OK", "MEGA128 DOS V1.0", 16);
    expect("DOS 2 IDENTIFY", (uint8_t[]){ 0x02, 0x01 }, 2, "00,OK", "MEGA128 DOS V1.0", 16);
    expect("DOS unknown command", (uint8_t[]){ 0x01, 0x7F }, 2, "21,UNKNOWN COMMAND", "", 0);
-   expect("network target not there yet", (uint8_t[]){ 0x03, 0x01 }, 2, "00,OK", "NO TARGET", 9);
+   expect("network IDENTIFY", (uint8_t[]){ 0x03, 0x01 }, 2, "00,OK", "MEGA128 NETWORK INTERFACE V1.0", 30);
    big[0] = 0x01;
    big[1] = 0xF0;
    for (int i = 2; i < 900; i++)

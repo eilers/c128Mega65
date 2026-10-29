@@ -4,6 +4,13 @@
 HOSTCC ?= cc
 CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -I../include -I../lib -I../fatfs
 
+# The network (CORE/firmware/net) with lwIP; UCI's network target needs it, on host_net.c's
+# loopback
+NET      := ../../../CORE/firmware/net
+LWIP     := $(wildcard $(NET)/lwip/core/*.c) $(wildcard $(NET)/lwip/core/ipv4/*.c) $(NET)/lwip/netif/ethernet.c
+NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/log.c $(LWIP)
+NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
+
 all: build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon build/test_modem
 	./run.sh build
 
@@ -21,39 +28,37 @@ build/test_fw: test_fw.c diskio_file.c ../lib/fmt.c ../fatfs/ff.c ../fatfs/ffuni
 SHELL_SRC := test_shell.c host_m2m.c diskio_file.c ../fw/browse.c ../fw/cfg.c ../fw/drives.c \
              ../fw/heap.c ../fw/keys.c ../fw/menu.c \
              ../fw/roms.c ../fw/screen.c ../fw/sdcard.c ../fw/shell.c $(wildcard ../../../CORE/firmware/*.c) \
-             ../lib/console.c ../lib/fmt.c ../fatfs/ff.c ../fatfs/ffunicode.c
+             ../lib/console.c ../lib/fmt.c ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
 build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/config_ids.h
 	@mkdir -p build
-	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware -include host_m2m.h $(filter %.c,$^) -o $@
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -include host_m2m.h $(filter %.c,$^) -o $@
 
 # The Ultimate Command Interface, its registers modelled in test_uci.c
 UCI_SRC := test_uci.c host_uci_model.c host_m2m.c host_reu_sd.c diskio_file.c ../../../CORE/firmware/uci.c \
            ../../../CORE/firmware/uci_dos.c ../../../CORE/firmware/uci_ctrl.c ../../../CORE/firmware/reu.c \
            ../fw/heap.c ../lib/fmt.c \
-           ../fatfs/ff.c ../fatfs/ffunicode.c
-build/test_uci: $(UCI_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h ../../../CORE/firmware/uci.h \
+           ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
+build/test_uci: $(UCI_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h host_net.h ../../../CORE/firmware/uci.h \
                 ../../../CORE/firmware/reu.h ../fw/ffconf.h \
-                ../build/fw/config_ids.h
+                ../build/fw/config_ids.h $(wildcard $(NET)/*.h)
 	@mkdir -p build
-	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware -include host_uci.h $(filter %.c,$^) -o $@
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -include host_uci.h $(filter %.c,$^) -o $@
 
 # test/uci's programs on a 6502, against the UCI firmware
 PRG_SRC := test_prg.c $(filter-out test_uci.c,$(UCI_SRC))
-build/test_prg: $(PRG_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h ../../../CORE/firmware/uci.h \
-                ../build/fw/config_ids.h
+build/test_prg: $(PRG_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h host_net.h ../../../CORE/firmware/uci.h \
+                ../build/fw/config_ids.h $(wildcard $(NET)/*.h)
 	@mkdir -p build
-	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware -include host_uci.h $(filter %.c,$^) -o $@
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -include host_uci.h $(filter %.c,$^) -o $@
 
 build/test_mon: test_mon.c ../fw/monitor.c ../fw/monitor.h
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw $(filter %.c,$^) -o $@
 
 # The SwiftLink modem with lwIP, against a C128 and a server (CORE/firmware/net)
-NET   := ../../../CORE/firmware/net
-LWIP  := $(wildcard $(NET)/lwip/core/*.c) $(wildcard $(NET)/lwip/core/ipv4/*.c) $(NET)/lwip/netif/ethernet.c
 build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h)
 	@mkdir -p build
-	$(HOSTCC) $(CFLAGS) -I$(NET) -I$(NET)/lwip/include $(filter %.c,$^) -o $@
+	$(HOSTCC) $(CFLAGS) $(NET_FLAGS) $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build

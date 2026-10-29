@@ -104,6 +104,7 @@ static int wire_n, mac_n, mac_bytes;
 static uint64_t delay_us = 1000;
 static long mac_drops, pool_drops;
 uint32_t eth_drops(void) { return (uint32_t)mac_drops; }
+uint32_t eth_tx_stuck(void) { return 0; }
 
 static bool to_server(const uint8_t *d)
 {

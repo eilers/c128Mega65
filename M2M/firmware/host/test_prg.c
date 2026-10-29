@@ -2,13 +2,19 @@
 // firmware (CORE/firmware/uci*.c) and host_uci_model.c's command_protocol.vhd, with a FAT32
 // image as the card. The firmware is polled between instructions, as its main loop runs
 // beside the C128. The KERNAL is faked where the programs call it: CHROUT prints, GETIN
-// gives RETURN, the file calls read "$" from drive 9, the image shell_mount was given, and
+// gives RETURN (or the keys of -keys first), the file calls read "$" from drive 9, the image
+// shell_mount was given, and
 // OPEN of a buffer ("#") finds drive 8 or 9 while it runs (drive_running). An OPEN while a
 // drive that was just switched on holds DATA fails the run, as the KERNAL would hang.
+// In C128 mode BASIC's ROM is at $4000-$BFFF unless the MMU ($FF00) maps RAM there.
 // The REU answers at $DF00 while main.vhd has it on; its STASH and FETCH run at once, in the
 // memory the firmware sees for it, wrapping at its size. A REU change that main.vhd would
-// answer with a reset of the C128 (one without uci.vhd's keep bit) fails the run.
-// usage: test_prg [-reu|-reu16 [-dma]] [-r3] [-blink] fat32.img program.prg [stop]   (-reu: a
+// answer with a reset of the C128 (one without uci.vhd's keep bit) fails the run. The jiffy
+// clock ($A0-$A2) runs. The network is host_net.c's, with the peer at 10.0.0.1; a frame lost
+// for want of a pool pbuf fails the run.
+// usage: test_prg [-reu|-reu16 [-dma]] [-r3] [-blink] [-keys text] [-twice] fat32.img
+// program.prg [stop]   (-keys: GETIN gives these first; -twice: run it, reset the C128 as
+// uci.vhd tells the firmware, and run it again, both to ALL PASSED; -reu: a
 // 512 KB REU is on, -reu16: 16 MB; -dma: its files go by the model of reu_sd.vhd; -r3: the menu
 // of R3 memory, REU 512 KB at most; -blink: as an Ultimate, the interface is off the bus for
 // 5 ms after each REU change, $DF1C-$DF1F reading $FF; exit 0 if it prints ALL PASSED, or with
@@ -23,6 +29,7 @@
 #include "drives.h"
 #include "uci.h"
 #include "host_reu_sd.h"
+#include "host_net.h"
 
 void host_init(void);
 int  disk_file_open(const char *path);
@@ -31,7 +38,8 @@ extern uint64_t host_time;   // host_m2m.c's CLINT timer, in CPU clocks
 static uint8_t  mem[0x10000];
 static uint8_t  a, x, y, s = 0xFF, n, v, d, i, z, c;
 static uint16_t pc;
-static char     out[20000];
+static char     out[40000];
+static const char *keys = "";
 static int      outn;
 static uint64_t cycles;
 
@@ -82,10 +90,25 @@ static int data_held(void)
 static int      blink;
 static uint64_t gone_until;
 
+// C128 mode: BASIC's SYS leaves bank 15 in, with BASIC's ROM at $4000-$BFFF unless the MMU's
+// $FF00 maps RAM there; writes go to the RAM below. The ROM here is a stand-in, never what
+// was written, so a program that keeps data up there and reads it back without the MMU fails.
+static int     c128;
+static uint8_t mmu;
+
+static int basic_rom(uint16_t ad)
+{
+   return c128 && ad >= 0x4000 && ad < 0xC000 && (ad < 0x8000 ? !(mmu & 0x02) : (mmu & 0x0C) != 0x0C);
+}
+
 static uint8_t rd(uint16_t ad)
 {
    if (ad >= 0xDF1C && ad <= 0xDF1F && cycles < gone_until)
       return 0xFF;
+   if (basic_rom(ad))
+      return (uint8_t)(0x4C ^ ad ^ ad >> 8);
+   if (c128 && ad == 0xFF00)
+      return mmu;
    switch (ad) {
    case 0xDD00: return (mem[ad] & 0x3F) | (data_held() ? 0x40 : 0xC0);   // 7 DATA, 6 CLK
    case 0xDF1B: return 0;
@@ -128,7 +151,9 @@ static void wr(uint16_t ad, uint8_t b)
 {
    if (ad >= 0xDF1C && ad <= 0xDF1F && cycles < gone_until)
       return;
-   if (ad == 0xDF1C) {
+   if (c128 && ad == 0xFF00)
+      mmu = b;
+   else if (ad == 0xDF1C) {
       if (b & 1) {
          int t = cmd[0] & 0x7F;
          if (cmd_n > 2 && (((t == 1 || t == 2) && cmd[1] == 0x08) || (t == 4 && cmd[1] == 0x50)) &&
@@ -210,7 +235,7 @@ static int kernal(void)
          c = !open_dir9();
       break;
    case 0xFFC6: c = 0; break;                          // CHKIN
-   case 0xFFE4: a = 13; c = 0; break;                  // GETIN
+   case 0xFFE4: a = *keys ? *keys++ : 13; c = 0; break;   // GETIN
    case 0xFFCF:                                        // CHRIN
       a = stream_at < stream_n ? stream[stream_at++] : 0;
       st = stream_at >= stream_n ? 0x40 : 0;
@@ -401,8 +426,17 @@ int main(int argc, char **argv)
    blink = argc > 1 && !strcmp(argv[1], "-blink");
    argc -= blink;
    argv += blink;
+   if (argc > 2 && !strcmp(argv[1], "-keys")) {
+      keys = argv[2];
+      argc -= 2;
+      argv += 2;
+   }
+   int twice = argc > 1 && !strcmp(argv[1], "-twice");
+   argc -= twice;
+   argv += twice;
    if (argc < 3 || argc > 4 || (r3 && reu16) || !disk_file_open(argv[1]) || !(f = fopen(argv[2], "rb"))) {
-      printf("usage: test_prg [-reu|-reu16 [-dma]] [-r3] [-blink] fat32.img program.prg [stop]\n");
+      printf("usage: test_prg [-reu|-reu16 [-dma]] [-r3] [-blink] [-keys text] [-twice] fat32.img "
+             "program.prg [stop]\n");
       return 2;
    }
    const char *stop = argc == 4 ? argv[3] : NULL;
@@ -410,8 +444,10 @@ int main(int argc, char **argv)
    fclose(f);
    uint16_t load = prg[0] | prg[1] << 8;
    memcpy(mem + load, prg + 2, len - 2);
+   c128 = load == 0x1C01;
 
    host_init();
+   host_net_init();
    uci_model_init();
    host_reu_sd(dma);
    if (reu) {
@@ -426,35 +462,60 @@ int main(int argc, char **argv)
       return 2;
    }
 
-   // 10 SYS<address>: start there, and stop at the RTS back to BASIC
-   pc = atoi((char *)mem + load + 5);
-   push8(0xFF);
-   push8(0xFE);
+   // 10 SYS<address>: start there, and stop at the RTS back to BASIC; with -twice, the same
+   // again after a reset of the C128 (the program afresh, the rest of memory as it was)
    long count = 0;
-   uint64_t polled = 0;
-   int shown = 0;
-   while (pc != 0xFFFF && count < 400000000) {
-      if ((!kernal() && !step()) || hung)
-         break;
-      // The firmware's clock goes on with the C128's, at 1 MHz
-      if (++count % 16 == 0) {
-         unsigned forced = reu_forces;
-         uci_poll();
-         reu_settle();
-         if (blink && reu_forces != forced)
-            gone_until = cycles + 5000;
-         drives_watch();
-         host_time += (cycles - polled) * (CPU_HZ / 1000000);
-         polled = cycles;
-      }
-      if (stop && outn != shown) {
-         shown = outn;
-         if (strstr(out, stop))
+   uint64_t polled = 0, jiffy = 0;
+   int shown = 0, runs = 0, passes = 0, run_at = 0;
+   for (;;) {
+      pc = atoi((char *)mem + load + 5);
+      s  = 0xFF;
+      push8(0xFF);
+      push8(0xFE);
+      while (pc != 0xFFFF && count < 400000000) {
+         if ((!kernal() && !step()) || hung)
             break;
+         // The firmware's clock goes on with the C128's, at 1 MHz
+         if (++count % 16 == 0) {
+            unsigned forced = reu_forces;
+            uci_poll();
+            host_net_poll();
+            reu_settle();
+            if (blink && reu_forces != forced)
+               gone_until = cycles + 5000;
+            drives_watch();
+            host_time += (cycles - polled) * (CPU_HZ / 1000000);
+            polled = cycles;
+         }
+         if (cycles >= jiffy) {
+            jiffy += 16667;
+            if (!++mem[0xA2] && !++mem[0xA1])
+               mem[0xA0]++;
+         }
+         if (stop && outn != shown) {
+            shown = outn;
+            if (strstr(out, stop))
+               break;
+         }
       }
+      out[outn] = 0;
+      passes += strstr(out + run_at, "ALL PASSED") != NULL;
+      if (pc != 0xFFFF || ++runs > twice)
+         break;
+      um.c128_reset = 1;
+      for (int k = 0; k < 100; k++) {
+         uci_poll();
+         host_net_poll();
+      }
+      memcpy(mem + load, prg + 2, len - 2);
+      run_at = outn;
    }
-   out[outn] = 0;
    printf("%s\n", out);
+   host_net_report();
+   if (hn_pool_drops) {
+      printf("test_prg: frames lost for want of a pool pbuf: a socket holds lwIP's pool\n");
+      return 1;
+   }
    if (unended) {
       printf("test_prg: %d FILE_STAT or LOAD_CONFIG without the name's 0 byte: an Ultimate reads past it\n",
              unended);
@@ -477,5 +538,5 @@ int main(int argc, char **argv)
       return 0;
    if (pc != 0xFFFF)
       printf("test_prg: %s stopped at %04X after %ld instructions\n", argv[2], pc, count);
-   return pc == 0xFFFF && strstr(out, "ALL PASSED") ? 0 : 1;
+   return pc == 0xFFFF && passes == 1 + twice ? 0 : 1;
 }

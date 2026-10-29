@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Makes FAT images with macOS's own formatter (hdiutil, no root needed), with an MBR as
 # on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw, test_mon,
-# test_modem, test_uci and test/uci's programs (test_prg); then test_shell against config.vhd as
+# test_modem, test_uci and test/uci's programs (test_prg, UCINET against host_net.c's peer);
+# then test_shell against config.vhd as
 # CORE/scripts/run_config_nvc.sh dumps it (nvc).
 # usage: run.sh build-dir   (holds test_boot and test_fw; ../build/firmware.bin must exist)
 set -euo pipefail
@@ -70,6 +71,14 @@ for opt in "" -reu -reu16 "-reu -r3" -blink; do   # REU off, 512 KB, 16 MB; R3's
       t=$(tail -n 1 "$log")
       echo "test_prg $prg $opt: ALL PASSED, ${t#test_prg: }"
    done
+done
+for prg in ucinet ucinet64; do   # host_net.c's peer, twice with a reset of the C128 between; no peer
+   cp "$files/fat32.img" "$files/prg.img"
+   "$out/test_prg" -keys 10.0.0.1 -twice "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg.log" &&
+      "$out/test_prg" "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg-alone.log" ||
+      { cat "$out/$prg.log" "$out/$prg-alone.log"; exit 1; }
+   t=$(tail -n 1 "$out/$prg.log")
+   echo "test_prg $prg, with a reset, and without a peer: ALL PASSED, ${t#test_prg: }"
 done
 for prg in ucidos ucidos64; do   # a run cut short after the D64, as by a reset, then a whole one
    cp "$files/fat32.img" "$files/prg.img"

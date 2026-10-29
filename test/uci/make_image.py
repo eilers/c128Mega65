@@ -59,7 +59,9 @@ def main() -> None:
                  ("UCIREU", assemble("ucireu.s", "ucireu", 0x1C01, [], Path(tmp))),
                  ("UCIREU64", assemble("ucireu.s", "ucireu64", 0x0801, ["-DC64"], Path(tmp))),
                  ("UCICFG", assemble("ucicfg.s", "ucicfg", 0x1C01, [], Path(tmp))),
-                 ("UCICFG64", assemble("ucicfg.s", "ucicfg64", 0x0801, ["-DC64"], Path(tmp)))]
+                 ("UCICFG64", assemble("ucicfg.s", "ucicfg64", 0x0801, ["-DC64"], Path(tmp))),
+                 ("UCINET", assemble("ucinet.s", "ucinet", 0x1C01, [], Path(tmp))),
+                 ("UCINET64", assemble("ucinet.s", "ucinet64", 0x0801, ["-DC64"], Path(tmp)))]
 
     disk = images.Disk(35)
     for name, prg in progs:

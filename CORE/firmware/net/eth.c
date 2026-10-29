@@ -9,14 +9,17 @@
 #include "netif/ethernet.h"
 
 struct netif eth_netif;
+static uint32_t no_buffer, tx_stuck;   // frames lost: no pool pbuf for one, the MAC never ready
 
 static err_t linkoutput(struct netif *nif, struct pbuf *p)
 {
    (void)nif;
    uint32_t t0 = MTIME_LO;
    while (!(ETH_STATUS & ETH_TX_ROOM))
-      if (MTIME_LO - t0 > CPU_HZ / 100)
+      if (MTIME_LO - t0 > CPU_HZ / 100) {
+         tx_stuck++;
          return ERR_IF;   // MAC stuck: drop the frame
+      }
 
    // The MAC doesn't pad, so short frames get zeros up to Ethernet's 60-byte minimum
    uint32_t len = p->tot_len < 60 ? 60 : p->tot_len;
@@ -90,8 +93,10 @@ void eth_poll(void)
             v = ETH_RX;
          while (!(v & ETH_RX_VALID));
       }
-      if (!p)
+      if (!p) {
+         no_buffer++;
          continue;
+      }
       pbuf_realloc(p, n);
       if (eth_netif.input(p, &eth_netif) != ERR_OK)
          pbuf_free(p);
@@ -100,5 +105,10 @@ void eth_poll(void)
 
 uint32_t eth_drops(void)
 {
-   return ETH_DROPS;
+   return ETH_DROPS + no_buffer;
+}
+
+uint32_t eth_tx_stuck(void)
+{
+   return tx_stuck;
 }

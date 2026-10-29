@@ -66,6 +66,7 @@ static const uci_target_t none = { none_command, NULL, NULL, NULL, NULL };
 static const uci_target_t *targets[16] = {
    [1] = &uci_dos1,
    [2] = &uci_dos2,
+   [3] = &uci_net,
    [4] = &uci_ctrl,
 };
 

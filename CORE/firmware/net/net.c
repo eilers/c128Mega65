@@ -1,7 +1,8 @@
 // The network's turns: from the main loop (core_net), and during long disk work between
 // sectors (core_idle), so a big copy or a slow menu doesn't starve the 6551's 64-byte FIFOs
 // and the MAC. lwIP's callbacks only change the network's own state; nothing here touches
-// the card, so a turn in the middle of FatFs is safe. A turn never runs inside another.
+// the card, so a turn in the middle of FatFs is safe. A turn never runs inside another, nor
+// inside UCI's calls into lwIP (net_lock).
 #include <stdbool.h>
 #include "acia.h"
 #include "core.h"
@@ -94,4 +95,20 @@ void core_idle(void)
 {
    if (started && MTIME_LO - last_turn >= IDLE_TURN)
       core_net();
+}
+
+uint32_t net_lock(void)
+{
+   uint32_t dev = M2M_RAMROM_DEV;
+   M2M_RAMROM_DEV = NET_DEVICE;
+   if (!started)
+      start();
+   busy = true;
+   return dev;
+}
+
+void net_unlock(uint32_t dev)
+{
+   busy = false;
+   M2M_RAMROM_DEV = dev;
 }

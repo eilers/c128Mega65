@@ -45,5 +45,6 @@ const char *uci_card_path(const char *name, char *out);
 // Gideon's FileSystem::get_error_string for a FatFs result, as a status without a number
 const char *uci_fr_text(int fresult);
 
-// The targets: MEGA128 DOS 1 and 2 (uci_dos.c), control 4 (uci_ctrl.c)
-extern const uci_target_t uci_dos1, uci_dos2, uci_ctrl;
+// The targets: MEGA128 DOS 1 and 2 (uci_dos.c), network 3 (net/uci_net.c), control 4
+// (uci_ctrl.c)
+extern const uci_target_t uci_dos1, uci_dos2, uci_net, uci_ctrl;

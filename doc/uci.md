@@ -99,7 +99,7 @@ copy, so never stops the loop.
 | Target | What | State |
 |---|---|---|
 | 1, 2 | MEGA128 DOS (`uci_dos.c`, identifies as `MEGA128 DOS V1.0`), with the commands, replies and status texts of Gideon's Ultimate DOS | see below |
-| 3 | Network | with the network (step 8) |
+| 3 | Network (`net/uci_net.c`, identifies as `MEGA128 NETWORK INTERFACE V1.0`), with the commands, replies and status texts of Gideon's `network_target.cc` | see below |
 | 4 | Control (`uci_ctrl.c`, identifies as `MEGA128 CONTROL V1.0`), with the commands, replies and status texts of Gideon's `control_target.cc` | see below |
 
 ### MEGA128 DOS
@@ -123,6 +123,30 @@ so what was written is on the card.
 Not checked: that a file deleted or renamed is not an image in a drive. The drive keeps the
 SD blocks it was given, so deleting a mounted image and writing other files can let the drive
 write into them.
+
+### Network
+
+The MEGA65's Ethernet port, through the firmware's lwIP (the one the SwiftLink modem uses):
+four sockets, TCP or UDP, each to one host and port (Gideon's: 16, less what his firmware
+opens itself). A fifth gets `85,ERROR OPENING SOCKET`. Sockets are numbered 1 to 4. A C128
+reset closes them. The numbers in his status texts are errno values, as newlib numbers
+them (his firmware prints newlib's); the core uses the same numbers.
+
+| Command | |
+|---|---|
+| `$01` IDENTIFY | |
+| `$02` GET_INTERFACE_COUNT | 1 |
+| `$04` GET_NETADDR, `$05` GET_IPADDR, `$06` SET_IPADDR | Interface 0: the MAC address (6 bytes); address, netmask and gateway (4 bytes each, as on the wire). SET_IPADDR sets them as his does, with DHCP still running. A wrong length: `81,INVALID PARAMS`; interface 1 or more: `82,PARAMETER(S) OUT OF RANGE`. `$03` SET_INTERFACE is `21,UNKNOWN COMMAND`, as his is commented out. |
+| `$07` OPEN_TCP, `$08` OPEN_UDP | Port (2 bytes), then the host: a name or an address. The reply is the socket. The name is looked up and the connection made while the main loop goes on (the C128 sees the command busy). `84,UNRESOLVED HOST`, `85,ERROR OPENING SOCKET`, `11,ERROR ON CONNECT: n` (104 refused, 113 no answer, 118 no route). |
+| `$09` CLOSE_SOCKET | A socket it didn't open: `12,ERROR ON CLOSE: 9`. |
+| `$10` READ_SOCKET | Socket, length (2 bytes, up to 1472: `82` above). The reply is 2 bytes, the bytes it carries, then them; over 893 bytes it goes on in a second block (Data More). With nothing there it waits 40 ms (his `SO_RCVTIMEO`), then `02,NO DATA: 11` and -1 (`$FF $FF`). TCP gives what has come, up to the length; then `01,CONNECTION CLOSED BY HOST` (and 0) once the far end has closed, which closes the socket. UDP gives a datagram a read, and one longer than the length is cut, with `04,DATAGRAM TRUNCATED: n` (n its whole length); the rest is gone. A reply given up after its first block (ABORT) drops the rest too. |
+| `$11` WRITE_SOCKET | Socket, then the bytes (up to 892). The reply is the bytes sent (2 bytes). TCP takes them all, waiting for room as acks come in; a socket it didn't open: `12,SEND ERROR: 9` and -1. |
+
+What each socket received and the C128 hasn't read waits in a buffer of its own in the data
+RAM (TCP's window, 2920 bytes; UDP datagrams that don't fit are dropped), so a program that
+doesn't read never holds lwIP's buffers, which the modem and every other socket need.
+One difference: a TCP READ of 0 bytes answers `00,OK` with 0; Gideon's takes lwIP's 0 as a
+closed connection and closes the socket.
 
 ### Control
 
@@ -203,6 +227,17 @@ an Ultimate takes the interface off the bus while LOAD_CONFIG's REU change takes
 (`test/uci/README.md`, UCICFG); with `ea35e30` it passes too. Step 7 (UCI) is done; the
 network target 3 comes with step 8.
 
+8d (the network target) passes the host tests: UCINET against `host_net.c`'s peer, twice
+with a reset between, in both modes, 11 firmware mutations caught. On the R6 (net8 core,
+firmware `a800c60`, 2026-10-29): UCINET and UCINET64 pass every line against
+`ucinet_peer.py` on the Mac; a second run after a reset finds 4 sockets again, without one 0.
+The first run failed 17 lines on the program, not the firmware: its buffers past `$4000` read
+back BASIC's ROM in C128 mode. Jeff's II+L (3.15a) passes UCINET and UCINET64 too, a reset
+closing its sockets as the core's does; what differs is shown, not failed: two interfaces (the
+first without an address), 5 sockets free, higher socket numbers, a shorter 40 ms wait. The
+rates are the same on both, about 7.7 KB/s writing and 7.1 KB/s reading: the C128 is the limit.
+ZBF OS's `pkg` uses the core's target 3 (Jeff, 2026-10-29). 8d done.
+
 ## Tests
 
 - `CORE/scripts/run_uci_nvc.sh`: `tb_uci` drives `uci.vhd` from both sides, the C128's bus
@@ -223,3 +258,7 @@ network target 3 comes with step 8.
   the name's 0 byte, which an Ultimate needs.
 - `test/uci`: `UCITEST` and `UCIDOS` (and their C64 versions) for the hardware, to run on an
   Ultimate and on the core and compare.
+- `test_prg` runs UCINET against `host_net.c`: the firmware's lwIP on a loopback, the peer
+  `ucinet_peer.py` is on hardware, a DNS server and a web server, at 10.0.0.1. It runs the
+  program twice with a C128 reset between (the sockets it left open must be gone), and fails
+  a run in which a frame for the firmware found lwIP's pool empty.

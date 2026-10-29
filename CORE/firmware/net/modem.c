@@ -398,6 +398,8 @@ static void info(int n)
       fmt_snprintf(buf, sizeof buf, "\r\nMISSED NMIS %u\r\nLONGEST WAIT %u MS",
           (unsigned)acia_agains(), (unsigned)net_gap_max());
       out_str(buf);
+      fmt_snprintf(buf, sizeof buf, "\r\nTX TIMEOUTS %u", (unsigned)eth_tx_stuck());
+      out_str(buf);
    } else if (n == 2) {
       m.dump_pos = 0;
       m.dump_len = 1;   // printed from modem_poll, a piece at a time
