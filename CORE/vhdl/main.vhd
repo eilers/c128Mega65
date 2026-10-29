@@ -253,6 +253,10 @@ entity main is
       uci_data_i              : in  std_logic_vector(7 downto 0) := x"FF";
       uci_irq_i               : in  std_logic := '0';
       uci_dma_i               : in  std_logic := '0';             -- hold the CPU, as /DMA does
+      uci_reboot_i            : in  std_logic := '0';             -- one clock: reset the C128 (REBOOT)
+      uci_reu_keep_i          : in  std_logic := '0';             -- REU setting changes are LOAD_CONFIG's: no reset
+      reu_menu_o              : out std_logic_vector(1 downto 0); -- the REU setting: 0 off, 1-3 the size
+      reu_drop_i              : in  std_logic := '0';             -- one clock: the REU's memory changed behind it (reu_sd.vhd)
 
       -- Virtual cartridge: the .crt file and its bank cache (sw_cartridge_wrapper in mega65.vhd)
       crt_loaded_i            : in  std_logic := '0';
@@ -606,6 +610,12 @@ signal iec_dce_sum   : integer := 0;   -- 32-bit integer, initialized to 0
 
 signal iec_img_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_disk_ready   : std_logic;   -- every 1541/1571 out of reset has its disk
+-- The drives' power as the firmware sets it (vd_sd CSR 0x034, QNICE clock), and in this clock:
+-- bit 0 keeps a drive on with no disk, bit 1 holds it off with a disk (and wins)
+signal vd_sd_power      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0);
+signal iec_power_m      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
+signal iec_power        : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
+attribute ASYNC_REG of iec_power_m, iec_power : signal is "TRUE";
 signal iec_img_readonly : std_logic;
 signal iec_img_size     : std_logic_vector(31 downto 0);
 signal iec_img_type     : std_logic_vector(1 downto 0);
@@ -874,6 +884,7 @@ reu_menu <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
             "11" when osm_control_i(C_MENU_REU_16M)  = '1' else
             "00";
 reu_cfg  <= "00" when crt_io2 = '1' or modem_base = "10" else reu_menu;
+reu_menu_o <= reu_menu;
 reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0';
 
 -- In FAST mode the CPU has PHI1 too, and IOE/IOF/IO7 come up there as well as in CPU4-7. The REU
@@ -1261,6 +1272,7 @@ reu_avm_cache_inst : entity work.avm_cache
    port map (
       clk_i                 => clk_main_i,
       rst_i                 => not reset_core_n,
+      inval_i               => reu_drop_i,
       s_avm_waitrequest_o   => map_waitrequest,
       s_avm_write_i         => map_write,
       s_avm_read_i          => map_read,
@@ -1587,9 +1599,10 @@ end process handle_hardware_iec_proc;
 -- Hard reset
 --------------------------------------------------------------------------------------------------
 
--- A changed REU or Cartridge setting, or a .crt file being loaded, resets the C128 and a hardware
--- cartridge, as soon as no write-back cache is dirty. A virtual cartridge's reset lasts until
--- the cache holds the banks it starts in.
+-- A changed REU or Cartridge setting, a .crt file being loaded, or the UCI's REBOOT resets the
+-- C128 and a hardware cartridge, as soon as no write-back cache is dirty. A virtual cartridge's
+-- reset lasts until the cache holds the banks it starts in. A REU change that a program asked
+-- for with LOAD_CONFIG (uci_reu_keep_i) leaves it running, as an Ultimate does.
 exp_change_reset_proc : process (clk_main_i)
    variable v_cfg : std_logic_vector(3 downto 0);
 begin
@@ -1599,7 +1612,8 @@ begin
       if exp_reset_cnt > 1 or (exp_reset_cnt = 1 and crt_hold = '0') then
          exp_reset_cnt <= exp_reset_cnt - 1;
       end if;
-      if v_cfg /= exp_cfg_d then
+      if (v_cfg /= exp_cfg_d and not (uci_reu_keep_i = '1' and v_cfg(1 downto 0) = exp_cfg_d(1 downto 0))) or
+         uci_reboot_i = '1' then
          exp_reset_pend <= '1';
       elsif exp_reset_pend = '1' and prevent_reset = '0' then
          exp_reset_pend <= '0';
@@ -2310,12 +2324,22 @@ begin
 end process phys_switch_proc;
 
 -- Drive enable is "If Mounted": a drive without a disk image stays in reset and is therefore
--- electrically silent on the IEC bus. MiSTer additionally offers "Always" and "Never".
--- The internal floppy runs without an image, and a drive is reset when it switches
--- between image and internal floppy.
+-- electrically silent on the IEC bus. The firmware can also switch a drive on or off as
+-- MiSTer's "Always" and "Never" do (the UCI's drive power). The internal floppy runs without
+-- an image, and a drive is reset when it switches between image and internal floppy.
+-- The power bits cross as levels. A change of both passes through 00 or 11, which act as
+-- one of its two ends (00 is "If Mounted", 11 is off), so the drive sees no glitch.
+iec_power_sync : process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    iec_power_m <= vd_sd_power;
+    iec_power   <= iec_power_m;
+  end if;
+end process iec_power_sync;
+
 iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
-  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or
-                         (not vdrives_mounted(i) and not phys_en_q(i));
+  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or iec_power(i)(1) or
+                         (not vdrives_mounted(i) and not phys_en_q(i) and not iec_power(i)(0));
 
   -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
   -- overrides this inside iec_drive (img_hd). A long reset drops the volume
@@ -2852,6 +2876,8 @@ i_vd_sd : entity work.vd_sd
 
     dirty_o        => cache_dirty,
     ready_i        => iec_disk_ready,
+    power_o        => vd_sd_power,
+    running_i      => not iec_drives_reset,
 
     eng_want_o     => qnice_sd_want_o,
     eng_o          => qnice_sd_eng_o,

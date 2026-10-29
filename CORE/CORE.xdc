@@ -132,11 +132,13 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##                   (physical_1581_rdfifo/_wfifo). The FIFO resets and the diag
 ##                   device's event toggles go through async_reg 2-FF pairs.
 ##
-##   vd_sd ready     iec_drive's disk_ready, a level, through an ASYNC_REG 2-FF pair.
+##   vd_sd ready     iec_drive's disk_ready, a level, through an ASYNC_REG 2-FF pair; the
+##                   drives' power bits (main.vhd iec_power) and running state the same way.
 ##
 ##   UCI             uci.vhd: register accesses cross as toggles whose address, data and
 ##                   answer are stable before the toggle flips, through ASYNC_REG pairs; the
-##                   C128-reset flag the same way; the buffer is a dual-clock RAM.
+##                   C128-reset flag and the firmware's reset request the same way; the
+##                   buffer is a dual-clock RAM.
 ##
 ## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
 ## logic of all of the above is still fully analysed.

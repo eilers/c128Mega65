@@ -1,9 +1,17 @@
 // Runs a C64 or C128 test program (test/uci's UCITEST, UCIDOS) on a 6502 against the UCI
 // firmware (CORE/firmware/uci*.c) and host_uci_model.c's command_protocol.vhd, with a FAT32
 // image as the card. The firmware is polled between instructions, as its main loop runs
-// beside the C128. The KERNAL is faked where the programs call it: CHROUT prints, and the
-// file calls read "$" from drive 9, the image shell_mount was given.
-// usage: test_prg fat32.img program.prg [stop]   (exit 0 if it prints ALL PASSED, or with
+// beside the C128. The KERNAL is faked where the programs call it: CHROUT prints, GETIN
+// gives RETURN, the file calls read "$" from drive 9, the image shell_mount was given, and
+// OPEN of a buffer ("#") finds drive 8 or 9 while it runs (drive_running). An OPEN while a
+// drive that was just switched on holds DATA fails the run, as the KERNAL would hang.
+// The REU answers at $DF00 while main.vhd has it on; its STASH and FETCH run at once, in the
+// memory the firmware sees for it, wrapping at its size. A REU change that main.vhd would
+// answer with a reset of the C128 (one without uci.vhd's keep bit) fails the run.
+// usage: test_prg [-reu|-reu16 [-dma]] [-r3] [-blink] fat32.img program.prg [stop]   (-reu: a
+// 512 KB REU is on, -reu16: 16 MB; -dma: its files go by the model of reu_sd.vhd; -r3: the menu
+// of R3 memory, REU 512 KB at most; -blink: as an Ultimate, the interface is off the bus for
+// 5 ms after each REU change, $DF1C-$DF1F reading $FF; exit 0 if it prints ALL PASSED, or with
 // stop, once it has printed that text: a run cut short, as by a reset)
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +19,10 @@
 #include "ff.h"
 #include "m2m_rv.h"
 #include "host_uci_model.h"
+#include "config_ids.h"
+#include "drives.h"
 #include "uci.h"
+#include "host_reu_sd.h"
 
 void host_init(void);
 int  disk_file_open(const char *path);
@@ -37,34 +48,90 @@ static const uint8_t op_cycles[256] = {
 };
 
 // -----------------------------------------------------------------------------------------
-// The bus: RAM, and the command interface at $DF18-$DF1F
+// The serial bus: a drive the control target switches on starts from reset, and a 1541 or
+// 1571 holds DATA until its DOS listens for ATN (61 jiffies in VICE). An OPEN then waits
+// for ever in the KERNAL. A mount's start is over before MOUNT answers (it waits for
+// disk_ready, 2.1 s on the core), so only these starts hold DATA here.
 // -----------------------------------------------------------------------------------------
+
+#define DATA_HELD_CYCLES 1020000
+static uint64_t held_until[2];
+static int      was_on[2], hung;
+
+static void drives_watch(void)
+{
+   for (int dr = 0; dr < 2; dr++) {
+      int on = drive_running(dr);
+      if (on && !was_on[dr] && drive_pow[dr] == DRIVE_ON)
+         held_until[dr] = cycles + DATA_HELD_CYCLES;
+      was_on[dr] = on;
+   }
+}
+
+static int data_held(void)
+{
+   return (was_on[0] && cycles < held_until[0]) || (was_on[1] && cycles < held_until[1]);
+}
+
+// -----------------------------------------------------------------------------------------
+// The bus: RAM, the serial bus's lines in $DD00 and the command interface at $DF18-$DF1F
+// -----------------------------------------------------------------------------------------
+
+// -blink: an Ultimate's LOAD_CONFIG takes the interface off the bus while the settings take
+// effect (set_emulation_flags), until this cycle
+static int      blink;
+static uint64_t gone_until;
 
 static uint8_t rd(uint16_t ad)
 {
+   if (ad >= 0xDF1C && ad <= 0xDF1F && cycles < gone_until)
+      return 0xFF;
    switch (ad) {
+   case 0xDD00: return (mem[ad] & 0x3F) | (data_held() ? 0x40 : 0xC0);   // 7 DATA, 6 CLK
    case 0xDF1B: return 0;
    case 0xDF1C: return uci_status();
    case 0xDF1D: return c128_ident();
    case 0xDF1E: return c128_response();
    case 0xDF1F: return c128_status_byte();
    }
-   if (ad >= 0xDF18 && ad <= 0xDF1A)
+   if ((ad >= 0xDF18 && ad <= 0xDF1A) || (ad >= 0xDF00 && ad < 0xDF18 && !reu_main))
       return 0xFF;
    return mem[ad];
 }
 
 // Each command as the program pushes it, held to what a real Ultimate needs: its FILE_STAT
-// (dos.cc) takes the name up to a 0 byte, reading on past the command into what earlier
-// ones left in its buffer, so a program has to send that 0 itself
+// (dos.cc) and LOAD_CONFIG (control_target.cc) take the name up to a 0 byte, reading on past
+// the command into what earlier ones left in its buffer, so a program has to send that 0
 static uint8_t cmd[1024];
 static int     cmd_n, unended;
 
+// The REU's DMA, as far as UCIREU and UCICFG use it: STASH or FETCH at once ($DF01 bit 7,
+// then 0 or 1), both addresses counting up, a byte per cycle, in the memory of uci.vhd's
+// word 0x011, the REU address wrapping at its size
+static void reu_dma(uint8_t command)
+{
+   static const uint32_t wrap[] = { 0, 0x7FFFF, 0x1FFFFF, 0xFFFFFF };
+   uint8_t *reu = (uint8_t *)(um.reu_mem & 0x8000 ? host_sr : host_hr) + (um.reu_mem & 0x1FFF) * 8192;
+   uint16_t c = mem[0xDF02] | mem[0xDF03] << 8;
+   uint32_t r = (mem[0xDF04] | mem[0xDF05] << 8 | mem[0xDF06] << 16) & wrap[reu_main];
+   uint32_t n = mem[0xDF07] | mem[0xDF08] << 8;
+   for (uint32_t i = 0; i < (n ? n : 65536); i++, c++, r = (r + 1) & wrap[reu_main]) {
+      if (command & 1)
+         mem[c] = reu[r];
+      else
+         reu[r] = mem[c];
+   }
+   cycles += n ? n : 65536;
+}
+
 static void wr(uint16_t ad, uint8_t b)
 {
+   if (ad >= 0xDF1C && ad <= 0xDF1F && cycles < gone_until)
+      return;
    if (ad == 0xDF1C) {
       if (b & 1) {
-         if (cmd_n > 2 && (cmd[0] & 0x7F) >= 1 && (cmd[0] & 0x7F) <= 2 && cmd[1] == 0x08 &&
+         int t = cmd[0] & 0x7F;
+         if (cmd_n > 2 && (((t == 1 || t == 2) && cmd[1] == 0x08) || (t == 4 && cmd[1] == 0x50)) &&
              !memchr(cmd + 2, 0, cmd_n - 2))
             unended++;
          cmd_n = 0;
@@ -74,8 +141,11 @@ static void wr(uint16_t ad, uint8_t b)
       if (cmd_n < (int)sizeof cmd)
          cmd[cmd_n++] = b;
       c128_command(b);
-   } else if (ad < 0xDF18 || ad > 0xDF1F)
+   } else if ((ad < 0xDF18 || ad > 0xDF1F) && !(ad >= 0xDF00 && ad < 0xDF18 && !reu_main)) {
       mem[ad] = b;
+      if (ad == 0xDF01 && (b & 0x80))
+         reu_dma(b);
+   }
 }
 
 // -----------------------------------------------------------------------------------------
@@ -130,8 +200,17 @@ static int kernal(void)
    case 0xFF68: break;                                 // SETBNK
    case 0xFFBA: file_dev = x; break;                   // SETLFS
    case 0xFFBD: name_len = a; name_at = x | y << 8; break;   // SETNAM
-   case 0xFFC0: c = !open_dir9(); st = 0; break;       // OPEN
+   case 0xFFC0:                                        // OPEN
+      hung |= data_held();
+      st = 0;
+      if (name_len == 1 && mem[name_at] == '#') {
+         c  = file_dev < 8 || file_dev > 9 || !drive_running(file_dev - 8);
+         st = c ? 0x80 : 0;                            // DEVICE NOT PRESENT
+      } else
+         c = !open_dir9();
+      break;
    case 0xFFC6: c = 0; break;                          // CHKIN
+   case 0xFFE4: a = 13; c = 0; break;                  // GETIN
    case 0xFFCF:                                        // CHRIN
       a = stream_at < stream_n ? stream[stream_at++] : 0;
       st = stream_at >= stream_n ? 0x40 : 0;
@@ -309,8 +388,21 @@ int main(int argc, char **argv)
    static uint8_t prg[0x10000];
    FATFS fs;
    FILE *f;
-   if (argc < 3 || argc > 4 || !disk_file_open(argv[1]) || !(f = fopen(argv[2], "rb"))) {
-      printf("usage: test_prg fat32.img program.prg [stop]\n");
+   int reu16 = argc > 1 && !strcmp(argv[1], "-reu16");
+   int reu = reu16 || (argc > 1 && !strcmp(argv[1], "-reu"));
+   argc -= reu;
+   argv += reu;
+   int dma = reu && argc > 1 && !strcmp(argv[1], "-dma");
+   argc -= dma;
+   argv += dma;
+   int r3 = argc > 1 && !strcmp(argv[1], "-r3");
+   argc -= r3;
+   argv += r3;
+   blink = argc > 1 && !strcmp(argv[1], "-blink");
+   argc -= blink;
+   argv += blink;
+   if (argc < 3 || argc > 4 || (r3 && reu16) || !disk_file_open(argv[1]) || !(f = fopen(argv[2], "rb"))) {
+      printf("usage: test_prg [-reu|-reu16 [-dma]] [-r3] [-blink] fat32.img program.prg [stop]\n");
       return 2;
    }
    const char *stop = argc == 4 ? argv[3] : NULL;
@@ -321,6 +413,14 @@ int main(int argc, char **argv)
 
    host_init();
    uci_model_init();
+   host_reu_sd(dma);
+   if (reu) {
+      settings[OPTM_G_REU][0] = 0;                    // REU: 512 KB, or 16 MB
+      settings[OPTM_G_REU][reu16 ? 3 : 1] = 1;
+   }
+   if (r3)
+      reu_items = 2;
+   reu_sync();
    if (f_mount(&fs, "", 1) != FR_OK) {
       printf("test_prg: can't mount %s\n", argv[1]);
       return 2;
@@ -334,11 +434,16 @@ int main(int argc, char **argv)
    uint64_t polled = 0;
    int shown = 0;
    while (pc != 0xFFFF && count < 400000000) {
-      if (!kernal() && !step())
+      if ((!kernal() && !step()) || hung)
          break;
       // The firmware's clock goes on with the C128's, at 1 MHz
       if (++count % 16 == 0) {
+         unsigned forced = reu_forces;
          uci_poll();
+         reu_settle();
+         if (blink && reu_forces != forced)
+            gone_until = cycles + 5000;
+         drives_watch();
          host_time += (cycles - polled) * (CPU_HZ / 1000000);
          polled = cycles;
       }
@@ -351,8 +456,20 @@ int main(int argc, char **argv)
    out[outn] = 0;
    printf("%s\n", out);
    if (unended) {
-      printf("test_prg: %d FILE_STAT without the name's 0 byte: an Ultimate reads past it\n",
+      printf("test_prg: %d FILE_STAT or LOAD_CONFIG without the name's 0 byte: an Ultimate reads past it\n",
              unended);
+      return 1;
+   }
+   if (hung) {
+      printf("test_prg: OPEN while a drive just switched on holds DATA: the KERNAL waits for ever\n");
+      return 1;
+   }
+   if (um.reu_resets) {
+      printf("test_prg: %u REU changes without uci.vhd's keep bit: main.vhd resets the C128\n", um.reu_resets);
+      return 1;
+   }
+   if (dma && !(rs.loads && rs.saves)) {
+      printf("test_prg: -dma, but reu_sd.vhd's model moved nothing (%u loads, %u saves)\n", rs.loads, rs.saves);
       return 1;
    }
    printf("test_prg: %.2f s at 1 MHz\n", cycles / 1e6);

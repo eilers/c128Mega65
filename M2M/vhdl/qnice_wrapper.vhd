@@ -117,7 +117,16 @@ port (
    qnice_avm_readdata_i      : in  std_logic_vector(15 downto 0);
    qnice_avm_readdatavalid_i : in  std_logic;
    qnice_avm_waitrequest_i   : in  std_logic;
-   hr_rst_i                  : in  std_logic := '0';           -- HyperRAM's reset (clk100_i)
+   hr_rst_i                  : in  std_logic := '0';           -- HyperRAM's and SDRAM's reset (clk100_i)
+   qnice_sr_write_o          : out std_logic;                  -- SDRAM (clk100_i): the core shares it out
+   qnice_sr_read_o           : out std_logic;
+   qnice_sr_address_o        : out std_logic_vector(31 downto 0);
+   qnice_sr_writedata_o      : out std_logic_vector(15 downto 0);
+   qnice_sr_byteenable_o     : out std_logic_vector( 1 downto 0);
+   qnice_sr_burstcount_o     : out std_logic_vector( 7 downto 0);
+   qnice_sr_readdata_i       : in  std_logic_vector(15 downto 0);
+   qnice_sr_readdatavalid_i  : in  std_logic;
+   qnice_sr_waitrequest_i    : in  std_logic;
 
    qnice_pps_i               : in  std_logic;
    qnice_hdmi_clk_freq_i     : in  std_logic_vector(27 downto 0);
@@ -204,14 +213,15 @@ end function str2data;
 begin
 
    -- The system CPU: On-Screen-Menu, drives, ROM loading. Its HyperRAM port (qnice_avm_*)
-   -- is on clk100_i.
+   -- and its SDRAM port (qnice_sr_*) are on clk100_i.
    i_rv_soc : entity work.rv_soc
       generic map (
          G_BOOT_ROM              => RV_BOOT_ROM,
          G_VGA_DX                => VGA_DX,
          G_VGA_DY                => VGA_DY,
          G_FONT_DX               => FONT_DX,
-         G_FONT_DY               => FONT_DY
+         G_FONT_DY               => FONT_DY,
+         G_SDRAM                 => G_BOARD /= "MEGA65_R3" and G_SDRAM
       )
       port map (
          clk50_i                 => clk_i,
@@ -268,7 +278,16 @@ begin
          hr_readdata_i           => qnice_avm_readdata_i,
          hr_readdatavalid_i      => qnice_avm_readdatavalid_i,
          hr_waitrequest_i        => qnice_avm_waitrequest_i,
-         hr_rst_i                => hr_rst_i
+         hr_rst_i                => hr_rst_i,
+         sr_write_o              => qnice_sr_write_o,
+         sr_read_o               => qnice_sr_read_o,
+         sr_address_o            => qnice_sr_address_o,
+         sr_writedata_o          => qnice_sr_writedata_o,
+         sr_byteenable_o         => qnice_sr_byteenable_o,
+         sr_burstcount_o         => qnice_sr_burstcount_o,
+         sr_readdata_i           => qnice_sr_readdata_i,
+         sr_readdatavalid_i      => qnice_sr_readdatavalid_i,
+         sr_waitrequest_i        => qnice_sr_waitrequest_i
       ); -- i_rv_soc
 
    -- Shell configuration file config.vhd

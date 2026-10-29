@@ -44,6 +44,7 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 |--------------|--------------------------------------------------------------------------|
 | `0x00000000` | boot ROM, 8 KB of block RAM, read at synthesis from `M2M/firmware/boot.rom` |
 | `0x40000000` | HyperRAM, 16 MB: byte A is word A/2, low byte first (`rv_hr_bridge.vhd`)  |
+| `0x50000000` | SDRAM, 64 MB, the same way (R4 and later; a bus error on R3 memory)       |
 | `0x80000000` | data RAM                                                                 |
 | `0xC0000000` | QNICE's device bus: word N of the device in `RAMROM_DEV` at `+2N`          |
 | `0xE0000000` | registers: CSR, OSM, ascal, keys, control flags                           |

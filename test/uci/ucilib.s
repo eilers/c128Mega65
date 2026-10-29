@@ -55,15 +55,25 @@ push_ctrl:
         sta CTRL
         rts
 
-; Wait for Data Last or Data More; rpolls is how long it took. After about 13 s without
-; (6.5 s in FAST mode; a mount on the core takes about 2 s),
+; Wait for Data Last or Data More; rpolls is how long it took. After about 12 s without
+; (6 s in FAST mode; a mount on the core takes about 2 s),
 ; the reply is empty with status TIMEOUT, the interface is released, and carry is set.
+; $DF1C counts only while $DF1D answers before and after it: an Ultimate takes the
+; interface off the bus for a few ms while LOAD_CONFIG's settings take effect, and the bus
+; then reads $FF. absent counts the polls without it.
 wait_reply:
         jsr poll_start
-@loop:  lda CTRL
+@loop:  jsr here
+        bcs @gone
+        lda CTRL
         and #$20
-        bne @done
-        jsr poll_next
+        beq @wait
+        jsr here
+        bcc @done
+@gone:  inc absent
+        bne @wait
+        inc absent+1
+@wait:  jsr poll_next
         bcc @loop
         lda #0
         sta resp_len
@@ -85,7 +95,16 @@ wait_reply:
         clc
         rts
 
-; Wait for idle; carry set on a timeout
+; Carry clear if the interface answers: $DF1D reads $C9 ($49 while its IRQ is on)
+here:   lda CMDQ
+        and #$7F
+        cmp #$49
+        clc
+        beq :+
+        sec
+:       rts
+
+; Wait for idle; carry set on a timeout (about 6 s)
 wait_idle:
         jsr poll_start
 @loop:  lda CTRL
@@ -112,8 +131,8 @@ poll_next:
         bne @ok
         inc polls+2
         lda polls+2
-        cmp #6
-        rts             ; carry set at 6 x 65536 polls
+        cmp #3
+        rts             ; carry set at 3 x 65536 polls (wait_reply's take about 60 cycles)
 @ok:    clc
         rts
 
@@ -323,5 +342,6 @@ cmp_len:    .res 2
 resp_len:   .res 2
 polls:      .res 3
 rpolls:     .res 3
+absent:     .res 2
 stat_buf:   .res 256
 resp_buf:   .res 1024

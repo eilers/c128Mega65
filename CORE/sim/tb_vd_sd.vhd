@@ -57,6 +57,8 @@ architecture sim of tb_vd_sd is
    signal buff_din     : vd_vec_array(1 downto 0)(7 downto 0);
    signal dirty        : std_logic_vector(1 downto 0);
    signal ready        : std_logic := '1';
+   signal power        : vd_vec_array(1 downto 0)(1 downto 0);
+   signal run          : std_logic_vector(1 downto 0) := "00";
 
    type t_dbuf is array (0 to 16383) of std_logic_vector(7 downto 0);
    type t_dbufs is array (0 to 1) of t_dbuf;
@@ -124,6 +126,8 @@ begin
          sd_buff_din_i  => buff_din,
          dirty_o        => dirty,
          ready_i        => ready,
+         power_o        => power,
+         running_i      => run,
          eng_want_o     => want,
          eng_o          => c2q,
          eng_i          => q2c
@@ -242,6 +246,19 @@ begin
          q_ce    <= '0';
          wait until rising_edge(clk);
       end procedure status;
+
+      procedure csr(d : natural; ofs : natural; st : out std_logic_vector(15 downto 0)) is
+      begin
+         q_drive <= d;
+         q_addr  <= x"FFFF" & std_logic_vector(to_unsigned(ofs, 12));
+         q_ce    <= '1';
+         q_we    <= '0';
+         wait until falling_edge(clk);
+         st      := q_rdata;
+         wait until rising_edge(clk);
+         q_ce    <= '0';
+         wait until rising_edge(clk);
+      end procedure csr;
 
       procedure wait_idle(d : natural) is
          variable st : std_logic_vector(15 downto 0);
@@ -448,6 +465,41 @@ begin
          end loop;
       end loop;
       report "6 disk_ready in the CSR: done";
+
+      -- 7. Each drive's power (CSR 0x034): out as written, the other drive's untouched; the
+      -- running state read back from the core's clock; automatic again after a reset
+      for d in 0 to 1 loop
+         for m in 1 to 3 loop
+            qwrite(d, x"FFFF", 16#034#, m mod 3);
+            csr(d, 16#034#, st);
+            if to_integer(unsigned(power(d))) /= m mod 3 or to_integer(unsigned(st(1 downto 0))) /= m mod 3 or
+               power(1 - d) /= "00" then
+               report "7: drive " & integer'image(8 + d) & " power " & integer'image(m mod 3) & " reads " &
+                      integer'image(to_integer(unsigned(st(1 downto 0)))) severity error;
+               errors := errors + 1;
+            end if;
+         end loop;
+         run    <= (others => '0');
+         run(d) <= '1';
+         wait for 5 * C_CLK;
+         for e in 0 to 1 loop
+            csr(e, 16#034#, st);
+            if st(2) /= run(e) then
+               report "7: drive " & integer'image(8 + e) & " running reads " & std_logic'image(st(2)) severity error;
+               errors := errors + 1;
+            end if;
+         end loop;
+      end loop;
+      qwrite(1, x"FFFF", 16#034#, 2);
+      rst <= '1';
+      wait for 3 * C_CLK;
+      rst <= '0';
+      wait for 3 * C_CLK;
+      if power(0) /= "00" or power(1) /= "00" then
+         report "7: power not automatic after a reset" severity error;
+         errors := errors + 1;
+      end if;
+      report "7 drive power: done";
 
       if errors = 0 then
          report "ALL CHECKS PASSED";

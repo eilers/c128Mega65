@@ -11,6 +11,7 @@
 #include "fmt.h"
 #include "heap.h"
 #include "m2m_rv.h"
+#include "reu.h"
 #include "sdcard.h"
 #include "uci.h"
 
@@ -41,7 +42,7 @@
 #define CMD_SET_TIME       0x27
 #define CMD_ECHO           0xF0
 
-#define PATH_MAX   256
+#define PATH_MAX   UCI_PATH_MAX
 #define BLOCK      512             // READ_DATA's part of a reply, and COPY_FILE's step
 #define COPY_STEPS 8               // blocks a main loop round copies
 // MOUNT_DISK answers once the drive has the disk, as an Ultimate's answers after its
@@ -61,6 +62,7 @@
 static const uint8_t identification[] = "MEGA128 DOS V1.0";
 static const char ok[]           = "00,OK";
 static const char dir_empty[]    = "01,DIRECTORY EMPTY";
+static const char truncated[]    = "02,REQUEST TRUNCATED";
 static const char unknown[]      = "21,UNKNOWN COMMAND";
 static const char not_found[]    = "82,FILE NOT FOUND";
 static const char no_such_dir[]  = "83,NO SUCH DIRECTORY";
@@ -99,11 +101,18 @@ static struct {
    int      on;
    uint32_t left;
 } copy;
+// LOAD_REU or SAVE_REU under way, for the targets' work(); its status once it is done
+static struct {
+   reu_xfer_t  x;
+   int         on;
+   uint32_t    addr;
+   const char *status;
+} reu_job;
 static enum { M_NONE, M_TAKE, M_CHANGE } mount_wait;   // MOUNT_DISK's reply waits for the drive
 static uint32_t mount_at;
 
 // FileSystem::get_error_string: a status without a number
-static const char *fr_text(FRESULT r)
+const char *uci_fr_text(int r)
 {
    switch (r) {
    case FR_OK:                  return "OK!";
@@ -177,6 +186,11 @@ static const char *on_card(const char *p)
    if (p[0] != '/' || (p[1] | 0x20) != 's' || (p[2] | 0x20) != 'd' || (p[3] && p[3] != '/'))
       return NULL;
    return p[3] ? p + 3 : "/";
+}
+
+const char *uci_card_path(const char *name, char *out)
+{
+   return resolve("/", name, out) ? on_card(out) : NULL;
 }
 
 // A name from a command, on the card: its FatFs path, or NULL
@@ -308,7 +322,7 @@ static void next_block(struct dos *t, uci_reply_t *r)
    t->remaining -= got;
    r->data   = uci_data;
    r->len    = got;
-   r->status = res == FR_OK ? "" : fr_text(res);
+   r->status = res == FR_OK ? "" : uci_fr_text(res);
    if (res != FR_OK || got != n || !t->remaining)
       t->state = IDLE;
    else
@@ -323,7 +337,7 @@ static void copy_start(struct dos *t, const char *name, const char *dest, uci_re
    const char *base = src ? strrchr(path, '/') : NULL;
    if (!src || !base[1] || !resolve("/", dest, path2) || !on_card(path2) ||
        strlen(path2) + strlen(base) >= PATH_MAX) {
-      r->status = fr_text(FR_NO_PATH);
+      r->status = uci_fr_text(FR_NO_PATH);
       return;
    }
    strcat(path2, base);
@@ -333,7 +347,7 @@ static void copy_start(struct dos *t, const char *name, const char *dest, uci_re
    if (res == FR_OK && (res = f_open(&copy.dst, on_card(path2), FA_WRITE | FA_CREATE_NEW)) != FR_OK)
       f_close(&copy.src);
    if (res != FR_OK) {
-      r->status = fr_text(res);
+      r->status = uci_fr_text(res);
       return;
    }
    copy.on   = 1;
@@ -350,8 +364,50 @@ static void copy_end(int keep)
    copy.on = 0;
 }
 
+// LOAD_REU, SAVE_REU (dos.cc): from the open file, at its position, into the REU's memory at
+// an address, or from there into the file, a few KB per main-loop round. The address (24
+// bits) and length (25 bits) as his, little-endian; what would pass the end of the REU's
+// memory (16 MB, 512 KB on R3 memory) is cut off, as his at 16 MB. The REU needn't be on.
+static void reu_start(struct dos *t, const uint8_t *cmd, int len, uci_reply_t *r)
+{
+   uint32_t arg[2] = { 0, 0 }, room = reu_room();
+   if (!t->fopen) {
+      r->status = no_file;
+      return;
+   }
+   for (int i = 0; i < 8 && 2 + i < len; i++)
+      arg[i / 4] |= (uint32_t)cmd[2 + i] << (8 * (i % 4));
+   uint32_t addr = arg[0] & 0xFFFFFF, n = arg[1] & 0x1FFFFFF;
+   if (addr + n > room) {
+      n = addr < room ? room - addr : 0;
+      r->status = truncated;
+   }
+   reu_job.x      = (reu_xfer_t){ .f = &t->f, .save = cmd[1] == CMD_SAVE_REU, .at = addr, .left = n };
+   reu_job.addr   = addr;
+   reu_job.status = r->status;
+   reu_job.on     = 1;
+   r->status      = NULL;                              // work() goes on with it
+}
+
+// His reply: the same length every time, so a 16 MB one loses its last character
+static void reu_done(FRESULT res, uci_reply_t *r)
+{
+   reu_job.on = 0;
+   fmt_snprintf((char *)uci_data, UCI_MAX_REPLY, reu_job.x.save ? "$%6x BYTES SAVED FROM REU $%6x" :
+                "$%6x BYTES LOADED TO REU $%6x", reu_job.x.done, reu_job.addr);
+   r->data   = uci_data;
+   r->len    = reu_job.x.save ? 36 : 35;
+   r->status = res == FR_OK ? reu_job.status : uci_fr_text(res);
+}
+
 static void dos_work(uci_reply_t *r)
 {
+   if (reu_job.on) {
+      FRESULT res = reu_step(&reu_job.x, COPY_STEPS * BLOCK);
+      if (res != FR_OK || !reu_job.x.left)
+         reu_done(res, r);
+      return;
+   }
    if (mount_wait) {
       uint32_t t = MTIME_LO - mount_at;
       int ready = drives_ready();
@@ -375,7 +431,7 @@ static void dos_work(uci_reply_t *r)
       if (res == FR_OK)
          res = f_write(&copy.dst, uci_data, n, &put);
       if (res != FR_OK)
-         err = fr_text(res);
+         err = uci_fr_text(res);
       else if (put != n)
          err = "DISK IS FULL";
       copy.left -= n;
@@ -547,13 +603,13 @@ static void dos_command(struct dos *t, uint8_t *cmd, int len, uci_reply_t *r)
          strcpy(t->fpath, c);
       }
       if (res != FR_OK)
-         r->status = fr_text(res);
+         r->status = uci_fr_text(res);
       break;
    case CMD_CLOSE_FILE:
       if (!t->fopen)
          r->status = nothing_open;
       else if ((res = f_close(&t->f)) != FR_OK)
-         r->status = fr_text(res);
+         r->status = uci_fr_text(res);
       t->fopen = 0;
       t->state = IDLE;
       break;
@@ -563,7 +619,7 @@ static void dos_command(struct dos *t, uint8_t *cmd, int len, uci_reply_t *r)
       else if (len < 6)
          r->status = unknown;
       else if ((res = f_lseek(&t->f, le32(cmd + 2))) != FR_OK)
-         r->status = fr_text(res);
+         r->status = uci_fr_text(res);
       break;
    case CMD_FILE_INFO:
       if (!t->fopen)
@@ -582,14 +638,14 @@ static void dos_command(struct dos *t, uint8_t *cmd, int len, uci_reply_t *r)
    case CMD_DELETE_FILE:
       res = (c = card_name(t, name, path)) ? f_unlink(c) : FR_NO_PATH;
       if (res != FR_OK)
-         r->status = fr_text(res);
+         r->status = uci_fr_text(res);
       break;
    case CMD_RENAME_FILE:
       c  = card_name(t, name, path);
       c2 = c ? card_name(t, name + strlen(name) + 1, path2) : NULL;
       res = c2 ? f_rename(c, c2) : FR_NO_PATH;
       if (res != FR_OK)
-         r->status = fr_text(res);
+         r->status = uci_fr_text(res);
       break;
    case CMD_COPY_FILE:
       copy_start(t, name, name + strlen(name) + 1, r);
@@ -619,7 +675,7 @@ static void dos_command(struct dos *t, uint8_t *cmd, int len, uci_reply_t *r)
    case CMD_CREATE_DIR:
       res = (c = card_name(t, name, path)) ? f_mkdir(c) : FR_NO_PATH;
       if (res != FR_OK)
-         r->status = fr_text(res);
+         r->status = uci_fr_text(res);
       break;
    case CMD_READ_DATA:
       if (!t->fopen) {
@@ -634,7 +690,7 @@ static void dos_command(struct dos *t, uint8_t *cmd, int len, uci_reply_t *r)
       if (!t->fopen)
          r->status = no_file;
       else if (len > 4 && (res = f_write(&t->f, cmd + 4, len - 4, &done)) != FR_OK)
-         r->status = fr_text(res);
+         r->status = uci_fr_text(res);
       else if (len > 4 && done != (UINT)(len - 4))
          r->status = "DISK IS FULL";
       break;
@@ -668,9 +724,11 @@ static void dos_command(struct dos *t, uint8_t *cmd, int len, uci_reply_t *r)
          set_time(cmd + 2, r);
       }
       break;
-   case CMD_COPY_UI_PATH:
    case CMD_LOAD_REU:
    case CMD_SAVE_REU:
+      reu_start(t, cmd, len, r);
+      break;
+   case CMD_COPY_UI_PATH:
    case CMD_SWAP_DISK:
       r->status = not_done;
       break;
@@ -697,6 +755,7 @@ static void dos_abort(struct dos *t)
 {
    t->state = IDLE;
    mount_wait = M_NONE;
+   reu_job.on = 0;
    if (copy.on)
       copy_end(0);
 }

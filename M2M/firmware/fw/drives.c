@@ -28,6 +28,7 @@
 #define MAP_CSR_CTRL  0x031        // W: 1 on, 0 off; R: bit 0 on, bit 2 busy, bit 5 ready
 #define MAP_READY     0x20         // every 1541/1571 out of reset has its disk (iec_drive)
 #define MAP_CSR_NBLK  0x032        // blocks of the image
+#define MAP_CSR_POWER 0x034        // bits 1-0 enum drive_power; R: bit 2 the drive runs
 #define MAP_PIECE     8            // blocks per table entry
 #define MAP_MAX       2048         // blocks a table holds
 #define MAP_RUNS      (MAP_MAX / MAP_PIECE + 1)
@@ -40,6 +41,7 @@
 static int       num;
 static uint16_t  vd_dev, map_dev[DRIVES_MAX];
 static uint32_t  seen;                     // the mount status, as drives_changed saw it
+static int       img_type[DRIVES_MAX];     // what each drive was last given (vdrives' img_type)
 static DWORD     sclust[DRIVES_MAX];       // where each drive's image starts on the card
 static DWORD    *runs;                     // an image's runs of clusters (FatFs link map)
 static uint32_t *table;                    // its table, until it goes to the drive
@@ -91,6 +93,27 @@ int drives_ready(void)
    return num && (crtrom_csr_get(map_dev[0], MAP_CSR_CTRL) & MAP_READY);
 }
 
+int drive_image_type(int d)
+{
+   return drive_mounted(d) ? img_type[d] : -1;
+}
+
+void drive_power(int d, enum drive_power p)
+{
+   if (d < num)
+      crtrom_csr_set(map_dev[d], MAP_CSR_POWER, p);
+}
+
+enum drive_power drive_power_of(int d)
+{
+   return d < num ? crtrom_csr_get(map_dev[d], MAP_CSR_POWER) & 3 : DRIVE_AUTO;
+}
+
+int drive_running(int d)
+{
+   return d < num && (crtrom_csr_get(map_dev[d], MAP_CSR_POWER) & 4);
+}
+
 int drives_changed(void)
 {
    uint32_t now = num ? vd_get(VD_DRV_MOUNT) : 0;
@@ -104,6 +127,7 @@ int drives_changed(void)
 // of its clocks later.
 static void strobe(int d, uint32_t size, int type)
 {
+   img_type[d] = type;
    vd_set(VD_SIZE_L, size & 0xFFFF);
    vd_set(VD_SIZE_H, size >> 16);
    vd_set(VD_RO, 0);

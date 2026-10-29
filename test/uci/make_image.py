@@ -39,8 +39,8 @@ def main() -> None:
 
     # UCIDOS writes an empty disk: zeros, with this BAM and directory sector on track 18
     empty = images.Disk(35)
-    empty.write_bam()
     empty.write_directory()
+    empty.write_bam()
     bam = empty.offset(18, 0)
     empty.image[bam + 0x90:bam + 0xA0] = b"UCI MOUNT".ljust(16, b"\xA0")
     empty.image[bam + 0xA2:bam + 0xA4] = b"UM"
@@ -53,13 +53,19 @@ def main() -> None:
         progs = [("UCITEST", assemble("ucitest.s", "ucitest", 0x1C01, [], Path(tmp))),
                  ("UCITEST64", assemble("ucitest.s", "ucitest64", 0x0801, ["-DC64"], Path(tmp))),
                  ("UCIDOS", assemble("ucidos.s", "ucidos", 0x1C01, [], Path(tmp))),
-                 ("UCIDOS64", assemble("ucidos.s", "ucidos64", 0x0801, ["-DC64"], Path(tmp)))]
+                 ("UCIDOS64", assemble("ucidos.s", "ucidos64", 0x0801, ["-DC64"], Path(tmp))),
+                 ("UCICTRL", assemble("ucictrl.s", "ucictrl", 0x1C01, [], Path(tmp))),
+                 ("UCICTRL64", assemble("ucictrl.s", "ucictrl64", 0x0801, ["-DC64"], Path(tmp))),
+                 ("UCIREU", assemble("ucireu.s", "ucireu", 0x1C01, [], Path(tmp))),
+                 ("UCIREU64", assemble("ucireu.s", "ucireu64", 0x0801, ["-DC64"], Path(tmp))),
+                 ("UCICFG", assemble("ucicfg.s", "ucicfg", 0x1C01, [], Path(tmp))),
+                 ("UCICFG64", assemble("ucicfg.s", "ucicfg64", 0x0801, ["-DC64"], Path(tmp)))]
 
     disk = images.Disk(35)
     for name, prg in progs:
         disk.add_file(name, prg)
+    disk.write_directory()                    # first: past 8 files it takes a second sector
     disk.write_bam()
-    disk.write_directory()
     bam = disk.offset(18, 0)
     disk.image[bam + 0x90:bam + 0xA0] = b"UCI TEST".ljust(16, b"\xA0")
     disk.image[bam + 0xA2:bam + 0xA4] = b"UC"

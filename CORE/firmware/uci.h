@@ -7,6 +7,7 @@
 #define UCI_MAX_COMMAND 895   // the command queue holds 896, but stops one short
 #define UCI_MAX_REPLY   896
 #define UCI_MAX_STATUS  255
+#define UCI_PATH_MAX    256
 
 // A target's answer: data, a status text such as "00,OK", and whether more data follows
 // once the C128 has taken this part (Data More). A status of NULL means not yet: the C128
@@ -28,9 +29,21 @@ typedef struct {
    void (*reset)(void);              // the C128 was reset
 } uci_target_t;
 
-extern uint8_t uci_data[UCI_MAX_REPLY];   // for a target's reply data
+extern uint8_t uci_data[UCI_MAX_REPLY];   // for a target's reply data (word-aligned)
 
 void uci_poll(void);
+void uci_reboot(void);            // reset the C128, as the reset button does
+uint16_t uci_reu_mem(void);       // where the REU's memory is (uci.vhd word 0x011, reu.c)
+// LOAD_CONFIG's REU setting, item pos of the menu's REU group (0 off, 1-3 a size), without
+// the reset main.vhd gives a change in the menu (uci.vhd word 0x012): 0, or -1 if main.vhd
+// never had it
+int      uci_reu_set(int pos);
 
-// The targets: MEGA128 DOS 1 and 2 (uci_dos.c)
-extern const uci_target_t uci_dos1, uci_dos2;
+// A whole path from a command (from the root, as Gideon's fopen takes it) as the card's
+// FatFs path, in out (UCI_PATH_MAX); NULL outside the card (uci_dos.c)
+const char *uci_card_path(const char *name, char *out);
+// Gideon's FileSystem::get_error_string for a FatFs result, as a status without a number
+const char *uci_fr_text(int fresult);
+
+// The targets: MEGA128 DOS 1 and 2 (uci_dos.c), control 4 (uci_ctrl.c)
+extern const uci_target_t uci_dos1, uci_dos2, uci_ctrl;

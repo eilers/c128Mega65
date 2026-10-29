@@ -2,19 +2,20 @@
 -- MiSTer2MEGA65 Framework
 --
 -- RISC-V system CPU: a NEORV32 in place of the QNICE co-processor (QNICE/qnice.vhd).
--- Same ports as QNICE, plus a HyperRAM master, so qnice_wrapper.vhd can take either.
+-- Same ports as QNICE, plus HyperRAM and SDRAM masters, so qnice_wrapper.vhd can take either.
 -- The firmware is in M2M/firmware; its view of this hardware is M2M/firmware/include/m2m_rv.h.
 --
 -- CPU address map:
 --   0x00000000  boot ROM (block RAM, through the i-cache)
 --   0x40000000  HyperRAM, 16 MB: byte A is word A/2, low byte first (rv_hr_bridge.vhd)
+--   0x50000000  SDRAM, 64 MB, the same way (G_SDRAM; else a bus error)
 --   0x80000000  data RAM (NEORV32 DMEM)
 --   0xC0000000  QNICE device bus: 16-bit word N of the device in RAMROM_DEV at 0xC0000000 + 2N
 --   0xE0000000  registers: CSR, OSM, ascal, keys, control flags (below)
 --   0xE0000100  SD card controller registers 0..7 (sdhost.vhd), one per 32-bit word
 --   0xFFE00000  NEORV32's own: UART0 (the serial port), CLINT
 --
--- Clocks: the CPU, the boot ROM and HyperRAM run at 100 MHz (clk100_i, the HyperRAM
+-- Clocks: the CPU, the boot ROM, HyperRAM and SDRAM run at 100 MHz (clk100_i, the HyperRAM
 -- clock). The device bus, the registers and the SD controllers stay at 50 MHz
 -- (clk50_i), where QNICE was. Both come from one MMCM with phase 0, so every 50 MHz
 -- edge is a 100 MHz edge and the paths between them are timed: a request crosses
@@ -41,7 +42,8 @@ generic (
    G_VGA_DX          : natural;                          -- output screen width in pixel
    G_VGA_DY          : natural;                          -- ditto height
    G_FONT_DX         : natural;                          -- character width in pixel
-   G_FONT_DY         : natural                           -- ditto height
+   G_FONT_DY         : natural;                          -- ditto height
+   G_SDRAM           : boolean := false                  -- the board has SDRAM at 0x50000000
 );
 port (
    clk50_i              : in std_logic;            -- 50 MHz: device bus, registers, SD cards
@@ -111,7 +113,18 @@ port (
    hr_readdata_i        : in  std_logic_vector(15 downto 0);
    hr_readdatavalid_i   : in  std_logic;
    hr_waitrequest_i     : in  std_logic;
-   hr_rst_i             : in  std_logic := '0' -- the HyperRAM side's reset, with the core's
+   hr_rst_i             : in  std_logic := '0'; -- the HyperRAM and SDRAM side's reset, with the core's
+
+   -- SDRAM, clk100_i: the core shares it out (G_SDRAM)
+   sr_write_o           : out std_logic;
+   sr_read_o            : out std_logic;
+   sr_address_o         : out std_logic_vector(31 downto 0);
+   sr_writedata_o       : out std_logic_vector(15 downto 0);
+   sr_byteenable_o      : out std_logic_vector(1 downto 0);
+   sr_burstcount_o      : out std_logic_vector(7 downto 0);
+   sr_readdata_i        : in  std_logic_vector(15 downto 0) := (others => '0');
+   sr_readdatavalid_i   : in  std_logic := '0';
+   sr_waitrequest_i     : in  std_logic := '1'
 );
 end entity rv_soc;
 
@@ -171,6 +184,7 @@ architecture synthesis of rv_soc is
    signal sel        : std_logic_vector(3 downto 0);
    signal rom_sel    : std_logic;
    signal hr_sel     : std_logic;
+   signal sr_sel     : std_logic;
 
    signal rom_ack    : std_logic := '0';
    signal rom_err    : std_logic := '0';
@@ -179,6 +193,10 @@ architecture synthesis of rv_soc is
    signal hr_ack     : std_logic;
    signal hr_err     : std_logic;
    signal hr_dat     : std_logic_vector(31 downto 0);
+   signal sr_stb     : std_logic;
+   signal sr_ack     : std_logic;
+   signal sr_err     : std_logic;
+   signal sr_dat     : std_logic_vector(31 downto 0);
 
    -- Requests for the 50 MHz side, and its answers
    signal req_tog    : std_logic := '0';
@@ -298,11 +316,13 @@ begin
 
    rom_sel <= '1' when adr(31 downto 28) = x"0" else '0';
    hr_sel  <= '1' when adr(31 downto 24) = x"40" else '0';
+   sr_sel  <= '1' when G_SDRAM and adr(31 downto 26) = "010100" else '0';
 
-   xbus_ack   <= rom_ack or hr_ack or slow_ack;
-   xbus_err   <= rom_err or hr_err or slow_err;
+   xbus_ack   <= rom_ack or hr_ack or sr_ack or slow_ack;
+   xbus_err   <= rom_err or hr_err or sr_err or slow_err;
    xbus_dat_i <= std_ulogic_vector(to_stdlogicvector(rom_dat)) when rom_ack = '1' else
                  std_ulogic_vector(hr_dat)                     when hr_ack = '1' else
+                 std_ulogic_vector(sr_dat)                     when sr_ack = '1' else
                  std_ulogic_vector(slow_dat);
 
    -----------------------------------------------------------------------------
@@ -357,6 +377,43 @@ begin
       ); -- i_hr_bridge
 
    -----------------------------------------------------------------------------
+   -- SDRAM (100 MHz): bursts of 2 words, a CPU word, so an access is never longer than
+   -- the REU's, whose turns it shares (sdram_arbit.vhd)
+   -----------------------------------------------------------------------------
+
+   sr_stb <= xbus_stb and sr_sel;
+
+   i_sr_bridge : entity work.rv_hr_bridge
+      generic map (
+         G_LINE_BYTES => C_LINE_BYTES,
+         G_ADDR_BITS  => 26,
+         G_BURST      => 2
+      )
+      port map (
+         clk_i               => clk100_i,
+         rst_i               => rst100,
+         hr_rst_i            => hr_rst_i,
+         stb_i               => sr_stb,
+         adr_i               => adr(25 downto 0),
+         we_i                => xbus_we,
+         sel_i               => sel,
+         dat_i               => wdat,
+         cti_i               => std_logic_vector(xbus_cti),
+         dat_o               => sr_dat,
+         ack_o               => sr_ack,
+         err_o               => sr_err,
+         avm_write_o         => sr_write_o,
+         avm_read_o          => sr_read_o,
+         avm_address_o       => sr_address_o,
+         avm_writedata_o     => sr_writedata_o,
+         avm_byteenable_o    => sr_byteenable_o,
+         avm_burstcount_o    => sr_burstcount_o,
+         avm_readdata_i      => sr_readdata_i,
+         avm_readdatavalid_i => sr_readdatavalid_i,
+         avm_waitrequest_i   => sr_waitrequest_i
+      ); -- i_sr_bridge
+
+   -----------------------------------------------------------------------------
    -- Everything else goes to the 50 MHz side (100 MHz)
    -- The CPU waits for each answer, so there is one request at a time.
    -----------------------------------------------------------------------------
@@ -367,7 +424,7 @@ begin
          slow_ack <= '0';
          slow_err <= '0';
 
-         if xbus_stb = '1' and rom_sel = '0' and hr_sel = '0' then
+         if xbus_stb = '1' and rom_sel = '0' and hr_sel = '0' and sr_sel = '0' then
             req_adr  <= adr;
             req_wdat <= wdat;
             req_sel  <= sel;

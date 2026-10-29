@@ -12,5 +12,7 @@ int      crtrom_count(void);
 uint16_t crtrom_dev(int k);
 int      crtrom_loaded(int k);  // its device holds a file (CSR status OK)
 // Load a file into it with a progress bar on the screen (LOAD_IMAGE, DMA_LOAD,
-// HANDLE_CRTROM_M): 0, or an error code and *msg, the core's or the device's message
+// HANDLE_CRTROM_M): 0, or an error code and *msg, the core's or the device's message.
+// An item of the core's own type (C_CRTROMTYPE_CORE) is loaded by core_crtrom_load.
 int      crtrom_load(int k, const char *path, int group, const char **msg);
+void     crtrom_progress(uint32_t bytes);   // so many more bytes of it are loaded

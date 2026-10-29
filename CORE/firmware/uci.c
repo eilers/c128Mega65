@@ -3,6 +3,8 @@
 // his tests/e2e/io/command_interface/uci_targets_test.py checks against real hardware.
 #include <stddef.h>
 #include <string.h>
+#include "config_ids.h"
+#include "core.h"
 #include "m2m_rv.h"
 #include "uci.h"
 
@@ -20,6 +22,8 @@
 #define R_CMD_LEN_L   0xE
 #define R_CMD_LEN_H   0xF
 #define W_FLAGS       0x010
+#define W_REU_MEM     0x011
+#define W_REU_KEEP    0x012          // bit 0 keep the C128 running; R bits 2-1 main.vhd's REU
 #define W_COMMAND     0x800
 #define W_RESPONSE    (0x800 + 896)
 #define W_STATUS      (0x800 + 1792)
@@ -37,10 +41,11 @@
 // Registers and the reset flag; the host test puts a model of the protocol here
 #ifndef UCI_RD
 #define UCI_RD(n)    (M2M_DEV16[n] & 0xFFu)
+#define UCI_RD16(n)  (M2M_DEV16[n])
 #define UCI_WR(n, v) (M2M_DEV16[n] = (uint16_t)(v))
 #endif
 
-uint8_t        uci_data[UCI_MAX_REPLY];
+uint8_t        uci_data[UCI_MAX_REPLY] __attribute__((aligned(4)));
 static uint8_t cmd[UCI_MAX_COMMAND + 1];
 static int     ready;
 static int     target = -1;         // the target whose reply is under way, or -1
@@ -61,6 +66,7 @@ static const uci_target_t none = { none_command, NULL, NULL, NULL, NULL };
 static const uci_target_t *targets[16] = {
    [1] = &uci_dos1,
    [2] = &uci_dos2,
+   [4] = &uci_ctrl,
 };
 
 static const uci_target_t *get(int t)
@@ -138,6 +144,35 @@ static void done(void)
       UCI_WR(R_HANDSHAKE, HS_RESET);
    else
       send(&job);
+}
+
+// uci.vhd resets the C128 (word 0x010 bit 1), which then sets the reset flag
+void uci_reboot(void)
+{
+   M2M_RAMROM_DEV = UCI_DEVICE;
+   UCI_WR(W_FLAGS, 2);
+}
+
+uint16_t uci_reu_mem(void)
+{
+   M2M_RAMROM_DEV = UCI_DEVICE;
+   return UCI_RD16(W_REU_MEM);
+}
+
+// The keep bit is on the C128's side once its write returns, and goes once main.vhd has the
+// new setting; the menu's bits get there in microseconds
+int uci_reu_set(int pos)
+{
+   int seen;
+   M2M_RAMROM_DEV = UCI_DEVICE;
+   UCI_WR(W_REU_KEEP, 1);
+   shell_force(OPTM_G_REU, pos, 1);
+   M2M_RAMROM_DEV = UCI_DEVICE;
+   uint32_t start = MTIME_LO;
+   while (!(seen = (UCI_RD(W_REU_KEEP) >> 1 & 3) == (unsigned)pos) && MTIME_LO - start < CPU_HZ / 100)
+      ;
+   UCI_WR(W_REU_KEEP, 0);
+   return seen ? 0 : -1;
 }
 
 static void start(void)

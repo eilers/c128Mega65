@@ -296,7 +296,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 119; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 121; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -425,6 +425,8 @@ constant OPTM_ITEMS_ALL    : string :=
    " 2 MB\n"                &
    " 16 MB\n"               &    -- R4 and later: in SDRAM
    "\n"                     &
+   " File:%s\n"             &    -- the REU's image file: picking one loads it (LOAD_REU, SAVE_REU)
+   "\n"                     &
    " Back to main menu\n"   &
    " Cartridge: %s\n"       &    -- Cartridge submenu; %s is the selected source
    " Cartridge\n"           &
@@ -474,6 +476,7 @@ constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartr
 constant OPTM_G_INT1581    : integer := 18;   -- Internal 1581: Off, Drive 8, Drive 9
 constant OPTM_G_MODEM      : integer := 19;   -- Modem: Off, $DE00, $DF00, $D700
 constant OPTM_G_UCI        : integer := 20;   -- Ultimate Command Interface at $DF1C
+constant OPTM_G_REU_FILE   : integer := 21;   -- File:%s, loads the REU's image file
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -588,6 +591,8 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_REU,                                          -- 512 KB
                                              OPTM_G_REU,                                          -- 2 MB
                                              OPTM_G_REU,                                          -- 16 MB
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_REU_FILE + OPTM_G_LOAD_ROM,                   -- File:%s
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- Cartridge submenu START

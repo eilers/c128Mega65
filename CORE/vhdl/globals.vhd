@@ -88,12 +88,12 @@ constant C_MENU_REU_512K         : natural := 93;  -- REU: 512 KB
 constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB, not on R3-memory builds
 constant C_MENU_REU_16M          : natural := 95;  -- REU: 16 MB, not on R3-memory builds
 constant C_MENU_R3_DROP          : natural := 2;   -- R3-memory builds have neither
-constant C_MENU_CART_HW          : natural := 101; -- Cartridge: hardware slot (default)
-constant C_MENU_CART_CRT         : natural := 102; -- Cartridge: virtual cartridge (.crt)
-constant C_MENU_MODEM_DE00       : natural := 110; -- Modem: SwiftLink at $DE00 (Off at 109 is the default)
-constant C_MENU_MODEM_DF00       : natural := 111; -- Modem: SwiftLink at $DF00, REU off
-constant C_MENU_MODEM_D700       : natural := 112; -- Modem: SwiftLink at $D700
-constant C_MENU_UCI              : natural := 115; -- UCI at $DF1C: Ultimate Command Interface (default off)
+constant C_MENU_CART_HW          : natural := 103; -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 104; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 112; -- Modem: SwiftLink at $DE00 (Off at 111 is the default)
+constant C_MENU_MODEM_DF00       : natural := 113; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 114; -- Modem: SwiftLink at $D700
+constant C_MENU_UCI              : natural := 117; -- UCI at $DF1C: Ultimate Command Interface (default off)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -163,6 +163,7 @@ constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- dri
 constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- virtual cartridge (.crt), loaded into HyperRAM
 constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- internal floppy diagnostics (physical_1581_diag), same id as C64MEGA65
 constant C_DEV_UCI            : std_logic_vector(15 downto 0) := x"0109"; -- Ultimate Command Interface: registers and buffer (uci.vhd)
+constant C_DEV_REU_SD         : std_logic_vector(15 downto 0) := x"010A"; -- the REU's SD card DMA and cache drop (reu_sd.vhd)
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)
@@ -209,6 +210,7 @@ constant ENDSTR : character := character'val(0);
 constant C_CRTROMTYPE_DEVICE     : std_logic_vector(15 downto 0) := x"0000";
 constant C_CRTROMTYPE_HYPERRAM   : std_logic_vector(15 downto 0) := x"0001";
 constant C_CRTROMTYPE_SDRAM      : std_logic_vector(15 downto 0) := x"0002";           -- @TODO/RESERVED for future R4 boards
+constant C_CRTROMTYPE_CORE       : std_logic_vector(15 downto 0) := x"0005";           -- the firmware's core code loads it (core_crtrom_load)
 
 -- Types of automatically loaded ROMs:
 -- If a mandatory file is missing, then the core outputs the missing file and goes fatal
@@ -226,8 +228,10 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 --       else it is a 4k window in HyperRAM or in SDRAM
 -- In case we are loading to a QNICE device, then the control and status register is located at the 4k window 0xFFFF.
 -- @TODO: See @TODO for more details about the control and status register
-constant C_CRTROMS_MAN_NUM       : natural := 1;                                       -- amount of manually loadable ROMs and carts; maximum is 16
-constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_CRT,  -- the CRT:%s menu item
+-- In the order of their menu items.
+constant C_CRTROMS_MAN_NUM       : natural := 2;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"0000",      -- the REU's File:%s menu item
+                                                         C_CRTROMTYPE_DEVICE, C_DEV_CRT,  -- the CRT:%s menu item
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

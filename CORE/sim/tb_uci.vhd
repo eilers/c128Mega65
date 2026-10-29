@@ -14,6 +14,11 @@
 --   7. the IRQ bit: IRQ with the reply, $DF1D reads $49, reading the reply ends it
 --   8. the DMA bit holds the CPU until the reply; TRIGGER waits for a write to $FF00
 --   9. a reset of the C128 sets the flag at device word 0x010, and writing 1 clears it
+--  10. writing bit 1 there asks for a reset: one pulse of one clock, also with ce held for
+--      ten clocks; clearing the flag asks for none
+--  11. device word 0x011 is where the REU's memory is (G_REU_MEM), all 16 bits
+--  12. device word 0x012: main.vhd's REU setting in bits 2-1; bit 0 reaches main_reu_keep_o
+--      before the write returns, and goes again with a 0
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -63,6 +68,11 @@ architecture sim of tb_uci is
    signal rdata     : std_logic_vector(7 downto 0);
    signal irq       : std_logic;
    signal dma       : std_logic;
+   signal reboot    : std_logic;
+   signal reboots   : natural := 0;
+   signal reboot_wide : boolean := false;     -- a pulse longer than one clock
+   signal reu_in    : std_logic_vector(1 downto 0) := "10";
+   signal reu_keep  : std_logic;
 
    signal q_addr    : std_logic_vector(11 downto 0) := (others => '0');
    signal q_wdata   : std_logic_vector(15 downto 0) := (others => '0');
@@ -75,6 +85,7 @@ architecture sim of tb_uci is
    signal fw_ready      : boolean := false;
    signal fw_resets     : natural := 0;
    signal fw_reset_kept : boolean := false;   -- the flag read 1 right after a clear (reset still on)
+   signal want_reboot   : boolean := false;   -- the C128 side asks the firmware to reboot
 
 begin
 
@@ -82,6 +93,9 @@ begin
    qnice_clk <= not qnice_clk after C_QNICE_PERIOD / 2 when not done;
 
    i_dut : entity work.uci
+      generic map (
+         G_REU_MEM       => x"8800"
+      )
       port map (
          main_clk_i      => main_clk,
          main_rst_i      => main_rst,
@@ -93,6 +107,9 @@ begin
          main_data_o     => rdata,
          main_irq_o      => irq,
          main_dma_o      => dma,
+         main_reboot_o   => reboot,
+         main_reu_i      => reu_in,
+         main_reu_keep_o => reu_keep,
          qnice_clk_i     => qnice_clk,
          qnice_rst_i     => qnice_rst,
          qnice_addr_i    => q_addr,
@@ -102,6 +119,20 @@ begin
          qnice_data_o    => q_rdata,
          qnice_wait_o    => q_wait
       ); -- i_dut
+
+   p_reboots : process (main_clk)
+      variable prev : std_logic := '0';
+   begin
+      if rising_edge(main_clk) then
+         if reboot = '1' then
+            reboots <= reboots + 1;
+            if prev = '1' then
+               reboot_wide <= true;
+            end if;
+         end if;
+         prev := reboot;
+      end if;
+   end process p_reboots;
 
    ---------------------------------------------------------------------------------------------
    -- Firmware: Gideon's run_task, polled
@@ -113,6 +144,7 @@ begin
       variable cmd     : natural;
       variable stalled : boolean := false;
       variable second  : boolean := false;
+      variable rebooted : boolean := false;
 
       -- rv_soc: ce from a rising edge; the next rising edge without wait ends the access
       procedure dev(a : natural; w : std_logic; d : natural; r : out std_logic_vector(7 downto 0)) is
@@ -176,6 +208,21 @@ begin
       assert n = 896 / 8 report "1: response buffer at " & integer'image(n) severity error;
       rdv(R_STAT_START, n);
       assert n = 1792 / 8 report "1: status buffer at " & integer'image(n) severity error;
+
+      -- 11.
+      rdv(16#011#, n);
+      assert q_rdata = x"8800" report "11: word 0x011 reads " & to_hstring(q_rdata) severity error;
+
+      -- 12.
+      rdv(16#012#, n);
+      assert n = 4 report "12: word 0x012 reads " & integer'image(n) & ", expected 4" severity error;
+      wr(16#012#, 1);
+      assert reu_keep = '1' report "12: keep not there when the write returned" severity error;
+      reu_in <= "11";
+      rdv(16#012#, n);
+      assert n = 7 report "12: word 0x012 reads " & integer'image(n) & ", expected 7" severity error;
+      wr(16#012#, 0);
+      assert reu_keep = '0' report "12: keep still on after writing 0" severity error;
       wr(R_SLOT_BASE, 16#47#);                   -- $DF1C
       wr(R_SLOT_ENABLE, 1);
       wr(R_HANDSHAKE, 16#87#);                   -- HANDSHAKE_RESET
@@ -184,6 +231,22 @@ begin
       fw_ready <= true;
 
       loop
+         -- A reset request, its write held for ten clocks: one toggle per clock would make an
+         -- even count, which the C128's slower clock can't take for a single pulse
+         if want_reboot and not rebooted then
+            rebooted := true;
+            wait until rising_edge(qnice_clk);
+            q_ce    <= '1';
+            q_we    <= '1';
+            q_addr  <= std_logic_vector(to_unsigned(R_FLAGS, 12));
+            q_wdata <= x"0002";
+            for i in 1 to 10 loop
+               wait until rising_edge(qnice_clk);
+            end loop;
+            q_ce <= '0';
+            q_we <= '0';
+         end if;
+
          rdv(R_FLAGS, n);
          if n mod 2 = 1 then
             fw_resets <= fw_resets + 1;
@@ -465,6 +528,13 @@ begin
       wait for 20 us;
       assert fw_resets > cnt report "9: the firmware did not see the reset" severity error;
       assert not fw_reset_kept report "9: writing 1 did not clear the flag" severity error;
+      assert reboots = 0 report "9: clearing the flag asked for a reset" severity error;
+
+      -- 10.
+      want_reboot <= true;
+      wait for 20 us;
+      assert reboots = 1 report "10: " & integer'image(reboots) & " reset requests, expected 1" severity error;
+      assert not reboot_wide report "10: the request is longer than one clock" severity error;
 
       report "ALL CHECKS PASSED";
       done <= true;

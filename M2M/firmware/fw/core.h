@@ -20,8 +20,13 @@ void        core_sel_post(int group, int item);
 int         core_filter_file(const char *name, int dir, int ctx, int group);
 // A file about to be loaded: 0, or an error code and *msg. *type: the image type.
 int         core_prep_load(uint32_t size, int ctx, int group, int *type, const char **msg);
-// A message for a situation (CMSG_*), or NULL for the standard one
-const char *core_custom_msg(int situation, int ctx);
+// A message for a situation (CMSG_*) of the browser for a menu group, or NULL for the standard one
+const char *core_custom_msg(int situation, int ctx, int group);
+// A menu item of the core's own type (C_CRTROMTYPE_CORE; dev is its second word in
+// C_CRTROMS_MAN): load the file picked for it, after core_prep_load, with roms.h's
+// crtrom_progress for the bar: 0, or an error code and *msg. And whether it holds a file.
+int         core_crtrom_load(int dev, const char *path, const char **msg);
+int         core_crtrom_loaded(int dev);
 // Called right before the core leaves reset: NULL, or an error message
 const char *core_prep_start(void);
 // The key that opens the menu: M2M_KEY_HELP, or another one for a core that uses Help
@@ -38,3 +43,7 @@ void shell_force(int group, int pos, int on); // M2M$FORCE_MENU
 // or drive_mount's error and maybe *msg; -1 for a drive the menu doesn't have
 int  shell_mount(int d, const char *path, const char **msg);
 void shell_unmount(int d);
+// The file of a CRT/ROM item of the group, taken without the browser (LOAD_CONFIG's REU
+// image): its name on the item's line, or NULL for none
+void shell_crtrom_named(int group, const char *path);
+void shell_open_menu(void);                   // as the Help key does, unless it is open

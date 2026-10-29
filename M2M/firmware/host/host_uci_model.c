@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "config_ids.h"
+#include "drives.h"
 #include "host_uci_model.h"
 #include "m2m_rv.h"
 #include "sdcard.h"
@@ -24,6 +26,91 @@ int drives_ready(void)
    return drive_reads <= 3 || drive_reads > 3 + drive_low || !drive_low;
 }
 const char *core_mount_label(int drive) { (void)drive; return NULL; }
+
+// What the control target uses: vd_sd's drive power, the menu's settings, the menu
+int     drive_pow[2], mounted_type, menu_opens;
+uint8_t settings[32][8];
+int  drive_image_type(int d) { return mounted_d == d ? mounted_type : -1; }
+void drive_power(int d, enum drive_power p) { drive_pow[d] = p; }
+int  drive_running(int d)
+{
+   return drive_pow[d] == DRIVE_ON || (drive_pow[d] == DRIVE_AUTO && mounted_d == d);
+}
+int  shell_setting(int group, int pos) { return settings[group][pos]; }
+
+// The menu for LOAD_CONFIG: how many REU items it has (2 on R3 memory: Off, 512 KB), and the
+// REU file's name
+int  reu_items = 4, crt_named_calls;
+char crt_named[300];
+int  shell_item(int group, int pos) { return group == OPTM_G_REU && pos >= reu_items ? -1 : pos; }
+void shell_crtrom_named(int group, const char *path)
+{
+   crt_named_calls += group == OPTM_G_REU_FILE;
+   strcpy(crt_named, path ? path : "-");
+}
+
+// The menu's REU setting: the first size selected, 512 KB first, as main.vhd's reu_menu
+unsigned reu_menu(void)
+{
+   for (int i = 1; i < 4; i++)
+      if (settings[OPTM_G_REU][i])
+         return i;
+   return 0;
+}
+
+// main.vhd has a change of it three reads of word 0x012 later (or at reu_settle); one that
+// lands while the keep bit is off is a reset of the C128
+static unsigned reu_lag;
+unsigned reu_main, reu_forces;
+static void reu_clock(void)
+{
+   if (reu_lag && !--reu_lag && reu_main != reu_menu()) {
+      reu_main = reu_menu();
+      if (!um.reu_keep)
+         um.reu_resets++;
+   }
+}
+void reu_settle(void)
+{
+   while (reu_lag)
+      reu_clock();
+}
+void reu_sync(void)
+{
+   reu_lag  = 0;
+   reu_main = reu_menu();
+}
+
+void shell_force(int group, int pos, int on)
+{
+   if (group != OPTM_G_UCI)                    // the one single-select item it is used for
+      memset(settings[group], 0, sizeof settings[group]);
+   settings[group][pos] = on;
+   if (group == OPTM_G_REU) {
+      reu_lag = 3;
+      reu_forces++;
+   }
+}
+
+int ef_sector = -1, ef_starts, ef_busy;
+uint16_t crtrom_csr_get(uint16_t dev, int reg)
+{
+   if (dev == 0x0106 && reg == 0x025 && ef_busy > 0) {
+      ef_busy--;
+      return 1;
+   }
+   return 0;
+}
+void crtrom_csr_set(uint16_t dev, int reg, uint16_t v)
+{
+   if (dev == 0x0106 && reg == 0x024)
+      ef_sector = v;
+   if (dev == 0x0106 && reg == 0x025) {
+      ef_starts++;
+      ef_busy = 20;                    // the erase takes 20 main-loop rounds
+   }
+}
+void shell_open_menu(void) { menu_opens++; }
 int shell_mount(int d, const char *path, const char **msg)
 {
    *msg = 0;
@@ -73,6 +160,8 @@ unsigned host_uci_rd(unsigned reg)
    case 0xE:  return um.cmd & 0xFF;
    case 0xF:  return um.cmd >> 8;
    case 0x10: return um.c128_reset;
+   case 0x11: return um.reu_mem;
+   case 0x12: reu_clock(); return um.reu_keep | reu_main << 1;
    }
    return 0;
 }
@@ -114,6 +203,11 @@ void host_uci_wr(unsigned reg, unsigned v)
    case 0x10:
       if (v & 1)
          um.c128_reset = 0;
+      if (v & 2)
+         um.reboots++;
+      break;
+   case 0x12:
+      um.reu_keep = v & 1;
       break;
    }
 }
@@ -176,4 +270,7 @@ void uci_model_init(void)
 {
    um.resp = 896;
    um.stat = 1792;
+   settings[OPTM_G_REU][0]       = 1;   // REU: Off
+   settings[OPTM_G_DRV_MODEL][0] = 1;   // 1541
+   um.reu_mem = 0x8800;                 // SDRAM, window 0x0800 (C_SMAP_REU), as on the R6
 }

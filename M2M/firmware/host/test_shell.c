@@ -7,11 +7,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cfg.h"
+#include "config_ids.h"
 #include "core.h"
 #include "ff.h"
 #include "keys.h"
 #include "m2m_rv.h"
 #include "menu.h"
+#include "reu.h"
 #include "roms.h"
 #include "sdcard.h"
 #include "shell.h"
@@ -27,6 +29,8 @@ static int cluster;                      // bytes
 
 // The cartridge device (C_DEV_CRT) and its CSR (sw_cartridge_csr.vhd, sd_dma.vhd)
 #define CRT_DEV      0x0106
+#define UCI_DEV      0x0109
+#define UCI_REU_MEM  0x011         // where the REU's memory is: bit 15 SDRAM, then its 8 KiB window
 #define CSR_STATUS   0x000
 #define CSR_FS_LO    0x001
 #define CSR_FS_HI    0x002
@@ -262,6 +266,7 @@ static void make_card(uint8_t *file)
    put_file("/c128/Sub/x.crt", 5, 3000);
    put_file("/c128/Sub/notes.txt", 6, 10);
    put_file("/c128/Sub/A cartridge with a name far too long for one line.crt", 7, 100);
+   put_file("/c128/ram.reu", 13, 70000);
    put_disk("/c128/game.d64", 8, 174848, NULL, 0);
    put_file("/c128/bad.d64", 9, 1000);
    put_disk("/c128/frag.d71", 10, 349696, "/c128/filler1.bin", 4096);
@@ -668,9 +673,49 @@ int main(int argc, char **argv)
    // R3-memory builds have no 2 MB and 16 MB REU
    go_to("REU");
    press(M2M_KEY_RETURN);
-   int r3 = menu.n < 118;
+   int r3 = strstr(argv[1], "_r3") != NULL;
    check(find_row(" 512 KB") > 0 && (find_row(" 2 MB") > 0) != r3 && (find_row(" 16 MB") > 0) != r3,
          r3 ? "REU: Off and 512 KB" : "REU: Off, 512 KB, 2 MB, 16 MB");
+
+   // The REU's file: only .reu files; with the REU off, a message
+   M2M_RAMROM_DEV = UCI_DEV;
+   M2M_DEV16[UCI_REU_MEM] = r3 ? 0x0080 : 0x8800;      // HyperRAM at 1 MB, or SDRAM at 16 MB
+   uint8_t *reu = r3 ? (uint8_t *)host_hr + 0x0080 * 8192 : (uint8_t *)host_sr + 0x0800 * 8192;
+   go_to("File:");
+   check(find_row(" File:<Load>") > 0, "REU file: none yet");
+   press(M2M_KEY_RETURN);
+   check(find_row("ram.reu") > 0 && find_row("game.crt") < 0, "browser: only .reu files");
+   go_to("ram.reu");
+   press(M2M_KEY_RETURN);
+   dump("REU off");
+   check(find_row("The REU is off") > 0, "REU file with the REU off: its message");
+   press(M2M_KEY_SPACE);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" File:<Load>") > 0 && !reu_file_picked(), "nothing picked");
+
+   // 512 KB: the file goes into the REU's memory at once, and LOAD_REU/SAVE_REU use it
+   go_to("512 KB");
+   press(M2M_KEY_RETURN);
+   memset(reu, 0xEE, 80000);
+   go_to("File:");
+   press(M2M_KEY_RETURN);
+   go_to("ram.reu");
+   press(M2M_KEY_RETURN);
+   dump("REU file loaded");
+   int same = 1;
+   for (int i = 0; i < 70000; i++)
+      same &= reu[i] == pattern(13, i);
+   check(same && reu[70000] == 0xEE, "ram.reu in the REU's memory, nothing past it");
+   check(find_row("=File:ram.reu") > 0 && !strcmp(reu_file(), "/c128/ram.reu"), "menu: File:ram.reu");
+   // LOAD_CONFIG's REU Preload Image names one without the browser (uci_ctrl.c), or none
+   reu_file_set("/c128/other.reu");
+   shell_crtrom_named(OPTM_G_REU_FILE, "/c128/other.reu");
+   check(find_row("=File:other.reu") > 0, "a file named without the browser: on its line at once");
+   reu_file_set(NULL);
+   shell_crtrom_named(OPTM_G_REU_FILE, NULL);
+   check(find_row(" File:<Load>") > 0, "and none");
+   go_to("Off");
+   press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
 
    // Close Menu: next time from the start item

@@ -223,7 +223,7 @@ static void show(int at)
    }
    place(at);
    if (n == 0) {
-      const char *m = core_custom_msg(CMSG_BROWSENOTHING, ctx_now);
+      const char *m = core_custom_msg(CMSG_BROWSENOTHING, ctx_now, group_now);
       message(m ? m : wrn_empty);
       state = NOTHING;
    } else if (r == 2) {

@@ -7,4 +7,5 @@ unsigned host_uci_rd(unsigned reg);
 void     host_uci_wr(unsigned reg, unsigned v);
 
 #define UCI_RD(n)    host_uci_rd(n)
+#define UCI_RD16(n)  host_uci_rd(n)
 #define UCI_WR(n, v) host_uci_wr(n, v)

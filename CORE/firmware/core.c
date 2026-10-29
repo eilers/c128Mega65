@@ -6,6 +6,7 @@
 #include "core.h"
 #include "fmt.h"
 #include "m2m_rv.h"
+#include "reu.h"
 #include "roms.h"
 #include "uci.h"
 
@@ -78,13 +79,15 @@ void core_sel_post(int group, int item)
    (void)item;
 }
 
-// Disk images for the drives, .crt files for the cartridge; folders always
+// Disk images for the drives, .crt files for the cartridge, .reu files for the REU; folders
+// always
 int core_filter_file(const char *name, int dir, int ctx, int group)
 {
-   static const char *const disk[] = { ".D64", ".D71", ".D81", NULL }, *const crt[] = { ".CRT", NULL };
-   const char *const *ext = ctx == CTX_MOUNT_DISKIMG ? disk : ctx == CTX_LOAD_ROM ? crt : NULL;
+   static const char *const disk[] = { ".D64", ".D71", ".D81", NULL }, *const crt[] = { ".CRT", NULL },
+                     *const reu[] = { ".REU", NULL };
+   const char *const *ext = ctx == CTX_MOUNT_DISKIMG ? disk :
+                            ctx == CTX_LOAD_ROM ? (group == OPTM_G_REU_FILE ? reu : crt) : NULL;
    int len = strlen(name);
-   (void)group;
 
    if (dir || !ext)
       return 0;
@@ -110,7 +113,6 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
       { 349696, 1 },   // D71: 1571
       { 819200, 2 },   // D81: 1581
    };
-   (void)group;
    *type = 0;
    if (ctx == CTX_MOUNT_DISKIMG) {
       for (unsigned i = 0; i < sizeof disks / sizeof disks[0]; i++)
@@ -122,6 +124,12 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
              "196608 (40 tracks), D71 349696, D81 819200.\n\nPress SPACE to continue.\n";
       return 1;
    }
+   if (ctx == CTX_LOAD_ROM && group == OPTM_G_REU_FILE) {
+      if (reu_size())
+         return 0;
+      *msg = "\n\nThe REU is off. Choose its size above\nfirst.\n\nPress SPACE to continue.\n";
+      return 1;
+   }
    if (ctx == CTX_LOAD_ROM && size > (uint32_t)crtrom_csr_get(CRT_DEVICE, CRT_CSR_MAX_HI) << 16) {
       *msg = "\n\nThis .crt file is too large. A virtual\ncartridge can be up to 4 MB, or 2 MB on\n"
              "an R3 board.\n\nPress SPACE to continue.\n";
@@ -131,10 +139,13 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
 }
 
 // The folder the user browsed into holds nothing for this menu item
-const char *core_custom_msg(int situation, int ctx)
+const char *core_custom_msg(int situation, int ctx, int group)
 {
    if (situation != CMSG_BROWSENOTHING)
       return NULL;
+   if (ctx == CTX_LOAD_ROM && group == OPTM_G_REU_FILE)
+      return "No .reu files here.\n\nCopy REU image files (.reu) to any\n"
+             "folder of this SD card, for example\n/c128.\n\nPress Space to continue.";
    if (ctx == CTX_LOAD_ROM)
       return "No .crt cartridge files here.\n\nCopy C64 or C128 .crt files to any\n"
              "folder of this SD card, for example\n/c128.\n\nPress Space to continue.";
@@ -146,6 +157,41 @@ const char *core_custom_msg(int situation, int ctx)
              "also use nested sub-directories to nicely\norder your collection of disk images.\n\n"
              "Nothing to browse.\n\nPress Space to continue.";
    return NULL;
+}
+
+// The REU's File:%s item (C_CRTROMS_MAN's core-loaded item 0): the file goes into the REU at
+// once, as much as the REU holds, and LOAD_REU and SAVE_REU use it from then on. One that
+// fails part of the way leaves no file picked.
+int core_crtrom_load(int dev, const char *path, const char **msg)
+{
+   FIL f;
+   (void)dev;
+   reu_file_set(NULL);
+   FRESULT res = f_open(&f, path, FA_READ);
+   if (res == FR_OK) {
+      uint32_t size = f_size(&f);
+      reu_xfer_t x = { .f = &f, .left = reu_size() };
+      while (res == FR_OK && x.left) {
+         uint32_t before = x.done;
+         res = reu_step(&x, 8192);
+         crtrom_progress(x.done - before);
+      }
+      f_close(&f);
+      if (size > x.done)
+         crtrom_progress(size - x.done);           // what the REU has no room for
+   }
+   if (res != FR_OK) {
+      *msg = uci_fr_text(res);
+      return 0x100 + res;
+   }
+   reu_file_set(path);
+   return 0;
+}
+
+int core_crtrom_loaded(int dev)
+{
+   (void)dev;
+   return reu_file_picked();
 }
 
 const char *core_prep_start(void)

@@ -94,6 +94,11 @@
 #define M2M_HYPERRAM         0x40000000u
 #endif
 
+// SDRAM (R4 and later boards; rv_soc's G_SDRAM): the same way, 64 MB
+#ifndef M2M_SDRAM
+#define M2M_SDRAM            0x50000000u
+#endif
+
 #ifndef M2M_HALT
 #define M2M_HALT()           do { } while (1)   // stops the firmware for good
 #endif

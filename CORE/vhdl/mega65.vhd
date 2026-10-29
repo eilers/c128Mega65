@@ -105,6 +105,16 @@ port (
    sr_core_readdata_i      : in  std_logic_vector(15 downto 0);
    sr_core_readdatavalid_i : in  std_logic;
    sr_core_waitrequest_i   : in  std_logic;
+   -- The system CPU's SDRAM master (rv_soc.vhd), shared out with the core's own
+   sr_cpu_write_i          : in  std_logic;
+   sr_cpu_read_i           : in  std_logic;
+   sr_cpu_address_i        : in  std_logic_vector(31 downto 0);
+   sr_cpu_writedata_i      : in  std_logic_vector(15 downto 0);
+   sr_cpu_byteenable_i     : in  std_logic_vector( 1 downto 0);
+   sr_cpu_burstcount_i     : in  std_logic_vector( 7 downto 0);
+   sr_cpu_readdata_o       : out std_logic_vector(15 downto 0);
+   sr_cpu_readdatavalid_o  : out std_logic;
+   sr_cpu_waitrequest_o    : out std_logic;
 
    --------------------------------------------------------------------------------------------------------
    -- Video Clock Domain
@@ -311,6 +321,25 @@ begin
    return "0000000" & C_SMAP_REU(12 downto 0) & x"000";
 end function reu_base;
 
+-- The REU's memory: 2^n bytes (16 MiB in SDRAM, 512 KiB in HyperRAM)
+function reu_room_bits return natural is
+begin
+   if C_R3_MEMORY then
+      return 19;
+   end if;
+   return 24;
+end function reu_room_bits;
+
+-- Where the REU's memory starts, for the firmware (uci.vhd's word 0x011): bit 15 SDRAM, then
+-- its 8 KiB window
+function reu_mem_word return std_logic_vector is
+begin
+   if C_R3_MEMORY then
+      return "000" & C_HMAP_REU(12 downto 0);
+   end if;
+   return "100" & C_SMAP_REU(12 downto 0);
+end function reu_mem_word;
+
 -- Word address of the .crt file
 function crt_base return std_logic_vector is
 begin
@@ -496,10 +525,49 @@ signal main_uci_wdata         : std_logic_vector(7 downto 0);
 signal main_uci_rdata         : std_logic_vector(7 downto 0);
 signal main_uci_irq           : std_logic;
 signal main_uci_dma           : std_logic;
+signal main_uci_reboot        : std_logic;
+signal main_uci_reu_keep      : std_logic;
+signal main_reu_menu          : std_logic_vector(1 downto 0);
 signal qnice_uci_ce           : std_logic;
 signal qnice_uci_we           : std_logic;
 signal qnice_uci_data         : std_logic_vector(15 downto 0);
 signal qnice_uci_wait         : std_logic;
+
+-- The REU's SD card DMA (reu_sd.vhd): device, engine port, memory on the QNICE clock (dma_q_*)
+-- and on hr_clk (dma_hr_*: SDRAM, dma_hm_*: HyperRAM on R3 memory)
+signal qnice_reusd_ce         : std_logic;
+signal qnice_reusd_we         : std_logic;
+signal qnice_reusd_data       : std_logic_vector(15 downto 0);
+signal qnice_reusd_eng_c2q    : t_sd_c2q;
+signal qnice_reusd_eng_q2c    : t_sd_q2c;
+signal qnice_reusd_eng_want   : std_logic;
+signal qnice_dma_eng_c2q      : t_sd_c2q;      -- the .crt load and the REU, after their arbiter
+signal qnice_dma_eng_q2c      : t_sd_q2c;
+signal qnice_dma_eng_want     : std_logic;
+signal main_reu_drop          : std_logic;
+signal dma_q_write            : std_logic;
+signal dma_q_read             : std_logic;
+signal dma_q_address          : std_logic_vector(31 downto 0);
+signal dma_q_writedata        : std_logic_vector(15 downto 0);
+signal dma_q_byteenable       : std_logic_vector( 1 downto 0);
+signal dma_q_burstcount       : std_logic_vector( 7 downto 0);
+signal dma_q_readdata         : std_logic_vector(15 downto 0);
+signal dma_q_readdatavalid    : std_logic;
+signal dma_q_waitrequest      : std_logic;
+signal dma_hr_write           : std_logic;
+signal dma_hr_read            : std_logic;
+signal dma_hr_address         : std_logic_vector(31 downto 0);
+signal dma_hr_writedata       : std_logic_vector(15 downto 0);
+signal dma_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal dma_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal dma_hr_readdata        : std_logic_vector(15 downto 0);
+signal dma_hr_readdatavalid   : std_logic;
+signal dma_hr_waitrequest     : std_logic;
+signal dma_hm_write           : std_logic;
+signal dma_hm_read            : std_logic;
+signal dma_hm_readdata        : std_logic_vector(15 downto 0);
+signal dma_hm_readdatavalid   : std_logic;
+signal dma_hm_waitrequest     : std_logic;
 
 signal modem_hr_write         : std_logic;
 signal modem_hr_read          : std_logic;
@@ -510,6 +578,17 @@ signal modem_hr_burstcount    : std_logic_vector( 7 downto 0);
 signal modem_hr_readdata      : std_logic_vector(15 downto 0);
 signal modem_hr_readdatavalid : std_logic;
 signal modem_hr_waitrequest   : std_logic;
+
+-- The modem and the REU's DMA, after their arbiter (R3 memory; else just the modem)
+signal modem_hm_write         : std_logic;
+signal modem_hm_read          : std_logic;
+signal modem_hm_address       : std_logic_vector(31 downto 0);
+signal modem_hm_writedata     : std_logic_vector(15 downto 0);
+signal modem_hm_byteenable    : std_logic_vector( 1 downto 0);
+signal modem_hm_burstcount    : std_logic_vector( 7 downto 0);
+signal modem_hm_readdata      : std_logic_vector(15 downto 0);
+signal modem_hm_readdatavalid : std_logic;
+signal modem_hm_waitrequest   : std_logic;
 
 -- REU and cartridge, after their arbiter
 signal exp_hr_write           : std_logic;
@@ -872,6 +951,10 @@ begin
          uci_data_i           => main_uci_rdata,
          uci_irq_i            => main_uci_irq,
          uci_dma_i            => main_uci_dma,
+         uci_reboot_i         => main_uci_reboot,
+         uci_reu_keep_i       => main_uci_reu_keep,
+         reu_menu_o           => main_reu_menu,
+         reu_drop_i           => main_reu_drop,
 
          crt_loaded_i         => main_crt_loaded,
          crt_loading_i        => main_crt_loading,
@@ -1003,6 +1086,8 @@ begin
       qnice_p1581_we       <= '0';
       qnice_uci_ce         <= '0';
       qnice_uci_we         <= '0';
+      qnice_reusd_ce       <= '0';
+      qnice_reusd_we       <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -1055,13 +1140,20 @@ begin
             qnice_dev_data_o  <= qnice_uci_data;
             qnice_dev_wait_o  <= qnice_uci_wait;
 
+        -- The REU's SD card DMA
+        when C_DEV_REU_SD =>
+            qnice_reusd_ce    <= qnice_dev_ce_i;
+            qnice_reusd_we    <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_reusd_data;
+
          when others => null;
       end case;
    end process core_specific_devices;
 
    qnice_vdsd_drive <= 1 when qnice_dev_id_i = C_DEV_MOUNT_D9 else 0;
 
-   -- The drives get the SD controller first; a .crt load waits between its DMAs
+   -- The drives get the SD controller first; a .crt load or the REU's DMA waits between its
+   -- transfers
    i_sd_eng_arb : entity work.sd_eng_arb
       port map (
          clk_i    => qnice_clk_i,
@@ -1069,12 +1161,92 @@ begin
          a_want_i => qnice_drv_eng_want,
          a_c2q_i  => qnice_drv_eng_c2q,
          a_q2c_o  => qnice_drv_eng_q2c,
-         b_want_i => qnice_crt_eng_want,
-         b_c2q_i  => qnice_crt_eng_c2q,
-         b_q2c_o  => qnice_crt_eng_q2c,
+         b_want_i => qnice_dma_eng_want,
+         b_c2q_i  => qnice_dma_eng_c2q,
+         b_q2c_o  => qnice_dma_eng_q2c,
          c2q_o    => qnice_sd_eng_o,
-         q2c_i    => qnice_sd_eng_i
+         q2c_i    => qnice_sd_eng_i,
+         want_o   => open
       ); -- i_sd_eng_arb
+
+   i_sd_eng_arb_dma : entity work.sd_eng_arb
+      port map (
+         clk_i    => qnice_clk_i,
+         rst_i    => qnice_rst_i,
+         a_want_i => qnice_crt_eng_want,
+         a_c2q_i  => qnice_crt_eng_c2q,
+         a_q2c_o  => qnice_crt_eng_q2c,
+         b_want_i => qnice_reusd_eng_want,
+         b_c2q_i  => qnice_reusd_eng_c2q,
+         b_q2c_o  => qnice_reusd_eng_q2c,
+         c2q_o    => qnice_dma_eng_c2q,
+         q2c_i    => qnice_dma_eng_q2c,
+         want_o   => qnice_dma_eng_want
+      ); -- i_sd_eng_arb_dma
+
+   -- The REU's image files straight between the SD card and its memory; also tells the REU's
+   -- cache when the system CPU wrote that memory
+   i_reu_sd : entity work.reu_sd
+      generic map (
+         G_BASE      => reu_base,
+         G_ROOM_BITS => reu_room_bits
+      )
+      port map (
+         clk_i               => qnice_clk_i,
+         rst_i               => qnice_rst_i,
+         qnice_addr_i        => qnice_dev_addr_i(11 downto 0),
+         qnice_data_i        => qnice_dev_data_i,
+         qnice_ce_i          => qnice_reusd_ce,
+         qnice_we_i          => qnice_reusd_we,
+         qnice_data_o        => qnice_reusd_data,
+         eng_want_o          => qnice_reusd_eng_want,
+         eng_o               => qnice_reusd_eng_c2q,
+         eng_i               => qnice_reusd_eng_q2c,
+         avm_write_o         => dma_q_write,
+         avm_read_o          => dma_q_read,
+         avm_address_o       => dma_q_address,
+         avm_writedata_o     => dma_q_writedata,
+         avm_byteenable_o    => dma_q_byteenable,
+         avm_burstcount_o    => dma_q_burstcount,
+         avm_readdata_i      => dma_q_readdata,
+         avm_readdatavalid_i => dma_q_readdatavalid,
+         avm_waitrequest_i   => dma_q_waitrequest,
+         main_clk_i          => main_clk_o,
+         main_drop_o         => main_reu_drop
+      ); -- i_reu_sd
+
+   i_reu_sd_avm_fifo : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => qnice_clk_i,
+         s_rst_i               => qnice_rst_i,
+         s_avm_waitrequest_o   => dma_q_waitrequest,
+         s_avm_write_i         => dma_q_write,
+         s_avm_read_i          => dma_q_read,
+         s_avm_address_i       => dma_q_address,
+         s_avm_writedata_i     => dma_q_writedata,
+         s_avm_byteenable_i    => dma_q_byteenable,
+         s_avm_burstcount_i    => dma_q_burstcount,
+         s_avm_readdata_o      => dma_q_readdata,
+         s_avm_readdatavalid_o => dma_q_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => dma_hr_waitrequest,
+         m_avm_write_o         => dma_hr_write,
+         m_avm_read_o          => dma_hr_read,
+         m_avm_address_o       => dma_hr_address,
+         m_avm_writedata_o     => dma_hr_writedata,
+         m_avm_byteenable_o    => dma_hr_byteenable,
+         m_avm_burstcount_o    => dma_hr_burstcount,
+         m_avm_readdata_i      => dma_hr_readdata,
+         m_avm_readdatavalid_i => dma_hr_readdatavalid
+      ); -- i_reu_sd_avm_fifo
 
    -- REU: cross its memory port from main_clk to hr_clk
    i_reu_avm_fifo : entity work.avm_fifo
@@ -1187,8 +1359,9 @@ begin
          sr_waitrequest_i   => crt_sr_waitrequest
       ); -- i_sw_cartridge_wrapper
 
-   -- With SDRAM, the REU shares it with the virtual cartridge. The cartridge goes first, and the
-   -- REU starts an access only in the window main.vhd opens, so it never makes a cartridge read late.
+   -- With SDRAM, the REU shares it with the virtual cartridge, and the system CPU with both. The
+   -- cartridge goes first, then the REU, then the CPU; the REU and the CPU start an access only in
+   -- the window main.vhd opens, so neither makes a cartridge read late.
    reu_sdram_gen : if not C_R3_MEMORY generate
       i_sdram_arbit : entity work.sdram_arbit
          port map (
@@ -1213,6 +1386,24 @@ begin
             s1_avm_readdata_o      => reu_hr_readdata,
             s1_avm_readdatavalid_o => reu_hr_readdatavalid,
             s1_avm_waitrequest_o   => reu_hr_waitrequest,
+            s2_avm_write_i         => sr_cpu_write_i,
+            s2_avm_read_i          => sr_cpu_read_i,
+            s2_avm_address_i       => sr_cpu_address_i,
+            s2_avm_writedata_i     => sr_cpu_writedata_i,
+            s2_avm_byteenable_i    => sr_cpu_byteenable_i,
+            s2_avm_burstcount_i    => sr_cpu_burstcount_i,
+            s2_avm_readdata_o      => sr_cpu_readdata_o,
+            s2_avm_readdatavalid_o => sr_cpu_readdatavalid_o,
+            s2_avm_waitrequest_o   => sr_cpu_waitrequest_o,
+            s3_avm_write_i         => dma_hr_write,
+            s3_avm_read_i          => dma_hr_read,
+            s3_avm_address_i       => dma_hr_address,
+            s3_avm_writedata_i     => dma_hr_writedata,
+            s3_avm_byteenable_i    => dma_hr_byteenable,
+            s3_avm_burstcount_i    => dma_hr_burstcount,
+            s3_avm_readdata_o      => dma_hr_readdata,
+            s3_avm_readdatavalid_o => dma_hr_readdatavalid,
+            s3_avm_waitrequest_o   => dma_hr_waitrequest,
             m_avm_write_o          => sr_core_write_o,
             m_avm_read_o           => sr_core_read_o,
             m_avm_address_o        => sr_core_address_o,
@@ -1226,12 +1417,19 @@ begin
 
       reu_hm_write <= '0';
       reu_hm_read  <= '0';
+      dma_hm_write <= '0';
+      dma_hm_read  <= '0';
    else generate
       reu_hm_write         <= reu_hr_write;
       reu_hm_read          <= reu_hr_read;
       reu_hr_readdata      <= reu_hm_readdata;
       reu_hr_readdatavalid <= reu_hm_readdatavalid;
       reu_hr_waitrequest   <= reu_hm_waitrequest;
+      dma_hm_write         <= dma_hr_write;
+      dma_hm_read          <= dma_hr_read;
+      dma_hr_readdata      <= dma_hm_readdata;
+      dma_hr_readdatavalid <= dma_hm_readdatavalid;
+      dma_hr_waitrequest   <= dma_hm_waitrequest;
 
       sr_core_write_o      <= crt_sr_write;
       sr_core_read_o       <= crt_sr_read;
@@ -1242,6 +1440,11 @@ begin
       crt_sr_readdata      <= sr_core_readdata_i;
       crt_sr_readdatavalid <= sr_core_readdatavalid_i;
       crt_sr_waitrequest   <= sr_core_waitrequest_i;
+
+      -- No SDRAM: rv_soc doesn't decode its window, so nothing comes
+      sr_cpu_readdata_o      <= (others => '0');
+      sr_cpu_readdatavalid_o <= '0';
+      sr_cpu_waitrequest_o   <= '1';
    end generate reu_sdram_gen;
 
    -- s0 = REU, s1 = virtual cartridge, taking turns (R3-memory builds; else both are idle)
@@ -1284,7 +1487,63 @@ begin
          m_avm_waitrequest_i    => exp_hr_waitrequest
       ); -- i_core_hr_arbit
 
-   -- s0 = REU and cartridge, s1 = the modem's firmware reads (16 words at a time)
+   -- R3 memory: the REU's DMA shares the modem's turn (the REU's own path keeps its timing)
+   dma_hm_gen : if C_R3_MEMORY generate
+      i_dma_hr_arbit : entity work.avm_arbit
+         generic map (
+            G_PREFER_SWAP  => true,
+            G_FREQ_HZ      => 100_000_000,
+            G_ADDRESS_SIZE => 32,
+            G_DATA_SIZE    => 16
+         )
+         port map (
+            clk_i                  => hr_clk_i,
+            rst_i                  => hr_rst_i,
+            s0_avm_write_i         => modem_hr_write,
+            s0_avm_read_i          => modem_hr_read,
+            s0_avm_address_i       => modem_hr_address,
+            s0_avm_writedata_i     => modem_hr_writedata,
+            s0_avm_byteenable_i    => modem_hr_byteenable,
+            s0_avm_burstcount_i    => modem_hr_burstcount,
+            s0_avm_readdata_o      => modem_hr_readdata,
+            s0_avm_readdatavalid_o => modem_hr_readdatavalid,
+            s0_avm_waitrequest_o   => modem_hr_waitrequest,
+            s1_avm_write_i         => dma_hm_write,
+            s1_avm_read_i          => dma_hm_read,
+            s1_avm_address_i       => dma_hr_address,
+            s1_avm_writedata_i     => dma_hr_writedata,
+            s1_avm_byteenable_i    => dma_hr_byteenable,
+            s1_avm_burstcount_i    => dma_hr_burstcount,
+            s1_avm_readdata_o      => dma_hm_readdata,
+            s1_avm_readdatavalid_o => dma_hm_readdatavalid,
+            s1_avm_waitrequest_o   => dma_hm_waitrequest,
+            m_avm_write_o          => modem_hm_write,
+            m_avm_read_o           => modem_hm_read,
+            m_avm_address_o        => modem_hm_address,
+            m_avm_writedata_o      => modem_hm_writedata,
+            m_avm_byteenable_o     => modem_hm_byteenable,
+            m_avm_burstcount_o     => modem_hm_burstcount,
+            m_avm_readdata_i       => modem_hm_readdata,
+            m_avm_readdatavalid_i  => modem_hm_readdatavalid,
+            m_avm_waitrequest_i    => modem_hm_waitrequest
+         ); -- i_dma_hr_arbit
+   else generate
+      modem_hm_write         <= modem_hr_write;
+      modem_hm_read          <= modem_hr_read;
+      modem_hm_address       <= modem_hr_address;
+      modem_hm_writedata     <= modem_hr_writedata;
+      modem_hm_byteenable    <= modem_hr_byteenable;
+      modem_hm_burstcount    <= modem_hr_burstcount;
+      modem_hr_readdata      <= modem_hm_readdata;
+      modem_hr_readdatavalid <= modem_hm_readdatavalid;
+      modem_hr_waitrequest   <= modem_hm_waitrequest;
+      dma_hm_readdata        <= (others => '0');
+      dma_hm_readdatavalid   <= '0';
+      dma_hm_waitrequest     <= '1';
+   end generate dma_hm_gen;
+
+   -- s0 = REU and cartridge, s1 = the modem's firmware reads (16 words at a time) and the
+   -- REU's DMA on R3 memory
    i_modem_hr_arbit : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => true,
@@ -1304,15 +1563,15 @@ begin
          s0_avm_readdata_o      => exp_hr_readdata,
          s0_avm_readdatavalid_o => exp_hr_readdatavalid,
          s0_avm_waitrequest_o   => exp_hr_waitrequest,
-         s1_avm_write_i         => modem_hr_write,
-         s1_avm_read_i          => modem_hr_read,
-         s1_avm_address_i       => modem_hr_address,
-         s1_avm_writedata_i     => modem_hr_writedata,
-         s1_avm_byteenable_i    => modem_hr_byteenable,
-         s1_avm_burstcount_i    => modem_hr_burstcount,
-         s1_avm_readdata_o      => modem_hr_readdata,
-         s1_avm_readdatavalid_o => modem_hr_readdatavalid,
-         s1_avm_waitrequest_o   => modem_hr_waitrequest,
+         s1_avm_write_i         => modem_hm_write,
+         s1_avm_read_i          => modem_hm_read,
+         s1_avm_address_i       => modem_hm_address,
+         s1_avm_writedata_i     => modem_hm_writedata,
+         s1_avm_byteenable_i    => modem_hm_byteenable,
+         s1_avm_burstcount_i    => modem_hm_burstcount,
+         s1_avm_readdata_o      => modem_hm_readdata,
+         s1_avm_readdatavalid_o => modem_hm_readdatavalid,
+         s1_avm_waitrequest_o   => modem_hm_waitrequest,
          m_avm_write_o          => hr_core_write_o,
          m_avm_read_o           => hr_core_read_o,
          m_avm_address_o        => hr_core_address_o,
@@ -1373,6 +1632,9 @@ begin
    ---------------------------------------------------------------------------------------------
 
    i_uci : entity work.uci
+      generic map (
+         G_REU_MEM       => reu_mem_word
+      )
       port map (
          main_clk_i      => main_clk_o,
          main_rst_i      => main_rst_o or main_reset_m2m_i,
@@ -1384,6 +1646,9 @@ begin
          main_data_o     => main_uci_rdata,
          main_irq_o      => main_uci_irq,
          main_dma_o      => main_uci_dma,
+         main_reboot_o   => main_uci_reboot,
+         main_reu_i      => main_reu_menu,
+         main_reu_keep_o => main_uci_reu_keep,
          qnice_clk_i     => qnice_clk_i,
          qnice_rst_i     => qnice_rst_i,
          qnice_addr_i    => qnice_dev_addr_i(11 downto 0),

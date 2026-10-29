@@ -11,7 +11,13 @@
 -- Device words, one byte each in the low half:
 --   0x000-0x00F  the protocol's registers (his CMD_IF_BASE + n). Each access crosses to
 --                the C128's clock and back, so the CPU waits about 200 ns.
---   0x010        bit 0: the C128 was reset since this bit was cleared (write 1 to clear)
+--   0x010        R bit 0: the C128 was reset since this bit was cleared (write 1 to clear)
+--                W bit 1: reset the C128, as the reset button does (main_reboot_o)
+--   0x011        R: where the REU's memory starts, for LOAD_REU and SAVE_REU (G_REU_MEM): bit 15
+--                SDRAM, else HyperRAM; bits 12-0 its 8 KiB window there (C_SMAP_REU, C_HMAP_REU)
+--   0x012        On the C128's clock, as 0x000-0x00F are: bit 0 keep the C128 running through
+--                REU setting changes (LOAD_CONFIG's, main_reu_keep_o); R bits 2-1 the REU
+--                setting main.vhd sees (main_reu_i)
 --   0x800-0xFFF  the buffer: command at 0x800, response at 0xB80, status at 0xF00
 --
 -- C128 side: cs_i is the select in PHI2 (main.vhd decodes $DF18-$DF1F). An access takes
@@ -30,6 +36,9 @@ use work.io_bus_pkg.all;
 use work.slot_bus_pkg.all;
 
 entity uci is
+   generic (
+      G_REU_MEM       : std_logic_vector(15 downto 0) := x"0000"   -- word 0x011
+   );
    port (
       -- C128 side (main clock)
       main_clk_i      : in  std_logic;
@@ -42,6 +51,9 @@ entity uci is
       main_data_o     : out std_logic_vector(7 downto 0) := x"FF";
       main_irq_o      : out std_logic;
       main_dma_o      : out std_logic;                      -- hold the CPU (the DMA bit)
+      main_reboot_o   : out std_logic := '0';               -- one clock: the firmware asks for a reset
+      main_reu_i      : in  std_logic_vector(1 downto 0);   -- main.vhd's REU setting: 0 off, 1-3 the size
+      main_reu_keep_o : out std_logic;                      -- its changes don't reset the C128
 
       -- Device bus (QNICE clock)
       qnice_clk_i     : in  std_logic;
@@ -77,13 +89,17 @@ architecture synthesis of uci is
    signal m_req_d     : std_logic := '0';
    signal m_ack       : std_logic := '0';
    signal m_rdata     : std_logic_vector(7 downto 0) := x"00";
+   signal m_rreq_m    : std_logic := '0';
+   signal m_rreq_s    : std_logic := '0';
+   signal m_rreq_d    : std_logic := '0';
+   signal m_reu_keep  : std_logic := '0';
 
    -- CPU side
    signal q_is_reg    : std_logic;
    signal q_ram_we    : std_logic;
    signal q_ram_q     : std_logic_vector(7 downto 0);
    signal q_req       : std_logic := '0';
-   signal q_reg_adr   : std_logic_vector(3 downto 0) := x"0";
+   signal q_reg_adr   : std_logic_vector(4 downto 0) := "00000";
    signal q_reg_we    : std_logic := '0';
    signal q_reg_wdata : std_logic_vector(7 downto 0) := x"00";
    signal q_busy      : std_logic := '0';
@@ -95,9 +111,13 @@ architecture synthesis of uci is
    signal q_rst_m     : std_logic := '0';
    signal q_rst_s     : std_logic := '0';
    signal q_was_reset : std_logic := '0';
+   signal q_rst_req   : std_logic := '0';
+   signal q_flags_we  : std_logic;
+   signal q_flags_d   : std_logic := '0';
 
    attribute ASYNC_REG : string;
-   attribute ASYNC_REG of m_req_m, m_req_s, q_ack_m, q_ack_s, q_rst_m, q_rst_s : signal is "TRUE";
+   attribute ASYNC_REG of m_req_m, m_req_s, q_ack_m, q_ack_s, q_rst_m, q_rst_s,
+                          m_rreq_m, m_rreq_s : signal is "TRUE";
 
 begin
 
@@ -156,18 +176,38 @@ begin
          m_req_s <= m_req_m;
          m_req_d <= m_req_s;
          io_req  <= c_io_req_init;
-         if m_req_s /= m_req_d then
-            io_req.address <= x"00000" & unsigned(q_reg_adr);
+         if m_req_s /= m_req_d and q_reg_adr(4) = '0' then
+            io_req.address <= x"00000" & unsigned(q_reg_adr(3 downto 0));
             io_req.data    <= q_reg_wdata;
             io_req.read    <= not q_reg_we;
             io_req.write   <= q_reg_we;
+         end if;
+         -- Word 0x012 is answered here: once the CPU's write returns, main.vhd has the bit
+         if m_req_s /= m_req_d and q_reg_adr(4) = '1' then
+            if q_reg_we = '1' then
+               m_reu_keep <= q_reg_wdata(0);
+            end if;
+            m_rdata <= "00000" & main_reu_i & m_reu_keep;
+            m_ack   <= not m_ack;
          end if;
          if io_resp.ack = '1' then
             m_rdata <= io_resp.data;
             m_ack   <= not m_ack;
          end if;
+
+         -- The firmware's reset request, a toggle
+         m_rreq_m         <= q_rst_req;
+         m_rreq_s         <= m_rreq_m;
+         m_rreq_d         <= m_rreq_s;
+         main_reboot_o    <= m_rreq_s xor m_rreq_d;
+
+         if main_rst_i = '1' then
+            m_reu_keep <= '0';
+         end if;
       end if;
    end process p_main;
+
+   main_reu_keep_o <= m_reu_keep;
 
    ---------------------------------------------------------------------------------------------
    -- The buffer: port A for the CPU (QNICE clock, falling edge as the device bus wants),
@@ -199,10 +239,13 @@ begin
    -- CPU side (QNICE clock): devices act on the falling edge
    ---------------------------------------------------------------------------------------------
 
-   q_is_reg     <= '1' when qnice_addr_i(11) = '0' and qnice_addr_i(4) = '0' else '0';
+   q_is_reg     <= '1' when qnice_addr_i(11) = '0' and (qnice_addr_i(4) = '0' or qnice_addr_i(4 downto 0) = "10010")
+                   else '0';
+   q_flags_we   <= '1' when qnice_ce_i = '1' and qnice_we_i = '1' and qnice_addr_i = x"010" else '0';
    qnice_wait_o <= qnice_ce_i and q_is_reg and not q_done;
    qnice_data_o <= x"00" & q_ram_q when qnice_addr_i(11) = '1' else
                    x"00" & q_rdata when q_is_reg = '1' else
+                   G_REU_MEM when qnice_addr_i = x"011" else
                    x"000" & "000" & q_was_reset;
 
    p_qnice : process (qnice_clk_i)
@@ -221,7 +264,7 @@ begin
             q_ack_d <= q_ack_s;
          end if;
          if qnice_ce_i = '1' and q_is_reg = '1' and q_busy = '0' and q_done = '0' then
-            q_reg_adr   <= qnice_addr_i(3 downto 0);
+            q_reg_adr   <= qnice_addr_i(4 downto 0);
             q_reg_we    <= qnice_we_i;
             q_reg_wdata <= qnice_data_i(7 downto 0);
             q_req       <= not q_req;
@@ -234,9 +277,14 @@ begin
             q_done  <= '1';
          end if;
 
-         if qnice_ce_i = '1' and qnice_we_i = '1' and qnice_addr_i(11) = '0' and qnice_addr_i(4) = '1' and
-            qnice_data_i(0) = '1' then
+         -- Word 0x010: bit 0 clears the reset flag; bit 1 asks for a reset, once per write
+         -- (ce can be high for more than one edge, and is low between two accesses)
+         q_flags_d <= q_flags_we;
+         if q_flags_we = '1' and qnice_data_i(0) = '1' then
             q_was_reset <= '0';
+         end if;
+         if q_flags_we = '1' and q_flags_d = '0' and qnice_data_i(1) = '1' then
+            q_rst_req <= not q_rst_req;
          end if;
          if q_rst_s = '1' then
             q_was_reset <= '1';

@@ -228,6 +228,16 @@ port (
    sr_core_readdata_o      : out   std_logic_vector(15 downto 0);
    sr_core_readdatavalid_o : out   std_logic;
    sr_core_waitrequest_o   : out   std_logic;
+   -- The system CPU's SDRAM master (rv_soc.vhd, 0x50000000), for the core to share out with its own
+   sr_cpu_write_o          : out   std_logic;
+   sr_cpu_read_o           : out   std_logic;
+   sr_cpu_address_o        : out   std_logic_vector(31 downto 0);
+   sr_cpu_writedata_o      : out   std_logic_vector(15 downto 0);
+   sr_cpu_byteenable_o     : out   std_logic_vector(1 downto 0);
+   sr_cpu_burstcount_o     : out   std_logic_vector(7 downto 0);
+   sr_cpu_readdata_i       : in    std_logic_vector(15 downto 0) := (others => '0');
+   sr_cpu_readdatavalid_i  : in    std_logic := '0';
+   sr_cpu_waitrequest_i    : in    std_logic := '1';
 
    -- QNICE control signals
    qnice_dvi_i             : in    std_logic;
@@ -719,6 +729,15 @@ begin
       qnice_avm_readdatavalid_i => qnice_avm_readdatavalid,
       qnice_avm_waitrequest_i   => qnice_avm_waitrequest,
       hr_rst_i                  => hr_rst,
+      qnice_sr_write_o          => sr_cpu_write_o,
+      qnice_sr_read_o           => sr_cpu_read_o,
+      qnice_sr_address_o        => sr_cpu_address_o,
+      qnice_sr_writedata_o      => sr_cpu_writedata_o,
+      qnice_sr_byteenable_o     => sr_cpu_byteenable_o,
+      qnice_sr_burstcount_o     => sr_cpu_burstcount_o,
+      qnice_sr_readdata_i       => sr_cpu_readdata_i,
+      qnice_sr_readdatavalid_i  => sr_cpu_readdatavalid_i,
+      qnice_sr_waitrequest_i    => sr_cpu_waitrequest_i,
       qnice_pps_i               => qnice_pps,
       qnice_hdmi_clk_freq_i     => qnice_hdmi_clk_freq,
       qnice_hr_count_long_i     => qnice_hr_count_long,
@@ -1068,7 +1087,8 @@ begin
 
 
    ---------------------------------------------------------------------------------------------------------------
-   -- SDRAM controller (R4 and later), for the core alone, on the HyperRAM clock as in C64MEGA65
+   -- SDRAM controller (R4 and later), on the HyperRAM clock as in C64MEGA65. The core shares it
+   -- out between its own masters and the system CPU's (sr_cpu_*)
    ---------------------------------------------------------------------------------------------------------------
 
    sdram_gen : if G_BOARD /= "MEGA65_R3" and G_SDRAM generate

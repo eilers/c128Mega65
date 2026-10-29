@@ -626,6 +626,23 @@ void shell_unmount(int d)
    mount_shown(i, 0);
 }
 
+void shell_crtrom_named(int group, const char *path)
+{
+   for (int i = 0; i < menu.n; i++) {
+      int k = is_crtrom[i] - 1;
+      if (k < 0 || (int)(menu.group[i] & MENU_ID) != group)
+         continue;
+      if (path) {
+         const char *name = strrchr(path, '/');
+         strncpy(crt_name[k], name ? name + 1 : path, menu.dx - 1);
+         crt_name[k][menu.dx - 1] = 0;
+      }
+      crt_loaded[k] = path != NULL;
+      mount_shown(i, crt_loaded[k]);
+      return;
+   }
+}
+
 // -------------------------------------------------------------------------------------
 // Opening and closing the menu (HELP_MENU)
 // -------------------------------------------------------------------------------------
@@ -656,6 +673,12 @@ static void close_menu(void)
       menu.cursor = start_idx;
    closing_at = MTIME_LO;
    ui = UI_CLOSING;
+}
+
+void shell_open_menu(void)
+{
+   if (ui == UI_CORE)
+      open_menu();
 }
 
 static enum menu_key menu_key_of(uint32_t k)

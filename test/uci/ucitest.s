@@ -161,7 +161,7 @@ found:
         jsr CHROUT
 @irq_done:
 
-        ; How long a reply takes: polls of $DF1C, about 10 us each at 1 MHz
+        ; How long a reply takes: polls of $DF1C, about 60 us each at 1 MHz
         PRINT t_time
         CMD cmd_dos1_id, 2
         jsr transact

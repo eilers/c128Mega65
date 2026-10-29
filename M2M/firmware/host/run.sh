@@ -40,12 +40,32 @@ head -c 1048576 /dev/zero > "$files/blank.img"
 "$out/test_mon"
 cp "$files/fat32.img" "$files/uci.img"
 "$out/test_uci" "$files/uci.img"
-for prg in ucitest ucitest64 ucidos ucidos64; do   # test/uci's programs, on a 6502
+for prg in ucitest ucitest64 ucidos ucidos64 ucictrl ucictrl64; do   # test/uci's programs, on a 6502
    cp "$files/fat32.img" "$files/prg.img"
    "$out/test_prg" "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg.log" ||
       { cat "$out/$prg.log"; exit 1; }
    t=$(tail -n 1 "$out/$prg.log")
    echo "test_prg $prg: ALL PASSED, ${t#test_prg: }"
+done
+for reu in -reu -reu16; do   # a 512 KB or 16 MB REU, its files by the CPU, then by reu_sd.vhd's DMA
+   for dma in "" -dma; do
+      for prg in ucireu ucireu64; do
+         cp "$files/fat32.img" "$files/prg.img"
+         "$out/test_prg" $reu $dma "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg$reu$dma.log" ||
+            { cat "$out/$prg$reu$dma.log"; exit 1; }
+         t=$(tail -n 1 "$out/$prg$reu$dma.log")
+         echo "test_prg $prg $reu $dma: ALL PASSED, ${t#test_prg: }"
+      done
+   done
+done
+for opt in "" -reu -reu16 "-reu -r3" -blink; do   # REU off, 512 KB, 16 MB; R3's menu; an Ultimate's gap
+   for prg in ucicfg ucicfg64; do
+      log="$out/$prg${opt// /}.log"
+      cp "$files/fat32.img" "$files/prg.img"
+      "$out/test_prg" $opt "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$log" || { cat "$log"; exit 1; }
+      t=$(tail -n 1 "$log")
+      echo "test_prg $prg $opt: ALL PASSED, ${t#test_prg: }"
+   done
 done
 for prg in ucidos ucidos64; do   # a run cut short after the D64, as by a reset, then a whole one
    cp "$files/fat32.img" "$files/prg.img"
