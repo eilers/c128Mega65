@@ -39,3 +39,11 @@ does not fit the core, the core says so on the screen.
 Optional:
 
 - `/c128/modem.bin` (firmware of the SwiftLink modem, see [doc/swiftlink-modem.md](doc/swiftlink-modem.md))
+
+Contributing
+------------
+
+Help is welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Beta cores are shared and discussed in
+`#c128-core` on the MEGA65 Discord. Report bugs as
+[issues](https://github.com/eilers/c128Mega65/issues); known ones are in
+[doc/KNOWN_BUGS.md](doc/KNOWN_BUGS.md).
