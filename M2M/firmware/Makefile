@@ -3,7 +3,8 @@
 #   make            boot.rom, the boot ROM that rv_soc.vhd reads at synthesis;
 #                   build/firmware.bin, the firmware, for /c128/firmware.bin on the SD card;
 #                   test/selftest.rom and test/fwboot.rom, boot ROMs of CORE/sim/tb_rv_soc.vhd
-#   make host-test  the boot ROM's loader, run on this Mac against FAT32 images (host/)
+#   make host-test  the host tests (host/): the boot ROM's loader, the Shell, the monitor,
+#                   UCI, REST and the modem, run on this Mac against FAT images
 # The .rom files are committed, so a core builds without the toolchain.
 
 CROSS   ?= riscv-none-elf-

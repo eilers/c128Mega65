@@ -46,10 +46,8 @@ it for 15 seconds (`AT*H1=60` makes it a minute), with the whole firmware waitin
 - `AT*H1`: every instruction misses the cache, so the CPU reads cache line after cache line.
 - `AT*H2`: uncached reads of the firmware image, 4 bytes at a time.
 
-Run them on the 80-column screen and watch HDMI: it must stay clean. With the modem's own
-50 MHz CPU (before RISC-V step 8), on an R6, `AT*H1` read about 335,000 lines a second and
-`AT*H2` about 1,350,000 words. When a cache line was one 64-word HyperRAM burst, `AT*H1`
-filled HDMI with sparkles.
+Run them on the 80-column screen and watch HDMI: it must stay clean. When a cache line was
+one 64-word HyperRAM burst, `AT*H1` filled HDMI with sparkles.
 
 ## A fault and a hang
 

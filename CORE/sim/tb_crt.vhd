@@ -9,8 +9,9 @@
 -- the cartridge's program reads its probes and writes what it read to $0500 and its verdict
 -- to $0400, and this compares that with the cartridge's .exp file.
 --
--- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64 16 kB cartridge, a
--- 4 kB Ultimax chip mirrored at $E000, EasyFlash with more banks than the cache holds, the same
+-- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64
+-- 16 kB cartridge (also loaded in a long reset's $8000 mask), a 4 kB Ultimax chip mirrored at
+-- $E000, EasyFlash with more banks than the cache holds, the same
 -- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00),
 -- EasyFlash's flash chips taking programs and erases (also UCI's erase, through the CSR as the
 -- firmware asks for it, and with no EasyFlash nothing to erase), a full-size Magic

@@ -14,7 +14,7 @@
 --   7. the IRQ bit: IRQ with the reply, $DF1D reads $49, reading the reply ends it
 --   8. the DMA bit holds the CPU until the reply; TRIGGER waits for a write to $FF00
 --   9. a reset of the C128 sets the flag at device word 0x010, and writing 1 clears it
---  10. writing bit 1 there asks for a reset: one pulse of one clock, also with ce held for
+--  10. writing bit 1 there asks for a reset: one pulse of one clock, even with ce held for
 --      ten clocks; clearing the flag asks for none
 --  11. device word 0x011 is where the REU's memory is (G_REU_MEM), all 16 bits
 --  12. device word 0x012: main.vhd's REU setting in bits 2-1; bit 0 reaches main_reu_keep_o

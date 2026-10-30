@@ -1,4 +1,4 @@
-// A model of reu_sd.vhd for the host tests: the REU's SD card DMA (the disk image's blocks
+// A model of reu_sd.vhd for the host tests: the REU's SD card DMA (the card's blocks
 // straight to and from the REU's memory, at once) and its cache drop, counted.
 #pragma once
 

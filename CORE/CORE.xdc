@@ -147,6 +147,12 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##   every key       m2m_keyb's 80-key matrix to the CPU through xpm_cdc_array_single, a bit
 ##                   each, as the menu keys.
 ##
+##   REU SD DMA      reu_sd.vhd: the REU cache's drop request, a toggle there and back through
+##                   ASYNC_REG pairs.
+##
+##   function ROM    its size (mega65.vhd) through cdc_stable, written while the 8502 is held,
+##                   and the C128 is reset after.
+##
 ## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
 ## logic of all of the above is still fully analysed.
 ##

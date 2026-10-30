@@ -192,7 +192,7 @@ port (
    main_rtc_o              : out   std_logic_vector(64 downto 0);
 
 
-   -- C128 core: the modem's 50 MHz clock (CPU and Ethernet)
+   -- C128 core: the network device's 50 MHz clock (Ethernet, the 6551's FIFOs)
    modem_clk_o             : out   std_logic;
    modem_rst_o             : out   std_logic;
 

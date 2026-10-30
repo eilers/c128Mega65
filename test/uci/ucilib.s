@@ -55,9 +55,9 @@ push_ctrl:
         sta CTRL
         rts
 
-; Wait for Data Last or Data More; rpolls is how long it took. After about 12 s without
-; (6 s in FAST mode; a mount on the core takes about 2 s),
-; the reply is empty with status TIMEOUT, the interface is released, and carry is set.
+; Wait for Data Last or Data More; rpolls is how long it took. After about 12 s without one
+; (6 s in FAST mode; a mount on the core takes about 2 s) the reply is empty with status
+; TIMEOUT, the interface is released, and carry is set.
 ; $DF1C counts only while $DF1D answers before and after it: an Ultimate takes the
 ; interface off the bus for a few ms while LOAD_CONFIG's settings take effect, and the bus
 ; then reads $FF. absent counts the polls without it.

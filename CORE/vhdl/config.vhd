@@ -300,8 +300,7 @@ constant OPTM_SIZE_ALL     : natural := 159; -- amount of items including empty 
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
-                                             -- More items or submenus also need more MENU_HEAP_SIZE in m2m-rom.asm. If it is too
-                                             -- small, opening the menu stops the core with "Heap corruption: Hint: OPTM_HEAP_SIZE".
+                                             -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
@@ -452,7 +451,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " Network\n"             &
    "\n"                     &
    " REST API\n"            &    -- default on: Gideon's REST API on port 80
-   " Host:%s\n"             &    -- typed in the menu, as the four below (core.c)
+   " Host:%s\n"             &    -- typed in the menu, as Password and IP to DNS are (core.c)
    " Password:%s\n"         &    -- REST's X-Password, <none> without one
    "\n"                     &
    " DHCP\n"                &    -- default on
@@ -468,8 +467,8 @@ constant OPTM_ITEMS_ALL    : string :=
    " ROMs\n"                &    -- file in /c128/roms of the right size, kept on the card
    "\n"                     &
    " C128 KERNAL:%s\n"      &    -- 16 KB: editor, Z80 BIOS and KERNAL (U35)
-   " C128 BASIC:%s\n"       &    -- 32 KB (U32 + U33)
-   " C64 KERNAL:%s\n"       &    -- 8 KB, or 16 KB with C64 BASIC (U34): Gideon's "Alternate Kernal"
+   " C128 BASIC:%s\n"       &    -- 32 KB (U33 + U34)
+   " C64 KERNAL:%s\n"       &    -- 8 KB, or 16 KB with C64 BASIC (U32): Gideon's "Alternate Kernal"
    " C64 BASIC:%s\n"        &    -- 8 KB
    " Characters:%s\n"       &    -- 8 KB, both sets
    " Function ROM:%s\n"     &    -- 16 or 32 KB, the internal function ROM socket (U36)
@@ -517,7 +516,7 @@ constant OPTM_G_MODEM      : integer := 19;   -- Modem: Off, $DE00, $DF00, $D700
 constant OPTM_G_UCI        : integer := 20;   -- Ultimate Command Interface at $DF1C
 constant OPTM_G_REU_FILE   : integer := 21;   -- File:%s, loads the REU's image file
 constant OPTM_G_NET_REST   : integer := 22;   -- REST API on port 80
-constant OPTM_G_NET_HOST   : integer := 23;   -- Host:%s and the four below: text, typed in the menu
+constant OPTM_G_NET_HOST   : integer := 23;   -- Host:%s; it, Password and IP to DNS are text, typed in the menu
 constant OPTM_G_NET_PASS   : integer := 24;   -- Password:%s
 constant OPTM_G_NET_DHCP   : integer := 25;   -- DHCP, else the static address below
 constant OPTM_G_NET_IP     : integer := 26;   -- IP:%s

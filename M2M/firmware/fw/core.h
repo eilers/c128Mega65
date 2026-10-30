@@ -1,5 +1,6 @@
-// The core's part of the Shell: the callbacks of QNICE's m2m-rom.asm, written in
-// CORE/firmware/core.c. Groups are config.vhd's OPTM_G_* ids (build/fw/config_ids.h).
+// The core's part of the firmware, in CORE/firmware/core.c: the callbacks of QNICE's
+// m2m-rom.asm, and hooks for the core's own modules. Groups are config.vhd's OPTM_G_* ids
+// (build/fw/config_ids.h).
 #pragma once
 #include <stdint.h>
 

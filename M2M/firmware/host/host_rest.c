@@ -17,11 +17,13 @@
 
 uint8_t c128_mem[65536];
 int     dma_held_v, dma_z80_v, dma_polls = 3, dma_jobs, dma_stops;
+int     z80_cpm;                        // the Z80 runs CP/M until the next reset
 int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], int1581 = -1, mounts, remaps;
 char    drv_card[2][256];
 uint16_t *drive_rom, *crt_mem, *sys_rom;
 uint32_t  csr_reg = 0x0038;            // M2M_CSR: keyboard and joysticks, out of reset
 int       func_size = -1, c128_resets;  // the function ROM's CSR; resets by a ROM change
+int       rom_under_z80;                 // system ROM accesses while the Z80 runs
 int     rom_reloads[2], crt_loads, crt_parsed;
 char    crt_shown[256];
 int     c128_basic, c128_c64, boot_never, c64_cart, typed_run;
@@ -53,6 +55,7 @@ static void kernal(void)
 static void reset_now(void)
 {
    dma_held_v = 0;
+   z80_cpm = 0;                         // the Z80's boot then hands the bus to the 8502
    z80_left = 2;
    c128_c64 = c64_cart;
    kernal();
@@ -120,6 +123,10 @@ int dma_held(void)
 
 int dma_z80(void)
 {
+   if (z80_cpm && reset_pend && !--reset_pend)
+      reset_now();
+   if (z80_cpm)
+      return 1;
    if (z80_left) {
       z80_left--;
       return 1;
@@ -354,6 +361,13 @@ volatile uint32_t *host_rest_reg32(uint32_t a)
       csr_was = csr_reg;
       return (volatile uint32_t *)&csr_reg;
    }
+   if (a == 0xFFF4BFF8u || a == 0xFFF4BFFCu) {   // MTIME: 10 us a read
+      static uint64_t time;
+      static uint32_t t;
+      time += 1000;
+      t = a == 0xFFF4BFF8u ? (uint32_t)time : (uint32_t)(time >> 32);
+      return (volatile uint32_t *)&t;
+   }
    if (a != 0xE000001Cu) {
       fprintf(stderr, "test_http: register %08X\n", a);
       exit(2);
@@ -363,8 +377,11 @@ volatile uint32_t *host_rest_reg32(uint32_t a)
 
 volatile uint16_t *host_rest_dev(void)
 {
-   if (ramrom == 0x0101)
+   if (ramrom == 0x0101) {
+      if (z80_cpm || z80_left)
+         rom_under_z80++;
       return sys_rom;
+   }
    if (ramrom == 0x0102)
       return drive_rom;
    if (ramrom == 0x0106)

@@ -31,7 +31,8 @@ static const char *const modem_ifs[]   = { "ACIA / SwiftLink", NULL };
 static const char *const acia_maps[]   = { "Off", "DE00/NMI", "DF00/NMI", "D700/NMI", NULL };   // the menu's 0-3
 static const char *const modem_hws[]   = { "SwiftLink", NULL };
 
-// In his stores' order; a string's max is his longest, a file's what the menu can pick
+// In his stores' order; a string's max is his longest (the REU image's is a card path), a
+// file's what the menu can pick
 const item_t stores_items[] = {
    { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "" },
    { ST_C64,     I_ROM + RP_K64, IT_FILE,   "Alternate Kernal",           NULL, 0, PICK_MAX - 1, 0, "" },
@@ -433,7 +434,7 @@ void stores_saved(int s)
 #define LINE_MAX 128                 // his line buffer
 
 // The next line without its CR and LF: 0 at the end. As in his, a last line without an LF
-// isn't read; a longer line than his buffer takes is cut.
+// isn't read. A line longer than his buffer is cut (his reads the rest as the next line).
 static int read_line(FIL *f, char *line)
 {
    int n = 0;

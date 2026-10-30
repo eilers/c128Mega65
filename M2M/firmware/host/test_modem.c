@@ -32,6 +32,7 @@ uint32_t sys_now(void) { return net_millis(); }
 uint32_t net_rand(void) { static uint32_t s = 12345; s ^= s << 13; s ^= s >> 17; s ^= s << 5; return s; }
 uint32_t net_gap_max(void) { return 0; }
 uint32_t hog(int mode, uint32_t seconds) { (void)mode; (void)seconds; return 0; }
+void *heap_alloc(uint32_t bytes) { return calloc(1, bytes); }
 void uart_puts(const char *s) { fputs(s, stderr); }   // lib/fmt.c's uart_printf
 
 // --- the C128 and its 6551 ---
@@ -227,10 +228,13 @@ static err_t srv_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
    return ERR_OK;
 }
 
+static struct tcp_pcb *srv_pcb;           // the server's end of the call
+
 static err_t srv_accept(void *arg, struct tcp_pcb *pcb, err_t err)
 {
    (void)arg; (void)err;
    tcp_recv(pcb, srv_recv);
+   srv_pcb = pcb;
    return ERR_OK;
 }
 
@@ -361,6 +365,31 @@ static void case_download(size_t body_len)
           srv_out_len, (now_us - t0) / 1e6, max_gap / 1e6);
 }
 
+// A BBS trickling small segments while the C128 reads nothing (a disk write): each is a pool
+// pbuf, and the modem must not hold them, or every other frame finds the pool empty
+static void case_trickle(void)
+{
+   static uint8_t msg[400];
+   for (size_t i = 0; i < sizeof msg; i++)
+      msg[i] = (uint8_t)(' ' + i % 64);
+   check(dial("atdt10.0.0.1:80\r"), "CONNECT");
+   size_t start = got_len;
+   paused_until = now_us + 2000000;
+   tcp_nagle_disable(srv_pcb);
+   for (size_t i = 0; i < sizeof msg; ) {
+      if (tcp_write(srv_pcb, msg + i, 10, TCP_WRITE_FLAG_COPY) == ERR_OK) {
+         tcp_output(srv_pcb);
+         i += 10;
+      }
+      run(5000);
+   }
+   run(1000000);
+   check(!pool_drops, "the pool never ran dry while the C128 didn't read");
+   run(3000000);
+   check(got_len - start == sizeof msg && !memcmp(got + start, msg, sizeof msg),
+         "the C128 got every byte, in order");
+}
+
 int main(int argc, char **argv)
 {
    const char *c = argc > 1 ? argv[1] : "";
@@ -377,7 +406,7 @@ int main(int argc, char **argv)
    listen_on(23);
 
    // A long UCI call or a slow menu: 66 ms without a turn, every 250 ms (the longest seen on
-   // the R6 before turns between sectors, 2026-10-28)
+   // the R6 without turns between sectors)
    if (strstr(c, "-stall")) {
       stall_every = 250000;
       stall_us = 66000;
@@ -392,12 +421,14 @@ int main(int argc, char **argv)
       case_upload(true, 5000);
    else if (!strcmp(c, "download") || !strcmp(c, "download-stall"))
       case_download(26910);
+   else if (!strcmp(c, "trickle"))
+      case_trickle();
    else if (!strcmp(c, "download-pause")) {
       pause_us = 100000;                 // a disk write every 254 bytes
       case_download(26910);
    } else {
       fprintf(stderr, "usage: test_modem at|http|bulk|telnet|download|download-pause|"
-                      "bulk-stall|download-stall\n");
+                      "bulk-stall|download-stall|trickle\n");
       return 2;
    }
    check(!put_lost, "never a byte into a full FIFO");

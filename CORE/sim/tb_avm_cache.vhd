@@ -5,11 +5,10 @@
 -- changes behind the cache (as the system CPU and reu_sd.vhd change the REU's memory).
 --
 -- The memory answers reads in order after a few clocks with the data as it was when it
--- took the read. Checks, each first without a drop (the stale word, as UCIREU saw it on
--- the hardware) and then with one: a line read again after a change; a read in the clock
--- of the drop; a drop that comes while the line's fill is under way, before its first word
--- and after it (a hit on the words already in); a drop during the prefetch of the line's
--- second half.
+-- took the read. Checks (1 and 2 first without a drop: the stale word the hardware showed):
+-- a line read again after a change; a read in the clock of the drop; a drop that comes
+-- while the line's fill is under way, before its first word and after it (a hit on the
+-- words already in); a drop during the prefetch of the line's second half.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------

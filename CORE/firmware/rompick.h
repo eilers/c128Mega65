@@ -24,9 +24,10 @@ int         rompick_fits(int p, uint32_t size);   // a file of that size is a RO
 // The files a pick can name, from its folder (his list_kernals, list_roms, list_crts)
 void        rompick_list(int p, void (*each)(const char *name, void *ctx), void *ctx);
 
-// A pick's new name, then the changed ones (a bit per pick) into effect: a system ROM with the
-// CPU held by DMA, then a C128 reset (the reset button's), the function ROM too, a drive's with its reload if the drive runs that model; the
-// boot cartridge only at the next start. Before rompick_boot, only the names change.
+// A pick's new name, then the changed ones (a bit per pick) into effect: system ROMs (the
+// function ROM too) with the 8502 held by DMA, then the reset button's reset; a drive's with
+// a reload if the drive runs that model; the boot cartridge at the next start. Before
+// rompick_boot, only the names change.
 void        rompick_set(int p, const char *name);
 void        rompick_unset(int p);                 // back to stock: his default name if that is
 void        rompick_apply(uint32_t changed);

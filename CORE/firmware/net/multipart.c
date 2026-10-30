@@ -61,8 +61,8 @@ void mp_start(void *mp, const char *type, mp_cb_t cb, void *ctx)
    if (!type)
       type = "";
    event(s, MP_START, (const uint8_t *)type, strlen(type));
-   // "boundary=" after "multipart"; a boundary too long for his malloc'd copy can't happen
-   // here, so a longer one than ours is taken as no boundary: the body is one raw part
+   // "boundary=" after "multipart". His copy is malloc'd to fit; one too long for ours is
+   // taken as none, as his out-of-memory case: the body is one raw part
    if (!strncasecmp(type, "multipart", 9) && (b = strstr(type, "boundary=")) &&
        strlen(b + 9) + 5 <= sizeof s->boundary) {
       strcpy(s->boundary, "\r\n--");

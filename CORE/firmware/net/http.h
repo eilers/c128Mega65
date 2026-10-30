@@ -57,5 +57,5 @@ void http_poll(void);    // from the main loop
 // The application (rest.c), called once a request's header is in: fills in resp, and maybe
 // a body_cb in req for a POST's body (then resp is filled in when the body ends)
 void rest_dispatch(http_req_t *req, http_resp_t *resp);
-// X-Password, "" for none (until the menu has the network settings)
+// X-Password, "" for none
 void rest_set_password(const char *pw);

@@ -1,5 +1,6 @@
 // The network device (CORE/vhdl/net/net.vhd) as the firmware sees it: 16-bit words of
-// device C_DEV_NET on the device bus. net_poll selects it; the others take it as it is.
+// device C_DEV_NET on the device bus. core_net and net_lock select it; the others take it
+// as it is.
 #pragma once
 #include <stdint.h>
 #include "m2m_rv.h"

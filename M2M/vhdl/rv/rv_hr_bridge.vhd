@@ -10,8 +10,8 @@
 -- cache's further requests, each for the next word, are answered in order. Other
 -- reads fetch their CPU word; writes write the halves their byte enables select. The
 -- CPU has no d-cache, so writes come one at a time.
--- HyperRAM side: Avalon master on the same clock; the framework's avm_fifo crosses to
--- the HyperRAM clock.
+-- Memory side: an Avalon master on the same clock, the HyperRAM clock, so no FIFO: straight
+-- to the framework's HyperRAM arbiter, or to sdram_arbit.vhd.
 -- The HyperRAM side is reset with the core (a short press of the reset button), which
 -- loses what it was doing: a read goes on from its next word and a write starts again
 -- once that reset is over. The CPU waits meanwhile (rv_soc.vhd's XBUS timeout is longer).

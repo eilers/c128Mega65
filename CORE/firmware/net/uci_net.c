@@ -27,7 +27,7 @@
 
 #define SOCKETS   4
 #define MAX_READ  1472                  // the largest UDP payload in one Ethernet frame
-#define BLOCK     (UCI_MAX_REPLY - 1)   // a block of 896 never ends (command_protocol.vhd)
+#define BLOCK     UCI_MAX_REPLY         // a reply's block
 #define READ_WAIT 40                    // ms
 #define RX_SIZE   TCP_WND
 

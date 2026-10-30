@@ -527,7 +527,7 @@ begin
    audio_lrclk_o <= '0';
    audio_pdn_n_o <= '0';
    eth_led2_o    <= '0';
-   -- The other Ethernet pins belong to the C128 core's modem
+   -- The other Ethernet pins belong to the C128 core's network device (net.vhd)
 
    -- Drive A of the internal floppy connector goes to the core (the
    -- internal drive as a 1581); drive B stays inactive.

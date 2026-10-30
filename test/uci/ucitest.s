@@ -222,7 +222,7 @@ expect_id:
         sta PTR2+1
         jmp check_reply
 
-; ECHO: target 1, $F0, then bytes counting on from 2
+; ECHO: target 1, $F0, then each byte its address's low byte plus high byte
 fill_echo:
         lda #<cmd_buf
         sta PTR2

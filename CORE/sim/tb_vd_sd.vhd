@@ -10,8 +10,8 @@
 -- 1581-style 512-byte reads, a track write (the blocks at its ends are read first and
 -- merged), reading it back from the cache, the write-back after the quiet time, a full
 -- cache that has to write back to take more, a drive switched off (its changes reach the
--- card first, then it reads zeros), a changed card (nothing reaches it), and the drives'
--- disk_ready in every drive's CSR.
+-- card first, then it reads zeros), a changed card (nothing reaches it), the drives'
+-- disk_ready in every drive's CSR, and each drive's power (0x034) and hold (0x035).
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------

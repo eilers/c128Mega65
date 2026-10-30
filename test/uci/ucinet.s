@@ -889,7 +889,7 @@ no_reply:
         rts
 
 ; READs of A/X bytes until want bytes have come: each 00,OK, its header the bytes it carries,
-; and the pattern going on from 0; "02,NO DATA: 11" (nothing yet) up to 100 times between.
+; and the pattern going on from 0; "02,NO DATA: 11" (nothing yet) up to 100 times in all.
 ; Carry clear if so; reads and the most blocks a reply took are counted.
 read_all:
         sta rl2

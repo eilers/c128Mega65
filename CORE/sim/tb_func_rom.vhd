@@ -4,6 +4,7 @@
 -- points at a loop in BASIC LO that maps the function ROM at $8000 and $C000 through the
 -- MMU ($FF00 = $14) and copies $8007 and $C007 to RAM $0C00 and $0C01, over and over.
 -- With 32 KB both are the ROM's, with 16 KB $C000 floats (MiSTer's), with none both do.
+-- The firmware never asks for 16 KB: it writes a 16 KB file twice and asks for 32 KB.
 ----------------------------------------------------------------------------------
 library ieee;
 use ieee.std_logic_1164.all;

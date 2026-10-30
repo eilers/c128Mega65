@@ -152,7 +152,8 @@ static void want_data(const char *what, const char *st, const char *d)
    check(rlen == (int)strlen(d) && !memcmp(rdata, d, rlen), msg);
 }
 
-// The C128 resets while the clock's command register is read: it is done at once here
+// The clock's command is done at once here: its register reads 0, and rtc_cmds keeps the
+// last copy command
 static volatile uint16_t *rtc;
 static unsigned rtc_cmds;
 static void rtc_hook(void)
@@ -283,6 +284,8 @@ static void dos_tests(void)
    want("COPY_FILE to a folder not in the root", "PATH DOESN'T EXIST");
    dos(1, 0x0B, "t2.prg\0/SD/uci", 15, NULL);
    want("COPY_FILE onto itself", "00,OK");
+   dos(1, 0x0B, "t2.prg\0/SD/UCI", 15, NULL);
+   want("COPY_FILE onto itself, the folder in other case", "00,OK");
    // 1 MB and a bit: the copy has the size, the first block and the last of the file
    static uint8_t head[512], tail[512];
    uint8_t at[4];

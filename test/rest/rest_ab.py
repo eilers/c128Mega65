@@ -10,8 +10,8 @@ byte for byte. Raw sockets, so every byte sent and received is the script's own.
                                   tests/lib/openapi_contract.py (needs PyYAML and
                                   openapi-schema-validator)
 
-A HOST is NAME[:PORT]; `M2M/firmware/host/build/test_http -serve 18080` puts the host
-build of the server on 127.0.0.1:18080.
+A HOST is NAME[:PORT]; `M2M/firmware/host/build/test_http -serve 18080 IMG` puts the host
+build of the server on 127.0.0.1:18080, with the FAT image IMG as its card.
 """
 import argparse
 import json
@@ -125,11 +125,10 @@ CASES = [
 
 NOT_FOUND = b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 
-# What his OpenAPI document describes; the other cases are odd requests it says nothing
-# about (and for help without its argument it says HTML, where his code answers JSON)
-# The machine, configs, drives, files and runners cases too, but an argument a call hasn't
-# (his code answers 400 for it anywhere, where his document only lists it for some calls) and
-# a drive call without its drive (not a path of his document)
+# The cases his OpenAPI document describes; the rest are odd requests it says nothing about.
+# Not help without its argument (his document says HTML, his code answers JSON), an argument
+# a call hasn't (his code answers 400 anywhere, his document lists it for some calls only) or
+# a drive call without its drive (not a path of his document).
 DOCUMENTED = {"version", "info", "help", "help, the argument decoded"} | {
     name for name, req, how in CASES if req and any(r in req for r in (
         b"/v1/machine", b"/v1/configs", b"/v1/drives", b"/v1/files", b"/v1/runners"))} - {

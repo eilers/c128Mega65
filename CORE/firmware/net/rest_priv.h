@@ -1,5 +1,5 @@
-// The REST API's parts (rest.c, rest_machine.c, rest_configs.c): a request, its arguments
-// and its answer, and the helpers that render the answer as Gideon's firmware does.
+// The REST API's parts (rest.c and the rest_*.c routes): a request, its arguments and its
+// answer, and the helpers that render the answer as Gideon's firmware does.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
@@ -9,7 +9,7 @@
 
 #define ARGS_MAX   32
 #define PARTS_MAX  16                   // his path_parts[16]
-#define BODY_SIZE  (16 * 1024)          // a JSON answer
+#define BODY_SIZE  (64 * 1024)          // a JSON answer; a longer one answers an error
 #define ERROR_SIZE 2048
 #define DEPTH_MAX  4                    // objects in objects
 #define UPLOAD_MAX 65536                // the most of a POST's body a route keeps
@@ -85,6 +85,7 @@ struct rest {
 
    char          body[BODY_SIZE];       // a JSON or HTML answer
    int           len, pos;
+   bool          over;                  // the answer didn't fit in body
    bool          first[DEPTH_MAX];      // no key in the open object yet
    int           level;
    char          errors[ERROR_SIZE];    // the errors list's items, rendered

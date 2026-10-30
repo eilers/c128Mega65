@@ -37,8 +37,8 @@ static err_t linkoutput(struct netif *nif, struct pbuf *p)
 
 static err_t netif_setup(struct netif *nif)
 {
-   // A locally administered address from the FPGA's DNA, so every board differs. The
-   // bytes go into the hash as the modem's own CPU read them (bits 0..31, then 32..56).
+   // A locally administered address from the FPGA's DNA, so every board differs. The bytes
+   // go into the hash low first (bits 0..31, then 32..56), which keeps each board's address.
    uint32_t lo = NET_DNA(0) | (uint32_t)NET_DNA(1) << 16;
    uint32_t hi = (NET_DNA(2) | (uint32_t)NET_DNA(3) << 16) & 0x01FFFFFF;
    uint32_t h = 2166136261u;

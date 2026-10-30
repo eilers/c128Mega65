@@ -6,8 +6,8 @@
 -- One client owns the port. The other sees it busy and no strobes, so it never starts a
 -- transfer. A client raises want_i before it starts anything and holds it for as long as
 -- it has transfers to do; the port changes hands only between transfers, when its owner
--- does not want it and the other client does. Client A gets the port first when both ask
--- at once. want_o lets one arbiter be a client of another, for more than two.
+-- does not want it and the other client does. When both ask at once, the one that had it
+-- last keeps it (A after a reset). want_o lets one arbiter be a client of another.
 --
 -- QNICE clock. Done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------

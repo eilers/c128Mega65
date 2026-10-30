@@ -64,8 +64,7 @@ Ethernet PHY ── RMII MAC (eth_wrapper) ─────────┘   mode
 - **The modem** runs in the RISC-V system firmware (`CORE/firmware/net`): lwIP 2.2.1 and
   a Hayes command set. The command set follows the Ultimate's `modem.cc`; telnet
   negotiation is new. The Ultimate relays raw TCP, which corrupts XMODEM blocks containing
-  `$FF` on BBSes that speak the telnet protocol. Until RISC-V step 8 the modem had a
-  NEORV32 of its own, with its firmware in `/c128/modem.bin`.
+  `$FF` on BBSes that speak the telnet protocol.
 - **The Ethernet MAC** is C64MEGA65's `eth_rmii.vhd` (`M2M/vhdl/controllers/ethernet`),
   with a transmit frame buffer added to its `eth_wrapper.vhd`. It stays in reset until the
   firmware starts the network.
@@ -82,27 +81,28 @@ state, so a turn in the middle of a FatFs call is safe; a turn never runs inside
 
 **No big receive buffer.** The FIFOs only cover the gaps between turns (64 bytes is 16.7 ms
 at 38400 baud). When the C128 falls behind, for example while it writes an XMODEM block to
-disk, it drops RTS. The FIFO fills, the firmware stops taking data from lwIP, the TCP
-window closes, and the sender waits. The data waits on the server, so nothing needs to
-buffer it here. XMODEM itself never has more than one block in flight. A 2-segment TCP
-window covers a round trip of up to about 500 ms at 57600 baud, and fits in the MAC's 4 KB.
+disk, it drops RTS. The FIFO fills, the firmware stops passing bytes on, the TCP window
+closes, and the sender waits. The data waits on the server, so nothing needs to buffer it
+here. XMODEM itself never has more than one block in flight. A 2-segment TCP window covers
+a round trip of up to about 500 ms at 57600 baud, and fits in the MAC's 4 KB. What has
+arrived waits in a ring of one window (in HyperRAM), not in lwIP's buffers: a far end
+sending small segments would otherwise empty the pool that every other frame needs.
 
 **Failures.** A trap (a bus error, say) stops the whole firmware on its trap screen, and so
 does a main loop stuck for a second (the watchdog, marked `stuck`, with the address it was
-stuck at). The core needs a reset then. `AT*T` and `AT*W` test the two.
+stuck at). The core needs a reset then (a long press). `AT*T` and `AT*W` test the two.
 
 ### Resources
 
-The modem's own CPU took 6.5 RAMB36 tiles (16 KB of data RAM, 8 KB of i-cache). Instead
-the system CPU's data RAM grew from 16 to 64 KB (12 tiles), for lwIP sized for the modem,
-UCI's network target and the REST server (about 28 KB) beside the rest of the firmware.
-The MAC's frame buffers (4 + 2 KB) and the 6551's FIFOs are LUTRAM.
+lwIP, sized for the modem, UCI's network target and the REST server, takes about 28 KB of
+the system CPU's 64 KB data RAM. The MAC's frame buffers (4 + 2 KB) and the 6551's FIFOs
+are LUTRAM.
 
 **Short HyperRAM bursts.** HDMI's scaler keeps its frame buffer in HyperRAM and takes
 turns with the core, and it only has room for two bursts of the incoming picture. So the
-system CPU's bridge reads a cache line in four 16-word bursts, as the modem's did: as one
-64-word burst it made the scaler miss its deadlines on the 80-column screen while the
-modem was busy, and HDMI showed sparkles (VGA doesn't go through the scaler).
+system CPU's bridge (`rv_hr_bridge.vhd`) reads a 64-byte cache line in two 16-word bursts.
+A 64-word burst made the scaler miss its deadlines on the 80-column screen, and HDMI
+showed sparkles (VGA doesn't go through the scaler).
 
 ### Registers
 
@@ -112,7 +112,7 @@ modem was busy, and HDMI showed sparkles (VGA doesn't go through the scaler).
 FPGA's device DNA.
 
 The MAC address is `02:C1:28:xx:xx:xx`, with the last three bytes from the FPGA's DNA,
-so every MEGA65 gets its own (the same one as before step 8).
+so every MEGA65 gets its own.
 
 ## Testing
 

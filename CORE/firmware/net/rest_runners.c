@@ -10,7 +10,7 @@
 // with the CPU held: the program, the pointers his loader sets (the mode's), the lines
 // relinked (his runner's LINKPRG) and RUN in the keyboard buffer. A program's .cfg (or .usr)
 // next to it is loaded first, as his. 423 if BASIC doesn't come within 10 s (a cartridge, a
-// boot or CP/M disk), at once while the Z80 runs.
+// boot or CP/M disk) or C64 BASIC comes for a C128 program, at once while the Z80 runs.
 //
 // run_crt: the .crt into the virtual cartridge, as the menu's CRT: line (the cartridge's
 // source becomes the .crt, main.vhd resets the C128 into it); an upload goes straight into
@@ -325,7 +325,8 @@ static void no_log(const char *fmt, ...)
    (void)fmt;
 }
 
-// His S_load_associated_config(_usr): NAME.cfg, else NAME.usr, next to the program
+// His S_load_associated_config(_usr): NAME.cfg, else NAME.usr, next to the program. As his
+// S_load_and_effectuate, its good lines take effect even if others have errors.
 static void associated_config(const char *card)
 {
    static const char *const ext[] = { ".cfg", ".usr" };
@@ -340,10 +341,9 @@ static void associated_config(const char *card)
       if (f_open(&f, cfg, FA_READ) != FR_OK)
          continue;
       stores_begin();
-      int good = stores_read(&f, ~0u, no_log);
+      stores_read(&f, ~0u, no_log);
       f_close(&f);
-      if (good)
-         stores_apply();
+      stores_apply();
       return;
    }
 }

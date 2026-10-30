@@ -26,7 +26,7 @@
 // vd_sd.vhd: the block table in window 0, the CSR in window 0xFFFF
 #define MAP_MAGIC     0x5D4D
 #define MAP_CSR_MAGIC 0x030
-#define MAP_CSR_CTRL  0x031        // W: 1 on, 0 off; R: bit 0 on, bit 2 busy, bit 5 ready
+#define MAP_CSR_CTRL  0x031        // W: 1 on, 0 off; R: bit 0 on, 1 dirty, 2 busy, 5 ready
 #define MAP_READY     0x20         // every 1541/1571 out of reset has its disk (iec_drive)
 #define MAP_CSR_NBLK  0x032        // blocks of the image
 #define MAP_CSR_FLUSH 0x033        // W: write back now

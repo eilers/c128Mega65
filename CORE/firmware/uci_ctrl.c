@@ -51,7 +51,7 @@ static const char internal[]     = "87,INTERNAL ERROR";
 
 static char path[UCI_PATH_MAX];
 
-// LOAD_REU or SAVE_REU under way, a few KB per main-loop round (work())
+// LOAD_REU or SAVE_REU under way, one reu_step a main-loop round (work())
 #define REU_STEP (16 * 512)
 static struct {
    FIL        f;

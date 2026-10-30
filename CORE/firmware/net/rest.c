@@ -1,8 +1,9 @@
 // The REST API on http.c: Gideon's software/api at 4b00732 (the II+L's 3.15a has the same
 // core): routes.h's ArgsURI and ResponseWrapper, routes.cc's About routes, and
 // MicroHttpServer's url.c and middleware.c. Answers match his to the byte: JSON as json.h
-// renders it (no escaping, "{ \n", "[  ]"), his status texts (412 and 500 go out as
-// "Unknown"), and a bare 404 for anything that isn't a route (no web pages here).
+// renders it (no escaping, "{ \n", "[  ]"), his status texts (any code but 200, 203, 400,
+// 403 and 404 goes out as "Unknown"), and a bare 404 for anything that isn't a route (no
+// web pages here).
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -49,6 +50,8 @@ static void putv(rest_t *r, const char *f, va_list ap)
 {
    int room = BODY_SIZE - r->len;
    int n = fmt_vsnprintf(r->body + r->len, room, f, ap);
+   if (n >= room)
+      r->over = true;
    r->len += n < room ? n : room - 1;
 }
 
@@ -163,6 +166,15 @@ static void respond(rest_t *r, int code, const char *type)
 
 void json_response(rest_t *r, int code)
 {
+   // His has no limit; cut-off JSON would be worse than an error
+   if (r->over) {
+      r->over = false;
+      r->len = r->elen = 0;
+      r->first[0] = true;
+      put(r, "{ \n");
+      error(r, "The answer is longer than %d KB.", BODY_SIZE / 1024);
+      code = HTTP_INTERNAL_ERROR;
+   }
    r->level = 0;
    key(r, "errors");
    put(r, r->elen ? "[ %s ]" : "[  ]", r->errors);
@@ -597,6 +609,7 @@ void rest_dispatch(http_req_t *req, http_resp_t *res)
    r->req = req;
    r->res = res;
    r->len = 0;
+   r->over = false;
    r->elen = 0;
    r->level = 0;
    r->first[0] = true;

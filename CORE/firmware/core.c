@@ -37,8 +37,8 @@ const char *core_submenu_summary(int idx)
    static char line[32];
    int g;
 
-   // The Cartridge submenu's first menu group is the cartridge source, the Network
-   // submenu's REST on or off
+   // A submenu's first menu group: the Cartridge submenu's source, the ROMs submenu's C128
+   // KERNAL line, the Network submenu's REST on or off
    while ((g = shell_group(++idx)) == 0)
       ;
    if (g == OPTM_G_ROM_K128) {
@@ -423,8 +423,8 @@ int core_crtrom_loaded(int dev)
 }
 
 // Before the C128 starts: the settings file's items (the network's in effect once it
-// starts), the ROMs picked, the boot cartridge, and the REU's image into the REU, as his
-// REU Preload
+// starts), the ROMs picked, and the REU's image into the REU, as his REU Preload. The boot
+// cartridge loads later, once the C128 runs (rompick_poll).
 const char *core_prep_start(void)
 {
    const char *msg;

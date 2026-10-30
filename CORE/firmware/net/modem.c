@@ -6,6 +6,7 @@
 #include "acia.h"
 #include "eth.h"
 #include "fmt.h"
+#include "heap.h"
 #include "hog.h"
 #include "log.h"
 #include "modem.h"
@@ -23,6 +24,7 @@
 #define FLUSH_IDLE    3       // ms without a byte from the C128 before a short segment goes out
 #define FLUSH_SIZE    192     // bytes from the C128 that go out at once
 #define TXBUF_SIZE    256     // FLUSH_SIZE plus room for telnet replies
+#define RX_SIZE       TCP_WND // TCP's window keeps what the C128 hasn't read within it
 
 enum state { ST_IDLE, ST_RESOLVING, ST_CONNECTING, ST_RINGING, ST_ONLINE };
 
@@ -78,7 +80,8 @@ static struct {
    uint16_t port;
    ip_addr_t addr;
 
-   struct pbuf *rx;            // received, not yet passed to the C128
+   uint8_t *rx;                // received, not yet passed to the C128: a ring in HyperRAM,
+   uint16_t rx_head, rx_len;   // so no lwIP pbuf is held while the C128 doesn't read
    uint32_t rx_count;
    bool remote_closed;
    uint8_t txbuf[TXBUF_SIZE];  // for the far end, gathered into one tcp_write: a write per
@@ -154,9 +157,7 @@ static void set_state(enum state st)
 
 static void drop_rx(void)
 {
-   if (m.rx)
-      pbuf_free(m.rx);
-   m.rx = NULL;
+   m.rx_head = m.rx_len = 0;
 }
 
 static void forget(struct tcp_pcb *pcb)
@@ -207,10 +208,16 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
       m.remote_closed = true;
       return ERR_OK;
    }
-   if (m.rx)
-      pbuf_cat(m.rx, p);
-   else
-      m.rx = p;
+   if (m.rx_len + p->tot_len > RX_SIZE)
+      return ERR_MEM;                   // can't happen: lwIP keeps it and tries again
+   for (struct pbuf *q = p; q; q = q->next) {
+      int tail  = (m.rx_head + m.rx_len) % RX_SIZE;
+      int first = q->len < RX_SIZE - tail ? q->len : RX_SIZE - tail;
+      memcpy(m.rx + tail, q->payload, first);
+      memcpy(m.rx, (const uint8_t *)q->payload + first, q->len - first);
+      m.rx_len += q->len;
+   }
+   pbuf_free(p);
    return ERR_OK;
 }
 
@@ -662,14 +669,12 @@ static int telnet_rx(uint8_t c)
 // Passes received bytes to the C128 as fast as its FIFO takes them.
 static void deliver_rx(void)
 {
-   if (!m.rx || !m.pcb || m.cmd_mode)
+   if (!m.rx_len || !m.pcb || m.cmd_mode)
       return;
    int room = acia_rx_free();
    uint16_t used = 0;
-   struct pbuf *q = m.rx;
-   uint16_t off = 0;
-   while (room > 0 && q) {
-      uint8_t c = ((uint8_t *)q->payload)[off];
+   while (room > 0 && used < m.rx_len) {
+      uint8_t c = m.rx[(m.rx_head + used) % RX_SIZE];
       if (m.rx_count++ == 0 && c == IAC && m.s[S_TELNET] == 0)
          m.telnet = true;   // the far end talks telnet
       int d = m.telnet ? telnet_rx(c) : c;
@@ -678,13 +683,10 @@ static void deliver_rx(void)
          room--;
       }
       used++;
-      if (++off == q->len) {
-         q = q->next;
-         off = 0;
-      }
    }
    if (used) {
-      m.rx = pbuf_free_header(m.rx, used);
+      m.rx_head = (m.rx_head + used) % RX_SIZE;
+      m.rx_len -= used;
       tcp_recved(m.pcb, used);
    }
 }
@@ -801,6 +803,7 @@ static void drain_outq(void)
 void modem_init(void)
 {
    factory();
+   m.rx = heap_alloc(RX_SIZE);
    m.cmd_mode = true;
    m.state = ST_IDLE;
 
@@ -840,7 +843,7 @@ void modem_poll(void)
    drain_outq();
    if (m.out_tail == m.out_head && !m.dump_len) {
       deliver_rx();
-      if (m.remote_closed && !m.rx && m.state == ST_ONLINE)
+      if (m.remote_closed && !m.rx_len && m.state == ST_ONLINE)
          hang_up(RC_NO_CARRIER, true);
       else if (m.remote_closed && m.state == ST_RINGING)
          hang_up(RC_OK, false);

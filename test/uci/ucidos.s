@@ -1,7 +1,7 @@
 ; DOS target test for the C128 MEGA65 core's command interface, and for a real Ultimate.
 ;
-; Runs the DOS commands of target 1 on the first storage the root lists (SD on the core,
-; a USB stick or SD card on an Ultimate): a folder UCITEST with files that it writes,
+; Runs the DOS commands of target 1 in the root's first folder starting with S or U, else its
+; first (SD on the core, Usb0 or SD on an Ultimate): a folder UCITEST with files that it writes,
 ; reads, seeks, renames, copies and deletes, and a D64 it makes and mounts on drive 9 and
 ; reads the header of over the IEC bus. It removes what it made. Every line ends in PASS or
 ; FAIL; names and times are shown, so two runs can be compared.
@@ -690,8 +690,8 @@ write_chunk:
         sta cmd_len+1
         jmp transact
 
-; WRITE_DATA of wlen zeros, straight into the queue: 9 cycles a byte where a copy through
-; cmd_buf takes about 70, which made the D64 take 18 s at 1 MHz
+; WRITE_DATA of wlen zeros, straight into the queue: 9 cycles a byte, where a copy through
+; cmd_buf takes about 100 (18 s for the D64 at 1 MHz)
 write_zeros:
         lda #1
         sta CMDQ

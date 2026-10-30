@@ -4,14 +4,14 @@ The command interface of Gideon's Ultimate cartridges, at `$DF1C`-`$DF1F`. A C12
 program writes a command into a queue, the system CPU's firmware answers with data and a
 status text, and the program reads them back. Programs written for an Ultimate II+ or an
 Ultimate 64 (for example those built on xlar54's cc65 `ultimateii-dos-lib`) use it for
-files on the card, disk mounting and, on an Ultimate, the network.
+files on the card, disk mounting and the network.
 
 Switch it on with **UCI at $DF1C** in the menu (off by default, as on the Ultimate).
 
 The REU submenu's **File** item picks the REU's image file (`.reu`), the Ultimate's "REU
-Preload Image": picking one loads it into the REU at once, as much as the REU holds, and
-LOAD_REU and SAVE_REU use it from then on. The REU must be on first. The core forgets it at
-power-off, as it does disks and cartridges.
+Preload Image": picking one loads it into the REU at once, as much as the REU holds, and the
+control target's LOAD_REU and SAVE_REU use it from then on. The REU must be on first. The
+pick is kept in `/c128/settings.cfg`, and the file is loaded again each time the core starts.
 
 ## The C128's side
 
@@ -22,7 +22,7 @@ As Gideon's *Ultimate Command Interface Register API* describes, protocol for pr
 | `$DF1B` | SoftIEC bus id (0) | |
 | `$DF1C` | status: DATA_AV, STAT_AV, state, ERROR, ABORT_P, DATA_ACC, CMD_BUSY | control: DMA, TRIGGER, IRQ, CLR_ERR, ABORT, DATA_ACC, PUSH_CMD |
 | `$DF1D` | identification, `$C9` (`$49` while its IRQ is on) | command queue (896 bytes; 895 are kept) |
-| `$DF1E` | response queue (896 bytes) | |
+| `$DF1E` | response queue (896 bytes; a reply of all 896 would never end, so the targets send 895 at most) | |
 | `$DF1F` | status queue (256 bytes) | |
 
 The interface claims `$DF18`-`$DF1F`, as Gideon's does; `$DF18`-`$DF1A` read `$FF`. That
@@ -44,6 +44,8 @@ Register accesses cross to the core's clock as toggles, so they wait about 200 n
 needs no wait. A reset of the C128 sets a flag the firmware sees (word `0x010` bit 0), and
 the firmware can ask for one (bit 1, for REBOOT): `main.vhd` runs it as it runs the reset
 after a changed REU or cartridge setting, once no drive is writing, as the reset button's.
+`main.vhd` decodes the addresses and lays the interface over the REU and the cartridge port;
+`mega65.vhd` holds `uci.vhd`.
 
 The REU's memory, for LOAD_REU and SAVE_REU: the system CPU reaches SDRAM at `0x50000000`
 (`rv_soc.vhd`, R4 and later), as a third master of `sdram_arbit.vhd` after the cartridge and
@@ -54,20 +56,18 @@ the REU, in the REU's window; HyperRAM it already reaches at `0x40000000`. `uci.
 The files go by DMA where they can: `reu_sd.vhd` (device `C_DEV_REU_SD`, `0x010A`) moves SD
 card blocks straight between the card and the REU's memory through the SD controller's
 engine port, with multi-block commands, behind the drives and a .crt load. Its memory port
-is a fourth master of `sdram_arbit.vhd` (in the REU's window) or, on R3 memory, shares the
-modem's turn at HyperRAM, so the REU's own path keeps its timing. The firmware hands it
-the file's clusters from FatFs's fast-seek map, 32 KB a step; a file in more than 32
+is a fourth master of `sdram_arbit.vhd` (in the REU's window) or, on R3 memory, the second
+of the REU's HyperRAM arbiter (`mega65.vhd`), so the REU's own path keeps its timing. The firmware hands it
+the file's clusters from FatFs's fast-seek map, 32 KB a step; a file in more than 256
 pieces, an odd REU address, a position inside a block or a save's last bytes of a block go
-through the CPU as before. A save takes its clusters first (as far as the card has room).
-On the R6, 16 MB took about 18 s to save and 14 s to load through the CPU, over UCIREU's
-13 s.
+through the CPU. A save takes its clusters first (as far as the card has room). Through the
+CPU alone, 16 MB took 14 s to load and 18 s to save on the R6, longer than UCIREU's 13 s.
 
 The REU's read cache (`avm_cache`, one line of 16 bytes) doesn't see the system CPU's or
 the DMA's writes, so after them it drops its line (`inval_i`, from `reu_sd.vhd` on the core's
 clock): a DMA load does it before it reports done, once a read behind its writes was
-answered; the firmware asks for it after its own writes (word `0x009`). Before this the
-first REU fetch after a LOAD_REU could get 16 old bytes (UCIREU's "REU $2000 HOLDS $1000'S"
-on the R6).
+answered; the firmware asks for it after its own writes (word `0x009`). Otherwise the first
+REU fetch after a LOAD_REU can get 16 old bytes.
 
 A REU setting LOAD_CONFIG makes doesn't reset the C128 (on an Ultimate the REU changes under
 the running program; `main.vhd` resets for a change in the menu). `uci.vhd`'s word `0x012`
@@ -79,11 +79,10 @@ menu's bits, priority-encoded, so once it shows the new one the bits still on th
 can't change it again.
 
 Drive power, for the control target: `vd_sd.vhd`'s CSR word `0x034`, one per drive, holds
-0 automatic (on while it has a disk or is the internal floppy, as before), 1 on (with no disk
-too, MiSTer's "Always") or 2 off (with a disk too). It survives a C128 reset and goes back to
+0 automatic (on while it has a disk or is the internal floppy), 1 on (with no disk too,
+MiSTer's "Always") or 2 off (with a disk too). It survives a C128 reset and goes back to
 automatic with an M2M reset. `main.vhd` brings it into the drives' clock and their reset;
-bit 2 reads whether the drive runs. `main.vhd` decodes the
-addresses and lays the interface over the REU and the cartridge port; `mega65.vhd` holds it.
+bit 2 reads whether the drive runs.
 
 ## Firmware
 
@@ -92,9 +91,9 @@ serves it: a new command goes to the target its first byte names (bits 0-3; bit 
 reply), the reply goes into the queues as Data Last or Data More, DATA_ACC asks the target for
 the next part, ABORT and a C128 reset end the reply. Targets nobody has registered answer
 `IDENTIFY` with `NO TARGET` and everything else with `21,UNKNOWN COMMAND`, as his do. A
-target can answer later: it leaves the status empty, and its `work()` is called from the main
-loop until the reply is ready, while the C128 sees the command busy. A long job, such as a
-copy, so never stops the loop.
+target can answer later: it leaves the status unset, and its `work()` is called from the main
+loop until the reply is ready, while the C128 sees the command busy, so a long job such as a
+copy never stops the loop.
 
 | Target | What | State |
 |---|---|---|
@@ -113,11 +112,11 @@ so what was written is on the card.
 | `$01` IDENTIFY, `$F0` ECHO | |
 | `$02` OPEN_FILE, `$03` CLOSE_FILE, `$04` READ_DATA, `$05` WRITE_DATA, `$06` FILE_SEEK | READ_DATA answers in blocks of 512 bytes. Mode bits as FatFs's (`FA_READ`, `FA_WRITE`, `FA_CREATE_NEW`, ...). |
 | `$07` FILE_INFO, `$08` FILE_STAT | Size, FAT date and time, the extension's 3 characters, attributes, the name (up to 63 characters). FILE_STAT's name ends with the command, or at a 0 byte. Gideon's FILE_STAT doesn't end it (his other commands do), so on an Ultimate it runs on into what earlier commands left in the buffer, and a program has to send the 0 itself. |
-| `$09` DELETE_FILE, `$0A` RENAME_FILE, `$0B` COPY_FILE | DELETE takes an empty folder too. COPY copies a file into a folder named from the root, as Gideon's `fcopy` does (not from the current folder), under the same name, a few KB per main-loop round; onto itself it is done at once. Folders are not copied. |
+| `$09` DELETE_FILE, `$0A` RENAME_FILE, `$0B` COPY_FILE | DELETE takes an empty folder too. COPY copies a file into a folder named from the root, as Gideon's `fcopy` does (not from the current folder), under the same name, a few KB per main-loop round; onto itself it is done at once. Folders are not copied (his copies them). |
 | `$11` CHANGE_DIR, `$12` GET_PATH, `$13` OPEN_DIR, `$14` READ_DIR, `$16` CREATE_DIR, `$17` COPY_HOME_PATH | READ_DIR answers an entry a block: attributes, then the name. The home folder is `/SD/`. |
-| `$23` MOUNT_DISK, `$24` UMOUNT_DISK | Drive 8 or 9, or 0 for the one mounted last; D64, D71, D81 (G64 and G71: `91,INCOMPATIBLE IMAGE`). The menu shows the image at once. A drive that is the internal floppy answers `90,DRIVE NOT PRESENT`. MOUNT_DISK answers once the drive has the disk, as an Ultimate's answers after its disk insertion. The core's 1541/1571 acts out a disk change after a mount (`c157x_drv.sv`: no disk for 1.6 s, over at 2.1 s), and a read before then got no disk while the DOS retried for about 15 s. `iec_drive`'s `disk_ready`, in bit 5 of the drives' CSR (`vd_sd.vhd`), is low while that lasts; the reply waits to see it low and then high (a drive that never goes low didn't take the disk: `87,INTERNAL ERROR`). A D81 answers at once: the 1581 flags the change itself. Not yet measured: whether a drive that was empty, and so starts from reset at the mount, has its DOS running by then. |
-| `$26` GET_TIME, `$27` SET_TIME | The MEGA65's clock; SET_TIME writes the RTC chip too. |
-| `$21` LOAD_REU, `$22` SAVE_REU | The open file, from where it is, into the REU's memory at an address, or from there into the file: 3 bytes of address and 4 of length, little-endian, as his (24 and 25 bits). What would pass the end of the REU's memory is cut off with `02,REQUEST TRUNCATED`: at 16 MB as on an Ultimate, at 512 KB on R3 memory. The data is his, `$  1000 BYTES LOADED TO REU $   100` (`SAVED FROM`), always 35 (36) characters. No file open: `85,NO FILE OPEN`. The REU needn't be on. |
+| `$23` MOUNT_DISK, `$24` UMOUNT_DISK | Drive 8 or 9, or 0 for the one mounted last; D64, D71, D81 (G64 and G71: `91,INCOMPATIBLE IMAGE`). The menu shows the image at once. A drive that is the internal floppy answers `90,DRIVE NOT PRESENT`. MOUNT_DISK answers once the drive has the disk, as an Ultimate's answers after its disk insertion. The core's 1541/1571 acts out a disk change after a mount (`c157x_drv.sv`: no disk for 1.6 s, over at 2.1 s), and a read before then finds no disk. `iec_drive`'s `disk_ready`, in bit 5 of the drives' CSR (`vd_sd.vhd`), is low while that lasts; the reply waits to see it low and then high (a drive that never goes low didn't take the disk: `87,INTERNAL ERROR`). A D81 answers at once: the 1581 flags the change itself. A drive that was empty starts from reset at the mount and is ready when MOUNT_DISK answers (R6). |
+| `$26` GET_TIME, `$27` SET_TIME | The MEGA65's clock; SET_TIME writes the RTC chip too. A date outside 2000-2099, or a field out of range: `98,FUNCTION PROHIBITED` (his has no check). |
+| `$21` LOAD_REU, `$22` SAVE_REU | The open file, from where it is, into the REU's memory at an address, or from there into the file: 4 bytes of address and 4 of length, little-endian, as his (24 and 25 bits of them used). What would pass the end of the REU's memory is cut off with `02,REQUEST TRUNCATED`: at 16 MB as on an Ultimate, at 512 KB on R3 memory. The data is his, `$  1000 BYTES LOADED TO REU $   100` (`SAVED FROM`), always 35 (36) characters. No file open: `85,NO FILE OPEN`. The REU needn't be on. |
 | `$15` COPY_UI_PATH, `$25` SWAP_DISK | `99,FUNCTION NOT IMPLEMENTED` |
 
 Not checked: that a file deleted or renamed is not an image in a drive. The drive keeps the
@@ -185,8 +184,10 @@ items and choices than an Ultimate:
 | | `Drive Type` | `1541`, `1571`: the menu's one model for both drives, so a second, other one in the file is an error; `1581` only for a drive that is one (the internal floppy, a D81), which stays one |
 | | `Drive Bus ID` | `8` for A, `9` for B |
 | | `ROM for 1541 mode`, `ROM for 1571 mode`, `ROM for 1581 mode` | a file in `/c128/roms`, 16 or 32 KB; `1541.rom` etc.: stock. A drive running that model reloads it and resets |
-| `Modem Settings` | `ACIA (6551) Mapping` | `Off`, `DE00/NMI`, `DF00/NMI` (a SwiftLink: no IRQ choices) |
+| `Modem Settings` | `ACIA (6551) Mapping` | `Off`, `DE00/NMI`, `DF00/NMI`, `D700/NMI` (a SwiftLink: no IRQ choices) |
 | | `Modem Interface`, `Hardware Mode` | `ACIA / SwiftLink`, `SwiftLink`: nothing to change |
+| `Ethernet Settings` | `Use DHCP`, `Static IP`, `Static Netmask`, `Static Gateway`, `Static DNS` | as REST's configs routes take them (`doc/rest.md`); the network takes them at once |
+| `Network Settings` | `Host Name`, `Network Password`, `Web Remote Control Service` | the same |
 
 As in his firmware: a store the machine doesn't have is skipped with `Line n: Store name '...'
 not found; section ignored.`, an item with `Line n: Item '...' not found in this store [...];
@@ -194,13 +195,15 @@ ignored.`; neither is an error. Errors are a choice the machine doesn't have (`L
 '...' is not a valid choice for item ...`), a line outside a store, a line with no item name
 or no `=`, and a Drive Bus ID that isn't a number (no log line, as in his). The reply's data
 is the log, at most 511 bytes, empty when every line went in; the status `00,OK`, or `89,CONFIG
-FILE HAD ERRORS`. After an error nothing changes: his firmware effectuates only a file
-without one (it keeps the values, though, and they take effect with the next file that has
-none; here they are dropped). Like his, a last line without its line end isn't read. The
+FILE HAD ERRORS` (or `87,INTERNAL ERROR` if `main.vhd` never takes a REU change). After an
+error nothing changes: his firmware effectuates only a file without one (it keeps the
+values, though, and they take effect with the next file that has none; here they are
+dropped). Like his, a last line without its line end isn't read. The
 changes are the menu's: saved with the settings when the menu next closes, as his are saved
-only when asked; ROM and cartridge names go into `/c128/settings.cfg` with REST's
-`save_to_flash` or the next pick in the menu. A system ROM in the file (not a drive's) restarts
-the C128 as a pick in the menu does, so the program that sent the file gets no reply.
+only when asked; the strings (ROM, cartridge and REU file names, the network's) go into
+`/c128/settings.cfg` with REST's `save_to_flash` or the menu's next write of that file. A
+system ROM in the file (not a drive's) restarts the C128 as a pick in the menu does, so the
+program that sent the file gets no reply.
 LOAD_CONFIG doesn't reset the C128 for a REU change (Hardware). An
 Ultimate takes the interface off the bus for a few ms while a change of its C64 store takes
 effect, before the reply (`set_emulation_flags`); the core keeps it on. A program has to
@@ -209,41 +212,20 @@ allow for that gap on an Ultimate: `test/uci`'s library checks `$DF1D` around ea
 
 ## Status
 
-7a (the transport, DOS `IDENTIFY` and `ECHO`) passes on the R6 (Jeff, 2026-10-27): every
-UCITEST line. On his Ultimate II+L (firmware 3.14d) every line matched the core's except IRQ
-BIT: `$DF1D` read `$C9` both times, because the IRQ came in 3.14e.
+On the R6, UCITEST, UCIDOS, UCICTRL, UCICFG, UCIREU (16 MB) and UCINET (against
+`ucinet_peer.py`) pass every line; UCITEST, UCIDOS and UCINET in C64 mode too, UCITEST and
+UCIDOS also in FAST mode and with R3 memory, UCICFG with STILL RUNNING after the REU comes
+on, UCINET a second time after a reset (its 4 sockets free again). FREEZE opens the core's
+menu and REBOOT resets the C128. ZBF OS's `pkg` uses target 3.
 
-7b (C128MEGA65 DOS) passes on the R6 (Jeff, 2026-10-28): every UCIDOS line, on the core and on
-the II+L (drive B on), with core UCI2-CB59269 and firmware `cb59269`. On the core also in C64
-mode (UCITEST64, UCIDOS64), in FAST mode, and with the 6r3 core. With drive 9 empty, DRIVE 9
-HEADER needed no retries: the drive starts at the mount and is ready when MOUNT answers.
-GET_TIME showed 2000-01-01 until the R6's clock chip was set; the II+L answers 2145-12-31,
-its clock registers all reading `$FF`.
-
-7c's control commands and drive power pass on the R6 (Jeff, 2026-10-28): every UCICTRL line,
-with core UCI3-44AAD93 and firmware `44aad93`. The II+L (3.14d) failed seven, each where his
-firmware has changed since (`test/uci/README.md`); updated to 3.15a, it fails one. FREEZE
-opens the core's menu and REBOOT resets the C128. Its first run hung at DRIVE B ON THE BUS:
-a 1541 holds DATA for about a second from its reset, and an OPEN then waits for ever in the
-KERNAL; UCICTRL now waits for DATA first.
-
-7c's LOAD_CONFIG passes on the R6 and on the II+L (3.15a) (Jeff, 2026-10-28): every UCICFG
-line, with core UCI7-DB34589 and firmware `8e6d6bc`, including STILL RUNNING after the REU
-comes on. The II+L's first run failed four lines: the program wasn't waiting out the moment
-an Ultimate takes the interface off the bus while LOAD_CONFIG's REU change takes effect
-(`test/uci/README.md`, UCICFG); with `ea35e30` it passes too. Step 7 (UCI) is done; the
-network target 3 comes with step 8.
-
-8d (the network target) passes the host tests: UCINET against `host_net.c`'s peer, twice
-with a reset between, in both modes, 11 firmware mutations caught. On the R6 (net8 core,
-firmware `a800c60`, 2026-10-29): UCINET and UCINET64 pass every line against
-`ucinet_peer.py` on the Mac; a second run after a reset finds 4 sockets again, without one 0.
-The first run failed 17 lines on the program, not the firmware: its buffers past `$4000` read
-back BASIC's ROM in C128 mode. Jeff's II+L (3.15a) passes UCINET and UCINET64 too, a reset
-closing its sockets as the core's does; what differs is shown, not failed: two interfaces (the
-first without an address), 5 sockets free, higher socket numbers, a shorter 40 ms wait. The
-rates are the same on both, about 7.7 KB/s writing and 7.1 KB/s reading: the C128 is the limit.
-ZBF OS's `pkg` uses the core's target 3 (Jeff, 2026-10-29). 8d done.
+Jeff's Ultimate II+L passes UCITEST, UCIDOS (with its drive B on), UCICTRL, UCICFG and
+UCINET, but for lines where his firmware has changed since: with 3.15a only UCICTRL's
+GET_DRVINFO (`test/uci/README.md` lists what older firmware fails, such as 3.14d's IRQ BIT). On the
+II+L, UCINET shows, without failing, where it differs: two interfaces (the first without an
+address), 5 sockets free, higher socket numbers, a shorter wait. Both move about 7.7 KB/s
+writing and 7.1 KB/s reading through target 3: the C128 is the limit. The II+L's clock
+answers 2145-12-31 (its registers read `$FF`); the core's reads 2000-01-01 until the
+MEGA65's clock chip is set.
 
 ## Tests
 
@@ -251,21 +233,20 @@ ZBF OS's `pkg` uses the core's target 3 (Jeff, 2026-10-29). 8d done.
   and the device bus, the way the core and `rv_soc.vhd` do: replies in one and two blocks,
   the 895-byte limit, no-reply commands, ERROR, ABORT, IRQ, DMA and TRIGGER, the reset flag,
   and word `0x012` (keep there when its write returns, the REU setting).
-- `test_uci`'s LOAD_CONFIG part: his log texts and statuses for every item, error and
-  skipped line, nothing changed after an error, the REU changed only under keep (its model
-  of `main.vhd` takes the change a few reads later and counts one without keep as a reset).
-  `test_prg` runs UCICFG with the REU off, 512 KB, 16 MB and R3's menu, its REU at `$DF00`
-  following `main.vhd`'s setting, and fails a run the core would have reset.
-- `make -C M2M/firmware host-test`: `test_uci` runs the firmware against a C model of the
-  protocol, with Gideon's `uci_targets_test.py` transport cases and the replies his firmware
-  gives.
-- `make -C M2M/firmware host-test`: also `test_uci`'s DOS part, on a FAT32 image (every
-  command, with Gideon's replies and statuses), and `test_prg`, which runs `test/uci`'s
-  programs on a 6502 against the firmware. It fails a program that sends FILE_STAT without
-  the name's 0 byte, which an Ultimate needs.
-- `test/uci`: `UCITEST` and `UCIDOS` (and their C64 versions) for the hardware, to run on an
-  Ultimate and on the core and compare.
-- `test_prg` runs UCINET against `host_net.c`: the firmware's lwIP on a loopback, the peer
-  `ucinet_peer.py` is on hardware, a DNS server and a web server, at 10.0.0.1. It runs the
-  program twice with a C128 reset between (the sockets it left open must be gone), and fails
-  a run in which a frame for the firmware found lwIP's pool empty.
+- `make -C M2M/firmware host-test` runs `test_uci` and `test_prg`.
+- `test_uci` runs the firmware against a C model of the protocol (`host_uci_model.c`): Gideon's
+  `uci_targets_test.py` transport cases and the replies his firmware gives; every DOS command
+  on a FAT32 image, with his replies and statuses; the control target; LOAD_CONFIG's log texts
+  and statuses for every item, error and skipped line, nothing changed after an error, the REU
+  changed only under keep (its model of `main.vhd` takes the change a few reads later and
+  counts one without keep as a reset); LOAD_REU and SAVE_REU, with and without the DMA.
+- `test_prg` runs `test/uci`'s programs on a 6502 against the firmware. It fails a program
+  that sends FILE_STAT or LOAD_CONFIG without the name's 0 byte, which an Ultimate needs. It runs UCICFG with
+  the REU off, 512 KB, 16 MB and R3's menu, its REU at `$DF00` following `main.vhd`'s
+  setting, and fails a run the core would have reset. It runs UCINET against `host_net.c`
+  (the firmware's lwIP on a loopback, with what `ucinet_peer.py` is on hardware, a DNS server
+  and a web server, all at 10.0.0.1), twice with a C128 reset between (the sockets it left
+  open must be gone), and fails a run in which a frame for the firmware found lwIP's pool
+  empty.
+- `test/uci`: `UCITEST`, `UCIDOS`, `UCICTRL`, `UCICFG`, `UCIREU`, `UCINET` (and their C64
+  versions) for the hardware, to run on an Ultimate and on the core and compare.

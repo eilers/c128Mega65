@@ -598,7 +598,7 @@ begin
    dbg_io_11             <= 'Z';
 
    eth_led2_o            <= '0';
-   -- The other Ethernet pins belong to the C128 core's modem
+   -- The other Ethernet pins belong to the C128 core's network device (net.vhd)
 
    -- Drive A of the internal floppy connector goes to the core (the
    -- internal drive as a 1581); drive B stays inactive.

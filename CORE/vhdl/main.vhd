@@ -258,7 +258,7 @@ entity main is
       uci_data_i              : in  std_logic_vector(7 downto 0) := x"FF";
       uci_irq_i               : in  std_logic := '0';
       uci_dma_i               : in  std_logic := '0';             -- hold the CPU, as /DMA does
-      uci_reboot_i            : in  std_logic := '0';             -- one clock: reset the C128 (REBOOT)
+      uci_reboot_i            : in  std_logic := '0';             -- one clock: the firmware resets the C128 (REBOOT, REST)
       uci_reu_keep_i          : in  std_logic := '0';             -- REU setting changes are LOAD_CONFIG's: no reset
       reu_menu_o              : out std_logic_vector(1 downto 0); -- the REU setting: 0 off, 1-3 the size
       reu_drop_i              : in  std_logic := '0';             -- one clock: the REU's memory changed behind it (reu_sd.vhd)
@@ -1629,10 +1629,11 @@ end process handle_hardware_iec_proc;
 -- Hard reset
 --------------------------------------------------------------------------------------------------
 
--- A changed REU or Cartridge setting, a .crt file being loaded, or the UCI's REBOOT resets the
--- C128 and a hardware cartridge, as soon as no write-back cache is dirty. A virtual cartridge's
--- reset lasts until the cache holds the banks it starts in. A REU change that a program asked
--- for with LOAD_CONFIG (uci_reu_keep_i) leaves it running, as an Ultimate does.
+-- A changed REU or Cartridge setting, a .crt file being loaded, or the firmware's reset
+-- (uci_reboot_i) resets the C128 and a hardware cartridge, as soon as no write-back cache is
+-- dirty. A virtual cartridge's reset lasts until the cache holds the banks it starts in. A REU
+-- change that a program asked for with LOAD_CONFIG (uci_reu_keep_i) leaves it running, as an
+-- Ultimate does.
 exp_change_reset_proc : process (clk_main_i)
    variable v_cfg : std_logic_vector(3 downto 0);
 begin

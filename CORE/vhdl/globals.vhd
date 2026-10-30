@@ -160,7 +160,7 @@ constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boo
 constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
 constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- drive 8: block table of its image on the SD card (vd_sd.vhd)
 constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- drive 9: block table of its image on the SD card (vd_sd.vhd)
-constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- virtual cartridge (.crt), loaded into HyperRAM
+constant C_DEV_CRT            : std_logic_vector(15 downto 0) := x"0106"; -- virtual cartridge (.crt), loaded into HyperRAM (R3 memory) or SDRAM
 constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- internal floppy diagnostics (physical_1581_diag), same id as C64MEGA65
 constant C_DEV_UCI            : std_logic_vector(15 downto 0) := x"0109"; -- Ultimate Command Interface: registers and buffer (uci.vhd)
 constant C_DEV_REU_SD         : std_logic_vector(15 downto 0) := x"010A"; -- the REU's SD card DMA and cache drop (reu_sd.vhd)
@@ -175,7 +175,7 @@ constant C_DEV_DMA            : std_logic_vector(15 downto 0) := x"010C"; -- the
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 1 MiB
 constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0080";     -- REU on R3: 512 KiB
 constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"00C0";     -- Virtual cartridge on R3: 2 MiB
--- 0x01C0-0x01FF: free (the modem's firmware window until the modem moved into the system firmware)
+-- 0x01C0-0x01FF: free
 constant C_HMAP_FIRMWARE      : std_logic_vector(15 downto 0) := x"0200";     -- RISC-V system CPU's firmware: up to 0x3FE
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 

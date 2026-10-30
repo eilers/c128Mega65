@@ -1300,6 +1300,18 @@ static void roms(void)
    check("C128 KERNAL: in ROM4, the rest stock, a reset", dev_holds(sys_rom, 0x4000, rom_k16, 16384) &&
          dev_holds(sys_rom, 0, rom_stock, 0x4000) && dev_holds(sys_rom, 0x8000, rom_stock + 0x8000, 0xA000) &&
          reboots == resets + 1 && c128_resets == 0 && !(csr_reg & 1) && rompick_state(RP_K128) == RS_FILE, NULL);
+   // The Z80 runs (CP/M) and takes no DMA: a reset first, then the ROMs once its boot has
+   // handed the bus to the 8502
+   c128_settle();
+   resets = reboots;
+   z80_cpm = 1;
+   expect("C128 KERNAL stock, the Z80 running", "PUT /v1/configs/c128*/c128%20kernal%20rom?value= HTTP/1.1\r\n\r\n", OK);
+   check("the Z80: a reset first, no ROM written under it, then the reset after",
+         reboots == resets + 2 && !rom_under_z80 && !z80_cpm &&
+         dev_holds(sys_rom, 0x4000, rom_stock + 0x4000, 16384), NULL);
+   c128_settle();
+   expect("C128 KERNAL again", "PUT /v1/configs/c128*/c128%20kernal%20rom?value=k16.bin HTTP/1.1\r\n\r\n", OK);
+   check("C128 KERNAL again: no reset first", reboots == resets + 3 && dev_holds(sys_rom, 0x4000, rom_k16, 16384), NULL);
    expect("C64 KERNAL of 16 KB", "PUT /v1/configs/c64*/alternate%20kernal?value=k16.bin HTTP/1.1\r\n\r\n", OK);
    check("C64 KERNAL of 16 KB: all of ROM1", dev_holds(sys_rom, 0, rom_k16, 16384) &&
          dev_holds(sys_rom, 0x4000, rom_k16, 16384), NULL);
@@ -1364,13 +1376,35 @@ static void roms(void)
    check("all stock again", dev_holds(sys_rom, 0, rom_stock, sizeof rom_stock) && func_size == 0 &&
          dev_holds(drive_rom, 0, rom_drv, sizeof rom_drv) && rompick_state(RP_BOOT) == RS_STOCK, NULL);
    f_unlink(SETTINGS_FILE);
+
+   // The presets grow with the card: an answer over 16 KB comes whole, one over 64 KB is an
+   // error rather than cut-off JSON
+   static const char end[] = "\"errors\" : [  ]\n}";
+   char name[64];
+   for (int i = 0; i < 400; i++) {
+      if (i == 100) {
+         client_t *c = ask("GET /v1/configs/*/* HTTP/1.1\r\n\r\n");
+         check("presets of 100 ROMs: over 16 KB, whole", !strncmp(c->got, "HTTP/1.1 200 OK\r\n", 17) &&
+               c->n > 17000 && !strcmp(c->got + c->n - strlen(end), end), NULL);
+         free(c);
+      }
+      snprintf(name, sizeof name, "/c128/roms/a_rather_long_rom_name_%03d.bin", i);
+      put_file(name, rom_k16, sizeof rom_k16);
+   }
+   expect("presets of 400 ROMs: over 64 KB, an error", "GET /v1/configs/*/* HTTP/1.1\r\n\r\n",
+          errs(500, "Unknown", "The answer is longer than 64 KB."));
+   for (int i = 0; i < 400; i++) {
+      snprintf(name, sizeof name, "/c128/roms/a_rather_long_rom_name_%03d.bin", i);
+      f_unlink(name);
+   }
 }
 
 static void runners(void)
 {
    put_file("/prg/hello.prg", prg128, sizeof prg128);
    put_file("/prg/hi64.prg", prg64, sizeof prg64);
-   put_file("/prg/hi64.cfg", "[Drive B Settings]\nDrive=Disabled\n", 34);
+   static const char hi64_cfg[] = "[Drive B Settings]\nDrive=Disabled\nDrive Type=1234\n";
+   put_file("/prg/hi64.cfg", hi64_cfg, sizeof hi64_cfg - 1);
    memset(c128_mem, 0xEE, sizeof c128_mem);
    c128_settle();
    int boots = reboots;
@@ -1392,7 +1426,7 @@ static void runners(void)
    check("run_prg, C64: GO64, loaded, pointers, RUN", c128_c64 && !strcmp(typed, "@GO64\rY\r@RUN\r") &&
          !memcmp(c128_mem + 0x801, prg64 + 2, 12) && !memcmp(c128_mem + 0x2D, "\x0D\x08\x0D\x08\x0D\x08", 6) &&
          c128_mem[0x35] == 0 && c128_mem[0x36] == 0xA0 && !memcmp(c128_mem + 0x277, "RUN\r", 4), typed);
-   check("run_prg: its .cfg loaded", !drive_on[1], NULL);
+   check("run_prg: its .cfg loaded, but for its bad line (as his)", !drive_on[1], NULL);
 
    typed[0] = 0;
    c64_cart = 1;

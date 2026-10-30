@@ -6,12 +6,12 @@
 -- device DNA for the MAC address. lwIP, the Hayes modem, UCI target 3 and the REST
 -- server run in the system firmware's main loop.
 --
--- One clock, clk_i (the Ethernet's 50 MHz). The device bus comes from qnice_clk, the
--- same MMCM's 50 MHz with phase 0, so its paths here are timed like any other device's:
--- an access acts on the falling edge, its read is taken at the next rising edge.
+-- The 6551 runs on the C128's main clock, the rest on clk_i (the Ethernet's 50 MHz); they
+-- meet through the FIFOs and synchronizers. The device bus comes from qnice_clk, the same
+-- PLL's 50 MHz with phase 0, so its paths here are timed like any other device's: an
+-- access acts on the falling edge, its read is taken at the next rising edge.
 --
--- Registers, 16-bit words (M2M/firmware/include/net_hw.h). A 32-bit read of words 2
--- and 16/18 gives the layouts the modem's own CPU had.
+-- Registers, 16-bit words (CORE/firmware/net/net_hw.h):
 --   0  ACIA_RX      w: a byte for the C128            r: free entries in its FIFO (0..63)
 --   1  ACIA_TX      r: bit 8 valid, 7..0 the C128's next byte; the read takes it
 --   2  ACIA_CMD     r: 6551 control (15..8), command (7..0)

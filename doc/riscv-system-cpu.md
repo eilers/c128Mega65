@@ -1,9 +1,9 @@
 # RISC-V system CPU
 
-On branch `riscv-shell`: a NEORV32 has replaced QNICE, the M2M framework's menu CPU, on
-every board. The goal is an Ultimate-style firmware: the menu, then Gideon's command
-interface (UCI) and REST API, protocol compatible. The QNICE Shell's sources were removed
-in `a626c1c`; its parent has them, for reference.
+A NEORV32 has replaced QNICE, the M2M framework's menu CPU, on every board. The goal is an
+Ultimate-style firmware: the menu, then Gideon's command interface (UCI) and REST API,
+protocol compatible. The QNICE Shell's sources were removed in `a626c1c`; its parent has
+them, for reference.
 
 ## Plan
 
@@ -15,7 +15,7 @@ in `a626c1c`; its parent has them, for reference.
    `doc/hyperram-map.md`). A main loop in C, SD card, FAT32, menu text, keys.
 3. **The Shell in C**, item by item, until it does everything the QNICE Shell does:
    the menu from `config.vhd`, the callbacks in `m2m-rom.asm`, mounting drives, loading
-   cartridges and ROMs (`modem.bin` too), the settings file, the help screens. Each step
+   cartridges and ROMs, the settings file, the help screens. Each step
    is tested on hardware against a QNICE build.
 4. **Drop QNICE** (`a626c1c`): RISC-V on every board, QNICE deleted.
 
@@ -25,7 +25,7 @@ main-loop watchdog (`fw/watchdog.c`) that stops on the trap screen.
 
 Decisions: the firmware runs from HyperRAM behind the i-cache, loaded from the SD card by
 a small boot ROM (no card: a message on the screen; the `.cor` flash slot may come
-later); the modem keeps its CPU until the network stage (2026-10-26). No RTOS: a main
+later); the modem kept its own CPU until the network stage. No RTOS: a main
 loop of small modules that never wait, as in the QNICE Shell, written in C
 (2026-10-27; this replaces the first plan of FreeRTOS and C++).
 
@@ -34,8 +34,8 @@ loop of small modules that never wait, as in the QNICE Shell, written in C
 NEORV32 v1.13.6 (`CORE/vhdl/neorv32`): rv32imc, 8 KB i-cache, 64 KB data RAM (16 KB until
 step 8, hardware interface 2), no d-cache yet.
 
-Clocks: the CPU, the boot ROM and the HyperRAM bridge run at 100 MHz, on the HyperRAM
-clock, so the bridge talks to the HyperRAM arbiter directly; the framework leaves out the
+Clocks: the CPU, the boot ROM and the HyperRAM and SDRAM bridges run at 100 MHz, on the
+HyperRAM clock, so the bridges talk to their arbiters directly; the framework leaves out the
 FIFO that QNICE's port crossed through. The device bus, the registers and the SD
 controllers stay at 50 MHz, on the QNICE clock. Both clocks come from one MMCM with phase
 0, so the paths between them are timed: a request crosses as a toggle with its address and
@@ -44,11 +44,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 | Address      | What                                                                     |
 |--------------|--------------------------------------------------------------------------|
 | `0x00000000` | boot ROM, 8 KB of block RAM, read at synthesis from `M2M/firmware/boot.rom` |
-| `0x40000000` | HyperRAM, 16 MB: byte A is word A/2, low byte first (`rv_hr_bridge.vhd`)  |
+| `0x40000000` | HyperRAM, 8 MB in a 16 MB window: byte A is word A/2, low byte first (`rv_hr_bridge.vhd`) |
 | `0x50000000` | SDRAM, 64 MB, the same way (R4 and later; a bus error on R3 memory)       |
 | `0x80000000` | data RAM                                                                 |
 | `0xC0000000` | QNICE's device bus: word N of the device in `RAMROM_DEV` at `+2N`          |
-| `0xE0000000` | registers: CSR, OSM, ascal, keys, control flags                           |
+| `0xE0000000` | registers: CSR, OSM, ascal, keys (and every key), control flags          |
 | `0xE0000100` | SD card controller registers 0–7 (`sdhost.vhd`)                           |
 | `0xFFE00000` | NEORV32: UART0 (the serial port), CLINT timer                             |
 
@@ -61,8 +61,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   4K window: the whole 28-bit address is in the CPU's address.
 - **HyperRAM.** The CPU has its own Avalon port in place of QNICE's `qnice2hyperram`
   device, which is gone from the device bus (the core's devices still use the entity). Cache lines are read
-  in 16-word bursts, one after the other, as the modem does since the HDMI sparkles
-  (`doc/swiftlink-modem.md`).
+  in 16-word bursts, one after the other, so HDMI's scaler gets its turns
+  (`doc/swiftlink-modem.md`). From SDRAM they are read in 2-word bursts, never longer than
+  the REU's accesses (`doc/hyperram-map.md`).
 - **Registers.** The same bits as QNICE's `0xFFE0` and up (QNICE's `sysdef.asm`). The
   256 control flags are eight 32-bit registers each, not address/data pairs.
 
@@ -96,7 +97,8 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   (`m2m-rom.asm`'s) are `CORE/firmware/core.c`, which finds menu items by their group
   (`config_ids.h`, made from `config.vhd`). `fw/browse.c` is the file browser
   (`selectfile.asm`, `dirbrowse.asm`). `fw/roms.c` loads `.crt` files, by the device's DMA
-  where it has one. `fw/drives.c` mounts disk images: drives 8 and 9 read them straight
+  where it has one, and hands the core's own items (`C_CRTROMTYPE_CORE`: the REU's file,
+  the ROM picks) to `core.c`. `fw/drives.c` mounts disk images: drives 8 and 9 read them straight
   from the card (`vd_sd.vhd`), so mounting only hands the drive the SD block of each 4 KB
   piece. In builds with R3's memory map, the Cartridge line shows the cartridge cache's
   waits, as QNICE's does.

@@ -1,11 +1,11 @@
-// Runs a C64 or C128 test program (test/uci's UCITEST, UCIDOS) on a 6502 against the UCI
-// firmware (CORE/firmware/uci*.c) and host_uci_model.c's command_protocol.vhd, with a FAT32
-// image as the card. The firmware is polled between instructions, as its main loop runs
-// beside the C128. The KERNAL is faked where the programs call it: CHROUT prints, GETIN
+// Runs one of test/uci's C64 or C128 programs on a 6502 against the UCI firmware
+// (CORE/firmware/uci*.c, net/uci_net.c) and host_uci_model.c's command_protocol.vhd, with a
+// FAT32 image as the card. The firmware is polled every 16 instructions, as its main loop
+// runs beside the C128. The KERNAL is faked where the programs call it: CHROUT prints, GETIN
 // gives RETURN (or the keys of -keys first), the file calls read "$" from drive 9, the image
-// shell_mount was given, and
-// OPEN of a buffer ("#") finds drive 8 or 9 while it runs (drive_running). An OPEN while a
-// drive that was just switched on holds DATA fails the run, as the KERNAL would hang.
+// shell_mount was given, and OPEN of a buffer ("#") finds drive 8 or 9 while it runs
+// (drive_running). An OPEN while a drive that was just switched on holds DATA fails the run,
+// as the KERNAL would hang.
 // In C128 mode BASIC's ROM is at $4000-$BFFF unless the MMU ($FF00) maps RAM there.
 // The REU answers at $DF00 while main.vhd has it on; its STASH and FETCH run at once, in the
 // memory the firmware sees for it, wrapping at its size. A REU change that main.vhd would

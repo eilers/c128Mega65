@@ -26,3 +26,4 @@ CORE/sim/sim_boot1_path_pkg.sv
 CORE/sim/boot_sim_console.log
 test/vice-testprogs/*
 CORE/c128_dma_nvc
+CORE/net_nvc

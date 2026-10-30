@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define UCI_MAX_COMMAND 895   // the command queue holds 896, but stops one short
-#define UCI_MAX_REPLY   896
+#define UCI_MAX_REPLY   895   // the response queue holds 896, but a reply of all 896 never ends
 #define UCI_MAX_STATUS  255
 #define UCI_PATH_MAX    256
 

@@ -4,8 +4,7 @@
 -- Testbench for the network device (CORE/vhdl/net/net.vhd). A firmware model on the device
 -- bus, with rv_soc's timing, reads the DNA, sends two Ethernet frames through an RMII
 -- loopback and reads them back, then echoes the C128's bytes as the modem would. A C128
--- bus model programs the 6551 and repeats the old modem testbench's IRQ checks against
--- the echo.
+-- bus model programs the 6551 and checks its IRQs against the echo.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------

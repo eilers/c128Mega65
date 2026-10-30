@@ -2,7 +2,7 @@
 // sectors (core_idle), so a big copy or a slow menu doesn't starve the 6551's 64-byte FIFOs
 // and the MAC. lwIP's callbacks only change the network's own state; nothing here touches
 // the card, so a turn in the middle of FatFs is safe. A turn never runs inside another, nor
-// inside UCI's calls into lwIP (net_lock).
+// inside UCI's or the HTTP server's calls into lwIP (net_lock).
 #include <stdbool.h>
 #include "acia.h"
 #include "core.h"

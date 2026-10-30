@@ -164,8 +164,8 @@ static void parse_header(http_req_t *req)
       req->nfields++;
    }
 
-   // Only a POST has a body: a positive Content-Length, chunked, or with no framing at all
-   // until the far end closes
+   // Only a POST has a body: a positive Content-Length, chunked, or no framing at all (his
+   // until-disconnect, which get_body takes as empty)
    req->body_type = BODY_NONE;
    req->body_size = 0;
    req->content_type = NULL;

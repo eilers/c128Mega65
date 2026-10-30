@@ -3,10 +3,11 @@
 ; The control target's SAVE_REU and LOAD_REU, through the REU's file, and the DOS target's,
 ; through a file of its own. It fills the REU's first 64 KB with a pattern by the REU's own
 ; DMA, saves it, clears it, loads it back and checks it; then saves 4 KB of it into
-; UCIREU.BIN on the first storage the root lists, loads that to another REU address and
-; checks it there, and removes the file. The REU must be on. SAVE_REU writes the REU's file
-; (the Ultimate's REU Preload Image, the core's REU File or /c128/preload.reu), keeping the
-; old one as .bu, so it asks first. Messages with paths differ between machines and are shown.
+; UCIREU.BIN in the root's first folder starting with S or U (else its first), loads that
+; to another REU address and checks it there, and removes the file. The REU must be on. SAVE_REU writes the
+; REU's file (the Ultimate's REU Preload Image, the core's REU File or /c128/preload.reu),
+; keeping the old one as .bu, so it asks first. Messages with paths differ between machines
+; and are shown.
 ; Build with make_image.py: UCIREU for C128 mode, UCIREU64 (-D C64) for C64 mode.
 
 .include "ucilib.inc"

@@ -1,5 +1,5 @@
-// Forced into the UCI firmware's sources for test_uci: its register accesses go to
-// test_uci.c's model of command_protocol.vhd; the buffer is host_m2m.c's device memory.
+// Forced into the UCI firmware's sources for test_uci and test_prg: its register accesses go
+// to host_uci_model.c's model of uci.vhd; the buffer is host_m2m.c's device memory.
 #pragma once
 #include "host_m2m.h"
 

@@ -226,16 +226,31 @@ void rompick_unset(int p)
       rompick_set(p, "");                              // a file has the default's name
 }
 
+// A running Z80 takes no DMA: the C128 is reset, and its Z80 boot hands the bus to the 8502.
+// The 8502 must have it for 1 ms, since the Z80 also lets go of it in the VIC's bad lines.
+static void reset_to_8502(void)
+{
+   uci_reboot();
+   uint32_t start = MTIME_LO, since = start;
+   while (MTIME_LO - start < CPU_HZ / 2) {
+      if (dma_z80())
+         since = MTIME_LO;
+      else if (MTIME_LO - since >= CPU_HZ / 1000)
+         return;
+   }
+}
+
 void rompick_apply(uint32_t changed)
 {
    static const uint8_t sys_order[] = { RP_K64, RP_B64, RP_K128, RP_B128, RP_CHAR };   // a 16 KB C64 KERNAL first
    if (!started)
       return;
    if (changed & SYS_PICKS) {
-      // Not under a running CPU: the bus DMA holds it (it stops at its next read, long before
-      // boot0.rom is open), then the reset button starts the C128 again, which ends the hold.
-      // Not the framework's reset (M2M_CSR): that resets the whole core, the command
-      // interface's registers too.
+      // The bus DMA holds the 8502 (at its next read), then the reset button's reset restarts
+      // the C128 and ends the hold. Not M2M_CSR's reset: that resets the whole core, the
+      // command interface's registers too.
+      if (dma_z80())
+         reset_to_8502();
       dma_hold(1);
       if (changed & SYS_PICKS & ~(1u << RP_FUNC)) {
          FIL f;
@@ -282,8 +297,8 @@ void rompick_boot(void)
 }
 
 // Loaded as the menu loads one, with the C128 running (main.vhd restarts it into the
-// cartridge): one loaded while the whole core is held in the start's reset can leave a C64
-// cartridge's C128 frozen until the next reset (6r3, 2026-10-30)
+// cartridge): loaded while the whole core was held in the start's reset, a C64 cartridge
+// could leave the C128 frozen until the next reset
 void rompick_poll(void)
 {
    if (!cart_due)

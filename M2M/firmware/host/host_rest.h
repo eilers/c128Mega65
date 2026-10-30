@@ -3,8 +3,8 @@
 #include <stdint.h>
 
 extern uint8_t c128_mem[65536];
-extern int     dma_held_v, dma_z80_v, dma_polls, dma_jobs, dma_stops;
-extern int     menu_buttons, menu_open, reboots, saves, net_applies, func_size, c128_resets;
+extern int     dma_held_v, dma_z80_v, dma_polls, dma_jobs, dma_stops, z80_cpm;
+extern int     menu_buttons, menu_open, reboots, saves, net_applies, func_size, c128_resets, rom_under_z80;
 extern uint16_t *sys_rom;
 extern uint32_t csr_reg;           // M2M_CSR
 extern uint8_t settings[32][8], saved[32][8];   // the menu's bits by group and item, in use and in the file

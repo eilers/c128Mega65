@@ -1,9 +1,10 @@
 // Gideon's configuration stores as the core has them: the stores and items of his firmware
-// that the core has, with his names, types and choices, and what setting each one does, and
-// a store of the core's own for the C128's ROMs. LOAD_CONFIG (uci_ctrl.c) and the settings
-// file read them from a file in his format; REST's configs routes (net/rest_configs.c) read
-// and set them. A change is a list of wanted values (stores_begin, stores_want) that
-// stores_apply puts into effect at once, as his effectuate does.
+// that the core has, with his names and types (the choices the core's, under his names where
+// he has the same), and what setting each one does, and a store of the core's own for the
+// C128's ROMs. LOAD_CONFIG (uci_ctrl.c) and the settings file read them from a file in his
+// format; REST's configs routes (net/rest_configs.c) read and set them. A change is a list
+// of wanted values (stores_begin, stores_want) that stores_apply puts into effect at once,
+// as his effectuate does.
 //
 // The settings file keeps what the menu's own settings file can't: the strings (network,
 // REU image, ROMs, boot cartridge) and drive power set by REST or LOAD_CONFIG.

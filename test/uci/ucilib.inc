@@ -1,4 +1,4 @@
-; The command interface's registers and the test programs' macros (ucitest.s, ucidos.s)
+; The command interface's registers and the macros all the test programs use
 
 CHROUT  = $FFD2
 

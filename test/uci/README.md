@@ -9,7 +9,7 @@ ends in PASS or FAIL, and names, paths and times are shown, so a run on a real U
 a run on the core can be compared line by line.
 
 On the core: switch on **UCI at $DF1C** in the menu, mount the disk on drive 8,
-`LOAD"UCITEST",8` and `RUN` (or `UCITEST64` after `GO64`), and the same for `UCIDOS`.
+`LOAD"UCITEST",8` and `RUN` (or `UCITEST64` after `GO64`), and the same for the others.
 
 On an Ultimate II+ in the slot: the core's REU and UCI off (both answer at `$DF00`-`$DF1F`
 ahead of a cartridge), **Cartridge: Hardware**, and the Ultimate's own Command Interface on.
@@ -18,14 +18,14 @@ ahead of a cartridge), **Cartridge: Hardware**, and the Ultimate's own Command I
 |------|----------------|
 | EMPTY COMMAND | A push with no bytes gets an empty reply and an empty status. |
 | DOS 1 / DOS 2 IDENTIFY | The DOS's name, shown: `C128MEGA65 DOS V1.0` on the core, `ULTIMATE-II DOS V1.2` on an Ultimate. Status `00,OK`, and target 2 gives target 1's name. |
-| CONTROL IDENTIFY | Target 4's answer, shown. The core has no control target yet, so it says `NO TARGET`. |
+| CONTROL IDENTIFY | Target 4's name, shown: `C128MEGA65 CONTROL V1.0` on the core, `CONTROL TARGET V1.1` on an Ultimate. Any status starting `00`. |
 | TARGET $0F IDENTIFY | A target nobody registered says `NO TARGET`, `00,OK`. |
 | UNKNOWN COMMAND | `$01 $7F`: no data, `21,UNKNOWN COMMAND`. |
 | ECHO 895 BYTES | DOS `ECHO` of the largest command the queue holds comes back whole. |
 | NO-REPLY COMMAND | A command with bit 7 of its target byte set goes straight back to idle. |
 | PUSH WHILE BUSY | A push while a reply waits sets ERROR; CLR_ERR clears it, and the reply (DOS 1's name) survives. |
 | ABORT | ABORT ends a waiting reply. |
-| IRQ BIT | With the IRQ bit, `$DF1D` reads `$49` once the reply is there and `$C9` after a response byte is read. Gideon added it in March 2026 (firmware 3.14e and later); an older Ultimate reads `$C9` both times and fails this line. |
+| IRQ BIT | With the IRQ bit, `$DF1D` reads `$49` once the reply is there and `$C9` after a response byte is read. It came with Ultimate firmware 3.14e; an older one reads `$C9` both times and fails this line. |
 | DOS 1 IDENTIFY AGAIN | How many polls of `$DF1C` the reply took (about 60 us each at 1 MHz). |
 
 ## UCIDOS
@@ -73,15 +73,15 @@ the REU's image file). Drives A and B are the core's 8 and 9; on an Ultimate, it
 | GET_DRVINFO | A count, then type (0 1541, 1 1571, 2 1581), address and power of each drive, shown in hex. An Ultimate adds its software IEC devices. |
 | GET_RAMDISKINFO | 8 bytes, shown; zeros where there are no RAM disks. |
 | DRIVE A POWER, DISABLE, OFF, ENABLE, ON | `on ` or `off`, shown; then off and on again, and back as it was. |
-| DRIVE B ..., GONE FROM THE BUS, ON THE BUS | The same for drive B, and an OPEN of a buffer (`#`) at its address (from GET_DRVINFO) must fail with it off and work with it on. A drive switched on starts from reset, so it tries for about 4 seconds and says how many retries it took (a third of a second each). While a drive holds DATA it doesn't OPEN: a 1541 or 1571 holds it from its reset (about a second) until its DOS listens for ATN, and an OPEN then waits for ever in the KERNAL (as it did on the II+L). |
+| DRIVE B ..., GONE FROM THE BUS, ON THE BUS | The same for drive B, and an OPEN of a buffer (`#`) at its address (from GET_DRVINFO) must fail with it off and work with it on. A drive switched on starts from reset, so it tries for about 4 seconds and says how many retries it took (a third of a second each). While a drive holds DATA it doesn't OPEN: a 1541 or 1571 holds it from its reset (about a second) until its DOS listens for ATN, and an OPEN then waits for ever in the KERNAL. |
 | DECODE_TRACK, EASYFLASH ..., LOAD_REU OF 4 BYTES | Wrong parameters: `81,INVALID PARAMS`. Nothing is erased. |
 | LOAD_CONFIG, NO FILE | `88,CANNOT OPEN CONFIG FILE`. The name goes with its 0 byte: Gideon's LOAD_CONFIG doesn't end it, as his FILE_STAT doesn't. |
 | FINISH_CAPTURE | `00,OK`, no data. |
 | UNKNOWN $02, $51, $12, $7F | READ_RTC, the Ultimate 64's GET_PALETTE, ENCODE_TRACK and one nobody has: `21,UNKNOWN COMMAND` on an Ultimate II and on the core. |
 | LOAD_REU, SAVE_REU, REU OFF | With the REU off: `84,REU NOT ENABLED`, the data `$FE $FF $FF $FF` (-2). With it on, LOAD_REU's answer is shown and SAVE_REU is skipped. |
 
-The core answers as Gideon's current source does. An Ultimate with older firmware fails
-seven lines, as Jeff's II+L with 3.14d did (2026-10-28; the core passed every line):
+The core answers as Gideon's current source does. Older Ultimate firmware fails these lines
+(3.14d all seven, 3.15a only GET_DRVINFO):
 
 - GET_HWINFO: THE PRODUCT, GET_HWINFO 2 and the three EASYFLASH lines: `21,UNKNOWN COMMAND`
   before his "Bring control target in line with documentation" (`e97fb2e6`, 3.14e), which
@@ -89,8 +89,6 @@ seven lines, as Jeff's II+L with 3.14d did (2026-10-28; the core passed every li
 - LOAD_CONFIG, NO FILE: `21,UNKNOWN COMMAND` before 3.15a, which added the command.
 - GET_DRVINFO: its software IEC devices count, but the reply leaves out their bytes, before
   `f9e2391a` (2026-10, after 3.15a).
-
-Updated to 3.15a, Jeff's II+L fails one line.
 
 At the end, F runs FREEZE (the core opens its menu, an Ultimate its own; the line passes when
 the reply comes, with no status), R runs REBOOT (the C128 resets as with the reset button),
@@ -142,14 +140,11 @@ gives (3.15a on, unchanged since); a log that differs is shown in upper case und
 An Ultimate takes the command interface off the bus for a few ms when LOAD_CONFIG changes a
 setting of its C64 store, such as the REU: his `set_emulation_flags` switches the interface's
 slot off, prints to its UART, and switches it on again, all before the reply. `$DF1C`-`$DF1F`
-read `$FF` meanwhile (on the MEGA65). The first II+L run (3.15a) failed REU ON, REU SIZE 16
-MB's check and REU OFF on that: the program took the `$FF` for a reply of 77 `$FF` bytes, then
-pushed its next command while the real reply waited, which dropped it, so the 16 MB and the
-ERRORS files were never written and LOAD_CONFIG read the older ones. So every program's
+read `$FF` meanwhile (on the MEGA65), which a program would take for a reply of `$FF` bytes,
+then push its next command while the real reply waits and lose it. So every program's
 `wait_reply` (`ucilib.s`) takes `$DF1C` only while `$DF1D` reads `$C9` (`$49` with its IRQ)
 before and after it, and UCICFG shows `NO INTERFACE FOR $n POLLS` under a line where that
-happened. The core doesn't do this: it changes the settings with the interface on, and shows
-no such line.
+happened. The core keeps the interface on, and shows no such line.
 
 ## UCINET
 
@@ -157,7 +152,7 @@ The network target, 3. Its second half needs `ucinet_peer.py` running on a compu
 same network (`python3 test/uci/ucinet_peer.py`; it shows the computer's address, listens
 on TCP and UDP port 6464, and logs what it does). Port 6465 must be closed there, and a
 firewall must let 6464 in. UCINET asks for the peer's address after the first half; RETURN
-alone skips the peer. The last two lines need the internet (a name server and
+alone skips the peer. The two host-name lines need the internet (a name server and
 `example.com`). It ends by leaving four UDP sockets open, which a reset must close: after a
 reset, a second run's UDP SOCKETS line must show as many as the first run's did (with no
 reset in between, the core's shows 0 and fails). `GO64` is no reset here: it doesn't pull the
@@ -194,26 +189,27 @@ past `$4000`, so it maps RAM over BASIC's ROM there while it runs (`$FF00` = `$0
 | OPEN_TCP EXAMPLE.COM:80, HEAD | A name looked up, a connection, a HEAD request: the reply's first line, shown, starts with `HTTP/`. |
 | LEAVE 4 UDP SOCKETS OPEN | For the reset (above). |
 
-If `$DF1D` doesn't read `$C9`, a program says so and stops. That is all it can show in
-VICE, which has no command interface; all twelve get there in `x128` and `x64sc`. UCICFG's REU
-probe ran alone in VICE (`-D PROBETEST`): no REU and 128 KB to 16 MB in `x128`, 256 KB in
-`x64sc`, each found, and its bytes back; one whose bytes don't go back fails. UCICTRL's
-bus check was also tried there on its own, with and without a drive 9, in both modes, and with
-drive 9 (1541, 1571, 1581) reset from VICE's monitor while it checks. The whole of
-each runs in the firmware's host tests instead (`make -C M2M/firmware host-test`):
+If `$DF1D` doesn't read `$C9`, a program says so and stops: that is all VICE (no command
+interface) shows of them, in `x128` and `x64sc`. Parts that need no interface build alone
+for VICE with ca65's `-D`: `PROBETEST` (UCICFG's REU probe: no REU and 128 KB to 16 MB found
+in `x128`, 256 KB in `x64sc`, its bytes put back), `BUSTEST` (UCICTRL's bus check of drive 9,
+also while VICE's monitor resets the drive), `HDRTEST` (UCIDOS's drive 9 header) and
+`REUTEST` (UCIREU's REU DMA and pattern check).
+
+The whole of each runs in the firmware's host tests (`make -C M2M/firmware host-test`):
 `host/test_prg.c` is a 6502 that runs the program against the firmware's UCI code, a model
-of the protocol and a FAT32 image, with the KERNAL faked where the programs call it. It
-counts the 6502's cycles and logs each program's time at 1 MHz, holds DATA for a second after
-a drive is switched on (an OPEN then fails the run), runs the REU's STASH and FETCH at once
-for UCIREU and UCICFG (with `-reu`, a 512 KB REU; the REU answers at `$DF00` only while it is
-on, wraps at its size, and a change of it the core would reset for fails the run; with `-blink` the interface is off the bus for 5 ms after each REU change, as on an Ultimate, which the old `wait_reply` failed), and it also runs UCIDOS
-again after a run cut short once the D64 is written, as a reset would. UCINET runs against
-`host_net.c`, the firmware's lwIP on a loopback with the same peer, a DNS server and a web
-server at 10.0.0.1, twice with a reset of the C128 between, and once without a peer; a frame
-for the firmware that finds lwIP's pool empty fails the run. In C128 mode `test_prg` puts a
-stand-in for BASIC's ROM at `$4000`-`$BFFF` unless `$FF00` maps RAM there, as the C128 does:
-UCINET's first hardware run read its replies back from BASIC's ROM, and the flat RAM the
-harness had then didn't show it.
+of the protocol and a FAT32 image, with the KERNAL faked where the programs call it. It logs
+each program's time at 1 MHz and fails a run that would go wrong on hardware: an OPEN while a
+drive just switched on holds DATA (for a second), a FILE_STAT or LOAD_CONFIG name without its
+0 byte, a REU change the core would reset the C128 for, a frame for the firmware that finds
+lwIP's pool empty. In C128 mode BASIC's ROM is at `$4000`-`$BFFF` unless `$FF00` maps RAM
+there, so data kept up there reads back wrong, as on hardware. The REU's STASH and FETCH run
+at once (`-reu` 512 KB, `-reu16` 16 MB, `-r3` R3's menu); it answers at `$DF00` only while
+it is on, and wraps at its size. `-blink` takes the interface off the bus for 5 ms after
+each REU change, as an Ultimate does. UCIDOS also runs again after a run cut short once the
+D64 is written, as by a reset. UCINET runs against `host_net.c`: the firmware's lwIP on a
+loopback with the same peer, a DNS server and a web server at 10.0.0.1, twice with a reset
+of the C128 between, and once without a peer.
 
 Rebuild with `python3 test/uci/make_image.py`. It needs `ca65` and `ld65` from cc65.
 `ucilib.inc` and `ucilib.s` hold what the tests share.

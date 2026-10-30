@@ -1398,9 +1398,9 @@ begin
          sr_waitrequest_i   => crt_sr_waitrequest
       ); -- i_sw_cartridge_wrapper
 
-   -- With SDRAM, the REU shares it with the virtual cartridge, and the system CPU with both. The
-   -- cartridge goes first, then the REU, then the CPU; the REU and the CPU start an access only in
-   -- the window main.vhd opens, so neither makes a cartridge read late.
+   -- With SDRAM, the virtual cartridge goes first, then the REU, the system CPU and the REU's SD
+   -- DMA; those three start an access only in the window main.vhd opens, so none makes a
+   -- cartridge read late.
    reu_sdram_gen : if not C_R3_MEMORY generate
       i_sdram_arbit : entity work.sdram_arbit
          port map (
@@ -1783,7 +1783,7 @@ begin
       end if;
    end process p_funcrom_size;
 
-   -- Written while the C128 is held in reset
+   -- Written while the 8502 is held (in reset, or by the bus DMA), and the C128 is reset after
    i_cdc_funcrom_size : entity work.cdc_stable
       generic map (
          G_DATA_SIZE => 2

@@ -21,7 +21,7 @@ entity sdram_arbit is
    port (
       clk_i                 : in  std_logic;
       rst_i                 : in  std_logic;
-      slot_ok_i             : in  std_logic;   -- the REU may start an access now
+      slot_ok_i             : in  std_logic;   -- the REU, CPU or DMA may start an access now
 
       -- Cartridge
       s0_avm_write_i        : in  std_logic;

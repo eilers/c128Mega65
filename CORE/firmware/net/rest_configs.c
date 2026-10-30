@@ -334,8 +334,8 @@ static void put_load(rest_t *r)
    json_response(r, HTTP_OK);
 }
 
-// Only stores with changes, as his is_flash_stale; the menu's items go into its settings
-// file, the rest into the settings file
+// Only stores with changes, as his is_flash_stale; then the menu's settings file and the
+// settings file, both written whole
 static void put_save(rest_t *r)
 {
    if (!depth_ok(r))

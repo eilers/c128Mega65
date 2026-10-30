@@ -5,6 +5,7 @@
 // file and open folder.
 #include <stddef.h>
 #include <string.h>
+#include <strings.h>
 #include "core.h"
 #include "drives.h"
 #include "ff.h"
@@ -45,10 +46,9 @@
 #define PATH_MAX   UCI_PATH_MAX
 #define BLOCK      512             // READ_DATA's part of a reply, and COPY_FILE's step
 #define COPY_STEPS 8               // blocks a main loop round copies
-// MOUNT_DISK answers once the drive has the disk, as an Ultimate's answers after its
-// insertion. A 1541/1571 of the core acts out a disk change after a mount (c157x_drv.sv),
-// with no disk for its first 1.6 s, and drives_ready() is low until it is over. So the
-// reply waits to see it low, then high. These limits only catch a drive that goes wrong:
+// MOUNT_DISK answers once the drive has the disk, as an Ultimate's does. A core 1541/1571
+// acts out a disk change after a mount (c157x_drv.sv), with drives_ready() low until it is
+// over, so the reply waits to see it low, then high. The limits only catch a broken drive:
 #define TAKE_LIMIT   (CPU_HZ / 10)     // low within 100 ms, or the drive didn't take it
 #define CHANGE_LIMIT (CPU_HZ * 10)     // high again within 10 s (it takes 2.1)
 
@@ -315,8 +315,8 @@ static void copy_start(struct dos *t, const char *name, const char *dest, uci_re
       return;
    }
    strcat(path2, base);
-   if (!strcmp(path, path2))
-      return;                                          // onto itself: done
+   if (!strcasecmp(path, path2))
+      return;                                          // onto itself (names ignore case): done
    FRESULT res = f_open(&copy.src, src, FA_READ);
    if (res == FR_OK && (res = f_open(&copy.dst, on_card(path2), FA_WRITE | FA_CREATE_NEW)) != FR_OK)
       f_close(&copy.src);
@@ -339,9 +339,10 @@ static void copy_end(int keep)
 }
 
 // LOAD_REU, SAVE_REU (dos.cc): from the open file, at its position, into the REU's memory at
-// an address, or from there into the file, a few KB per main-loop round. The address (24
-// bits) and length (25 bits) as his, little-endian; what would pass the end of the REU's
-// memory (16 MB, 512 KB on R3 memory) is cut off, as his at 16 MB. The REU needn't be on.
+// an address, or from there into the file, one reu_step a main-loop round. The address (24
+// bits) and length (25 bits) as his, 4 bytes each, little-endian; what would pass the end of
+// the REU's memory (16 MB, 512 KB on R3 memory) is cut off, as his at 16 MB. The REU needn't
+// be on.
 static void reu_start(struct dos *t, const uint8_t *cmd, int len, uci_reply_t *r)
 {
    uint32_t arg[2] = { 0, 0 }, room = reu_room();

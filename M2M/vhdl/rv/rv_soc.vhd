@@ -7,7 +7,7 @@
 --
 -- CPU address map:
 --   0x00000000  boot ROM (block RAM, through the i-cache)
---   0x40000000  HyperRAM, 16 MB: byte A is word A/2, low byte first (rv_hr_bridge.vhd)
+--   0x40000000  HyperRAM, 8 MB in a 16 MB window: byte A is word A/2, low byte first (rv_hr_bridge.vhd)
 --   0x50000000  SDRAM, 64 MB, the same way (G_SDRAM; else a bus error)
 --   0x80000000  data RAM (NEORV32 DMEM)
 --   0xC0000000  QNICE device bus: 16-bit word N of the device in RAMROM_DEV at 0xC0000000 + 2N
@@ -47,7 +47,7 @@ generic (
 );
 port (
    clk50_i              : in std_logic;            -- 50 MHz: device bus, registers, SD cards
-   clk100_i             : in std_logic;            -- 100 MHz from the same MMCM, phase 0: CPU, HyperRAM
+   clk100_i             : in std_logic;            -- 100 MHz from the same MMCM, phase 0: CPU, HyperRAM, SDRAM
    reset_n_i            : in std_logic;            -- clk50_i
 
    uart_rxd_i           : in std_logic;            -- serial port: the firmware sets the speed
@@ -279,7 +279,7 @@ begin
          RISCV_ISA_C       => true,
          RISCV_ISA_M       => true,
          RISCV_ISA_Zicntr  => true,
-         CPU_RF_ARCH_SEL   => 2,               -- register file in flip-flops (the modem's choice: a RAM style took a RAMB36)
+         CPU_RF_ARCH_SEL   => 2,               -- register file in flip-flops: a RAM style takes a RAMB36
          DMEM_EN           => true,
          DMEM_SIZE         => 64 * 1024,        -- lwIP and the network firmware
          ICACHE_EN         => true,
@@ -571,7 +571,7 @@ begin
    --   0x00 CSR (sysdef.asm M2M$CSR)    0x04 OSM x|y      0x08 OSM dx|dy
    --   0x0C ascal mode                  0x10 special (ro) 0x14 general (ro)
    --   0x18 keys, low active (ro)       0x1C RAMROM_DEV
-   --   0x20-0x28 every key, low active (ro): bit n of 0x20 + 4 * (n / 32) is key_num n
+   --   0x20-0x28 every key, low active (ro): bit n mod 32 of 0x20 + 4 * (n / 32) is key_num n
    --   0x40-0x5C control_d, 32 bits per register (bit 0 of 0x40 is bit 0)
    --   0x60-0x7C control_m, ditto
    -- Any other address the CPU uses is a bus error.

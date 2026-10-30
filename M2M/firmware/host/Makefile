@@ -59,9 +59,9 @@ build/test_mon: test_mon.c ../fw/monitor.c ../fw/monitor.h
 	$(HOSTCC) $(CFLAGS) -I../fw $(filter %.c,$^) -o $@
 
 # The SwiftLink modem with lwIP, against a C128 and a server (CORE/firmware/net)
-build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h)
+build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h) ../fw/heap.h
 	@mkdir -p build
-	$(HOSTCC) $(CFLAGS) $(NET_FLAGS) $(filter %.c,$^) -o $@
+	$(HOSTCC) $(CFLAGS) -I../fw $(NET_FLAGS) $(filter %.c,$^) -o $@
 
 # The REST server with lwIP, against clients on a loopback (-serve: on a port of this Mac)
 # The routes on host_rest.c's fakes, with the real stores.c and FatFs on a card image
