@@ -435,12 +435,36 @@ void http_start(void)
 {
    for (int i = 0; i < CLIENTS; i++)
       conns[i] = heap_alloc(sizeof(conn_t));
-   struct tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
-   if (!pcb || tcp_bind(pcb, IP_ANY_TYPE, PORT) != ERR_OK)
-      return;
-   listener = tcp_listen_with_backlog(pcb, BACKLOG);
-   if (listener)
-      tcp_accept(listener, on_accept);
+}
+
+// Connections already open keep going; ones waiting in the backlog go with the listener
+void http_listen(int on)
+{
+   if (on && !listener) {
+      struct tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
+      if (!pcb)
+         return;
+      if (tcp_bind(pcb, IP_ANY_TYPE, PORT) != ERR_OK) {
+         tcp_close(pcb);
+         return;
+      }
+      listener = tcp_listen_with_backlog(pcb, BACKLOG);
+      if (listener)
+         tcp_accept(listener, on_accept);
+      else
+         tcp_close(pcb);
+   } else if (!on && listener) {
+      while (queued) {
+         struct tcp_pcb *pcb = queue[0];
+         unqueue(0);
+         tcp_arg(pcb, NULL);
+         tcp_recv(pcb, NULL);
+         tcp_err(pcb, NULL);
+         tcp_abort(pcb);
+      }
+      tcp_close(listener);
+      listener = NULL;
+   }
 }
 
 // Bytes from the ring into the receive buffer, as recv(): 0 for the end, or no room
@@ -467,8 +491,13 @@ static void write_sock(conn_t *c)
    http_resp_t *res = &c->res;
    if (c->windex >= res->index && res->body_cb) {
       c->windex = 0;
-      res->index = res->body_cb(res->body_ctx, res->buf, HTTP_BUFFER_SIZE);
-      if (res->index == 0)
+      int n = res->body_cb(res->body_ctx, res->buf, HTTP_BUFFER_SIZE);
+      if (n < 0) {
+         res->index = 0;               // the route's answer isn't ready: again next round
+         return;
+      }
+      res->index = n;
+      if (n == 0)
          res->body_cb = NULL;
    }
    int n = res->index - c->windex;
@@ -501,6 +530,11 @@ static void close_conn(int i)
    if (req->body_cb) {
       req->body_cb(req->body_ctx, NULL, -1);
       req->body_cb = NULL;
+   }
+   // And an answer that was still to come lets go of what it holds
+   if (c->res.body_cb) {
+      c->res.body_cb(c->res.body_ctx, NULL, 0);
+      c->res.body_cb = NULL;
    }
    uint32_t dev = net_lock();
    if (c->pcb) {

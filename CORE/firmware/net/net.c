@@ -12,6 +12,7 @@
 #include "modem.h"
 #include "net.h"
 #include "net_hw.h"
+#include "netcfg.h"
 #include "lwip/init.h"
 #include "lwip/timeouts.h"
 #include "lwip/ip_addr.h"
@@ -71,6 +72,12 @@ static void start(void)
    modem_init();
    http_start();
    started = true;
+   netcfg_start();
+}
+
+int net_started(void)
+{
+   return started;
 }
 
 void core_net(void)

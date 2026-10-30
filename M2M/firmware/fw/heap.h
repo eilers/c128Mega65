@@ -3,4 +3,6 @@
 #pragma once
 #include <stdint.h>
 
-void *heap_alloc(uint32_t bytes);
+void    *heap_alloc(uint32_t bytes);   // zeroed
+uint32_t heap_free(void);    // bytes not handed out yet
+uint32_t heap_total(void);

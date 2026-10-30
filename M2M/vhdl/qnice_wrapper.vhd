@@ -102,6 +102,7 @@ port (
 
    -- m2m_keyb output for the firmware and the Shell; see also M2M/firmware/include/m2m_rv.h
    qnice_qnice_keys_n_i      : in  std_logic_vector(15 downto 0);
+   qnice_qnice_matrix_n_i    : in  std_logic_vector(79 downto 0);   -- every key, bit n = key_num n
 
    qnice_pot1_x_n_o          : out unsigned(7 downto 0);
    qnice_pot1_y_n_o          : out unsigned(7 downto 0);
@@ -258,6 +259,7 @@ begin
          ascal_mode_i            => "0" & qnice_ascal_triplebuf_i & qnice_ascal_polyphase_i & qnice_ascal_mode_i,
          ascal_mode_o            => qnice_ascal_mode_o,
          keys_n_i                => qnice_qnice_keys_n_i,
+         matrix_n_i              => qnice_qnice_matrix_n_i,
          control_d_o             => qnice_gp_reg_o,
          control_m_o             => qnice_osm_control_m_o,
          special_i               => (others => '0'),

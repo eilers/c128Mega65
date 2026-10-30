@@ -5,7 +5,6 @@
 // "Unknown"), and a bare 404 for anything that isn't a route (no web pages here).
 #include <ctype.h>
 #include <stdarg.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -13,52 +12,10 @@
 #include "eth.h"
 #include "fmt.h"
 #include "heap.h"
-#include "http.h"
 #include "m2m_rv.h"
+#include "multipart.h"
+#include "rest_priv.h"
 #include "version.h"
-
-#define ARGS_MAX   32
-#define PARTS_MAX  16                   // his path_parts[16]
-#define BODY_SIZE  (16 * 1024)          // a JSON answer
-#define ERROR_SIZE 2048
-
-#define HTTP_OK          200
-#define HTTP_BAD_REQUEST 400
-#define HTTP_FORBIDDEN   403
-
-#define P_REQUIRED 1
-
-typedef struct rest rest_t;
-
-typedef struct {
-   const char *name;
-   int         flags;
-} param_t;
-
-typedef struct {
-   http_method_t  method;
-   const char    *route, *cmd;
-   void         (*proc)(rest_t *r);
-   const param_t *params;
-   int            nparams;
-} call_t;
-
-// A request's arguments and answer, one per connection, in HyperRAM
-struct rest {
-   const call_t *call;
-   http_resp_t  *res;
-   char          url[HTTP_MAX_HEADER_SIZE + 4];
-   const char   *keys[ARGS_MAX], *vals[ARGS_MAX];
-   int           nargs;
-   char         *parts[PARTS_MAX];
-   int           depth;
-   char          full_path[HTTP_MAX_HEADER_SIZE + 4];
-   char          body[BODY_SIZE];
-   int           len, pos;
-   bool          first;                 // no key in the object yet
-   char          errors[ERROR_SIZE];    // the errors list's items, rendered
-   int           elen;
-};
 
 static rest_t *rests[HTTP_CLIENTS];
 static char    password[64];
@@ -86,7 +43,7 @@ static char *sep(char **s, const char *delim)
    return t;
 }
 
-// --- the answer: ResponseWrapper ----------------------------------------------------------
+// --- the answer: ResponseWrapper and json.h ----------------------------------------------
 
 static void putv(rest_t *r, const char *f, va_list ap)
 {
@@ -95,7 +52,7 @@ static void putv(rest_t *r, const char *f, va_list ap)
    r->len += n < room ? n : room - 1;
 }
 
-static void put(rest_t *r, const char *f, ...)
+void put(rest_t *r, const char *f, ...)
 {
    va_list ap;
    va_start(ap, f);
@@ -103,20 +60,63 @@ static void put(rest_t *r, const char *f, ...)
    va_end(ap);
 }
 
-static void key(rest_t *r, const char *k)
+// His JSON_Object::render: "{ \n", each key on its own line two spaces in at any depth,
+// "," between them, "\n}" after the last; an empty one is "{ \n}"
+void key(rest_t *r, const char *k)
 {
-   put(r, r->first ? "  \"%s\" : " : ",\n  \"%s\" : ", k);
-   r->first = false;
+   put(r, r->first[r->level] ? "  \"%s\" : " : ",\n  \"%s\" : ", k);
+   r->first[r->level] = false;
 }
 
-static void add_str(rest_t *r, const char *k, const char *v)
+void add_str(rest_t *r, const char *k, const char *v)
 {
    key(r, k);
    put(r, "\"%s\"", v);
 }
 
+void add_int(rest_t *r, const char *k, int v)
+{
+   key(r, k);
+   put(r, "%d", v);
+}
+
+void obj_open(rest_t *r, const char *k)
+{
+   if (k)
+      key(r, k);
+   put(r, "{ \n");
+   if (r->level < DEPTH_MAX - 1)
+      r->level++;
+   r->first[r->level] = true;
+}
+
+void obj_close(rest_t *r)
+{
+   put(r, r->first[r->level] ? "}" : "\n}");
+   if (r->level)
+      r->level--;
+}
+
+// JSON_List: "[ " items with ", " between " ]"
+void list_open(rest_t *r, const char *k)
+{
+   key(r, k);
+   put(r, "[ ");
+}
+
+void list_str(rest_t *r, int n, const char *v)
+{
+   put(r, n ? ", \"%s\"" : "\"%s\"", v);
+}
+
+void list_close(rest_t *r, int n)
+{
+   (void)n;
+   put(r, " ]");
+}
+
 // An item for the errors list, cut at 199 characters as his
-static void error(rest_t *r, const char *f, ...)
+void error(rest_t *r, const char *f, ...)
 {
    char msg[200];
    va_list ap;
@@ -128,13 +128,17 @@ static void error(rest_t *r, const char *f, ...)
    r->elen += n < room ? n : room - 1;
 }
 
+// The answer's body, a buffer at a time; NULL: the connection went
 static int body_out(void *ctx, uint8_t *buf, int size)
 {
    rest_t *r = ctx;
-   int n = r->len - r->pos;
+   const uint8_t *from = r->bin ? r->bin : (const uint8_t *)r->body;
+   int n = (r->bin ? r->bin_len : r->len) - r->pos;
+   if (!buf)
+      return 0;
    if (n > size)
       n = size;
-   memcpy(buf, r->body + r->pos, n);
+   memcpy(buf, from + r->pos, n);
    r->pos += n;
    return n;
 }
@@ -149,6 +153,7 @@ static void respond(rest_t *r, int code, const char *type)
 {
    http_resp_t *res = r->res;
    r->pos = 0;
+   r->bin = NULL;
    res->body_cb = body_out;
    res->body_ctx = r;
    res->index = fmt_snprintf((char *)res->buf, HTTP_BUFFER_SIZE,
@@ -156,18 +161,35 @@ static void respond(rest_t *r, int code, const char *type)
                              "Content-Length: %d\r\n\r\n", code, code_text(code), type, r->len);
 }
 
-static void json_response(rest_t *r, int code)
+void json_response(rest_t *r, int code)
 {
+   r->level = 0;
    key(r, "errors");
-   put(r, r->elen ? "[ %s ]\n}" : "[  ]\n}", r->errors);
+   put(r, r->elen ? "[ %s ]" : "[  ]", r->errors);
+   obj_close(r);
    respond(r, code, "application/json");
 }
 
-static void html_response(rest_t *r, int code, const char *title, const char *text)
+void html_response(rest_t *r, int code, const char *title, const char *text)
 {
    r->len = 0;
    put(r, "<html><body><h1>%s</h1>\n<p>%s</p></body></html>\r\n", title, text);
    respond(r, code, "text/html");
+}
+
+// His binary_response, with an attachment without a file name
+void binary_response(rest_t *r, const uint8_t *data, int len)
+{
+   http_resp_t *res = r->res;
+   r->pos = 0;
+   r->bin = data;
+   r->bin_len = len;
+   res->body_cb = body_out;
+   res->body_ctx = r;
+   res->index = fmt_snprintf((char *)res->buf, HTTP_BUFFER_SIZE,
+                             "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+                             "Content-Disposition: attachment\r\nContent-Length: %d\r\n"
+                             "Connection: close\r\n\r\n", len);
 }
 
 static void not_found(http_resp_t *res)
@@ -175,6 +197,31 @@ static void not_found(http_resp_t *res)
    res->body_cb = NULL;
    res->index = fmt_snprintf((char *)res->buf, HTTP_BUFFER_SIZE,
                              "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+}
+
+// An answer that comes from a route's step, run once a main-loop round until it answers.
+// http.c asks for the body; -1 says not yet.
+static int pending_out(void *ctx, uint8_t *buf, int size)
+{
+   rest_t *r = ctx;
+   (void)size;
+   if (!buf) {
+      if (r->cancel)
+         r->cancel(r);
+      return 0;
+   }
+   if (!r->step(r))
+      return -1;
+   return r->res->index;                // the step answered: its header first
+}
+
+void rest_pending(rest_t *r, int (*step)(rest_t *r), void (*cancel)(rest_t *r))
+{
+   r->step = step;
+   r->cancel = cancel;
+   r->res->body_cb = pending_out;
+   r->res->body_ctx = r;
+   r->res->index = 0;
 }
 
 // --- the request: url.c and ArgsURI -------------------------------------------------------
@@ -296,6 +343,49 @@ static int validate(rest_t *r)
    return errors;
 }
 
+const char *arg(rest_t *r, const char *k)
+{
+   for (int i = 0; i < r->nargs; i++)
+      if (!strcmp(r->keys[i], k))
+         return r->vals[i];
+   return NULL;
+}
+
+int arg_int(rest_t *r, const char *k, int alt)
+{
+   const char *v = arg(r, k);
+   return v ? (int)strtol(v, NULL, 0) : alt;
+}
+
+// His pattern_match: * any run of characters, ? any one, any case
+bool pattern_match(const char *p, const char *f)
+{
+   const char *star_p = NULL, *star_f = NULL;
+   for (;;) {
+      if (!*f) {
+         while (*p == '*')
+            p++;
+         if (!*p)
+            return true;
+      } else if (*p == '*') {
+         p++;
+         if (!*p)
+            return true;
+         star_p = p;
+         star_f = f;
+         continue;
+      } else if (*p == '?' || toupper((unsigned char)*p) == toupper((unsigned char)*f)) {
+         f++;
+         p++;
+         continue;
+      }
+      if (!star_p || !*star_f)
+         return false;
+      p = star_p;
+      f = ++star_f;
+   }
+}
+
 // --- the About routes (routes.cc) ---------------------------------------------------------
 
 // A fixed page. Without its argument it never gets here: the arguments are checked first,
@@ -331,23 +421,72 @@ static void get_info(rest_t *r)
 
 static const param_t help_params[] = { { "command", P_REQUIRED } };
 
-#define CALL(m, route, cmd, proc, params) { m, route, cmd, proc, params, sizeof params / sizeof params[0] }
-#define CALL0(m, route, cmd, proc) { m, route, cmd, proc, NULL, 0 }
-
-static const call_t calls[] = {
-   CALL(HTTP_GET, "help", "none", get_help, help_params),
+static const call_t about_calls[] = {
+   CALL(HTTP_GET, "help", "none", get_help, help_params, 0),
    CALL0(HTTP_GET, "version", "none", get_version),
    CALL0(HTTP_GET, "info", "none", get_info),
 };
 
 // --- middleware.c's Dispatch and routes.cc's execute_api_v1 -------------------------------
 
+static const call_t *find_in(const call_t *c, int n, http_method_t m, const char *route, const char *cmd)
+{
+   for (int i = 0; i < n; i++)
+      if (c[i].method == m && !strcmp(c[i].route, route) && !strcmp(c[i].cmd, cmd))
+         return &c[i];
+   return NULL;
+}
+
 static const call_t *find_call(http_method_t m, const char *route, const char *cmd)
 {
-   for (unsigned i = 0; i < sizeof calls / sizeof calls[0]; i++)
-      if (calls[i].method == m && !strcmp(calls[i].route, route) && !strcmp(calls[i].cmd, cmd))
-         return &calls[i];
-   return NULL;
+   const call_t *c = find_in(about_calls, sizeof about_calls / sizeof about_calls[0], m, route, cmd);
+   if (!c)
+      c = find_in(rest_machine_calls, rest_machine_count, m, route, cmd);
+   if (!c)
+      c = find_in(rest_configs_calls, rest_configs_count, m, route, cmd);
+   return c;
+}
+
+static void run(rest_t *r)
+{
+   if (validate(r)) {
+      json_response(r, HTTP_BAD_REQUEST);
+      return;
+   }
+   r->call->proc(r);
+}
+
+// His TempfileWriter: the first part of the body, as much as the call keeps, and its size;
+// the call runs once the body is in (writer_complete)
+static void upload_event(void *ctx, mp_event_t ev, const uint8_t *data, int len)
+{
+   rest_t *r = ctx;
+   switch (ev) {
+   case MP_DATA_START:
+   case MP_SUBHEADER:
+      r->up_parts++;
+      break;
+   case MP_DATA:
+      if (r->up_parts == 1) {
+         int room = r->call->upload - r->up_len;
+         memcpy(r->up + r->up_len, data, len < room ? len : room);
+         r->up_len += len < room ? len : room;
+         r->up_size += len;
+      }
+      break;
+   case MP_END:
+      run(r);
+      break;
+   default:
+      break;
+   }
+}
+
+static int upload_in(void *ctx, const uint8_t *data, int size)
+{
+   rest_t *r = ctx;
+   mp_in(r->mp, data, size);
+   return size;
 }
 
 void rest_dispatch(http_req_t *req, http_resp_t *res)
@@ -357,10 +496,15 @@ void rest_dispatch(http_req_t *req, http_resp_t *res)
    rest_t *r = rests[req->slot];
    char *route, *cmd;
 
+   r->req = req;
    r->res = res;
    r->len = 0;
    r->elen = 0;
-   r->first = true;
+   r->level = 0;
+   r->first[0] = true;
+   r->bin = NULL;
+   r->step = NULL;
+   r->cancel = NULL;
    r->call = parse_url(r, req->uri, &route, &cmd) ? find_call(req->method, route, cmd) : NULL;
    if (!r->call) {
       not_found(res);
@@ -378,9 +522,21 @@ void rest_dispatch(http_req_t *req, http_resp_t *res)
       json_response(r, HTTP_FORBIDDEN);
       return;
    }
-   if (validate(r)) {
-      json_response(r, HTTP_BAD_REQUEST);
+   if (!r->call->upload) {
+      run(r);
       return;
    }
-   r->call->proc(r);
+   if (req->body_type == BODY_NONE) {
+      error(r, "Expected Body, but got none.");
+      json_response(r, HTTP_PRECONDITION);
+      return;
+   }
+   if (!r->up)
+      r->up = heap_alloc(UPLOAD_MAX + 1);
+   if (!r->mp)
+      r->mp = mp_new();
+   r->up_len = r->up_size = r->up_parts = 0;
+   req->body_cb = upload_in;
+   req->body_ctx = r;
+   mp_start(r->mp, req->content_type, upload_event, r);
 }

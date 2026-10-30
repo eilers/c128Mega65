@@ -536,6 +536,18 @@ signal qnice_uci_we           : std_logic;
 signal qnice_uci_data         : std_logic_vector(15 downto 0);
 signal qnice_uci_wait         : std_logic;
 
+-- The system CPU's bus DMA (c128_dma.vhd)
+signal main_fwdma_req         : std_logic;
+signal main_fwdma_cycle       : std_logic;
+signal main_fwdma_addr        : unsigned(15 downto 0);
+signal main_fwdma_dout        : unsigned(7 downto 0);
+signal main_fwdma_we          : std_logic;
+signal main_fwdma_din         : unsigned(7 downto 0);
+signal main_fwdma_z80         : std_logic;
+signal qnice_dma_ce           : std_logic;
+signal qnice_dma_we           : std_logic;
+signal qnice_dma_data         : std_logic_vector(15 downto 0);
+
 -- The REU's SD card DMA (reu_sd.vhd): device, engine port, memory on the QNICE clock (dma_q_*)
 -- and on hr_clk (dma_hr_*: SDRAM, dma_hm_*: HyperRAM on R3 memory)
 signal qnice_reusd_ce         : std_logic;
@@ -938,6 +950,14 @@ begin
          reu_menu_o           => main_reu_menu,
          reu_drop_i           => main_reu_drop,
 
+         fwdma_req_i          => main_fwdma_req,
+         fwdma_cycle_o        => main_fwdma_cycle,
+         fwdma_addr_i         => main_fwdma_addr,
+         fwdma_dout_i         => main_fwdma_dout,
+         fwdma_we_i           => main_fwdma_we,
+         fwdma_din_o          => main_fwdma_din,
+         fwdma_z80_o          => main_fwdma_z80,
+
          crt_loaded_i         => main_crt_loaded,
          crt_loading_i        => main_crt_loading,
          crt_id_i             => main_crt_id,
@@ -1072,6 +1092,8 @@ begin
       qnice_reusd_we       <= '0';
       qnice_net_ce         <= '0';
       qnice_net_we         <= '0';
+      qnice_dma_ce         <= '0';
+      qnice_dma_we         <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -1135,6 +1157,12 @@ begin
             qnice_net_ce      <= qnice_dev_ce_i;
             qnice_net_we      <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_net_data;
+
+        -- The system CPU's bus DMA into C128 memory (c128_dma.vhd)
+        when C_DEV_DMA =>
+            qnice_dma_ce      <= qnice_dev_ce_i;
+            qnice_dma_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_dma_data;
 
          when others => null;
       end case;
@@ -1586,6 +1614,31 @@ begin
          qnice_data_o    => qnice_uci_data,
          qnice_wait_o    => qnice_uci_wait
       ); -- i_uci
+
+   ---------------------------------------------------------------------------------------------
+   -- The system CPU's bus DMA: REST's readmem, writemem, pause and resume (CORE/vhdl/c128_dma.vhd)
+   ---------------------------------------------------------------------------------------------
+
+   i_c128_dma : entity work.c128_dma
+      port map (
+         main_clk_i      => main_clk_o,
+         main_rst_i      => main_rst_o or main_reset_m2m_i,
+         main_c128_rst_i => main_uci_rst,
+         main_req_o      => main_fwdma_req,
+         main_cycle_i    => main_fwdma_cycle,
+         main_addr_o     => main_fwdma_addr,
+         main_dout_o     => main_fwdma_dout,
+         main_we_o       => main_fwdma_we,
+         main_din_i      => main_fwdma_din,
+         main_z80_i      => main_fwdma_z80,
+         qnice_clk_i     => qnice_clk_i,
+         qnice_rst_i     => qnice_rst_i,
+         qnice_addr_i    => qnice_dev_addr_i(11 downto 0),
+         qnice_data_i    => qnice_dev_data_i,
+         qnice_ce_i      => qnice_dma_ce,
+         qnice_we_i      => qnice_dma_we,
+         qnice_data_o    => qnice_dma_data
+      ); -- i_c128_dma
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)

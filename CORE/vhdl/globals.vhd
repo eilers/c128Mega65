@@ -165,6 +165,7 @@ constant C_DEV_PHYS1581       : std_logic_vector(15 downto 0) := x"0108"; -- int
 constant C_DEV_UCI            : std_logic_vector(15 downto 0) := x"0109"; -- Ultimate Command Interface: registers and buffer (uci.vhd)
 constant C_DEV_REU_SD         : std_logic_vector(15 downto 0) := x"010A"; -- the REU's SD card DMA and cache drop (reu_sd.vhd)
 constant C_DEV_NET            : std_logic_vector(15 downto 0) := x"010B"; -- network: the 6551's FIFOs, the Ethernet MAC, the device DNA (net.vhd)
+constant C_DEV_DMA            : std_logic_vector(15 downto 0) := x"010C"; -- the system CPU's bus DMA into C128 memory (c128_dma.vhd)
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)

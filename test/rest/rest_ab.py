@@ -20,7 +20,9 @@ import sys
 import time
 
 # (name, request bytes, how to compare): "exact", "info" (the same keys in the same order),
-# or "ours" (only ours is checked: the Ultimate has a web UI there)
+# "ours" (only ours is checked: the Ultimate has a web UI there), "status" (the same status
+# line and Content-Length: a C128's memory differs), or "mine" (only ours is checked: the
+# Ultimate has other settings). Machine and configs cases change nothing on either machine.
 CASES = [
     ("version", b"GET /v1/version HTTP/1.1\r\nHost: x\r\n\r\n", "exact"),
     ("info", b"GET /v1/info HTTP/1.1\r\n\r\n", "info"),
@@ -57,6 +59,46 @@ CASES = [
     ("Content-Length 0", b"POST /v1/version HTTP/1.1\r\nContent-Length: 0\r\n\r\n", "exact"),
     ("40 lines", b"GET /v1/version HTTP/1.1\r\n" + b"A: b\r\n" * 39 + b"\r\n", "exact"),
     ("a 2048-byte header", None, "exact"),
+    ("readmem", b"GET /v1/machine:readmem?address=0400&length=16 HTTP/1.1\r\n\r\n", "status"),
+    ("readmem, not hex", b"GET /v1/machine:readmem?address=G400 HTTP/1.1\r\n\r\n", "exact"),
+    ("readmem, length 0", b"GET /v1/machine:readmem?address=0400&length=0 HTTP/1.1\r\n\r\n", "exact"),
+    ("readmem past $FFFF", b"GET /v1/machine:readmem?address=FFFF&length=2 HTTP/1.1\r\n\r\n", "exact"),
+    ("readmem, no address", b"GET /v1/machine:readmem HTTP/1.1\r\n\r\n", "exact"),
+    ("writemem, not hex", b"PUT /v1/machine:writemem?address=G000&data=00 HTTP/1.1\r\n\r\n", "exact"),
+    ("writemem, no data", b"PUT /v1/machine:writemem?address=1000&data= HTTP/1.1\r\n\r\n", "exact"),
+    ("writemem past $FFFF", b"PUT /v1/machine:writemem?address=FFFF&data=0102 HTTP/1.1\r\n\r\n", "exact"),
+    ("writemem, a bad digit", b"PUT /v1/machine:writemem?address=1000&data=0G HTTP/1.1\r\n\r\n", "exact"),
+    ("writemem, 129 bytes", b"PUT /v1/machine:writemem?address=1000&data=" + b"00" * 129 + b" HTTP/1.1\r\n\r\n",
+     "exact"),
+    ("POST writemem, no body", b"POST /v1/machine:writemem?address=1000 HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
+     "exact"),
+    ("POST writemem, no address", b"POST /v1/machine:writemem HTTP/1.1\r\nContent-Length: 2\r\n\r\nab", "exact"),
+    ("POST writemem past $FFFF", b"POST /v1/machine:writemem?address=FFFF HTTP/1.1\r\nContent-Length: 2\r\n\r\nab",
+     "exact"),
+    ("poweroff", b"PUT /v1/machine:poweroff HTTP/1.1\r\n\r\n", "exact"),
+    ("measure", b"GET /v1/machine:measure HTTP/1.1\r\n\r\n", "exact"),
+    ("menu_screen, closed", b"GET /v1/machine:menu_screen HTTP/1.1\r\n\r\n", "exact"),
+    ("heap", b"GET /v1/machine:heap HTTP/1.1\r\n\r\n", "info"),
+    ("debugreg", b"GET /v1/machine:debugreg HTTP/1.1\r\n\r\n", "exact"),
+    ("configs", b"GET /v1/configs HTTP/1.1\r\n\r\n", "mine"),
+    ("configs, a category", b"GET /v1/configs/drive%20a%20settings HTTP/1.1\r\n\r\n", "mine"),
+    ("configs, an item in full", b"GET /v1/configs/drive%20a*/drive%20type HTTP/1.1\r\n\r\n", "mine"),
+    ("configs, none", b"GET /v1/configs/nosuch* HTTP/1.1\r\n\r\n", "exact"),
+    ("configs, an argument", b"GET /v1/configs?x=1 HTTP/1.1\r\n\r\n", "exact"),
+    ("PUT configs, value and 3 parts", b"PUT /v1/configs/a/b/c?value=1 HTTP/1.1\r\n\r\n", "exact"),
+    ("PUT configs, 2 parts", b"PUT /v1/configs/a/b HTTP/1.1\r\n\r\n", "exact"),
+    ("PUT configs, no category", b"PUT /v1/configs/nosuch/b/c HTTP/1.1\r\n\r\n", "exact"),
+    ("PUT configs, no item", b"PUT /v1/configs/drive%20a%20settings/speed/1 HTTP/1.1\r\n\r\n", "exact"),
+    ("PUT configs, not a choice", b"PUT /v1/configs/drive%20a%20settings/drive/maybe HTTP/1.1\r\n\r\n", "exact"),
+    ("POST configs, not JSON", b"POST /v1/configs HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}", "exact"),
+    ("POST configs, a string", b"POST /v1/configs HTTP/1.1\r\nContent-Type: application/json\r\n"
+     b"Content-Length: 5\r\n\r\n\"abc\"", "exact"),
+    ("POST configs, cut short", b"POST /v1/configs HTTP/1.1\r\nContent-Type: application/json\r\n"
+     b"Content-Length: 1\r\n\r\n{", "exact"),
+    ("POST configs, no category", b"POST /v1/configs HTTP/1.1\r\nContent-Type: application/json\r\n"
+     b"Content-Length: 12\r\n\r\n{\"Nosuch\":{}}", "exact"),
+    ("save_to_flash, too deep", b"PUT /v1/configs/a/b:save_to_flash HTTP/1.1\r\n\r\n", "exact"),
+    ("load_from_flash, too deep", b"PUT /v1/configs/a/b:load_from_flash HTTP/1.1\r\n\r\n", "exact"),
     ("/", b"GET / HTTP/1.1\r\n\r\n", "ours"),
     ("index.html", b"GET /index.html HTTP/1.1\r\n\r\n", "ours"),
 ]
@@ -65,7 +107,11 @@ NOT_FOUND = b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 
 # What his OpenAPI document describes; the other cases are odd requests it says nothing
 # about (and for help without its argument it says HTML, where his code answers JSON)
-DOCUMENTED = {"version", "info", "help", "help, the argument decoded"}
+# The machine and configs cases too, but an argument a call hasn't: his code answers 400 for
+# it anywhere, where his document only lists it for some calls
+DOCUMENTED = {"version", "info", "help", "help, the argument decoded"} | {
+    name for name, req, how in CASES if req and (b"/v1/machine" in req or b"/v1/configs" in req)} - {
+    "configs, an argument"}
 
 
 def header(n):
@@ -145,6 +191,14 @@ def main():
         elif how == "ours":
             ok = a[0] == NOT_FOUND and a[1] == "fin"
             note = "(B has a web UI here)"
+        elif how == "mine":
+            ok = split(a[0])[0] == 200 and a[1] == "fin"
+            note = "(B has other settings)"
+        elif how == "status":
+            sa, ha, _ = split(a[0])
+            sb, hb, _ = split(answers[1][0])
+            ok = sa == sb and ha.get("Content-Length") == hb.get("Content-Length") and a[1] == "fin"
+            note = "(status and length)"
         elif how == "info":
             ok, note = same_info(a[0], answers[1][0])
             ok = ok and split(a[0])[0] == split(answers[1][0])[0] == 200

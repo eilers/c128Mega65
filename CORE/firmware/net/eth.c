@@ -5,7 +5,6 @@
 #include "fmt.h"
 #include "net.h"
 #include "net_hw.h"
-#include "lwip/dhcp.h"
 #include "lwip/etharp.h"
 #include "netif/ethernet.h"
 
@@ -77,7 +76,6 @@ void eth_init(void)
    netif_add(&eth_netif, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4, NULL, netif_setup, ethernet_input);
    netif_set_default(&eth_netif);
    netif_set_up(&eth_netif);
-   dhcp_start(&eth_netif);
 }
 
 void eth_poll(void)

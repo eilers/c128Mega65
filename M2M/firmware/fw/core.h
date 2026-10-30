@@ -31,6 +31,14 @@ int         core_crtrom_loaded(int dev);
 const char *core_prep_start(void);
 // The key that opens the menu: M2M_KEY_HELP, or another one for a core that uses Help
 uint32_t    core_menu_key(void);
+// A line with a "%s" that isn't a drive's, a CRT/ROM's or a submenu's: its text, or NULL
+const char *core_item_text(int group);
+// A text item, typed in the menu: 1 and its text now (at most *max characters) for one
+int         core_text_item(int group, char *text, int *max);
+// The text typed for it: NULL once taken, or why not
+const char *core_text_done(int group, const char *text);
+// 1 when lines the core gives (a submenu's summary, core_item_text) changed by themselves
+int         core_menu_stale(void);
 // Called from the main loop, for the core's own modules; must not wait
 void        core_poll(void);
 // The core's network, from the main loop after core_poll; must not wait
@@ -52,3 +60,7 @@ void shell_unmount(int d);
 // image): its name on the item's line, or NULL for none
 void shell_crtrom_named(int group, const char *path);
 void shell_open_menu(void);                   // as the Help key does, unless it is open
+void shell_menu_button(void);                 // opens or closes it (REST's menu_button)
+int  shell_menu_screen(uint8_t *out);         // REST's menu_screen: 2000 bytes, or 0 if closed
+int  shell_save_settings(void);               // the menu's settings into their file now: 0, or -1
+int  shell_saved_setting(int group, int pos); // an item's bit in the file (the default without one)

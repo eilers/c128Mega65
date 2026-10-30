@@ -353,6 +353,7 @@ signal main_csr_joy2_on       : std_logic;
 
 -- keyboard handling
 signal main_qnice_keys_n      : std_logic_vector(15 downto 0);
+signal main_qnice_matrix_n    : std_logic_vector(79 downto 0);
 
 --- control signals from QNICE in main's clock domain
 signal main_flip_joyports     : std_logic;
@@ -404,6 +405,7 @@ signal qnice_h_freq           : std_logic_vector(15 downto 0); -- horizontal syn
 
 -- m2m_keyb output for the firmware and the Shell; see also M2M/firmware/include/m2m_rv.h
 signal qnice_qnice_keys_n     : std_logic_vector(15 downto 0);
+signal qnice_qnice_matrix_n   : std_logic_vector(79 downto 0);
 
 -- Paddles in 50 MHz clock domain which happens to be QNICE's
 signal qnice_pot1_x_n         : unsigned(7 downto 0);
@@ -646,7 +648,8 @@ begin
          drive_led_col_i      => main_drive_led_col_i,
 
          -- interface to QNICE: used by the firmware and the Shell
-         qnice_keys_n_o       => main_qnice_keys_n
+         qnice_keys_n_o       => main_qnice_keys_n,
+         qnice_matrix_n_o     => main_qnice_matrix_n
       ); -- i_m2m_keyb
 
    ---------------------------------------------------------------------------------------------------------------
@@ -715,6 +718,7 @@ begin
       qnice_vram_we_o           => qnice_vram_we,
       qnice_vram_attr_we_o      => qnice_vram_attr_we,
       qnice_qnice_keys_n_i      => qnice_qnice_keys_n,
+      qnice_qnice_matrix_n_i    => qnice_qnice_matrix_n,
       qnice_pot1_x_n_o          => qnice_pot1_x_n,
       qnice_pot1_y_n_o          => qnice_pot1_y_n,
       qnice_pot2_x_n_o          => qnice_pot2_x_n,
@@ -847,6 +851,18 @@ begin
          dest_clk               => qnice_clk,
          dest_out(15 downto  0) => qnice_qnice_keys_n
       ); -- i_main2qnice
+
+   -- Every key, for the firmware's text entry: each bit on its own, as the keys above
+   i_main2qnice_matrix: xpm_cdc_array_single
+      generic map (
+         WIDTH => 80
+      )
+      port map (
+         src_clk                => main_clk_i,
+         src_in                 => main_qnice_matrix_n,
+         dest_clk               => qnice_clk,
+         dest_out               => qnice_qnice_matrix_n
+      ); -- i_main2qnice_matrix
 
    -- Clock domain crossing: CORE to AUDIO
    i_main2audio: entity work.cdc_stable

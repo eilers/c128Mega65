@@ -10,6 +10,7 @@
 #include "config_ids.h"
 #include "core.h"
 #include "ff.h"
+#include "heap.h"
 #include "keys.h"
 #include "m2m_rv.h"
 #include "menu.h"
@@ -158,6 +159,35 @@ static void idle(void)   // past the third of a second after a menu closes
    poll(40000);
 }
 
+// A key of the whole keyboard (MEGA65 key number), with Shift or not
+static void type_key(int k, int shift)
+{
+   uint32_t m[3] = { ~0u, ~0u, ~0u };
+   m[k / 32] &= ~(1u << (k % 32));
+   if (shift)
+      m[0] &= ~(1u << 15);
+   for (int i = 0; i < 3; i++)
+      M2M_MATRIX(i) = m[i];
+   poll(3);
+   for (int i = 0; i < 3; i++)
+      M2M_MATRIX(i) = ~0u;
+   poll(3);
+}
+
+#define K_DEL    0
+#define K_RETURN 1
+
+static void type(const char *s)
+{
+   static const struct { char c; int k; } keys[] = {
+      { '1', 56 }, { '2', 59 }, { '3', 8 }, { '4', 11 }, { '9', 32 }, { '.', 44 }, { 'y', 25 }, { 'x', 23 },
+   };
+   for (; *s; s++)
+      for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++)
+         if (keys[i].c == *s)
+            type_key(keys[i].k, 0);
+}
+
 static int go_to(const char *s)
 {
    for (int i = 0; i < 40; i++) {
@@ -271,6 +301,7 @@ static void make_card(uint8_t *file)
    put_disk("/c128/frag.d71", 10, 349696, "/c128/filler1.bin", 4096);
    put_disk("/c128/split.d64", 11, 174848, "/c128/filler2.bin", 2048);
    put_disk("/c128/Sub/disk.d81", 12, 819200, NULL, 0);
+   f_unlink("/c128/network.cfg");                     // the network's defaults
    cluster = fs.csize * 512;
    cfg_str(CFG_CFG_FILE, cfg_name, sizeof cfg_name);
    if (f_open(&f, cfg_name, FA_READ) == FR_OK) {
@@ -373,6 +404,11 @@ int main(int argc, char **argv)
 
    // Start: ROMs loaded, defaults set, the core out of reset with keyboard and joysticks
    shell_start();
+   uint8_t *fresh = heap_alloc(100);
+   int zero = 1;
+   for (int i = 0; i < 100; i++)
+      zero &= fresh[i] == 0;
+   check(zero, "heap_alloc: zeroed, on HyperRAM that held something");
    check(!(M2M_CSR & M2M_CSR_RESET), "core left reset");
    check((M2M_CSR & (M2M_CSR_KBD | M2M_CSR_JOY1 | M2M_CSR_JOY2)) == 0x38, "keyboard and joysticks on");
    check(device_holds(0x101, 0, 4100), "boot0.rom in its device");
@@ -396,7 +432,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 31), "menu window 25x31 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 32), "menu window 25x32 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:<Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive 8 (the start item)");
@@ -712,6 +748,72 @@ int main(int argc, char **argv)
    go_to("Off");
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
+
+   // The Network submenu: no address yet (no network turn here); a host name typed in its
+   // line, an address refused, then one that turns DHCP off; Run/Stop keeps the old text.
+   // Typed settings go into network.cfg at once.
+   for (int i = 0; i < 3; i++)
+      M2M_MATRIX(i) = ~0u;
+   check(find_row(" Net: no address") > 0, "network summary");
+   go_to("Net:");
+   press(M2M_KEY_RETURN);
+   dump("network");
+   check(find_row("=REST API") > 0 && find_row("=DHCP") > 0 && find_row(" Host:c128-mega65") > 0 &&
+         find_row(" Password:<none>") > 0 && find_row(" IP:<none>") > 0, "network submenu");
+   go_to("Host:");
+   press(M2M_KEY_RETURN);
+   int y = find_row(" Host:c128-mega65_");
+   check(y > 0 && vram(M2M_DEV_VRAM_ATTR, 21, y) == 0x8B, "host name: its field, inverted");
+   for (int i = 0; i < 5; i++)
+      type_key(K_DEL, 0);
+   type("y");
+   type_key(23, 1);                                    // Shift X
+   check(find_row(" Host:c128-myX_") > 0, "host name: typed");
+   type_key(K_RETURN, 0);
+   check(find_row(" Host:c128-myX_") > 0, "host name: Return on the matrix alone does nothing");
+   press(M2M_KEY_RETURN);
+   check(find_row(" Host:c128-myX") > 0 && find_row("_") < 0 && cursor_on("Host:"), "host name: kept");
+   go_to("IP:");
+   press(M2M_KEY_RETURN);
+   check(find_row(" IP:_") > 0, "address: empty while DHCP has none");
+   type("1.2");
+   press(M2M_KEY_RETURN);
+   check(find_row(" IP:not an address") > 0, "address: 1.2 refused");
+   type(".3.4");
+   check(find_row(" IP:1.2.3.4_") > 0, "address: typing goes on");
+   // One Return as the hardware gave it: the whole keyboard's copy a round before the menu
+   // keys'. It ends the field once; the menu doesn't open it again.
+   M2M_MATRIX(0) = ~(1u << K_RETURN);
+   poll(1);
+   M2M_KEYS = ~M2M_KEY_RETURN & 0xFFFF;
+   poll(3);
+   M2M_MATRIX(0) = ~0u;
+   M2M_KEYS = 0xFFFF;
+   poll(3);
+   check(find_row(" IP:1.2.3.4") > 0 && find_row("_") < 0 && find_row("=DHCP") < 0 &&
+         !shell_setting(OPTM_G_NET_DHCP, 0), "address: kept once, DHCP off");
+   check(find_row(" Mask:255.255.255.0") > 0, "mask: the static one now");
+   go_to("Mask:");
+   press(M2M_KEY_RETURN);
+   type("9");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" Mask:255.255.255.0") > 0 && cursor_on("Mask:"), "Run/Stop: the old text");
+   FIL nf;
+   char cfg[400] = "";
+   UINT got = 0;
+   if (f_open(&nf, "/c128/network.cfg", FA_READ) == FR_OK) {
+      f_read(&nf, cfg, sizeof cfg - 1, &got);
+      f_close(&nf);
+   }
+   cfg[got] = 0;
+   check(!strcmp(cfg, "[Ethernet Settings]\nStatic IP=1.2.3.4\nStatic Netmask=255.255.255.0\n"
+                      "Static Gateway=192.168.2.1\nStatic DNS=8.8.8.8\n[Network Settings]\n"
+                      "Host Name=c128-myX\nNetwork Password=\n"), "network.cfg");
+   go_to("DHCP");
+   press(M2M_KEY_RETURN);
+   check(find_row("=DHCP") > 0 && find_row(" IP:<none>") > 0, "DHCP on again: its address");
+   press(M2M_KEY_RUNSTOP);
+   f_unlink("/c128/network.cfg");
 
    // Close Menu: next time from the start item
    go_to("Close Menu");

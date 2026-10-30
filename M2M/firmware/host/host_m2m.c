@@ -3,6 +3,7 @@
 // running on a little with every read.
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include "host_m2m.h"
 #include "m2m_rv.h"
@@ -62,6 +63,8 @@ volatile uint16_t *host_dev(void)
 void host_init(void)
 {
    host_hr = area((1u << 23) * 2);
+   // The firmware's heap holds what was there before, as HyperRAM does after a reset
+   memset((void *)FW_HEAP, 0xA5, FW_HEAP_END - FW_HEAP);
    host_sr = area((1u << 25) * 2);
    host_regs[0] = 0x0839;                // C_CSR_DEFAULT: in reset, keyboard and joysticks on
    host_regs[6] = 0xFFFF;                // no key held

@@ -8,7 +8,8 @@
 // Version of this hardware interface. Bump it when a change here would break a firmware
 // built for the old one: the boot ROM only starts a firmware built for its own version.
 // 2: 64 KB data RAM (was 16 KB)
-#define M2M_RV_HW_VERSION    2u
+// 3: every key (M2M_MATRIX), the core's bus DMA device
+#define M2M_RV_HW_VERSION    3u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32
@@ -24,6 +25,8 @@
 #define M2M_GENERAL          REG32(0xE0000014u)
 #define M2M_KEYS             REG32(0xE0000018u)   // low active, see M2M_KEY_*
 #define M2M_RAMROM_DEV       REG32(0xE000001Cu)   // device the device bus window shows
+#define M2M_MATRIX(i)        REG32(0xE0000020u + 4 * (i))   // every key, low active: bit n of word
+                                                          // n / 32 is key_num n, i = 0..2
 #define M2M_CONTROL_D(i)     REG32(0xE0000040u + 4 * (i))   // control_d bits 32i+31..32i, i = 0..7
 #define M2M_CONTROL_M(i)     REG32(0xE0000060u + 4 * (i))   // control_m, ditto
 

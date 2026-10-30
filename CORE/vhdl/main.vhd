@@ -258,6 +258,15 @@ entity main is
       reu_menu_o              : out std_logic_vector(1 downto 0); -- the REU setting: 0 off, 1-3 the size
       reu_drop_i              : in  std_logic := '0';             -- one clock: the REU's memory changed behind it (reu_sd.vhd)
 
+      -- The system CPU's bus DMA (c128_dma.vhd in mega65.vhd), after a cartridge and the REU
+      fwdma_req_i             : in  std_logic := '0';             -- hold the CPU
+      fwdma_cycle_o           : out std_logic;                    -- the DMA window, when it is ours
+      fwdma_addr_i            : in  unsigned(15 downto 0) := (others => '0');
+      fwdma_dout_i            : in  unsigned( 7 downto 0) := (others => '0');
+      fwdma_we_i              : in  std_logic := '0';
+      fwdma_din_o             : out unsigned( 7 downto 0);
+      fwdma_z80_o             : out std_logic;                    -- the Z80 runs: no DMA
+
       -- Virtual cartridge: the .crt file and its bank cache (sw_cartridge_wrapper in mega65.vhd)
       crt_loaded_i            : in  std_logic := '0';
       crt_loading_i           : in  std_logic := '0';
@@ -1078,15 +1087,25 @@ begin
    end if;
 end process cart_dma_proc;
 
--- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits. When only the
--- virtual cartridge's cache stalls the CPU, the DMA cycles read RAM at $0000.
+-- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits; the system
+-- CPU's DMA waits for both. When only the virtual cartridge's cache stalls the CPU, the DMA
+-- cycles read RAM at $0000.
 core_dma_addr <= cart_dma_addr   when cart_dma = '1' else
                  unsigned(reu_dma_addr) when reu_dma_req = '1' else
+                 fwdma_addr_i    when fwdma_req_i = '1' else
                  x"0000";
-core_dma_dout <= cart_dma_dout   when cart_dma = '1' else unsigned(reu_dma_dout);
-core_dma_we   <= not cart_dma_rd when cart_dma = '1' else reu_dma_we;
+core_dma_dout <= cart_dma_dout   when cart_dma = '1' else
+                 unsigned(reu_dma_dout) when reu_dma_req = '1' else
+                 fwdma_dout_i;
+core_dma_we   <= not cart_dma_rd when cart_dma = '1' else
+                 reu_dma_we      when reu_dma_req = '1' else
+                 fwdma_we_i      when fwdma_req_i = '1' else
+                 '0';
 reu_dma_cycle <= core_dma_cycle and not cart_dma;
 reu_dma_din   <= core_dma_din;
+fwdma_cycle_o <= core_dma_cycle and not cart_dma and not reu_dma_req;
+fwdma_din_o   <= core_dma_din;
+fwdma_z80_o   <= not core_z80_n;
 
 handle_hardware_expansion_proc : process (all)
 begin
@@ -1474,6 +1493,7 @@ begin
       v_irq_n := v_irq_n and not uci_irq_i;
       v_dma   := v_dma or (uci_dma_i and core_z80_n);
    end if;
+   v_dma := v_dma or (fwdma_req_i and core_z80_n);
 
    -- The SwiftLink answers its registers ahead of a cartridge, and its 6551 pulls NMI
    if modem_sel = '1' then

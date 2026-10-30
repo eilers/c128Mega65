@@ -77,6 +77,7 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/uci/command_if_pkg.vhd"] \
     [file join $repo_dir "CORE/vhdl/uci/command_protocol.vhd"] \
     [file join $repo_dir "CORE/vhdl/uci/uci.vhd"] \
+    [file join $repo_dir "CORE/vhdl/c128_dma.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \

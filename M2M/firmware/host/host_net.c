@@ -38,6 +38,8 @@ uint32_t net_millis(void) { return (uint32_t)(host_time / (CPU_HZ / 1000)); }
 uint32_t sys_now(void) { return net_millis(); }
 uint32_t net_lock(void) { return 0; }
 void net_unlock(uint32_t dev) { (void)dev; }
+static int net_up;
+int  net_started(void) { return net_up; }
 
 uint32_t net_rand(void)
 {
@@ -371,6 +373,7 @@ void host_net_init(void)
    ip4_addr_t ip, mask, gw;
    ip_addr_t dns;
    lwip_init();
+   net_up = 1;
    IP4_ADDR(&ip, 10, 0, 0, 1);
    IP4_ADDR(&mask, 255, 255, 255, 0);
    IP4_ADDR(&gw, 10, 0, 0, 254);

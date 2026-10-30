@@ -89,6 +89,7 @@ port (
    ascal_mode_i         : in std_logic_vector(4 downto 0);
    ascal_mode_o         : out std_logic_vector(4 downto 0);
    keys_n_i             : in std_logic_vector(15 downto 0);
+   matrix_n_i           : in std_logic_vector(79 downto 0) := (others => '1');   -- every key, low active
    control_d_o          : out std_logic_vector(255 downto 0);
    control_m_o          : out std_logic_vector(255 downto 0);
    special_i            : in std_logic_vector(15 downto 0);
@@ -570,6 +571,7 @@ begin
    --   0x00 CSR (sysdef.asm M2M$CSR)    0x04 OSM x|y      0x08 OSM dx|dy
    --   0x0C ascal mode                  0x10 special (ro) 0x14 general (ro)
    --   0x18 keys, low active (ro)       0x1C RAMROM_DEV
+   --   0x20-0x28 every key, low active (ro): bit n of 0x20 + 4 * (n / 32) is key_num n
    --   0x40-0x5C control_d, 32 bits per register (bit 0 of 0x40 is bit 0)
    --   0x60-0x7C control_m, ditto
    -- Any other address the CPU uses is a bus error.
@@ -622,6 +624,9 @@ begin
                   when "000101" => reg_dat(15 downto 0) <= general_i;
                   when "000110" => reg_dat(15 downto 0) <= keys_n_i;
                   when "000111" => reg_dat(15 downto 0) <= ramrom_dev_o;
+                  when "001000" => reg_dat <= matrix_n_i(31 downto 0);
+                  when "001001" => reg_dat <= matrix_n_i(63 downto 32);
+                  when "001010" => reg_dat(15 downto 0) <= matrix_n_i(79 downto 64);
                   when "010000" | "010001" | "010010" | "010011" | "010100" | "010101" | "010110" | "010111" =>
                      reg_dat <= control_d_o(32 * v_idx + 31 downto 32 * v_idx);
                   when "011000" | "011001" | "011010" | "011011" | "011100" | "011101" | "011110" | "011111" =>

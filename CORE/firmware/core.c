@@ -7,6 +7,7 @@
 #include "fmt.h"
 #include "http.h"
 #include "m2m_rv.h"
+#include "net/netcfg.h"
 #include "reu.h"
 #include "roms.h"
 #include "uci.h"
@@ -29,9 +30,15 @@ const char *core_submenu_summary(int idx)
    static char line[32];
    int g;
 
-   // The Cartridge submenu's first menu group is the cartridge source
+   // The Cartridge submenu's first menu group is the cartridge source, the Network
+   // submenu's REST on or off
    while ((g = shell_group(++idx)) == 0)
       ;
+   if (g == OPTM_G_NET_REST) {
+      const char *ip = netcfg_live(NC_IP);
+      fmt_snprintf(line, sizeof line, " Net: %s", *ip ? ip : "no address");
+      return line;
+   }
    if (g != OPTM_G_CART || !shell_setting(OPTM_G_CART, CART_CRT) ||
        crtrom_csr_get(CRT_DEVICE, CRT_CSR_STATS) != 1)
       return NULL;
@@ -76,8 +83,102 @@ void core_sel_pre(int group, int item)
 
 void core_sel_post(int group, int item)
 {
-   (void)group;
    (void)item;
+   if (group == OPTM_G_NET_DHCP || group == OPTM_G_NET_REST)
+      netcfg_apply();
+}
+
+// --- the Network submenu's text items -----------------------------------------------------
+
+// Its address lines show what DHCP gave while DHCP is on, else the static address
+static int net_item(int group)
+{
+   switch (group) {
+   case OPTM_G_NET_HOST: return NC_HOST;
+   case OPTM_G_NET_PASS: return NC_PASS;
+   case OPTM_G_NET_IP:   return NC_IP;
+   case OPTM_G_NET_MASK: return NC_MASK;
+   case OPTM_G_NET_GW:   return NC_GW;
+   case OPTM_G_NET_DNS:  return NC_DNS;
+   default:              return -1;
+   }
+}
+
+static const char *net_value(int k)
+{
+   return k >= NC_IP && shell_setting(OPTM_G_NET_DHCP, 0) ? netcfg_live(k) : netcfg[k];
+}
+
+const char *core_item_text(int group)
+{
+   static char stars[32];
+   int k = net_item(group);
+   if (k < 0)
+      return NULL;
+   const char *v = net_value(k);
+   if (!*v)
+      return "<none>";
+   if (k != NC_PASS)
+      return v;
+   memset(stars, '*', strlen(v));
+   stars[strlen(v)] = 0;
+   return stars;
+}
+
+int core_text_item(int group, char *text, int *max)
+{
+   int k = net_item(group);
+   if (k < 0)
+      return 0;
+   *max = k < NC_IP ? 31 : 15;
+   strcpy(text, net_value(k));
+   return 1;
+}
+
+// The Network line's address, once DHCP gives one
+int core_menu_stale(void)
+{
+   static char last[16];
+   const char *ip = netcfg_live(NC_IP);
+   if (!strcmp(ip, last))
+      return 0;
+   strcpy(last, ip);
+   return 1;
+}
+
+// Four numbers of 0-255 with dots between (lwIP's ip4addr_aton also takes "1.2")
+static int dotted(const char *s)
+{
+   for (int part = 0; part < 4; part++) {
+      int n = 0, digits = 0;
+      while (*s >= '0' && *s <= '9' && digits < 4) {
+         n = n * 10 + *s++ - '0';
+         digits++;
+      }
+      if (!digits || digits > 3 || n > 255 || *s != (part < 3 ? '.' : 0))
+         return 0;
+      s++;
+   }
+   return 1;
+}
+
+// An address turns DHCP off, the others then as DHCP gave them. Typed in the menu, the
+// settings are kept at once, as the menu's own are when it closes.
+const char *core_text_done(int group, const char *text)
+{
+   int k = net_item(group);
+   if (k >= NC_IP && !dotted(text))
+      return "not an address";
+   if (k >= NC_IP && shell_setting(OPTM_G_NET_DHCP, 0)) {
+      for (int i = NC_IP; i <= NC_DNS; i++)
+         if (*netcfg_live(i))
+            strcpy(netcfg[i], netcfg_live(i));
+      shell_force(OPTM_G_NET_DHCP, 0, 0);
+   }
+   strcpy(netcfg[k], text);
+   netcfg_apply();
+   netcfg_save();
+   return NULL;
 }
 
 // Disk images for the drives, .crt files for the cartridge, .reu files for the REU; folders
@@ -195,8 +296,10 @@ int core_crtrom_loaded(int dev)
    return reu_file_picked();
 }
 
+// The network's settings from the card, in effect once the network starts
 const char *core_prep_start(void)
 {
+   netcfg_load();
    return NULL;
 }
 

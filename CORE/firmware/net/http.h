@@ -15,7 +15,8 @@ typedef enum { BODY_NONE, BODY_UNTIL_DISCONNECT, BODY_SIZE, BODY_CHUNKED } http_
 
 // A body's bytes for the route: size 0 ends it, -1 says the connection went first
 typedef int (*http_in_t)(void *ctx, const uint8_t *data, int size);
-// The response's body, a buffer at a time: 0 when there is no more
+// The response's body, a buffer at a time: 0 when there is no more, -1 for nothing yet (the
+// route's work goes on: asked again next round). buf NULL: the connection went, let go.
 typedef int (*http_out_t)(void *ctx, uint8_t *buf, int size);
 
 typedef struct {
@@ -50,6 +51,7 @@ typedef struct {
 } http_resp_t;
 
 void http_start(void);   // from the network's start
+void http_listen(int on); // port 80 open or closed (the menu's REST API item), in a turn or under net_lock
 void http_poll(void);    // from the main loop
 
 // The application (rest.c), called once a request's header is in: fills in resp, and maybe

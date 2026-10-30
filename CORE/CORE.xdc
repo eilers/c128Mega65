@@ -140,6 +140,13 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##                   C128-reset flag and the firmware's reset request the same way; the
 ##                   buffer is a dual-clock RAM.
 ##
+##   bus DMA         c128_dma.vhd: a job's address, length and direction are stable before
+##                   its toggle flips; the toggles, hold, done and status bits through ASYNC_REG
+##                   pairs; the buffer is a dual-clock RAM.
+##
+##   every key       m2m_keyb's 80-key matrix to the CPU through xpm_cdc_array_single, a bit
+##                   each, as the menu keys.
+##
 ## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
 ## logic of all of the above is still fully analysed.
 ##

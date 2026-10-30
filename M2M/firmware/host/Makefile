@@ -8,7 +8,8 @@ CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -I../include -I../lib -I../
 # loopback
 NET      := ../../../CORE/firmware/net
 LWIP     := $(wildcard $(NET)/lwip/core/*.c) $(wildcard $(NET)/lwip/core/ipv4/*.c) $(NET)/lwip/netif/ethernet.c
-NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(NET)/rest.c $(NET)/log.c $(LWIP)
+REST_SRC := $(NET)/rest.c $(NET)/rest_machine.c $(NET)/rest_configs.c $(NET)/multipart.c
+NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(REST_SRC) $(NET)/netcfg.c $(NET)/log.c $(LWIP)
 NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
 
 all: build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon build/test_modem build/test_http
@@ -36,6 +37,7 @@ build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/conf
 # The Ultimate Command Interface, its registers modelled in test_uci.c
 UCI_SRC := test_uci.c host_uci_model.c host_m2m.c host_reu_sd.c diskio_file.c ../../../CORE/firmware/uci.c \
            ../../../CORE/firmware/uci_dos.c ../../../CORE/firmware/uci_ctrl.c ../../../CORE/firmware/reu.c \
+           ../../../CORE/firmware/stores.c ../../../CORE/firmware/c128dma.c \
            ../fw/heap.c ../lib/fmt.c \
            ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
 build/test_uci: $(UCI_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h host_net.h ../../../CORE/firmware/uci.h \
@@ -61,10 +63,13 @@ build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) 
 	$(HOSTCC) $(CFLAGS) $(NET_FLAGS) $(filter %.c,$^) -o $@
 
 # The REST server with lwIP, against clients on a loopback (-serve: on a port of this Mac)
-build/test_http: test_http.c $(NET)/http.c $(NET)/rest.c $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h) \
+# The machine and configs routes on host_rest.c's fakes, with the real stores.c
+build/test_http: test_http.c host_rest.c $(NET)/http.c $(REST_SRC) ../../../CORE/firmware/stores.c \
+                 $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h) host_rest.h \
                  ../build/fw/config_ids.h ../build/fw/version.h
 	@mkdir -p build
-	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../include $(NET_FLAGS) -DMEMP_NUM_TCP_PCB=32 $(filter %.c,$^) -o $@
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../include -I../fatfs -I../../../CORE/firmware $(NET_FLAGS) \
+	          -DMEMP_NUM_TCP_PCB=32 $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build

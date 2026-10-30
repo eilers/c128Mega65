@@ -46,3 +46,4 @@ void menu_cursor_on(void);            // highlights the cursor's line
 int  menu_key(enum menu_key key);     // OPTM_RUN for one key; 1 = the menu closes
 int  menu_set(int idx, int on);       // OPTM_SET; returns the group item it deselected, or -1
 int  menu_visible(int idx);
+int  menu_line_y(int idx);            // the screen row of a visible line
