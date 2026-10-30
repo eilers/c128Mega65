@@ -56,6 +56,8 @@ module iec_drive #(parameter PARPORT=1,DRIVES=2)
 
    // input  [31:0] rom_file_ext,
    input         rom_loading,
+   input   [N:0] rom_reload,   // MEGA65: a pulse reloads drive i's ROM bank, holding it in reset
+   output  [N:0] rom_ready,    // MEGA65: drive i has its ROM
    output        rom_req,
    output [18:0] rom_addr,
    input   [7:0] rom_data,
@@ -160,6 +162,7 @@ wire [N+1:0] rom_wr_en;
 assign rom_io_addr[NDR] = 'X;
 assign rom_wr_en[NDR] = 0;
 assign rom_req = |rom_req_d;
+assign rom_ready = rom_valid;
 assign rom_addr = rom_io_addr[0];
 
 generate
@@ -173,6 +176,7 @@ generate
          .clk(clk),
          .reset(reset[i]),
          .rom_loading(rom_loading),
+         .rom_reload(rom_reload[i]),
 
          .empty8k(empty8k[i]),
          .rom_valid(rom_valid[i]),
