@@ -4,6 +4,7 @@ module iecdrv_rom
    input             clk,
    input             reset,
    input             rom_loading,
+   input             rom_reload,    // MEGA65: a pulse loads the bank again (a new drive ROM)
 
    output reg        empty8k,
    output reg        rom_valid = 0,
@@ -28,13 +29,14 @@ assign rom_req = ~(reset | rom_loading | rom_valid);
 reg [3:0] rom_bank_n = 0;
 
 always @(posedge clk_sys) begin
-   if (rom_loading)
+   // A reload in reset (a drive turned off) waits for the drive to come out of it
+   if (rom_loading || rom_reload)
       rom_valid <= 0;
 
    if (reset) begin
       rom_addr <= 0;
    end
-   else if (rom_bank != rom_bank_n) begin
+   else if (rom_bank != rom_bank_n || rom_reload) begin
       rom_valid  <= 0;
       rom_addr   <= 0;
       rom_bank_n <= rom_bank;
