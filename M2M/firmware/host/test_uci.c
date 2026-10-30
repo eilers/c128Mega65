@@ -595,9 +595,9 @@ static void cfg_tests(void)
 
    // Drives: power, the one 5.25" model, their addresses
    cfg("[Drive A Settings]\nDrive=Disabled\nDrive Type=1541\nDrive Bus ID=8\n"
-       "[Drive B Settings]\nDrive=Enabled\nDrive Bus ID= 9\nROM for 1541 mode=1541.rom\n");
-   want_data("LOAD_CONFIG: drives", "00,OK",
-             "Line 8: Item 'ROM for 1541 mode' not found in this store [Drive B Settings]; ignored.\n");
+       "[Drive B Settings]\nDrive=Enabled\nDrive Bus ID= 9\nROM for 1541 mode=1541.rom\nExtra RAM=Disabled\n");
+   want_data("LOAD_CONFIG: drives (his ROM item, not his Extra RAM)", "00,OK",
+             "Line 9: Item 'Extra RAM' not found in this store [Drive B Settings]; ignored.\n");
    check(drive_pow[0] == DRIVE_OFF && drive_pow[1] == DRIVE_ON, "drive A off, B on");
    check(settings[OPTM_G_DRV_MODEL][0] && !settings[OPTM_G_DRV_MODEL][1], "the model is 1541");
    cfg("[Drive A Settings]\nDrive Type=1571\n[Drive B Settings]\nDrive Type=1541\nDrive Bus ID=10\n"

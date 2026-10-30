@@ -90,10 +90,10 @@ constant C_MENU_REU_16M          : natural := 95;  -- REU: 16 MB, not on R3-memo
 constant C_MENU_R3_DROP          : natural := 2;   -- R3-memory builds have neither
 constant C_MENU_CART_HW          : natural := 103; -- Cartridge: hardware slot (default)
 constant C_MENU_CART_CRT         : natural := 104; -- Cartridge: virtual cartridge (.crt)
-constant C_MENU_MODEM_DE00       : natural := 112; -- Modem: SwiftLink at $DE00 (Off at 111 is the default)
-constant C_MENU_MODEM_DF00       : natural := 113; -- Modem: SwiftLink at $DF00, REU off
-constant C_MENU_MODEM_D700       : natural := 114; -- Modem: SwiftLink at $D700
-constant C_MENU_UCI              : natural := 117; -- UCI at $DF1C: Ultimate Command Interface (default off)
+constant C_MENU_MODEM_DE00       : natural := 114; -- Modem: SwiftLink at $DE00 (Off at 113 is the default)
+constant C_MENU_MODEM_DF00       : natural := 115; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 116; -- Modem: SwiftLink at $D700
+constant C_MENU_UCI              : natural := 119; -- UCI at $DF1C: Ultimate Command Interface (default off)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -231,9 +231,24 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- In case we are loading to a QNICE device, then the control and status register is located at the 4k window 0xFFFF.
 -- @TODO: See @TODO for more details about the control and status register
 -- In the order of their menu items.
-constant C_CRTROMS_MAN_NUM       : natural := 2;                                       -- amount of manually loadable ROMs and carts; maximum is 16
+-- The core's own (C_CRTROMTYPE_CORE): the firmware loads them (CORE/firmware/core.c), the second
+-- word says which.
+constant C_CRTROMS_MAN_NUM       : natural := 15;                                      -- amount of manually loadable ROMs and carts; maximum is 16
 constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"0000",      -- the REU's File:%s menu item
                                                          C_CRTROMTYPE_DEVICE, C_DEV_CRT,  -- the CRT:%s menu item
+                                                         C_CRTROMTYPE_CORE, x"0001",      -- Boot:%s, the .crt loaded at every start
+                                                         C_CRTROMTYPE_CORE, x"0010",      -- the ROMs submenu: C128 KERNAL:%s
+                                                         C_CRTROMTYPE_CORE, x"0011",      -- C128 BASIC:%s
+                                                         C_CRTROMTYPE_CORE, x"0012",      -- C64 KERNAL:%s
+                                                         C_CRTROMTYPE_CORE, x"0013",      -- C64 BASIC:%s
+                                                         C_CRTROMTYPE_CORE, x"0014",      -- Characters:%s
+                                                         C_CRTROMTYPE_CORE, x"0015",      -- Function ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"0016",      -- drive 8: 1541:%s
+                                                         C_CRTROMTYPE_CORE, x"0017",      -- 1571:%s
+                                                         C_CRTROMTYPE_CORE, x"0018",      -- 1581:%s
+                                                         C_CRTROMTYPE_CORE, x"0019",      -- drive 9: 1541:%s
+                                                         C_CRTROMTYPE_CORE, x"001A",      -- 1571:%s
+                                                         C_CRTROMTYPE_CORE, x"001B",      -- 1581:%s
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

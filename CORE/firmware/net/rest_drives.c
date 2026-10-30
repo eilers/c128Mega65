@@ -20,6 +20,7 @@
 #include "m2m_rv.h"
 #include "net.h"
 #include "rest_priv.h"
+#include "rompick.h"
 #include "roms.h"
 #include "stores.h"
 #include "uci.h"
@@ -123,9 +124,10 @@ static void drive_info(rest_t *r, int d)
    put(r, drive_running(d) ? "true" : "false");
    add_int(r, "bus_id", 8 + d);
    add_str(r, "type", types[stores_drive_type(d)]);
-   char rom[16];
-   fmt_snprintf(rom, sizeof rom, "%s.rom", types[stores_drive_type(d)]);
-   add_str(r, "rom", rom);
+   // The pick for its model, as his current_drive_rom: the stock one under his default name
+   int p = RP_DRV(d, stores_drive_type(d));
+   add_str(r, "rom", rompick_state(p) == RS_FAILED ? "Unable to load!" :
+                     *rompick_name(p) ? rompick_name(p) : rompick_default(p));
    add_str(r, "image_file", name);
    add_str(r, "image_path", path);
    obj_close(r);

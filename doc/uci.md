@@ -178,9 +178,13 @@ items and choices than an Ultimate:
 | | `REU Size` | `512 KB`, `2 MB`, `16 MB` (R3 memory: `512 KB`); while the REU is off it is kept for an `Enabled` later, as his item is; `Enabled` with no size known is his default, 2 MB (512 KB on R3 memory) |
 | | `REU Preload Image` | a path under `/SD/`: the REU's file, as one picked in the menu (not loaded); empty: none, so `/c128/preload.reu` |
 | | `Command Interface` | `Disabled`, `Enabled`; switched last, as once it is off the C128 can't read the reply |
+| | `Cartridge` | a `.crt` in `/c128/carts`, the boot cartridge, loaded at the next start; empty: none |
+| | `Alternate Kernal` | a file in `/c128/roms`: 8 KB (the C64 KERNAL) or 16 KB (with C64 BASIC); empty: stock |
+| `C128 ROM Settings` (the core's own) | `C128 Kernal ROM`, `C128 Basic ROM`, `C64 Basic ROM`, `Char ROM`, `Internal Function ROM` | a file in `/c128/roms` of the right size (16, 32, 8, 8, 16 or 32 KB); empty: stock, or no function ROM |
 | `Drive A Settings`, `Drive B Settings` | `Drive` | `Disabled`, `Enabled`: drive power off or on |
 | | `Drive Type` | `1541`, `1571`: the menu's one model for both drives, so a second, other one in the file is an error; `1581` only for a drive that is one (the internal floppy, a D81), which stays one |
 | | `Drive Bus ID` | `8` for A, `9` for B |
+| | `ROM for 1541 mode`, `ROM for 1571 mode`, `ROM for 1581 mode` | a file in `/c128/roms`, 16 or 32 KB; `1541.rom` etc.: stock. A drive running that model reloads it and resets |
 | `Modem Settings` | `ACIA (6551) Mapping` | `Off`, `DE00/NMI`, `DF00/NMI` (a SwiftLink: no IRQ choices) |
 | | `Modem Interface`, `Hardware Mode` | `ACIA / SwiftLink`, `SwiftLink`: nothing to change |
 
@@ -194,7 +198,10 @@ FILE HAD ERRORS`. After an error nothing changes: his firmware effectuates only 
 without one (it keeps the values, though, and they take effect with the next file that has
 none; here they are dropped). Like his, a last line without its line end isn't read. The
 changes are the menu's: saved with the settings when the menu next closes, as his are saved
-only when asked. LOAD_CONFIG doesn't reset the C128 for a REU change (Hardware). An
+only when asked; ROM and cartridge names go into `/c128/settings.cfg` with REST's
+`save_to_flash` or the next pick in the menu. A system ROM in the file (not a drive's) restarts
+the C128 as a pick in the menu does, so the program that sent the file gets no reply.
+LOAD_CONFIG doesn't reset the C128 for a REU change (Hardware). An
 Ultimate takes the interface off the bus for a few ms while a change of its C64 store takes
 effect, before the reply (`set_emulation_flags`); the core keeps it on. A program has to
 allow for that gap on an Ultimate: `test/uci`'s library checks `$DF1D` around each read of

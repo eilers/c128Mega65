@@ -394,6 +394,9 @@ signal main_ram_data_from    : unsigned(7 downto 0);
 signal main_ram_q            : std_logic_vector(7 downto 0);
 signal main_sysrom_addr      : std_logic_vector(16 downto 0);
 signal main_sysrom_data      : std_logic_vector(7 downto 0);
+-- The internal function ROM, in boot0.rom's device from 0x18000: 0 none, 1 16 KB, 2 32 KB
+signal qnice_funcrom_size    : std_logic_vector(1 downto 0) := "00";
+signal main_funcrom_size     : std_logic_vector(1 downto 0);
 
 -- Virtual drives: vdrives.vhd lives inside main.vhd but is addressed from here
 signal qnice_vd_ce           : std_logic;
@@ -821,6 +824,7 @@ begin
          ram_data_i           => main_ram_data_from,
          sys_rom_addr_o       => main_sysrom_addr,
          sys_rom_data_i       => main_sysrom_data,
+         func_rom_size_i      => main_funcrom_size,
 
          -- Expansion Port (aka Cartridge Port)
          cart_en_o            => cart_en_o,
@@ -1107,11 +1111,17 @@ begin
             qnice_c64_ramx_we   <= qnice_dev_we_i;
             qnice_c64_ramx_d_to <= qnice_dev_data_i(7 downto 0);
             qnice_dev_data_o    <= x"00" & qnice_c64_ramx_d_from;
+        -- boot0.rom, and the internal function ROM from 0x18000; its CSR window: register 0
+        -- the function ROM's size, 0 none, 1 16 KB, 2 32 KB
         when C_DEV_SYSTEM_ROM =>
             qnice_sysrom_addr <= qnice_dev_addr_i(16 downto 0);
-            qnice_sysrom_we   <= qnice_dev_we_i;
             qnice_sysrom_d_to <= qnice_dev_data_i(7 downto 0);
-            qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
+            if qnice_dev_addr_i(27 downto 12) = x"FFFF" then
+               qnice_dev_data_o  <= x"000" & "00" & qnice_funcrom_size;
+            else
+               qnice_sysrom_we   <= qnice_dev_we_i;
+               qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
+            end if;
         -- boot1.rom; its CSR window: register 0 R: bit i drive i has its ROM, W: bit i
         -- reloads drive i's bank, holding the drive in reset meanwhile (REST's load_rom)
         when C_DEV_DRIVE_ROM =>
@@ -1760,6 +1770,30 @@ begin
          wren_b          => '0',
          q_b             => main_sysrom_data
       );
+
+   p_funcrom_size : process (qnice_clk_i)
+   begin
+      if falling_edge(qnice_clk_i) then
+         if qnice_rst_i = '1' then
+            qnice_funcrom_size <= "00";
+         elsif qnice_dev_id_i = C_DEV_SYSTEM_ROM and qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
+               qnice_dev_addr_i(27 downto 0) = x"FFFF000" then
+            qnice_funcrom_size <= qnice_dev_data_i(1 downto 0);
+         end if;
+      end if;
+   end process p_funcrom_size;
+
+   -- Written while the C128 is held in reset
+   i_cdc_funcrom_size : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE => 2
+      )
+      port map (
+         src_clk_i  => qnice_clk_i,
+         src_data_i => qnice_funcrom_size,
+         dst_clk_i  => main_clk_o,
+         dst_data_o => main_funcrom_size
+      ); -- i_cdc_funcrom_size
 
    -- boot1.rom holds the six 32 kB drive DOS banks that iec_drive can ask for with DRIVES = 2
    -- (1541 x2, 1571 x2, 1581 x2), so the highest address it ever generates is 5 * 32768 + 32767

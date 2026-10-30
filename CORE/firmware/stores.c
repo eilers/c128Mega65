@@ -1,23 +1,27 @@
 // Gideon's configuration stores as the core has them (stores.h). The core is a machine with
 // fewer stores, items and choices than an Ultimate. Where it has one of his items, the item
 // has his name and type; its choices are the core's, under his names where he has the same.
+// The C128's own ROMs are in a store of ours, C128 ROM Settings.
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include "config_ids.h"
 #include "core.h"
 #include "drives.h"
+#include "fmt.h"
 #include "net/netcfg.h"
 #include "reu.h"
+#include "rompick.h"
 #include "stores.h"
 #include "uci.h"
 
 enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_MODEM_IF,
        I_MODEM_MAP, I_MODEM_HW, I_DHCP, I_REST, I_NET };   // I_NET + NC_*: netcfg's strings
+#define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
 static const char *const names[ST_COUNT] = {
    "C64 and Cartridge Settings", "Drive A Settings", "Drive B Settings", "Modem Settings",
-   "Ethernet Settings", "Network Settings"
+   "Ethernet Settings", "Network Settings", "C128 ROM Settings"
 };
 
 static const char *const en_dis[]      = { "Disabled", "Enabled", NULL };
@@ -27,8 +31,10 @@ static const char *const modem_ifs[]   = { "ACIA / SwiftLink", NULL };
 static const char *const acia_maps[]   = { "Off", "DE00/NMI", "DF00/NMI", "D700/NMI", NULL };   // the menu's 0-3
 static const char *const modem_hws[]   = { "SwiftLink", NULL };
 
-// In his stores' order; a string's max is his longest
+// In his stores' order; a string's max is his longest, a file's what the menu can pick
 const item_t stores_items[] = {
+   { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "" },
+   { ST_C64,     I_ROM + RP_K64, IT_FILE,   "Alternate Kernal",           NULL, 0, PICK_MAX - 1, 0, "" },
    { ST_C64,     I_REU,          IT_ENUM,   "RAM Expansion Unit",         en_dis,      0, 0, 0, NULL },
    { ST_C64,     I_REU_SIZE,     IT_ENUM,   "REU Size",                   reu_sizes,   0, 0, 1, NULL },
    { ST_C64,     I_REU_IMAGE,    IT_STRING, "REU Preload Image",          NULL, 0, UCI_PATH_MAX - 1, 0, "" },
@@ -36,9 +42,15 @@ const item_t stores_items[] = {
    { ST_DRIVE_A, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL },
    { ST_DRIVE_A, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL },
    { ST_DRIVE_A, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 8, 8, NULL },
+   { ST_DRIVE_A, I_ROM + RP_DRV(0, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom" },
+   { ST_DRIVE_A, I_ROM + RP_DRV(0, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom" },
+   { ST_DRIVE_A, I_ROM + RP_DRV(0, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom" },
    { ST_DRIVE_B, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL },
    { ST_DRIVE_B, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL },
    { ST_DRIVE_B, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        9, 9, 9, NULL },
+   { ST_DRIVE_B, I_ROM + RP_DRV(1, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom" },
+   { ST_DRIVE_B, I_ROM + RP_DRV(1, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom" },
+   { ST_DRIVE_B, I_ROM + RP_DRV(1, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom" },
    { ST_MODEM,   I_MODEM_IF,     IT_ENUM,   "Modem Interface",            modem_ifs,   0, 0, 0, NULL },
    { ST_MODEM,   I_MODEM_MAP,    IT_ENUM,   "ACIA (6551) Mapping",        acia_maps,   0, 0, 0, NULL },
    { ST_MODEM,   I_MODEM_HW,     IT_ENUM,   "Hardware Mode",              modem_hws,   0, 0, 0, NULL },
@@ -50,14 +62,22 @@ const item_t stores_items[] = {
    { ST_NET,     I_NET + NC_HOST,IT_STRING, "Host Name",                  NULL, 0, 31, 0, "c128-mega65" },
    { ST_NET,     I_NET + NC_PASS,IT_PASS,   "Network Password",           NULL, 0, 31, 0, "" },
    { ST_NET,     I_REST,         IT_ENUM,   "Web Remote Control Service", en_dis,      0, 0, 1, NULL },
+   // Ours: empty is the stock ROM (rompick.h)
+   { ST_ROMS,    I_ROM + RP_K128,IT_FILE,   "C128 Kernal ROM",            NULL, 0, PICK_MAX - 1, 0, "" },
+   { ST_ROMS,    I_ROM + RP_B128,IT_FILE,   "C128 Basic ROM",             NULL, 0, PICK_MAX - 1, 0, "" },
+   { ST_ROMS,    I_ROM + RP_B64, IT_FILE,   "C64 Basic ROM",              NULL, 0, PICK_MAX - 1, 0, "" },
+   { ST_ROMS,    I_ROM + RP_CHAR,IT_FILE,   "Char ROM",                   NULL, 0, PICK_MAX - 1, 0, "" },
+   { ST_ROMS,    I_ROM + RP_FUNC,IT_FILE,   "Internal Function ROM",      NULL, 0, PICK_MAX - 1, 0, "" },
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
 // What a change asks for, -1 where it says nothing; strings in their own buffers
 static struct {
-   int8_t reu, size, image, uci, power[2], model, modem, dhcp, rest, net[NC_COUNT];
+   int8_t reu, size, image, uci, power[2], model, modem, dhcp, rest, net[NC_COUNT], rom[RP_COUNT];
 } want;
 static char    want_str[NC_COUNT][32];
+static char    want_rom[RP_COUNT][PICK_MAX];
+static int8_t  power_kept[2] = { -1, -1 };   // Drive as REST or LOAD_CONFIG set it, -1 never: in the file
 static char    want_image[UCI_PATH_MAX];
 static char    shown[UCI_PATH_MAX + 4];   // item_text's
 static int8_t  reu_kept;                  // the REU's size while it is off, as his REU Size
@@ -135,9 +155,16 @@ int item_get(const item_t *it)
    }
 }
 
+int item_pick(const item_t *it)
+{
+   return it->id - I_ROM;
+}
+
 // The REU image as an Ultimate shows a file on its card, under /SD
 const char *item_text(const item_t *it)
 {
+   if (it->type == IT_FILE)
+      return rompick_name(item_pick(it));
    if (it->id == I_REU_IMAGE) {
       if (!reu_file_picked())
          return "";
@@ -239,12 +266,16 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
       return WANT_OK;
    default: {
       // His setString: cut to the longest, its last character then a '*'
-      int k = it->id - I_NET;
-      strncpy(want_str[k], v, it->max);
-      want_str[k][it->max] = 0;
+      int k = it->type == IT_FILE ? item_pick(it) : it->id - I_NET;
+      char *to = it->type == IT_FILE ? want_rom[k] : want_str[k];
+      strncpy(to, v, it->max);
+      to[it->max] = 0;
       if ((int)strlen(v) > it->max)
-         want_str[k][it->max - 1] = '*';
-      want.net[k] = 1;
+         to[it->max - 1] = '*';
+      if (it->type == IT_FILE)
+         want.rom[k] = 1;
+      else
+         want.net[k] = 1;
       return WANT_OK;
    }
    }
@@ -271,8 +302,14 @@ static int saved_pos(int group, int n)
    return 0;
 }
 
-// What the settings file and network.cfg hold; items with no home on the card (drive power,
-// the REU's image) stay as they are
+// The items the settings file keeps
+static int in_file(const item_t *it)
+{
+   return it->type >= IT_STRING || it->id == I_DRIVE;
+}
+
+// What the menu's settings file and the settings file hold; drive power the file doesn't
+// name stays as it is
 void stores_want_saved(int s)
 {
    int n, v;
@@ -294,11 +331,11 @@ void stores_want_saved(int s)
       case I_DHCP:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_DHCP, 0)], 0, &n); break;
       case I_REST:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_REST, 0)], 0, &n); break;
       default:
-         if (it->id >= I_NET)
+         if (in_file(it) && it->type != IT_ENUM)
             stores_want(it, it->sdef, 0, &n);
       }
    }
-   if ((s == ST_ETH || s == ST_NET) && f_open(&f, NETCFG_FILE, FA_READ) == FR_OK) {
+   if (f_open(&f, SETTINGS_FILE, FA_READ) == FR_OK) {
       stores_read(&f, 1u << s, no_log);
       f_close(&f);
    }
@@ -307,7 +344,7 @@ void stores_want_saved(int s)
 void stores_net_defaults(void)
 {
    for (int i = 0; i < stores_count; i++)
-      if (stores_items[i].id >= I_NET)
+      if (stores_items[i].id >= I_NET && stores_items[i].id < I_ROM)   // not the ROMs after them
          strcpy(netcfg[stores_items[i].id - I_NET], stores_items[i].sdef);
 }
 
@@ -340,8 +377,10 @@ int stores_apply(void)
       done = 0;
 
    for (int d = 0; d < 2; d++)
-      if (want.power[d] >= 0)
+      if (want.power[d] >= 0) {
          drive_power(d, want.power[d] ? DRIVE_ON : DRIVE_OFF);
+         power_kept[d] = want.power[d];
+      }
    if (want.model >= 0)
       shell_force(OPTM_G_DRV_MODEL, want.model, 1);
    if (want.modem >= 0)
@@ -365,6 +404,13 @@ int stores_apply(void)
       }
    if (net)
       netcfg_apply();
+   uint32_t roms = 0;
+   for (int p = 0; p < RP_COUNT; p++)
+      if (want.rom[p] >= 0 && strcmp(rompick_name(p), want_rom[p])) {
+         rompick_set(p, want_rom[p]);
+         roms |= 1u << p;
+      }
+   rompick_apply(roms);
    if (want.uci >= 0)                            // last: once it is off, a UCI reply can't be read
       shell_force(OPTM_G_UCI, 0, want.uci);
    for (int s = 0; s < ST_COUNT; s++)
@@ -476,4 +522,46 @@ int stores_read(FIL *f, unsigned mask, void (*log)(const char *fmt, ...))
       }
    }
    return good;
+}
+
+// --- the settings file --------------------------------------------------------------------
+
+// Every item it names, wanted and in effect; what it doesn't name keeps its default. Read at
+// the start, so nothing in it is a change REST's save_to_flash would write back.
+int stores_load(void)
+{
+   FIL f;
+   stores_net_defaults();
+   if (f_open(&f, SETTINGS_FILE, FA_READ) != FR_OK)
+      return -1;
+   stores_begin();
+   stores_read(&f, ~0u, no_log);
+   f_close(&f);
+   stores_apply();
+   for (int s = 0; s < ST_COUNT; s++)
+      stores_saved(s);
+   return 0;
+}
+
+int stores_save(void)
+{
+   FIL f;
+   char line[UCI_PATH_MAX + 80];
+   UINT put;
+   int last = -1, ok = 1;
+   if (f_open(&f, SETTINGS_FILE, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
+      return -1;
+   for (int i = 0; i < stores_count && ok; i++) {
+      const item_t *it = &stores_items[i];
+      int d = it->store == ST_DRIVE_B, n = 0;
+      if (!in_file(it) || (it->id == I_DRIVE && power_kept[d] < 0))
+         continue;
+      if (it->store != last)
+         n = fmt_snprintf(line, sizeof line, "[%s]\n", names[it->store]);
+      last = it->store;
+      n += fmt_snprintf(line + n, sizeof line - n, "%s=%s\n", it->name,
+                        it->id == I_DRIVE ? en_dis[power_kept[d]] : item_text(it));
+      ok = f_write(&f, line, n, &put) == FR_OK && put == (UINT)n;
+   }
+   return f_close(&f) == FR_OK && ok ? 0 : -1;
 }

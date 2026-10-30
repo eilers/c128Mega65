@@ -162,14 +162,14 @@ uint16_t crtrom_dev(int k)
    return sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * k + 1);
 }
 
-static int core_type(int k)
+int crtrom_core(int k)
 {
    return sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * k) == TYPE_CORE;
 }
 
 int crtrom_loaded(int k)
 {
-   if (core_type(k))
+   if (crtrom_core(k))
       return core_crtrom_loaded(crtrom_dev(k));
    return crtrom_csr_get(crtrom_dev(k), CSR_STATUS) == CSR_ST_OK;
 }
@@ -280,11 +280,11 @@ int crtrom_load(int k, const char *path, int group, const char **msg)
    FIL f;
 
    *msg = 0;
-   if (!core_type(k))
+   if (!crtrom_core(k))
       crtrom_csr_set(dev, CSR_STATUS, CSR_ST_LOADING);
    FRESULT r = f_open(&f, path, FA_READ);
    if (r != FR_OK) {
-      if (!core_type(k))
+      if (!crtrom_core(k))
          crtrom_csr_set(dev, CSR_STATUS, CSR_ST_ERR);
       shell_fatal("File selected in the browser not found.\n", r);
    }
@@ -294,7 +294,7 @@ int crtrom_load(int k, const char *path, int group, const char **msg)
       return err;
    }
    progress_start(size);
-   if (core_type(k)) {
+   if (crtrom_core(k)) {
       f_close(&f);
       return core_crtrom_load(dev, path, msg);
    }

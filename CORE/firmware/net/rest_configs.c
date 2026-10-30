@@ -2,7 +2,7 @@
 // II+L's 3.15a has the same, but for the order of an enumeration's values, which is the
 // same here) on the core's stores (stores.c), with his texts and his JSON layout. A change
 // is in effect at once and lives in memory until save_to_flash, as his: the menu's items
-// then go into the settings file, the network's strings into network.cfg.
+// then go into the menu's settings file, the rest into the settings file.
 #include <stdlib.h>
 #include <string.h>
 #include "core.h"
@@ -10,6 +10,7 @@
 #include "heap.h"
 #include "netcfg.h"
 #include "rest_priv.h"
+#include "rompick.h"
 #include "stores.h"
 #define JSMN_STATIC
 #define JSMN_STRICT 1
@@ -30,6 +31,14 @@ static void current(rest_t *r, const item_t *it, const char *k)
       add_int(r, k, item_get(it));
    else
       add_str(r, k, item_text(it));
+}
+
+typedef struct { rest_t *r; int n; } presets_t;
+
+static void preset(const char *name, void *ctx)
+{
+   presets_t *ps = ctx;
+   list_str(ps->r, ps->n++, name);
 }
 
 // His emit_store: a store's items, or with an item pattern each matching one in full
@@ -60,6 +69,16 @@ static void emit_store(rest_t *r, int s, const char *pattern)
          add_int(r, "max", it->max);
          add_str(r, "format", "%d");
          add_int(r, "default", it->def);
+      } else if (it->type == IT_FILE) {
+         // His preset functions: the files of the right kind, after an empty one where that
+         // is the default
+         presets_t ps = { r, 0 };
+         list_open(r, "presets");
+         if (!*it->sdef)
+            list_str(r, ps.n++, "");
+         rompick_list(item_pick(it), preset, &ps);
+         list_close(r, ps.n);
+         add_str(r, "default", it->sdef);
       } else {
          add_str(r, "default", it->sdef);
       }
@@ -316,25 +335,23 @@ static void put_load(rest_t *r)
 }
 
 // Only stores with changes, as his is_flash_stale; the menu's items go into its settings
-// file, the network's strings into network.cfg
+// file, the rest into the settings file
 static void put_save(rest_t *r)
 {
    if (!depth_ok(r))
       return;
-   int n = 0, menu = 0, net = 0;
+   int n = 0;
    list_open(r, "written");
    for (int s = 0; s < ST_COUNT; s++)
       if (matches(r, s) && stores_stale(s)) {
-         menu = 1;
-         net |= s == ST_ETH || s == ST_NET;
          stores_saved(s);
          list_str(r, n++, store_name(s));
       }
    list_close(r, n);
-   if (menu)
+   if (n) {
       shell_save_settings();
-   if (net)
-      netcfg_save();
+      stores_save();
+   }
    json_response(r, HTTP_OK);
 }
 

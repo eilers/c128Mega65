@@ -12,7 +12,8 @@ enum browse_result {
 };
 
 // Start browsing for the menu item of group (ctx: CTX_* in core.h). A new caller starts
-// in config.vhd's start folder; the same caller again goes on where it left off.
+// in config.vhd's start folder, or the core's root for the item; the same caller again goes
+// on where it left off.
 void               browse_open(int ctx, int group, int caller);
 void               browse_reset(void);          // forget where we were (FB_RE_INIT)
 enum browse_result browse_key(uint32_t key);    // a key, or 0; polled while browsing

@@ -19,7 +19,9 @@ uint8_t c128_mem[65536];
 int     dma_held_v, dma_z80_v, dma_polls = 3, dma_jobs, dma_stops;
 int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], int1581 = -1, mounts, remaps;
 char    drv_card[2][256];
-uint16_t *drive_rom, *crt_mem;
+uint16_t *drive_rom, *crt_mem, *sys_rom;
+uint32_t  csr_reg = 0x0038;            // M2M_CSR: keyboard and joysticks, out of reset
+int       func_size = -1, c128_resets;  // the function ROM's CSR; resets by a ROM change
 int     rom_reloads[2], crt_loads, crt_parsed;
 char    crt_shown[256];
 int     c128_basic, c128_c64, boot_never, c64_cart, typed_run;
@@ -27,7 +29,7 @@ char    typed[64];
 static enum drive_power power[2];
 static int ready_calls[2], rom_wait[2], reset_pend, z80_left, boot_left;
 static uint32_t ramrom;
-int     menu_buttons, menu_open, reboots, saves, net_applies, net_saves;
+int     menu_buttons, menu_open, reboots, saves, net_applies;
 uint8_t settings[32][8], saved[32][8];
 int     drive_on[2] = { 1, 1 };
 char    reu_path[256];
@@ -289,6 +291,8 @@ uint16_t crtrom_csr_get(uint16_t dev, int reg)
 
 void crtrom_csr_set(uint16_t dev, int reg, uint16_t v)
 {
+   if (dev == 0x0101 && reg == 0)
+      func_size = v;
    if (dev == 0x0102 && reg == 0)
       for (int d = 0; d < 2; d++)
          if (v >> d & 1) {
@@ -342,6 +346,14 @@ int crtrom_load_quiet(int k, const char *path, int group, const char **msg)
 
 volatile uint32_t *host_rest_reg32(uint32_t a)
 {
+   // M2M_CSR: a write that holds the C128 in reset counts as a reset
+   static uint32_t csr_was;
+   if (a == 0xE0000000u) {
+      if ((csr_reg & 1) && !(csr_was & 1))
+         c128_resets++;
+      csr_was = csr_reg;
+      return (volatile uint32_t *)&csr_reg;
+   }
    if (a != 0xE000001Cu) {
       fprintf(stderr, "test_http: register %08X\n", a);
       exit(2);
@@ -351,6 +363,8 @@ volatile uint32_t *host_rest_reg32(uint32_t a)
 
 volatile uint16_t *host_rest_dev(void)
 {
+   if (ramrom == 0x0101)
+      return sys_rom;
    if (ramrom == 0x0102)
       return drive_rom;
    if (ramrom == 0x0106)
@@ -378,7 +392,6 @@ const char *uci_card_path(const char *name, char *out)
 }
 
 void netcfg_apply(void) { net_applies++; }
-int  netcfg_save(void) { net_saves++; return 0; }
 
 // The card
 int disk_file_open(const char *path);
@@ -395,6 +408,7 @@ void host_rest_init(void)
 {
    if (!drive_rom) {
       drive_rom = calloc(6 * 32768, sizeof *drive_rom);
+      sys_rom = calloc(128 << 10, sizeof *sys_rom);
       crt_mem = calloc(4 << 20, sizeof *crt_mem);
    }
    memset(settings, 0, sizeof settings);

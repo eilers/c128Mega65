@@ -85,6 +85,9 @@ entity main is
      ram_data_i               : in unsigned(7 downto 0);      -- RAM data in
       sys_rom_addr_o           : out std_logic_vector(16 downto 0);
       sys_rom_data_i           : in  std_logic_vector(7 downto 0);
+      -- The internal function ROM, in the system ROM from 0x18000: 0 none, 1 16 KB (at $8000),
+      -- 2 32 KB (and at $C000)
+      func_rom_size_i          : in  std_logic_vector(1 downto 0) := "00";
 
       -- Expansion Port (aka Cartridge Port). The MEGA65's slot is electrically a C64
       -- expansion port, so it takes both C64 and C128 cartridges.
@@ -317,6 +320,10 @@ signal core_ram_addr     : unsigned(17 downto 0);
 signal sysrom_cs         : std_logic;
 signal sysrom_bank       : unsigned(4 downto 0);
 signal sysrom_data       : unsigned(7 downto 0);
+signal core_romfl        : std_logic;   -- the MMU selects the internal function ROM, $8000-$BFFF
+signal core_romfh        : std_logic;   -- $C000-$FFFF
+signal funcrom_cs        : std_logic;   -- and that half is there
+signal funcrom_float     : std_logic;   -- or isn't: the bus floats, as on MiSTer
 -- MiSTer SDRAM latches addr at ce rise; hold BRAM addr during burst, always drive read data to CPU.
 signal sysrom_cs_d       : std_logic := '0';
 signal sysrom_data_r     : unsigned(7 downto 0) := (others => '0');
@@ -1757,7 +1764,9 @@ end process;
 -- SDRAM expects, latching addr at ce), so no address/data holding shim is needed here.
 -- What the C128 itself puts on the data bus. Deliberately free of any dependency on ram_data so
 -- that feeding it to the cartridge's data bus cannot create a combinational loop.
-machine_data <= unsigned(sys_rom_data_i) when sysrom_cs = '1' else ram_data_i;
+funcrom_cs    <= (core_romfl and (func_rom_size_i(0) or func_rom_size_i(1))) or (core_romfh and func_rom_size_i(1));
+funcrom_float <= (core_romfl or core_romfh) and not funcrom_cs;
+machine_data  <= unsigned(sys_rom_data_i) when sysrom_cs = '1' or funcrom_cs = '1' else ram_data_i;
 
 cpu_data_in_proc: process (all)
   begin
@@ -1765,7 +1774,10 @@ cpu_data_in_proc: process (all)
 
     -- We are emulating what is written here: https://www.c64-wiki.com/wiki/Reset_Button
     -- and avoid that the KERNAL ever sees the CBM80 signature during hard reset reset.
-    if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' then
+    -- Not a virtual cartridge's: a hard reset turns it off, so it is only on here when a file
+    -- was loaded since, the boot cartridge, which must start.
+    if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' and
+       crt_active = '0' then
       ram_data <= x"00";
     -- A cartridge in the slot answers the read instead of RAM/ROM. The C128's bus logic routes
     -- ROML/ROMH reads (both the C64 cartridge windows and the C128's External Function ROM)
@@ -1796,7 +1808,9 @@ cpu_data_in_proc: process (all)
 -- ramCE here: Z80 latch writes miss the CE strobe.
 ram_we_o <= ram_we;
 ram_data_o <= core_ram_data_out;
-sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
+-- The function ROM's halves at 0x18000 and 0x1C000
+sys_rom_addr_o <= "11" & core_romfh & std_logic_vector(core_ram_addr(13 downto 0)) when core_romfl = '1' or core_romfh = '1' else
+                  std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= core_ram_addr;
 sysrom_data <= unsigned(sys_rom_data_i);
 joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
@@ -1969,8 +1983,8 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ramWE         => ram_we,
       systemWe_o    => system_we,
       -- Reads answered by a hardware cartridge are substituted into ramDin (see cpu_data_in_proc),
-      -- so from the bus logic's point of view the data bus is never floating.
-      ramDinFloat   => '0',
+      -- so from the bus logic's point of view the data bus floats only for a missing function ROM.
+      ramDinFloat   => funcrom_float,
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
       ext_cycle     => core_ext_cycle, -- the REU's RAM slot in every C128 cycle
@@ -2024,8 +2038,8 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       nmi_ack       => core_nmi_ack,   -- output
       -- Internal Function ROM selects. These live in a socket inside the C128, not on the
       -- expansion port, so a hardware cartridge never drives them.
-      romFL         => open,           -- output
-      romFH         => open,           -- output
+      romFL         => core_romfl,     -- output
+      romFH         => core_romfh,     -- output
       romL          => core_roml,      -- output. CPU access to 0x8000-0x9FFF
       romH          => core_romh,      -- output. CPU access to 0xA000-0xBFFF or 0xE000-0xFFFF (ultimax)
       UMAXromH      => core_umax_romh, -- output

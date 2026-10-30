@@ -29,7 +29,7 @@ static uint8_t is_mount[MENU_MAX];   // drive number + 1, or 0
 static uint8_t is_crtrom[MENU_MAX];  // CRT/ROM number + 1, or 0
 static uint8_t is_help[MENU_MAX];    // help screen (WHS record) number, or 0
 
-#define CRTROM_MAX   4               // CRT/ROM items in the menu
+#define CRTROM_MAX   16              // CRT/ROM items in the menu (C_CRTROMS_MAN's most)
 #define NAME_MAX     32              // a file's name as the menu shows it, cut
 
 static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_CLOSING } ui;
@@ -336,7 +336,9 @@ static void show(int idx, const char *line, char *out)
    }
    if (is_crtrom[idx]) {
       int k = is_crtrom[idx] - 1;
-      if (crt_loaded[k])
+      if (crtrom_core(k) && (custom = core_crtrom_text(crtrom_dev(k))))
+         replace_s(line, custom, out, max);
+      else if (crt_loaded[k])
          replace_s(line, crt_name[k], out, max);
       else {
          cfg_str(CFG_OPTM_CRSTR, with, sizeof with);
@@ -460,6 +462,16 @@ static void select(uint16_t group, int item, enum menu_key key)
    if (is_mount[idx] && key == MENU_KEY_SELALT && drive_mounted(is_mount[idx] - 1)) {
       drive_unmount(is_mount[idx] - 1);
       menu_set(idx, 0);
+      selected(group, item);
+      menu_show();
+      return;
+   }
+   // Space on a CRT/ROM item of the core's may empty it instead
+   if (is_crtrom[idx] && key == MENU_KEY_SELALT && crtrom_core(is_crtrom[idx] - 1) &&
+       core_crtrom_clear(crtrom_dev(is_crtrom[idx] - 1))) {
+      int k = is_crtrom[idx] - 1;
+      crt_loaded[k] = crtrom_loaded(k);
+      menu_set(idx, crt_loaded[k]);
       selected(group, item);
       menu_show();
       return;
@@ -684,6 +696,12 @@ void shell_force(int group, int pos, int on)
    int i = shell_item(group, pos);
    if (i < 0)
       return;
+   // The group's other items off in the settings too: the menu's own copy (menu.sel) is only
+   // what it showed when it was last open, all off before it ever was (a boot cartridge)
+   if (on && !(menu.group[i] & MENU_SINGLESEL))
+      for (int k = 0; k < menu.n; k++)
+         if (k != i && (int)(menu.group[k] & MENU_ID) == group)
+            setting_set(k, 0);
    setting_set(i, on);
    int old = menu_set(i, on);
    if (old >= 0)

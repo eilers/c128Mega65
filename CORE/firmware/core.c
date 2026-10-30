@@ -9,12 +9,19 @@
 #include "m2m_rv.h"
 #include "net/netcfg.h"
 #include "reu.h"
+#include "rompick.h"
 #include "roms.h"
+#include "stores.h"
 #include "uci.h"
 
 // Internal 1581: Off, Drive 8, Drive 9. Cartridge: Hardware, CRT file.
 #define INT1581_OFF 0
 #define CART_CRT    1
+
+// C_CRTROMS_MAN's core items (globals.vhd): the REU's file, the boot cartridge, the ROMs
+#define DEV_REU     0x0000
+#define DEV_BOOT    0x0001
+#define DEV_ROM     0x0010         // + the pick
 
 #define CRT_DEVICE        0x0106   // C_DEV_CRT (globals.vhd), its CSR (sw_cartridge_csr.vhd):
 #define CRT_CSR_MAX_HI    0x020    // the largest .crt file it takes, in 64 kB
@@ -34,6 +41,12 @@ const char *core_submenu_summary(int idx)
    // submenu's REST on or off
    while ((g = shell_group(++idx)) == 0)
       ;
+   if (g == OPTM_G_ROM_K128) {
+      int custom = 0;
+      for (int p = 0; p < RP_BOOT; p++)
+         custom |= rompick_state(p) != RS_STOCK;
+      return custom ? " ROMs: Custom" : " ROMs: Stock";
+   }
    if (g == OPTM_G_NET_REST) {
       const char *ip = netcfg_live(NC_IP);
       fmt_snprintf(line, sizeof line, " Net: %s", *ip ? ip : "no address");
@@ -177,22 +190,86 @@ const char *core_text_done(int group, const char *text)
    }
    strcpy(netcfg[k], text);
    netcfg_apply();
-   netcfg_save();
+   stores_save();
    return NULL;
 }
 
-// Disk images for the drives, .crt files for the cartridge, .reu files for the REU; folders
-// always
-int core_filter_file(const char *name, int dir, int ctx, int group)
+// --- the ROMs submenu and the boot cartridge (rompick.h) ----------------------------------
+
+// The pick of a menu group's line, or of a core item's C_CRTROMS_MAN word; or -1
+static int pick_of_group(int group)
+{
+   if (group == OPTM_G_CRT_BOOT)
+      return RP_BOOT;
+   return group >= OPTM_G_ROM_K128 && group <= OPTM_G_ROM_D9_81 ? group - OPTM_G_ROM_K128 : -1;
+}
+
+static int pick_of_dev(int dev)
+{
+   if (dev == DEV_BOOT)
+      return RP_BOOT;
+   return dev >= DEV_ROM && dev < DEV_ROM + RP_BOOT ? dev - DEV_ROM : -1;
+}
+
+// A pick's browser stays in its folder
+const char *core_browse_root(int ctx, int group)
+{
+   int p = pick_of_group(group);
+   return ctx == CTX_LOAD_ROM && p >= 0 ? rompick_dir(p) : NULL;
+}
+
+// A pick's line without its file: Stock, None, or <Error> for a file that wouldn't load
+const char *core_crtrom_text(int dev)
+{
+   int p = pick_of_dev(dev);
+   if (p < 0 || rompick_state(p) == RS_FILE)
+      return NULL;
+   if (rompick_state(p) == RS_FAILED)
+      return "<Error>";
+   return p == RP_BOOT ? "<None>" : p == RP_FUNC ? "None" : "Stock";
+}
+
+// Space on a pick's line: back to stock, kept at once
+int core_crtrom_clear(int dev)
+{
+   int p = pick_of_dev(dev);
+   if (p < 0)
+      return 0;
+   if (p == RP_BOOT)
+      rompick_set(p, "");
+   else
+      rompick_unset(p);
+   rompick_apply(1u << p);
+   stores_save();
+   return 1;
+}
+
+// The sizes a pick takes, for its messages
+static const char *sizes(int p)
+{
+   static char s[24];
+   int n = 0;
+   for (uint32_t k = 8; k <= 32; k *= 2)
+      if (rompick_fits(p, k << 10))
+         n += fmt_snprintf(s + n, sizeof s - n, n ? " or %u" : "%u", (unsigned)k);
+   fmt_snprintf(s + n, sizeof s - n, " KB");
+   return s;
+}
+
+// Disk images for the drives, .crt files for the cartridge, .reu files for the REU, files of
+// the right size for a ROM; folders always
+int core_filter_file(const char *name, int dir, int ctx, int group, uint32_t size)
 {
    static const char *const disk[] = { ".D64", ".D71", ".D81", NULL }, *const crt[] = { ".CRT", NULL },
                      *const reu[] = { ".REU", NULL };
    const char *const *ext = ctx == CTX_MOUNT_DISKIMG ? disk :
                             ctx == CTX_LOAD_ROM ? (group == OPTM_G_REU_FILE ? reu : crt) : NULL;
-   int len = strlen(name);
+   int len = strlen(name), p = pick_of_group(group);
 
    if (dir || !ext)
       return 0;
+   if (ctx == CTX_LOAD_ROM && p >= 0 && p != RP_BOOT)
+      return !rompick_fits(p, size);
    for (; *ext; ext++)
       if (len >= 4 && !strcmp(name + len - 4, *ext))
          return 0;
@@ -232,6 +309,15 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
       *msg = "\n\nThe REU is off. Choose its size above\nfirst.\n\nPress SPACE to continue.\n";
       return 1;
    }
+   int p = pick_of_group(group);
+   if (ctx == CTX_LOAD_ROM && p >= 0 && p != RP_BOOT) {
+      static char m[96];
+      if (rompick_fits(p, size))
+         return 0;
+      fmt_snprintf(m, sizeof m, "\n\nThis line takes a ROM of %s.\n\nPress SPACE to continue.\n", sizes(p));
+      *msg = m;
+      return 1;
+   }
    if (ctx == CTX_LOAD_ROM && size > (uint32_t)crtrom_csr_get(CRT_DEVICE, CRT_CSR_MAX_HI) << 16) {
       *msg = "\n\nThis .crt file is too large. A virtual\ncartridge can be up to 4 MB, or 2 MB on\n"
              "an R3 board.\n\nPress SPACE to continue.\n";
@@ -243,8 +329,19 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
 // The folder the user browsed into holds nothing for this menu item
 const char *core_custom_msg(int situation, int ctx, int group)
 {
+   static char m[200];
+   int p = pick_of_group(group);
    if (situation != CMSG_BROWSENOTHING)
       return NULL;
+   if (ctx == CTX_LOAD_ROM && p == RP_BOOT)
+      return "No .crt cartridge files in /c128/carts.\n\nCopy the C64 or C128 .crt files to\n"
+             "start with to /c128/carts on this SD\ncard.\n\nPress Space to continue.";
+   if (ctx == CTX_LOAD_ROM && p >= 0) {
+      fmt_snprintf(m, sizeof m, "No ROM files of %s in /c128/roms.\n\n"
+                   "Copy ROM files to /c128/roms on this\nSD card. A line shows the files of its\n"
+                   "size only.\n\nPress Space to continue.", sizes(p));
+      return m;
+   }
    if (ctx == CTX_LOAD_ROM && group == OPTM_G_REU_FILE)
       return "No .reu files here.\n\nCopy REU image files (.reu) to any\n"
              "folder of this SD card, for example\n/c128.\n\nPress Space to continue.";
@@ -261,13 +358,11 @@ const char *core_custom_msg(int situation, int ctx, int group)
    return NULL;
 }
 
-// The REU's File:%s item (C_CRTROMS_MAN's core-loaded item 0): the file goes into the REU at
-// once, as much as the REU holds, and LOAD_REU and SAVE_REU use it from then on. One that
-// fails part of the way leaves no file picked.
-int core_crtrom_load(int dev, const char *path, const char **msg)
+// The REU's file: into the REU, as much as it holds, and LOAD_REU and SAVE_REU use it from then
+// on. One that fails part of the way leaves no file picked. bar: the menu's progress bar.
+static int reu_load(const char *path, int bar, const char **msg)
 {
    FIL f;
-   (void)dev;
    reu_file_set(NULL);
    FRESULT res = f_open(&f, path, FA_READ);
    if (res == FR_OK) {
@@ -276,10 +371,11 @@ int core_crtrom_load(int dev, const char *path, const char **msg)
       while (res == FR_OK && x.left) {
          uint32_t before = x.done;
          res = reu_step(&x, 8192);
-         crtrom_progress(x.done - before);
+         if (bar)
+            crtrom_progress(x.done - before);
       }
       f_close(&f);
-      if (size > x.done)
+      if (bar && size > x.done)
          crtrom_progress(size - x.done);           // what the REU has no room for
    }
    if (res != FR_OK) {
@@ -290,16 +386,56 @@ int core_crtrom_load(int dev, const char *path, const char **msg)
    return 0;
 }
 
-int core_crtrom_loaded(int dev)
+// The core's own items (C_CRTROMS_MAN): the REU's File:%s, or a pick (the Boot line, the ROMs
+// submenu). Either is kept in the settings file at once.
+int core_crtrom_load(int dev, const char *path, const char **msg)
 {
-   (void)dev;
-   return reu_file_picked();
+   int p = pick_of_dev(dev), err = 0;
+   if (p < 0)
+      err = reu_load(path, 1, msg);
+   else {
+      // Its name in its folder, where the browser stayed
+      const char *dir = rompick_dir(p), *name;
+      int n = strlen(dir);
+      name = !strncmp(path, dir, n) && path[n] == '/' ? path + n + 1 : strrchr(path, '/') + 1;
+      if (strlen(name) >= PICK_MAX) {
+         *msg = "\n\nThe file's name is too long: 32\ncharacters at most.\n\nPress SPACE to continue.\n";
+         return 0x102;
+      }
+      rompick_set(p, name);
+      rompick_apply(1u << p);
+      if (rompick_state(p) == RS_FAILED) {
+         *msg = "\n\nThe file could not be read.\n\nPress SPACE to continue.\n";
+         err = 0x101;
+         rompick_unset(p);
+         rompick_apply(1u << p);
+      }
+   }
+   if (!err)
+      stores_save();
+   return err;
 }
 
-// The network's settings from the card, in effect once the network starts
+int core_crtrom_loaded(int dev)
+{
+   int p = pick_of_dev(dev);
+   return p < 0 ? reu_file_picked() : rompick_state(p) == RS_FILE;
+}
+
+// Before the C128 starts: the settings file's items (the network's in effect once it
+// starts), the ROMs picked, the boot cartridge, and the REU's image into the REU, as his
+// REU Preload
 const char *core_prep_start(void)
 {
-   netcfg_load();
+   const char *msg;
+   stores_load();
+   rompick_boot();
+   if (reu_file_picked() && reu_size()) {
+      static char path[UCI_PATH_MAX];
+      strcpy(path, reu_file());
+      if (reu_load(path, 0, &msg))
+         shell_crtrom_named(OPTM_G_REU_FILE, NULL);
+   }
    return NULL;
 }
 
@@ -309,9 +445,11 @@ uint32_t core_menu_key(void)
    return shell_setting(OPTM_G_HELP_F13, 0) ? M2M_KEY_F13 : M2M_KEY_HELP;
 }
 
-// The Ultimate Command Interface (uci.c) and the REST API (net/http.c)
+// The boot cartridge's load (rompick.c), the Ultimate Command Interface (uci.c) and the REST
+// API (net/http.c)
 void core_poll(void)
 {
+   rompick_poll();
    uci_poll();
    http_poll();
 }

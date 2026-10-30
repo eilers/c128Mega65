@@ -27,6 +27,7 @@
 #include "http.h"
 #include "net.h"
 #include "netcfg.h"
+#include "rompick.h"
 #include "stores.h"
 #include "version.h"
 
@@ -227,7 +228,7 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"104\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"105\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -715,7 +716,11 @@ static void machine(void)
 // --- the configs routes ---
 
 #define CATEGORIES "\"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", \"Modem Settings\", " \
-                   "\"Ethernet Settings\", \"Network Settings\""
+                   "\"Ethernet Settings\", \"Network Settings\", \"C128 ROM Settings\""
+#define DRIVE_ROMS ",\n  \"ROM for 1541 mode\" : \"1541.rom\",\n  \"ROM for 1571 mode\" : \"1571.rom\",\n" \
+                   "  \"ROM for 1581 mode\" : \"1581.rom\""
+
+static int get_file(const char *path, uint8_t *d, int n);
 
 static const char *ok(const char *body)
 {
@@ -728,9 +733,10 @@ static void configs(void)
           ok("{ \n  \"categories\" : [ " CATEGORIES " ],\n  \"errors\" : [  ]\n}"));
    expect("a category", "GET /v1/configs/drive%20a%20settings HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Drive A Settings\" : { \n  \"Drive\" : \"Enabled\",\n  \"Drive Type\" : \"1571\",\n"
-             "  \"Drive Bus ID\" : 8\n},\n  \"errors\" : [  ]\n}"));
+             "  \"Drive Bus ID\" : 8" DRIVE_ROMS "\n},\n  \"errors\" : [  ]\n}"));
    expect("C64 and Cartridge", "GET /v1/configs/c64* HTTP/1.1\r\n\r\n",
-          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"RAM Expansion Unit\" : \"Disabled\",\n"
+          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : \"\",\n  \"Alternate Kernal\" : \"\",\n"
+             "  \"RAM Expansion Unit\" : \"Disabled\",\n"
              "  \"REU Size\" : \"2 MB\",\n  \"REU Preload Image\" : \"\",\n  \"Command Interface\" : \"Disabled\"\n},\n"
              "  \"errors\" : [  ]\n}"));
    expect("network", "GET /v1/configs/*net* HTTP/1.1\r\n\r\n",
@@ -795,19 +801,29 @@ static void configs(void)
           "abcdefghijklmnopqrstuvwxyz0123456789 HTTP/1.1\r\n\r\n", OK);
    check("host name, too long: cut", !strcmp(netcfg[NC_HOST], "abcdefghijklmnopqrstuvwxyz0123*"), netcfg[NC_HOST]);
    expect("GET it", "GET /v1/configs/c64* HTTP/1.1\r\n\r\n",
-          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"RAM Expansion Unit\" : \"Enabled\",\n"
+          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : \"\",\n  \"Alternate Kernal\" : \"\",\n"
+             "  \"RAM Expansion Unit\" : \"Enabled\",\n"
              "  \"REU Size\" : \"16 MB\",\n  \"REU Preload Image\" : \"/SD/c128/x.reu\",\n"
              "  \"Command Interface\" : \"Disabled\"\n},\n  \"errors\" : [  ]\n}"));
 
    // save_to_flash: only what changed
-   int s0 = saves, n0 = net_saves;
+   int s0 = saves;
+   char cfg[1024] = "";
+   f_unlink(SETTINGS_FILE);
    expect("save", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
           ok("{ \n  \"written\" : [ \"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", "
              "\"Modem Settings\", \"Network Settings\" ],\n  \"errors\" : [  ]\n}"));
-   check("save: the menu's file and network.cfg", saves == s0 + 1 && net_saves == n0 + 1, NULL);
+   int got = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
+   cfg[got > 0 ? got : 0] = 0;
+   check("save: the menu's file and the settings file", saves == s0 + 1 &&
+         strstr(cfg, "[C64 and Cartridge Settings]\nCartridge=\nAlternate Kernal=\nREU Preload Image=/SD/c128/x.reu\n"
+                     "[Drive A Settings]\nDrive=Disabled\nROM for 1541 mode=1541.rom\n") &&
+         strstr(cfg, "[Network Settings]\nHost Name=abcdefghijklmnopqrstuvwxyz0123*\nNetwork Password=\n"
+                     "[C128 ROM Settings]\nC128 Kernal ROM=\n") && !strstr(cfg, "[Drive B Settings]\nDrive="), cfg);
+   f_unlink(SETTINGS_FILE);
    expect("save again: nothing", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
           ok("{ \n  \"written\" : [  ],\n  \"errors\" : [  ]\n}"));
-   check("save again: no files", saves == s0 + 1 && net_saves == n0 + 1, NULL);
+   check("save again: no files", saves == s0 + 1 && get_file(SETTINGS_FILE, (uint8_t *)cfg, 1) < 0, NULL);
    expect("save, a path too deep", "PUT /v1/configs/a/b:save_to_flash HTTP/1.1\r\n\r\n", bad("\"Path depth exceeds 1.\""));
 
    // reset_to_default and load_from_flash
@@ -1217,6 +1233,139 @@ static void files(void)
 static const uint8_t prg128[] = { 0x01, 0x1C, 0x34, 0x12, 0x0A, 0x00, 0x99, 0x22, 'H', 'I', 0x22, 0x00, 0x00, 0x00 };
 static const uint8_t prg64[]  = { 0x01, 0x08, 0x0B, 0x08, 0x0A, 0x00, 0x99, 0x22, 'H', 'I', 0x22, 0x00, 0x00, 0x00 };
 
+// --- the ROMs picked (rompick.c), through the configs routes ---
+
+static uint8_t rom_stock[0x12000], rom_k16[16384], rom_k8[8192], rom_f32[32768], rom_drv[6 * 32768];
+
+static int dev_holds(const uint16_t *dev, uint32_t at, const uint8_t *d, int n)
+{
+   for (int i = 0; i < n; i++)
+      if (dev[at + i] != d[i])
+         return 0;
+   return 1;
+}
+
+// A 200 with whatever list it gives
+static void expect_200(const char *name, const char *req)
+{
+   client_t *c = ask(req);
+   check(name, !strncmp(c->got, "HTTP/1.1 200 OK\r\n", 17), c->got);
+   free(c);
+}
+
+static void roms(void)
+{
+   for (int i = 0; i < (int)sizeof rom_stock; i++)
+      rom_stock[i] = (uint8_t)(i * 3 + 1);
+   for (int i = 0; i < (int)sizeof rom_k16; i++)
+      rom_k16[i] = (uint8_t)(i * 5 + 2);
+   for (int i = 0; i < (int)sizeof rom_k8; i++)
+      rom_k8[i] = (uint8_t)(i * 7 + 3);
+   for (int i = 0; i < (int)sizeof rom_f32; i++)
+      rom_f32[i] = (uint8_t)(i * 11 + 4);
+   for (int i = 0; i < (int)sizeof rom_drv; i++)
+      rom_drv[i] = (uint8_t)(i * 13 + 5);
+   put_file("/c128/boot0.rom", rom_stock, sizeof rom_stock);
+   put_file("/c128/boot1.rom", rom_drv, sizeof rom_drv);
+   f_mkdir("/c128/roms");
+   f_mkdir("/c128/carts");
+   put_file("/c128/roms/k16.bin", rom_k16, sizeof rom_k16);
+   put_file("/c128/roms/k8.bin", rom_k8, sizeof rom_k8);
+   put_file("/c128/roms/f32.bin", rom_f32, sizeof rom_f32);
+   put_file("/c128/roms/odd.bin", rom_k8, 1000);
+   put_file("/c128/carts/boot.crt", "C64 CARTRIDGE   ", 16);
+   for (int i = 0; i < (int)sizeof rom_stock; i++)
+      sys_rom[i] = rom_stock[i];                       // as the Shell loaded it
+   for (int i = 0; i < (int)sizeof rom_drv; i++)
+      drive_rom[i] = rom_drv[i];
+
+   expect("ROMs: all stock", "GET /v1/configs/c128* HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"C128 ROM Settings\" : { \n  \"C128 Kernal ROM\" : \"\",\n  \"C128 Basic ROM\" : \"\",\n"
+             "  \"C64 Basic ROM\" : \"\",\n  \"Char ROM\" : \"\",\n  \"Internal Function ROM\" : \"\"\n},\n"
+             "  \"errors\" : [  ]\n}"));
+   expect("ROMs: an item in full, its presets of its size", "GET /v1/configs/c128*/c128%20kernal* HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"C128 ROM Settings\" : { \n  \"C128 Kernal ROM\" : { \n  \"current\" : \"\",\n"
+             "  \"presets\" : [ \"\", \"k16.bin\" ],\n  \"default\" : \"\"\n}\n},\n  \"errors\" : [  ]\n}"));
+   expect("ROMs: a drive's, 16 and 32 KB, no empty one", "GET /v1/configs/drive%20a*/rom%20for%201541* HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"Drive A Settings\" : { \n  \"ROM for 1541 mode\" : { \n  \"current\" : \"1541.rom\",\n"
+             "  \"presets\" : [ \"k16.bin\", \"f32.bin\" ],\n  \"default\" : \"1541.rom\"\n}\n},\n  \"errors\" : [  ]\n}"));
+   expect("ROMs: the cartridges", "GET /v1/configs/c64*/cartridge HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : { \n  \"current\" : \"\",\n"
+             "  \"presets\" : [ \"\", \"boot.crt\" ],\n  \"default\" : \"\"\n}\n},\n  \"errors\" : [  ]\n}"));
+
+   // System ROMs: written with the CPU held by DMA, then the reset button; never the
+   // framework's reset, which would reset the whole core
+   int resets = reboots;
+   expect("C128 KERNAL", "PUT /v1/configs/c128*/c128%20kernal%20rom?value=k16.bin HTTP/1.1\r\n\r\n", OK);
+   check("C128 KERNAL: in ROM4, the rest stock, a reset", dev_holds(sys_rom, 0x4000, rom_k16, 16384) &&
+         dev_holds(sys_rom, 0, rom_stock, 0x4000) && dev_holds(sys_rom, 0x8000, rom_stock + 0x8000, 0xA000) &&
+         reboots == resets + 1 && c128_resets == 0 && !(csr_reg & 1) && rompick_state(RP_K128) == RS_FILE, NULL);
+   expect("C64 KERNAL of 16 KB", "PUT /v1/configs/c64*/alternate%20kernal?value=k16.bin HTTP/1.1\r\n\r\n", OK);
+   check("C64 KERNAL of 16 KB: all of ROM1", dev_holds(sys_rom, 0, rom_k16, 16384) &&
+         dev_holds(sys_rom, 0x4000, rom_k16, 16384), NULL);
+   expect("C64 BASIC", "PUT /v1/configs/c128*/c64%20basic%20rom?value=k8.bin HTTP/1.1\r\n\r\n", OK);
+   check("C64 BASIC: over the 16 KB KERNAL's BASIC", dev_holds(sys_rom, 0, rom_k8, 8192) &&
+         dev_holds(sys_rom, 0x2000, rom_k16 + 0x2000, 8192), NULL);
+   expect("C64 KERNAL back to stock", "PUT /v1/configs/c64*/alternate%20kernal?value= HTTP/1.1\r\n\r\n", OK);
+   check("C64 KERNAL back to stock: BASIC stays picked", dev_holds(sys_rom, 0, rom_k8, 8192) &&
+         dev_holds(sys_rom, 0x2000, rom_stock + 0x2000, 8192), NULL);
+   expect("characters, a file of no ROM's size", "PUT /v1/configs/c128*/char%20rom?value=odd.bin HTTP/1.1\r\n\r\n", OK);
+   check("characters, a file of no ROM's size: stock, failed", dev_holds(sys_rom, 0x10000, rom_stock + 0x10000, 8192) &&
+         rompick_state(RP_CHAR) == RS_FAILED && !strcmp(rompick_name(RP_CHAR), "odd.bin"), NULL);
+   expect("function ROM of 32 KB", "PUT /v1/configs/c128*/internal*?value=f32.bin HTTP/1.1\r\n\r\n", OK);
+   check("function ROM of 32 KB: at 0x18000, size 2", dev_holds(sys_rom, 0x18000, rom_f32, 32768) && func_size == 2, NULL);
+   expect("function ROM of 16 KB", "PUT /v1/configs/c128*/internal*?value=k16.bin HTTP/1.1\r\n\r\n", OK);
+   check("function ROM of 16 KB: twice, as VICE has it", dev_holds(sys_rom, 0x18000, rom_k16, 16384) &&
+         dev_holds(sys_rom, 0x1C000, rom_k16, 16384) && func_size == 2, NULL);
+   expect("no function ROM", "PUT /v1/configs/c128*/internal*?value= HTTP/1.1\r\n\r\n", OK);
+   check("no function ROM: size 0", func_size == 0, NULL);
+
+   // Drive ROMs: the bank, then the drive reloads it if it runs that model (both 1571s here)
+   int reloads = rom_reloads[0];
+   expect("drive 8's 1571 ROM", "PUT /v1/configs/drive%20a*/rom%20for%201571*?value=k16.bin HTTP/1.1\r\n\r\n", OK);
+   check("drive 8's 1571 ROM: its bank twice, reloaded", dev_holds(drive_rom, 2 * 32768, rom_k16, 16384) &&
+         dev_holds(drive_rom, 2 * 32768 + 16384, rom_k16, 16384) && rom_reloads[0] == reloads + 1 &&
+         dev_holds(drive_rom, 3 * 32768, rom_drv + 3 * 32768, 32768), NULL);
+   client_t *c = ask("GET /v1/drives HTTP/1.1\r\n\r\n");
+   check("GET drives: its ROM's name", strstr(c->got, "\"rom\" : \"k16.bin\"") && strstr(c->got, "\"rom\" : \"1571.rom\""), c->got);
+   free(c);
+   expect("drive 8's 1581 ROM", "PUT /v1/configs/drive%20a*/rom%20for%201581*?value=f32.bin HTTP/1.1\r\n\r\n", OK);
+   check("drive 8's 1581 ROM: a model it doesn't run, no reload", dev_holds(drive_rom, 4 * 32768, rom_f32, 32768) &&
+         rom_reloads[0] == reloads + 1, NULL);
+   expect("drive 8's 1571 ROM missing", "PUT /v1/configs/drive%20a*/rom%20for%201571*?value=none.bin HTTP/1.1\r\n\r\n", OK);
+   c = ask("GET /v1/drives HTTP/1.1\r\n\r\n");
+   check("drive 8's 1571 ROM missing: stock, his Unable to load!", dev_holds(drive_rom, 2 * 32768, rom_drv + 2 * 32768, 32768) &&
+         strstr(c->got, "\"rom\" : \"Unable to load!\""), c->got);
+   free(c);
+
+   // The boot cartridge: named now, loaded at the start
+   int loads = crt_loads;
+   expect("boot cartridge", "PUT /v1/configs/c64*/cartridge?value=boot.crt HTTP/1.1\r\n\r\n", OK);
+   check("boot cartridge: kept, not loaded now", rompick_state(RP_BOOT) == RS_FILE && crt_loads == loads, NULL);
+
+   // Kept, and back from the file at the start
+   char cfg[1024];
+   expect_200("ROMs saved", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n");
+   int n = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
+   cfg[n > 0 ? n : 0] = 0;
+   check("ROMs saved: in the settings file", strstr(cfg, "[C64 and Cartridge Settings]\nCartridge=boot.crt\nAlternate Kernal=\n") &&
+         strstr(cfg, "ROM for 1571 mode=none.bin\nROM for 1581 mode=f32.bin\n[Drive B Settings]") &&
+         strstr(cfg, "[C128 ROM Settings]\nC128 Kernal ROM=k16.bin\nC128 Basic ROM=\nC64 Basic ROM=k8.bin\n"
+                     "Char ROM=odd.bin\nInternal Function ROM=\n"), cfg);
+   expect("C128 KERNAL changed, not saved", "PUT /v1/configs/c128*/c128%20kernal%20rom?value= HTTP/1.1\r\n\r\n", OK);
+   check("C128 KERNAL changed: stock", dev_holds(sys_rom, 0x4000, rom_stock + 0x4000, 16384), NULL);
+   check("the settings file at the start", stores_load() == 0 && !strcmp(rompick_name(RP_K128), "k16.bin") &&
+         dev_holds(sys_rom, 0x4000, rom_k16, 16384) && !strcmp(rompick_name(RP_BOOT), "boot.crt"), NULL);
+
+   // Back to stock
+   expect_200("ROMs reset", "PUT /v1/configs/c128*:reset_to_default HTTP/1.1\r\n\r\n");
+   expect_200("C64 and drives reset", "PUT /v1/configs/c64*:reset_to_default HTTP/1.1\r\n\r\n");
+   expect_200("drive A reset", "PUT /v1/configs/drive%20a*:reset_to_default HTTP/1.1\r\n\r\n");
+   check("all stock again", dev_holds(sys_rom, 0, rom_stock, sizeof rom_stock) && func_size == 0 &&
+         dev_holds(drive_rom, 0, rom_drv, sizeof rom_drv) && rompick_state(RP_BOOT) == RS_STOCK, NULL);
+   f_unlink(SETTINGS_FILE);
+}
+
 static void runners(void)
 {
    put_file("/prg/hello.prg", prg128, sizeof prg128);
@@ -1337,6 +1486,7 @@ int main(int argc, char **argv)
    if (argc == 4 && !strcmp(argv[1], "-serve")) {
       if (!host_rest_card(argv[3]))
          return 2;
+      rompick_boot();
       serve(atoi(argv[2]));
       return 0;
    }
@@ -1344,6 +1494,7 @@ int main(int argc, char **argv)
       printf("usage: test_http IMG | -serve PORT IMG\n");
       return 2;
    }
+   rompick_boot();
    about();
    urls();
    password();
@@ -1354,6 +1505,7 @@ int main(int argc, char **argv)
    configs();
    drives();
    files();
+   roms();
    runners();
    printf("test_http: %d checks, %d failed\n", checks, failures);
    return failures != 0;

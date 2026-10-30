@@ -1,15 +1,11 @@
-// The network's settings (netcfg.h). The file holds only the strings; it is read through
-// stores.c, as LOAD_CONFIG reads a file, so it can carry his other items too.
+// The network's settings (netcfg.h): into effect
 #include <string.h>
 #include "config_ids.h"
 #include "core.h"
 #include "eth.h"
-#include "ff.h"
-#include "fmt.h"
 #include "http.h"
 #include "net.h"
 #include "netcfg.h"
-#include "stores.h"
 #include "lwip/dhcp.h"
 #include "lwip/dns.h"
 #include "lwip/ip4_addr.h"
@@ -20,47 +16,6 @@ static struct {
    int  dhcp, rest;                  // what the interface has now; -1 before the first
    char host[32];
 } done = { -1, -1, "" };
-
-static void no_log(const char *fmt, ...)
-{
-   (void)fmt;
-}
-
-int netcfg_load(void)
-{
-   FIL f;
-   stores_net_defaults();
-   if (f_open(&f, NETCFG_FILE, FA_READ) != FR_OK)
-      return -1;
-   stores_begin();
-   int good = stores_read(&f, 1u << ST_ETH | 1u << ST_NET, no_log);
-   f_close(&f);
-   if (good)
-      stores_apply();
-   return 0;
-}
-
-int netcfg_save(void)
-{
-   FIL f;
-   char line[64];
-   UINT put;
-   int last = -1, ok = 1;
-   if (f_open(&f, NETCFG_FILE, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
-      return -1;
-   for (int i = 0; i < stores_count && ok; i++) {
-      const item_t *it = &stores_items[i];
-      if ((it->store != ST_ETH && it->store != ST_NET) || (it->type != IT_STRING && it->type != IT_PASS))
-         continue;
-      int n = 0;
-      if (it->store != last)
-         n = fmt_snprintf(line, sizeof line, "[%s]\n", store_name(it->store));
-      last = it->store;
-      n += fmt_snprintf(line + n, sizeof line - n, "%s=%s\n", it->name, item_text(it));
-      ok = f_write(&f, line, n, &put) == FR_OK && put == (UINT)n;
-   }
-   return f_close(&f) == FR_OK && ok ? 0 : -1;
-}
 
 static void addr(int k, ip4_addr_t *a)
 {

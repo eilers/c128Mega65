@@ -1,15 +1,21 @@
 // Gideon's configuration stores as the core has them: the stores and items of his firmware
-// that the core has, with his names, types and choices, and what setting each one does.
-// LOAD_CONFIG (uci_ctrl.c) and the network's settings file read them from a file in his
-// format; REST's configs routes (net/rest_configs.c) read and set them. A change is a list
-// of wanted values (stores_begin, stores_want) that stores_apply puts into effect at once,
-// as his effectuate does.
+// that the core has, with his names, types and choices, and what setting each one does, and
+// a store of the core's own for the C128's ROMs. LOAD_CONFIG (uci_ctrl.c) and the settings
+// file read them from a file in his format; REST's configs routes (net/rest_configs.c) read
+// and set them. A change is a list of wanted values (stores_begin, stores_want) that
+// stores_apply puts into effect at once, as his effectuate does.
+//
+// The settings file keeps what the menu's own settings file can't: the strings (network,
+// REU image, ROMs, boot cartridge) and drive power set by REST or LOAD_CONFIG.
 #pragma once
 #include <stdint.h>
 #include "ff.h"
 
-enum { ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_COUNT };
-enum { IT_ENUM, IT_VALUE, IT_STRING, IT_PASS };   // his CFG_TYPE_ENUM, _VALUE, _STRING, _STRPASS
+#define SETTINGS_FILE "/c128/settings.cfg"
+
+enum { ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_ROMS, ST_COUNT };
+// His CFG_TYPE_ENUM, _VALUE, _STRING, _STRPASS, _STRFUNC (here a file of rompick.c's folder)
+enum { IT_ENUM, IT_VALUE, IT_STRING, IT_PASS, IT_FILE };
 
 typedef struct {
    uint8_t            store, id, type;
@@ -28,6 +34,7 @@ int         store_find(const char *name);   // his find_store: any case, or his 
 
 // An item's value now: an IT_ENUM's index or an IT_VALUE's number, or a string's text
 int         item_get(const item_t *it);
+int         item_pick(const item_t *it);      // an IT_FILE's rompick.h pick
 const char *item_text(const item_t *it);
 int         item_choices(const item_t *it);   // an IT_ENUM's choices on this board (REU sizes)
 // A drive as his get_drive_type() gives it: 0 1541, 1 1571, 2 1581
@@ -48,10 +55,15 @@ void stores_saved(int s);
 
 // The default of every item of store s, wanted
 void stores_want_defaults(int s);
-// What the menu's settings file and network.cfg hold for store s, wanted
+// What the menu's settings file and the settings file hold for store s, wanted
 void stores_want_saved(int s);
 // netcfg's strings, their defaults
 void stores_net_defaults(void);
+
+// The settings file: at the start, its items in effect (the defaults without it): 0, or -1
+// without the file. And the items it keeps, written: 0, or -1.
+int  stores_load(void);
+int  stores_save(void);
 
 // A settings file as his ConfigIO::S_read_from_file reads it: a [store] line, then its
 // item=value lines; # or ; starts a comment. Stores outside mask (a bit per ST_*) are

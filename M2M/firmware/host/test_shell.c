@@ -15,9 +15,11 @@
 #include "m2m_rv.h"
 #include "menu.h"
 #include "reu.h"
+#include "rompick.h"
 #include "roms.h"
 #include "sdcard.h"
 #include "shell.h"
+#include "stores.h"
 
 void host_init(void);
 int  disk_file_open(const char *path);
@@ -287,7 +289,7 @@ static void make_card(uint8_t *file)
    UINT got = 0;
    f_mount(&fs, "", 1);
    f_mkdir("/c128");
-   put_file("/c128/boot0.rom", 0, 4100);
+   put_file("/c128/boot0.rom", 0, 73728);
    put_file("/c128/boot1.rom", 1, 600);
    put_file("/c128/game.crt", 3, 70000);
    put_file("/c128/big.crt", 4, 140000);
@@ -301,7 +303,6 @@ static void make_card(uint8_t *file)
    put_disk("/c128/frag.d71", 10, 349696, "/c128/filler1.bin", 4096);
    put_disk("/c128/split.d64", 11, 174848, "/c128/filler2.bin", 2048);
    put_disk("/c128/Sub/disk.d81", 12, 819200, NULL, 0);
-   f_unlink("/c128/network.cfg");                     // the network's defaults
    cluster = fs.csize * 512;
    cfg_str(CFG_CFG_FILE, cfg_name, sizeof cfg_name);
    if (f_open(&f, cfg_name, FA_READ) == FR_OK) {
@@ -321,6 +322,45 @@ static int device_holds(int dev, int file, int size)
       if (M2M_DEV16[i] != pattern(file, i))
          return 0;
    return 1;
+}
+
+// ROMs of 16, 8 and 32 KB, and none, and a boot cartridge. Away from /c128 while other
+// browsers are tested there.
+static void make_roms(void)
+{
+   f_rename("/roms-away", "/c128/roms");
+   f_rename("/carts-away", "/c128/carts");
+   f_mkdir("/c128/roms");
+   put_file("/c128/roms/k16.bin", 20, 16384);
+   put_file("/c128/roms/k8.bin", 21, 8192);
+   put_file("/c128/roms/f32.bin", 22, 32768);
+   put_file("/c128/roms/odd.bin", 23, 1000);
+   f_mkdir("/c128/carts");
+   put_file("/c128/carts/boot.crt", 24, 5000);
+}
+
+// A device from at holds size bytes of a file, from its offset off
+static int dev_at(int dev, int at, int file, int off, int size)
+{
+   M2M_RAMROM_DEV = dev;
+   for (int i = 0; i < size; i++)
+      if (M2M_DEV16[at + i] != pattern(file, off + i))
+         return 0;
+   return 1;
+}
+
+// The settings file holds a line
+static int setting_line(const char *line)
+{
+   static char text[2048];
+   FIL f;
+   UINT got = 0;
+   if (f_open(&f, SETTINGS_FILE, FA_READ) == FR_OK) {
+      f_read(&f, text, sizeof text - 1, &got);
+      f_close(&f);
+   }
+   text[got] = 0;
+   return strstr(text, line) != NULL;
 }
 
 static uint16_t vd_reg(int reg)
@@ -401,6 +441,9 @@ int main(int argc, char **argv)
    uint8_t file[MENU_MAX];
    make_card(file);
    M2M_CSR |= M2M_CSR_SD_DET_EXT | M2M_CSR_SD_ACTIVE;
+   crtrom_csr_set(CRT_DEV, CSR_MAX_HI, 2);            // the cartridge takes up to 128 KB, parses OK
+   crtrom_csr_set(CRT_DEV, CSR_PARSEST, 2);
+   int second = file[0] != 0xFF;                      // the first run left its settings
 
    // Start: ROMs loaded, defaults set, the core out of reset with keyboard and joysticks
    shell_start();
@@ -412,13 +455,33 @@ int main(int argc, char **argv)
    check(!(M2M_CSR & M2M_CSR_RESET), "core left reset");
    check((M2M_CSR & (M2M_CSR_KBD | M2M_CSR_JOY1 | M2M_CSR_JOY2)) == 0x38, "keyboard and joysticks on");
    check(device_holds(0x101, 0, 4100), "boot0.rom in its device");
-   check(device_holds(0x102, 1, 600), "boot1.rom in its device");
+   check(second ? dev_at(0x102, 0, 22, 0, 32768) : device_holds(0x102, 1, 600),
+         second ? "drive 8's 1541 ROM picked over boot1.rom" : "boot1.rom in its device");
    M2M_RAMROM_DEV = M2M_DEV_ASCAL_PPHASE;
    check(M2M_DEV16[0] == 0x03E8 && M2M_DEV16[0x100] != 0, "ascal filters loaded");
    check(M2M_CSR & M2M_CSR_ASCAL_AUTO, "ascal follows the core");
+   // The first run left ROMs picked and a boot cartridge in the settings file; the cartridge
+   // loads from the main loop, once the C128 runs
+   if (second) {
+      check(crtrom_csr_get(CRT_DEV, CSR_STATUS) != 3, "start: the boot cartridge not loaded while the core is in reset");
+      core_poll();
+      check(dev_at(0x101, 0x4000, 20, 0, 16384) && dev_at(0x101, 0x18000, 22, 0, 32768) &&
+            crtrom_csr_get(0x101, 0) == 2 && dev_at(0x101, 0x8000, 0, 0x8000, 0x8000),
+            "start: the C128 KERNAL and the function ROM picked, the rest stock");
+      check(dev_at(0x102, 2 * 32768, 20, 0, 16384) && dev_at(0x102, 2 * 32768 + 16384, 20, 0, 16384),
+            "start: drive 8's 1571 ROM picked, twice");
+      check(dev_at(0x102, 32768, 1, 32768, 0) && dev_at(0x101, 0x10000, 0, 0x10000, 8192),
+            "start: drive 9's bank and the characters stock");
+      check(device_holds(CRT_DEV, 24, 5000) && setting_get(item(" CRT file")) && setting_get(item(" CRT:%s")),
+            "start: the boot cartridge loaded, the virtual cartridge the source");
+      check(!setting_get(item(" Hardware")), "start: Hardware not still set beside CRT file");
+      f_rename("/c128/roms", "/roms-away");
+      f_rename("/c128/carts", "/carts-away");
+   }
    int want = 1;
    for (int i = 0; i < menu.n; i++)
-      want &= setting_get(i) == (file[0] == 0xFF ? cfg_get(CFG_OPTM_STDSEL, i) : file[i]);
+      want &= cfg_get(CFG_OPTM_CRTROM, i) || (second && (i == item(" Hardware") || i == item(" CRT file"))) ||
+              setting_get(i) == (file[0] == 0xFF ? cfg_get(CFG_OPTM_STDSEL, i) : file[i]);
    check(want, file[0] == 0xFF ? "settings are config.vhd's defaults (new settings file)" :
                                  "settings from the settings file");
    if (file[0] != 0xFF)
@@ -432,7 +495,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 32), "menu window 25x32 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 33), "menu window 25x33 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:<Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive 8 (the start item)");
@@ -751,7 +814,7 @@ int main(int argc, char **argv)
 
    // The Network submenu: no address yet (no network turn here); a host name typed in its
    // line, an address refused, then one that turns DHCP off; Run/Stop keeps the old text.
-   // Typed settings go into network.cfg at once.
+   // Typed settings go into the settings file at once.
    for (int i = 0; i < 3; i++)
       M2M_MATRIX(i) = ~0u;
    check(find_row(" Net: no address") > 0, "network summary");
@@ -798,22 +861,113 @@ int main(int argc, char **argv)
    type("9");
    press(M2M_KEY_RUNSTOP);
    check(find_row(" Mask:255.255.255.0") > 0 && cursor_on("Mask:"), "Run/Stop: the old text");
-   FIL nf;
-   char cfg[400] = "";
-   UINT got = 0;
-   if (f_open(&nf, "/c128/network.cfg", FA_READ) == FR_OK) {
-      f_read(&nf, cfg, sizeof cfg - 1, &got);
-      f_close(&nf);
-   }
-   cfg[got] = 0;
-   check(!strcmp(cfg, "[Ethernet Settings]\nStatic IP=1.2.3.4\nStatic Netmask=255.255.255.0\n"
+   check(setting_line("[Ethernet Settings]\nStatic IP=1.2.3.4\nStatic Netmask=255.255.255.0\n"
                       "Static Gateway=192.168.2.1\nStatic DNS=8.8.8.8\n[Network Settings]\n"
-                      "Host Name=c128-myX\nNetwork Password=\n"), "network.cfg");
+                      "Host Name=c128-myX\nNetwork Password=\n"), "settings file: the network");
    go_to("DHCP");
    press(M2M_KEY_RETURN);
    check(find_row("=DHCP") > 0 && find_row(" IP:<none>") > 0, "DHCP on again: its address");
    press(M2M_KEY_RUNSTOP);
-   f_unlink("/c128/network.cfg");
+   f_unlink(SETTINGS_FILE);
+   stores_net_defaults();
+
+   // The ROMs submenu: all stock, whatever the start picked
+   make_roms();
+   for (int p = 0; p < RP_COUNT; p++)
+      rompick_set(p, rompick_default(p));
+   rompick_apply((1u << RP_COUNT) - 1);
+   check(find_row(" ROMs: Stock") > 0, "ROMs summary: stock");
+   go_to("ROMs:");
+   press(M2M_KEY_RETURN);
+   dump("ROMs");
+   check(find_row(" C128 KERNAL:Stock") > 0 && find_row(" Function ROM:None") > 0 && find_row(" Drive 9") > 0 &&
+         find_row(" Space: back to stock") > 0, "ROMs submenu");
+   // A line browses /c128/roms, never above it, and shows only files of its size
+   go_to("C128 KERNAL:");
+   press(M2M_KEY_RETURN);
+   dump("C128 KERNAL browser");
+   check(find_row("<..>") < 0 && find_row("k16.bin") == 1 && find_row("k8.bin") < 0 && find_row("f32.bin") < 0 &&
+         find_row("odd.bin") < 0, "C128 KERNAL browser: /c128/roms, 16 KB files only");
+   M2M_RAMROM_DEV = 0x010C;                           // the bus DMA's hold, the UCI's reboot
+   M2M_DEV16[0] = 0;
+   M2M_RAMROM_DEV = 0x0109;
+   M2M_DEV16[0x010] = 0;
+   press(M2M_KEY_RETURN);
+   dump("C128 KERNAL picked");
+   M2M_RAMROM_DEV = 0x010C;
+   int held = M2M_DEV16[0] == 1;
+   M2M_RAMROM_DEV = 0x0109;
+   check(held && M2M_DEV16[0x010] == 2, "C128 KERNAL picked: the CPU held by DMA, then the reset button");
+   check(find_row("=C128 KERNAL:k16.bin") > 0 && dev_at(0x101, 0x4000, 20, 0, 16384) &&
+         dev_at(0x101, 0, 0, 0, 0x4000) && !(M2M_CSR & M2M_CSR_RESET), "C128 KERNAL picked: in ROM4, the C128 started again");
+   check(setting_line("[C128 ROM Settings]\nC128 Kernal ROM=k16.bin\n") &&
+         setting_line("Host Name=c128-mega65\n"), "C128 KERNAL picked: kept at once");
+   press(M2M_KEY_SPACE);
+   check(find_row(" C128 KERNAL:Stock") > 0 && dev_at(0x101, 0x4000, 0, 0x4000, 16384) &&
+         setting_line("C128 Kernal ROM=\n"), "Space: stock again, kept");
+   // The function ROM: 16 or 32 KB, its size to the hardware
+   go_to("Function ROM:");
+   press(M2M_KEY_RETURN);
+   check(find_row("f32.bin") == 1 && find_row("k16.bin") == 2 && find_row("k8.bin") < 0, "function ROM browser: 16 and 32 KB");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Function ROM:f32.bin") > 0 && dev_at(0x101, 0x18000, 22, 0, 32768) && crtrom_csr_get(0x101, 0) == 2,
+         "function ROM: at 0x18000, 32 KB");
+   // Drive 8's 1571 ROM: its bank twice; no reload, the drive runs a 1541 now (picked above)
+   crtrom_csr_set(0x102, 0, 0);
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_DOWN);
+   check(cursor_on("1571:"), "on drive 8's 1571 line");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   dump("drive ROM picked");
+   check(find_row("=1571:k16.bin") > 0 && dev_at(0x102, 2 * 32768, 20, 0, 16384) &&
+         dev_at(0x102, 2 * 32768 + 16384, 20, 0, 16384) && crtrom_csr_get(0x102, 0) == 0,
+         "drive 8's 1571 ROM: its bank, twice, no reload");
+   // Its 1541 ROM, which it runs: a reload
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   check(find_row("=1541:f32.bin") > 0 && dev_at(0x102, 0, 22, 0, 32768) && crtrom_csr_get(0x102, 0) == 1,
+         "drive 8's 1541 ROM: its bank, reloaded");
+   // No /c128/roms: a message, then the menu
+   f_rename("/c128/roms", "/c128/roms-gone");
+   go_to("C128 BASIC:");
+   press(M2M_KEY_RETURN);
+   dump("no ROMs folder");
+   check(find_row("No ROM files of 32 KB in /c128/roms.") > 0, "no ROMs folder: its message");
+   press(M2M_KEY_SPACE);
+   check(find_row(" C128 BASIC:Stock") > 0 && cursor_on("C128 BASIC:"), "no ROMs folder: back in the menu");
+   f_rename("/c128/roms-gone", "/c128/roms");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" ROMs: Custom") > 0, "ROMs summary: custom");
+   // The boot cartridge: a .crt from /c128/carts, kept; loaded at the next start
+   go_to("Cartridge");
+   press(M2M_KEY_RETURN);
+   go_to("Boot:");
+   check(find_row(" Boot:<None>") > 0, "boot cartridge: none");
+   press(M2M_KEY_RETURN);
+   check(find_row("<..>") < 0 && find_row("boot.crt") == 1, "boot cartridge browser: /c128/carts");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Boot:boot.crt") > 0 && setting_line("Cartridge=boot.crt\n"), "boot cartridge: picked, kept");
+   check(find_row(" Space clears Boot") == find_row("=Boot:boot.crt") + 1, "boot cartridge: the Space hint below it");
+   press(M2M_KEY_SPACE);
+   check(find_row(" Boot:<None>") > 0 && setting_line("[C64 and Cartridge Settings]\nCartridge=\n"),
+         "boot cartridge: Space clears it, kept");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   check(find_row("=Boot:boot.crt") > 0, "boot cartridge: picked again");
+   press(M2M_KEY_RUNSTOP);
+   // Picked again for the next run, which checks them at its start
+   go_to("ROMs:");
+   press(M2M_KEY_RETURN);
+   go_to("C128 KERNAL:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   check(setting_line("C128 Kernal ROM=k16.bin\n") && setting_line("Internal Function ROM=f32.bin\n") &&
+         setting_line("[Drive A Settings]\nROM for 1541 mode=f32.bin\nROM for 1571 mode=k16.bin\n"),
+         "the settings file for the next run");
+   press(M2M_KEY_RUNSTOP);
 
    // Close Menu: next time from the start item
    go_to("Close Menu");

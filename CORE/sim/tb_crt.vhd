@@ -958,6 +958,14 @@ begin
       run_crt("crttest-c128fast", 20 ms);
       run_crt("crttest-16k",    20 ms);
       run_crt("crttest-umax4k", 20 ms);
+      -- A long press, as the firmware makes it: the core in a hard reset while it restarts,
+      -- then the boot cartridge loaded at once. It lands in the hard reset's $8000 mask, and
+      -- a 16 KB cartridge has no BASIC to fall back on, so the KERNAL must see its CBM80.
+      reset_hard <= '1';
+      wait for 200 us;
+      reset_hard <= '0';
+      wait for 100 us;
+      run_crt("crttest-16k",    20 ms);
       -- EasyFlash runs take longer: the spare banks of the banks a file lacks are filled first
       run_crt("crttest-ef",     60 ms);
       if G_SDRAM then
