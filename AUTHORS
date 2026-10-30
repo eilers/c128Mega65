@@ -1,47 +1,79 @@
-YOUR PROJECT NAME for MEGA65 aka GITHUB REPO SHORT NAME
-=======================================================
+Commodore 128 for MEGA65 aka c128Mega65
+=======================================
 
-done in YEAR by YOUR NAME
+done in 2024-2026 by
+    * Stefan Eilers   github.com/eilers
+    * Jeff Flitton    github.com/jflitton
 
-YOUR WEBSITE
-YOUR GITHUB SITE
+c128Mega65 is licensed under the terms of GNU/GPL v3, for more information
+please read the file LICENSE. Parts of c128Mega65 are licensed under other
+Free-software licenses as described in the source code.
 
-REPO SHORT NAME is licensed under the terms of GNU/GPL v3, for more information please read the file LICENSE
-Parts of REPO SHORT NAME are licensed under other Free-software licenses as described in the source code
+c128Mega65:
+-----------
 
-GITHUB REPO SHORT NAME:
------------------------
+  c128Mega65 is a port of MiSTer's C128_MiSTer
+      done by Erik Scheffers (eriks5)
+      Original GitHub Repository: https://github.com/MiSTer-devel/C128_MiSTer
 
-  GITHUB REPO SHORT NAME is a port of MISTER'S REPO SHORT NAME
+  C128_MiSTer is based on MiSTer's C64_MiSTer
       done by the MiSTer Development Team
-      Original GitHub Repository: https://github.com/MiSTer-devel/MISTER-REPO-LINK
+      Original GitHub Repository: https://github.com/MiSTer-devel/C64_MiSTer
       Significant contributors:
-      * NAME THE MAIN
-      * CONTRIBUTORS
-      * ON MiSTer's SIDE
+      * sorgelig
+      * vpelletier
+      * raparici
 
-  MISTER'S REPO SHORT NAME is a port of MiST's MiST NAME/OTHER SOURCE IN CASE MiSTer ported it from MIST/OTHER SOURCE
+  MiSTer's C64_MiSTer is a port of MiST's C64 core
       done by the MiST Development Team
-      Original GitHub Repository: https://github.com/mist-devel/MIST-REPO-LINK OR OTHER SOURCE
+      Original GitHub Repository: https://github.com/mist-devel/c64
       Significant contributors:
-      * NAME THE MAIN
-      * CONTRIBUTORS
-      * ON MiST's SIDE (OR OTHER SOURCE)
+      * gyurco
+      * nippur72
+      * harbaum
 
-  LIST SOME MORE SIGNIFICANT / MAIN AUTHERS OF SUBMODULES
-  HAVE A LOOK AT THIS EXAMPLE HOW TO: https://github.com/sy2002/gbc4mega65/blob/master/AUTHORS
+  MiST's C64 core is a port of FPGA64_027 and 1541_SD
+      done by Dar (darfpga@aol.fr)
+      http://darfpga.blogspot.fr
 
-Other than that and my own work, REPO SHORT NAME uses:
-------------------------------------------------------
+  FPGA64_027 and 1541_SD is a port of FPGA64
+      done by Peter Wendrich
+      https://www.syntiac.com/fpga64.html
 
-DO NOT FORGET TO CREDIT EVERYTHING YOU USE FROM OTHER PEOPLE HERE
-THE FOLLOWING LIST NEEDS ALWAYS TO BE PART OF YOUR LIST:
-  
-  * MiSTer2MEGA65 by The MiSTer2MEGA65 Development Team
+  The 8502 CPU is based on T65
+      done by Daniel Wallner, Mike Johnson, Wolfgang Scherr, Morten Leikvoll
+
+  The Z80 CPU is based on T80
+      done by Daniel Wallner
+
+Other than that and our own work, c128Mega65 uses:
+--------------------------------------------------
+
+  * MiSTer2MEGA65 by The MiSTer2MEGA65 Development Team, including its Shell
+    (the on-screen menu), which we ported from QNICE to RISC-V
     https://github.com/sy2002/MiSTer2MEGA65
 
-  * QNICE Co-Processor and System-on-a-Chip for file operations and on-screen-menu by The QNICE Development Team
-    https://github.com/sy2002/QNICE-FPGA
+  * Parts of C64MEGA65 by MJoergen and sy2002: the virtual cartridge (.crt)
+    support, the internal 3.5" floppy drive (physical_1581), the SDRAM
+    controller and the Ethernet MAC
+    https://github.com/MJoergen/C64MEGA65
+
+  * NEORV32 RISC-V processor by Stephan Nolting, for the system CPU and the
+    SwiftLink modem
+    https://github.com/stnolting/neorv32
+
+  * FatFs file system module by ChaN
+    http://elm-chan.org/fsw/ff/
+
+  * lwIP TCP/IP stack by Adam Dunkels and the lwIP team
+    https://savannah.nongnu.org/projects/lwip/
+
+  * SD card host controller (sdhost) from Megamiga by Johan Smolinski
+    https://github.com/johansmolinski/Megamiga
+
+  * CCGMS Future terminal by Craig Smith, alwyz and Michael Steil, used to
+    test the SwiftLink modem
+    https://github.com/mist64/ccgmsterm
 
   * Various MEGA65 drivers taken from the MEGA65 VHDL source by Paul Gardner-Stephen
     https://github.com/MEGA65/mega65-core
@@ -69,3 +101,10 @@ THE FOLLOWING LIST NEEDS ALWAYS TO BE PART OF YOUR LIST:
 
   * PSF font to C include file converter psftools-1.1.1 by John Elliott
     https://www.seasip.info/Unix/PSF/
+
+The following resources were invaluable for developing c128Mega65:
+------------------------------------------------------------------
+
+  * 1541 Ultimate by Gideon Zweijtzer: the SwiftLink's 6551 ACIA follows its
+    acia6551, which was measured on a real 6551
+    https://github.com/GideonZ/1541ultimate
