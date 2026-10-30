@@ -13,6 +13,7 @@ module c1581_multi #(parameter PARPORT=1,DRIVES=2)
 	//clk ports
 	input         clk,
 	input   [N:0] reset,
+	input   [1:0] drv_id[NDR],      // MEGA65: bus ID - 8
 	input         ce,
 
 	input         pause,
@@ -306,7 +307,7 @@ generate
 			.img_readonly(img_readonly),
 			.img_size(img_size),
 
-			.drive_num(i),
+			.drive_num(drv_id[i]),
 			.act_led(act_led_drv[i]),
 			.pwr_led(pwr_led_drv[i]),
 

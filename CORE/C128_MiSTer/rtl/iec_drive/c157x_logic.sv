@@ -13,6 +13,7 @@ module c157x_logic #(DRIVE)
 	input        clk,
 	input        reset,
 	input  [1:0] drv_mode,      // 00: 1541, 01: 1570, 10: 1571, (11: 1571CR todo)
+	input  [1:0] drv_id,        // MEGA65: bus ID - 8, the ID jumpers (was the drive's index)
 
 	input        wd_ce,
 	input  [1:0] ph2_r,
@@ -220,7 +221,7 @@ wire [7:0] via1_pb_oe;
 wire [7:0] via1_pa_i = (ext_en & ~|drv_mode ? par_data_in :
                         {byte_n_poll | ~|drv_mode, 6'h3F, ~tr00_sense})
                        & (via1_pa_o | ~via1_pa_oe);
-wire [7:0] via1_pb_i = {~iec_atn_in, 2'(DRIVE), 2'b11, ~iec_clk_in, 1'b1, ~iec_data_in}
+wire [7:0] via1_pb_i = {~iec_atn_in, drv_id, 2'b11, ~iec_clk_in, 1'b1, ~iec_data_in}
                        & (via1_pb_o | ~via1_pb_oe);
 wire       via1_cb1_o;
 wire       via1_cb1_oe;

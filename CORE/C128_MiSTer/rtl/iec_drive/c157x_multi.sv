@@ -18,6 +18,7 @@ module c157x_multi #(parameter PARPORT=1,DRIVES=2)
 	input         ce,
 
 	input   [1:0] drv_mode[NDR],
+	input   [1:0] drv_id[NDR],      // MEGA65: bus ID - 8
 
 	input         pause,
 
@@ -230,6 +231,7 @@ generate
 			.clk(clk),
 			.reset(reset_drv[i]),
 			.drv_mode(drv_mode[i]),
+			.drv_id(drv_id[i]),
 
 			.ce(ce),
 			.wd_ce(wd_ce),

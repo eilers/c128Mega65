@@ -17,6 +17,8 @@ module iec_drive #(parameter PARPORT=1,DRIVES=2)
    input         pause,
 
    input   [1:0] drv_mode[NDR],
+   input   [1:0] drv_id[NDR],      // MEGA65: the drive's bus ID - 8, as its ID jumpers
+   input   [N:0] drv_1581,         // MEGA65: its model is the 1581; one without a 5.25" image is one
    input   [N:0] img_mounted,
    input         img_readonly,
    input  [31:0] img_size,
@@ -134,14 +136,16 @@ reg [3:0] rom_bank[NDR]; // ROM bank selector
 // MEGA65 internal floppy: a drive in physical mode is a 1581. hd replaces
 // img_hd as the 1581 select; it lives on clk_sys like img_hd. While it
 // changes, main.vhd holds the drive in reset, and a new ROM bank reloads.
-wire [N:0] phys_mode_sys;
+wire [N:0] phys_mode_sys, drv_1581_sys;
 iecdrv_sync #(NDR) phys_mode_sync(clk_sys, phys_mode, phys_mode_sys);
-wire [N:0] hd = img_hd | phys_mode_sys;
+iecdrv_sync #(NDR) drv_1581_sync(clk_sys, drv_1581, drv_1581_sys);
+wire [N:0] hd = img_hd | phys_mode_sys | (drv_1581_sys & ~img_gcr);
 
+// MEGA65: an unmount (size 0) clears the image's type, so an empty drive is its model
 always @(posedge clk_sys)
    for(int i=0; i<NDR; i=i+1) begin
-      if(img_mounted[i] && img_size)
-         {img_hd[i], img_mfm[i], img_gcr[i], img_ds[i]} = img_type;
+      if(img_mounted[i])
+         {img_hd[i], img_mfm[i], img_gcr[i], img_ds[i]} = img_size ? img_type : 4'b0000;
 
       if (hd[i])
          rom_bank[i] = 4'((2*NDR)+i);  // 1581 ROM
@@ -243,6 +247,7 @@ c157x_multi #(.PARPORT(PARPORT), .DRIVES(DRIVES)) c157x
    .ce(ce),
 
    .drv_mode(drv_mode),
+   .drv_id(drv_id),
 
    .iec_atn_i (iec_atn_i),
    .iec_data_i(iec_data_i & c1581_iec_data),
@@ -305,6 +310,7 @@ c1581_multi #(.PARPORT(PARPORT), .DRIVES(DRIVES)) c1581
    .clk(clk),
    .reset(reset | ~hd | ~rom_valid),
    .ce(ce),
+   .drv_id(drv_id),
 
    .iec_atn_i (iec_atn_i),
    .iec_data_i(iec_data_i & c157x_iec_data),

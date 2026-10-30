@@ -33,6 +33,7 @@ module c157x_drv #(parameter DRIVE)
 	input         reset,
 
 	input   [1:0] drv_mode,
+	input   [1:0] drv_id,           // MEGA65: bus ID - 8
 
 	input         ce,
 	input         wd_ce,
@@ -195,6 +196,7 @@ c157x_logic #(.DRIVE(DRIVE)) c157x_logic
 	.clk(clk),
 	.reset(reset_drv),
 	.drv_mode(drv_mode),
+	.drv_id(drv_id),
 
 	.wd_ce(wd_ce),
 	.ph2_r(ph2_r),
