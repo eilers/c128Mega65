@@ -15,4 +15,9 @@ int      crtrom_loaded(int k);  // its device holds a file (CSR status OK)
 // HANDLE_CRTROM_M): 0, or an error code and *msg, the core's or the device's message.
 // An item of the core's own type (C_CRTROMTYPE_CORE) is loaded by core_crtrom_load.
 int      crtrom_load(int k, const char *path, int group, const char **msg);
+int      crtrom_load_quiet(int k, const char *path, int group, const char **msg);   // no bar
+// A device's file by other means (REST's upload): loading, its bytes from M2M_DEV16[0] on,
+// then parsed: 0, or the device's error code and message
+void     crtrom_begin(int k);
+int      crtrom_parse(int k, uint32_t size, const char **msg);
 void     crtrom_progress(uint32_t bytes);   // so many more bytes of it are loaded

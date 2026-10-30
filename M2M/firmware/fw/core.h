@@ -55,6 +55,7 @@ void shell_force(int group, int pos, int on); // M2M$FORCE_MENU
 // A disk image (a path on the card) into drive d, or out of it, as the menu does it: 0,
 // or drive_mount's error and maybe *msg; -1 for a drive the menu doesn't have
 int  shell_mount(int d, const char *path, const char **msg);
+int  shell_mount_ro(int d, const char *path, int ro, const char **msg);   // ro: write protected
 void shell_unmount(int d);
 // The file of a CRT/ROM item of the group, taken without the browser (LOAD_CONFIG's REU
 // image): its name on the item's line, or NULL for none

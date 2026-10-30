@@ -5,6 +5,7 @@
 //
 // Drives that keep their image in a RAM buffer, which QNICE fills and serves block by
 // block (HANDLE_DRV_RD, HANDLE_DRV_WR, FLUSH_CACHE), are not supported.
+#include <string.h>
 #include "drives.h"
 #include "cfg.h"
 #include "core.h"
@@ -28,7 +29,11 @@
 #define MAP_CSR_CTRL  0x031        // W: 1 on, 0 off; R: bit 0 on, bit 2 busy, bit 5 ready
 #define MAP_READY     0x20         // every 1541/1571 out of reset has its disk (iec_drive)
 #define MAP_CSR_NBLK  0x032        // blocks of the image
+#define MAP_CSR_FLUSH 0x033        // W: write back now
 #define MAP_CSR_POWER 0x034        // bits 1-0 enum drive_power; R: bit 2 the drive runs
+#define MAP_CSR_HOLD  0x035        // bit 0: the drive's requests wait
+#define MAP_BUSY      0x04
+#define MAP_DIRTY     0x02
 #define MAP_PIECE     8            // blocks per table entry
 #define MAP_MAX       2048         // blocks a table holds
 #define MAP_RUNS      (MAP_MAX / MAP_PIECE + 1)
@@ -43,6 +48,8 @@ static uint16_t  vd_dev, map_dev[DRIVES_MAX];
 static uint32_t  seen;                     // the mount status, as drives_changed saw it
 static int       img_type[DRIVES_MAX];     // what each drive was last given (vdrives' img_type)
 static DWORD     sclust[DRIVES_MAX];       // where each drive's image starts on the card
+static char     *paths;                    // each drive's image, DRIVE_PATH bytes each
+#define DRIVE_PATH 256
 static DWORD    *runs;                     // an image's runs of clusters (FatFs link map)
 static uint32_t *table;                    // its table, until it goes to the drive
 
@@ -76,6 +83,7 @@ void drives_init(void)
    seen  = vd_get(VD_DRV_MOUNT);
    runs  = heap_alloc((2 * MAP_RUNS + 2) * sizeof *runs);
    table = heap_alloc(MAP_MAX / MAP_PIECE * sizeof *table);
+   paths = heap_alloc(DRIVES_MAX * DRIVE_PATH);
 }
 
 int drives_count(void)
@@ -125,12 +133,12 @@ int drives_changed(void)
 
 // vdrives.vhd: a nonzero size mounts, size 0 unmounts. The core sees the strobe a few
 // of its clocks later.
-static void strobe(int d, uint32_t size, int type)
+static void strobe(int d, uint32_t size, int type, int ro)
 {
    img_type[d] = type;
    vd_set(VD_SIZE_L, size & 0xFFFF);
    vd_set(VD_SIZE_H, size >> 16);
-   vd_set(VD_RO, 0);
+   vd_set(VD_RO, ro);
    vd_set(VD_TYPE, type);
    uint16_t m = vd_get(VD_IMG_MOUNT);
    vd_set(VD_IMG_MOUNT, m | 1u << d);
@@ -178,11 +186,56 @@ static int map(FIL *f, uint32_t blocks)
    return at < blocks ? ERR_CHAIN : 0;
 }
 
-int drive_mount(int d, const char *path, int group, const char **msg)
+const char *drive_path(int d)
+{
+   return d < num && drive_mounted(d) ? paths + d * DRIVE_PATH : "";
+}
+
+// The table of an image into table; the image must not be in the other drive
+static int check_map(int d, FIL *f, uint32_t blocks, const char **msg)
 {
    static const char twice[] = "This disk image is already\nin the other drive.\n";
    static const char split[] = "This disk image is split into\npieces under 4 KB on the card.\n"
                                "Copy it again, or format the\ncard with 4 KB clusters.\n";
+   int err;
+
+   // The same file in two drives: their changes would overwrite each other on the card
+   for (int o = 0; o < num; o++)
+      if (o != d && (crtrom_csr_get(map_dev[o], MAP_CSR_CTRL) & 1) && sclust[o] == f->obj.sclust) {
+         *msg = twice;
+         return ERR_TWICE;
+      }
+   if (blocks > MAP_MAX)
+      return ERR_LARGE;
+   if ((err = map(f, blocks))) {
+      if (err == ERR_SPLIT)
+         *msg = split;
+      return err;
+   }
+   return 0;
+}
+
+// table into the drive, with the image's size
+static void put_table(int d, FIL *f, const char *path, uint32_t blocks)
+{
+   M2M_RAMROM_DEV = map_dev[d];
+   for (uint32_t p = 0; p < (blocks + MAP_PIECE - 1) / MAP_PIECE; p++) {
+      M2M_DEV16[2 * p]     = table[p] & 0xFFFF;
+      M2M_DEV16[2 * p + 1] = table[p] >> 16;
+   }
+   crtrom_csr_set(map_dev[d], MAP_CSR_NBLK, blocks);
+   sclust[d] = f->obj.sclust;
+   strncpy(paths + d * DRIVE_PATH, path, DRIVE_PATH - 1);
+   paths[d * DRIVE_PATH + DRIVE_PATH - 1] = 0;
+}
+
+int drive_mount(int d, const char *path, int group, const char **msg)
+{
+   return drive_mount_ro(d, path, group, 0, msg);
+}
+
+int drive_mount_ro(int d, const char *path, int group, int ro, const char **msg)
+{
    int type, err;
    FIL f;
 
@@ -191,40 +244,18 @@ int drive_mount(int d, const char *path, int group, const char **msg)
    if (r != FR_OK)
       shell_fatal("File selected in the browser not found.\n", r);
    uint32_t size = f_size(&f), blocks = (size + 511) / 512;
-   if ((err = core_prep_load(size, CTX_MOUNT_DISKIMG, group, &type, msg)))
+   if ((err = core_prep_load(size, CTX_MOUNT_DISKIMG, group, &type, msg)) ||
+       (err = check_map(d, &f, blocks, msg)))
       goto out;
-
-   // The same file in two drives: their changes would overwrite each other on the card
-   for (int o = 0; o < num; o++)
-      if (o != d && (crtrom_csr_get(map_dev[o], MAP_CSR_CTRL) & 1) && sclust[o] == f.obj.sclust) {
-         *msg = twice;
-         err = ERR_TWICE;
-         goto out;
-      }
-   if (blocks > MAP_MAX) {
-      err = ERR_LARGE;
-      goto out;
-   }
-   if ((err = map(&f, blocks))) {
-      if (err == ERR_SPLIT)
-         *msg = split;
-      goto out;
-   }
 
    // Off: the old image's changes go to the card, and it is forgotten. Then the new
    // one's table and size, and on before the drive asks.
    map_off(d);
-   M2M_RAMROM_DEV = map_dev[d];
-   for (uint32_t p = 0; p < (blocks + MAP_PIECE - 1) / MAP_PIECE; p++) {
-      M2M_DEV16[2 * p]     = table[p] & 0xFFFF;
-      M2M_DEV16[2 * p + 1] = table[p] >> 16;
-   }
-   crtrom_csr_set(map_dev[d], MAP_CSR_NBLK, blocks);
+   put_table(d, &f, path, blocks);
    crtrom_csr_set(map_dev[d], MAP_CSR_CTRL, 1);
    while (crtrom_csr_get(map_dev[d], MAP_CSR_CTRL) & 4)
       ;
-   sclust[d] = f.obj.sclust;
-   strobe(d, size, type);
+   strobe(d, size, type, ro);
 out:
    f_close(&f);
    return err;
@@ -233,5 +264,38 @@ out:
 void drive_unmount(int d)
 {
    map_off(d);
-   strobe(d, 0, 0);
+   strobe(d, 0, 0, 0);
+}
+
+void drive_hold(int d, int on)
+{
+   if (d < num)
+      crtrom_csr_set(map_dev[d], MAP_CSR_HOLD, on);
+}
+
+void drive_flush(int d)
+{
+   if (d < num)
+      crtrom_csr_set(map_dev[d], MAP_CSR_FLUSH, 1);
+}
+
+int drive_quiet(int d)
+{
+   return d >= num || !(crtrom_csr_get(map_dev[d], MAP_CSR_CTRL) & (MAP_BUSY | MAP_DIRTY));
+}
+
+// A held drive's table to another file of its image's size: the drive goes on with it
+int drive_remap(int d, const char *path)
+{
+   const char *msg;
+   FIL f;
+   FRESULT r = f_open(&f, path, FA_READ);
+   if (r != FR_OK)
+      return 0x100 + r;
+   uint32_t blocks = (f_size(&f) + 511) / 512;
+   int err = check_map(d, &f, blocks, &msg);
+   if (!err)
+      put_table(d, &f, path, blocks);
+   f_close(&f);
+   return err;
 }

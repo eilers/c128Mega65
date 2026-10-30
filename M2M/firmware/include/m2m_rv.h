@@ -9,7 +9,8 @@
 // built for the old one: the boot ROM only starts a firmware built for its own version.
 // 2: 64 KB data RAM (was 16 KB)
 // 3: every key (M2M_MATRIX), the core's bus DMA device
-#define M2M_RV_HW_VERSION    3u
+// 4: drive ROM reload (C_DEV_DRIVE_ROM's CSR), vd_sd's hold
+#define M2M_RV_HW_VERSION    4u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

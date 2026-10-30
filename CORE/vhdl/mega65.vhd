@@ -602,6 +602,9 @@ signal qnice_drv_rom_loading : std_logic;
 signal qnice_drv_rom_req     : std_logic;
 signal qnice_drv_rom_addr    : std_logic_vector(18 downto 0);
 signal qnice_drv_rom_wr      : std_logic := '0';
+signal qnice_drv_reload_f    : std_logic_vector(1 downto 0) := "00";   -- CSR write, falling edge
+signal qnice_drv_reload      : std_logic_vector(1 downto 0) := "00";   -- a pulse per drive
+signal qnice_drv_rom_ready   : std_logic_vector(1 downto 0);
 signal qnice_core_rst        : std_logic;
 -- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
 signal f9_latched            : std_logic;
@@ -882,6 +885,8 @@ begin
          qnice_vd_we_i        => qnice_vd_we,
 
          drv_rom_loading_i    => qnice_drv_rom_loading,
+         drv_rom_reload_i     => qnice_drv_reload,
+         drv_rom_ready_o      => qnice_drv_rom_ready,
          drv_rom_req_o        => qnice_drv_rom_req,
          drv_rom_addr_o       => qnice_drv_rom_addr,
          drv_rom_data_i       => qnice_drvrom_b_data,
@@ -1107,11 +1112,17 @@ begin
             qnice_sysrom_we   <= qnice_dev_we_i;
             qnice_sysrom_d_to <= qnice_dev_data_i(7 downto 0);
             qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
+        -- boot1.rom; its CSR window: register 0 R: bit i drive i has its ROM, W: bit i
+        -- reloads drive i's bank, holding the drive in reset meanwhile (REST's load_rom)
         when C_DEV_DRIVE_ROM =>
             qnice_drvrom_addr <= qnice_dev_addr_i(17 downto 0);
-            qnice_drvrom_we   <= qnice_dev_we_i;
             qnice_drvrom_d_to <= qnice_dev_data_i(7 downto 0);
-            qnice_dev_data_o  <= x"00" & qnice_drvrom_d_from;
+            if qnice_dev_addr_i(27 downto 12) = x"FFFF" then
+               qnice_dev_data_o  <= x"000" & "00" & qnice_drv_rom_ready;
+            else
+               qnice_drvrom_we   <= qnice_dev_we_i;
+               qnice_dev_data_o  <= x"00" & qnice_drvrom_d_from;
+            end if;
 
         -- Virtual drive control and data registers (vdrives.vhd inside main.vhd)
         when C_DEV_VDRIVES =>
@@ -1664,13 +1675,33 @@ begin
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
 
+   -- A drive's bank again: its iecdrv_rom starts over, and the server drops a byte it was
+   -- fetching, which would land at the restarted address
+   p_drv_reload_f : process (qnice_clk_i)
+   begin
+      if falling_edge(qnice_clk_i) then
+         qnice_drv_reload_f <= "00";
+         if qnice_dev_id_i = C_DEV_DRIVE_ROM and qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
+            qnice_dev_addr_i(27 downto 0) = x"FFFF000" then
+            qnice_drv_reload_f <= qnice_dev_data_i(1 downto 0);
+         end if;
+      end if;
+   end process p_drv_reload_f;
+
+   p_drv_reload : process (qnice_clk_i)
+   begin
+      if rising_edge(qnice_clk_i) then
+         qnice_drv_reload <= qnice_drv_reload_f;
+      end if;
+   end process p_drv_reload;
+
    i_drive_rom_server : entity work.drive_rom_server
       generic map (
          G_ROM_ADDR_WIDTH => 18
       )
       port map (
          clk_i          => qnice_clk_i,
-         rom_loading_i  => qnice_drv_rom_loading,
+         rom_loading_i  => qnice_drv_rom_loading or qnice_drv_reload(0) or qnice_drv_reload(1),
          rom_req_i      => qnice_drv_rom_req,
          rom_addr_i     => qnice_drv_rom_addr,
          rom_wr_o       => qnice_drv_rom_wr,

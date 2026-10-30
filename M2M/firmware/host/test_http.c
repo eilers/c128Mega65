@@ -3,9 +3,9 @@
 // expected answers are Gideon's to the byte (software/api at 4b00732, MicroHttpServer at
 // ad73d32), worked out from his code; the A/B script in test/rest checks them against his
 // II+L.
-// usage: test_http             every case
-//        test_http -serve PORT the server on this Mac's 127.0.0.1:PORT, in real time, for
-//                              curl and test/rest's scripts
+// usage: test_http IMG             every case, with a card (a FAT image the cases write to)
+//        test_http -serve PORT IMG the server on this Mac's 127.0.0.1:PORT, in real time, for
+//                                  curl and test/rest's scripts
 #include "lwip/init.h"            // first: macOS's headers define BYTE_ORDER and htons too
 #include "lwip/ip4.h"
 #include "lwip/tcp.h"
@@ -20,7 +20,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include "config_ids.h"
+#include "drives.h"
 #include "eth.h"
+#include "ff.h"
 #include "host_rest.h"
 #include "http.h"
 #include "net.h"
@@ -225,7 +227,7 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"103\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"104\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -928,6 +930,394 @@ static void serve(int port)
    }
 }
 
+// --- the drives, files and runners routes, on a card ---
+
+static void put_file(const char *path, const void *d, int n)
+{
+   FIL f;
+   UINT put;
+   f_mkdir("/games");
+   f_mkdir("/roms");
+   f_mkdir("/prg");
+   f_mkdir("/carts");
+   if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK || f_write(&f, d, n, &put) != FR_OK ||
+       (int)put != n) {
+      printf("test_http: can't write %s\n", path);
+      exit(2);
+   }
+   f_close(&f);
+}
+
+// A file's bytes (at most n), or -1
+static int get_file(const char *path, uint8_t *d, int n)
+{
+   FIL f;
+   UINT got;
+   if (f_open(&f, path, FA_READ) != FR_OK)
+      return -1;
+   f_read(&f, d, n, &got);
+   int size = f_size(&f);
+   f_close(&f);
+   return size;
+}
+
+static uint8_t img_a[349696];
+
+static const char *drive_obj(const char *letter, const char *enabled, int id, const char *type,
+                             const char *file, const char *path)
+{
+   static char s[2][600];
+   static int k;
+   k ^= 1;
+   snprintf(s[k], sizeof s[k], "{ \n  \"%s\" : { \n  \"enabled\" : %s,\n  \"bus_id\" : %d,\n"
+            "  \"type\" : \"%s\",\n  \"rom\" : \"%s.rom\",\n  \"image_file\" : \"%s\",\n"
+            "  \"image_path\" : \"%s\"\n}\n}", letter, enabled, id, type, type, file, path);
+   return s[k];
+}
+
+static const char *drives_json(const char *a, const char *b)
+{
+   static char s[1400];
+   snprintf(s, sizeof s, "{ \n  \"drives\" : [ %s, %s ],\n  \"errors\" : [  ]\n}", a, b);
+   return json(200, "OK", s);
+}
+
+// mount's fields, then its errors
+static const char *mounted(int code, const char *text, int subsys, int ftype, int command, const char *file,
+                           const char *error)
+{
+   static char s[1024];
+   int n = snprintf(s, sizeof s, "{ \n  \"Subsys\" : %d,\n  \"Ftype\" : %d,\n  \"command\" : %d,\n"
+                    "  \"file\" : \"%s\",\n  \"errors\" : [ ", subsys, ftype, command, file);
+   snprintf(s + n, sizeof s - n, error ? "\"%s\" ]\n}" : " ]\n}", error);
+   return json(code, text, s);
+}
+
+static void drives(void)
+{
+   for (int i = 0; i < (int)sizeof img_a; i++)
+      img_a[i] = i * 3 + i / 512;
+   put_file("/games/a.d64", img_a, 174848);
+   put_file("/games/b.d71", img_a, 349696);
+   put_file("/games/c.d81", img_a, 4096);         // not a D81's size
+   put_file("/games/g.g64", img_a, 1000);
+
+   expect("drives, none mounted", "GET /v1/drives HTTP/1.1\r\n\r\n",
+          drives_json(drive_obj("a", "true", 8, "1571", "", ""), drive_obj("b", "true", 9, "1571", "", "")));
+   expect("mount", "PUT /v1/drives/a:mount?image=/SD/games/a.d64 HTTP/1.1\r\n\r\n",
+          mounted(200, "OK", 2, 1541, 0x1520, "/SD/games/a.d64", NULL));
+   check("mount: in drive a", drv_mounted[0] && !strcmp(drv_card[0], "/games/a.d64") && !drv_ro[0], NULL);
+   expect("mount readonly, D71, B", "PUT /v1/drives/B:mount?image=/SD/games/b.d71&mode=readonly HTTP/1.1\r\n\r\n",
+          mounted(200, "OK", 3, 1571, 0x1520 | 0x8000, "/SD/games/b.d71", NULL));
+   check("mount readonly: write protected", drv_mounted[1] && drv_ro[1] && drv_type[1] == 1, NULL);
+   expect("drives, two mounted", "GET /v1/drives HTTP/1.1\r\n\r\n",
+          drives_json(drive_obj("a", "true", 8, "1571", "/SD/games/a.d64", ""),
+                      drive_obj("b", "true", 9, "1571", "/SD/games/b.d71", "")));
+   expect("mount, a G64", "PUT /v1/drives/a:mount?image=/SD/games/g.g64 HTTP/1.1\r\n\r\n",
+          mounted(501, "Unknown", 2, 1541, 0x1530, "/SD/games/g.g64", "This command is not supported on this architecture"));
+   expect("mount, another type", "PUT /v1/drives/a:mount?image=/SD/games/a.d64&type=xyz HTTP/1.1\r\n\r\n",
+          bad("\"Invalid Type 'xyz'\""));
+   expect("mount, no extension", "PUT /v1/drives/a:mount?image=/SD/games HTTP/1.1\r\n\r\n", bad("\"Invalid Type ''\""));
+   expect("mount, drive c", "PUT /v1/drives/c:mount?image=/SD/games/a.d64 HTTP/1.1\r\n\r\n",
+          bad("\"Invalid Drive 'c'\""));
+   expect("mount, no drive", "PUT /v1/drives:mount?image=/SD/games/a.d64 HTTP/1.1\r\n\r\n",
+          bad("\"Invalid Drive '(null)'\""));
+   expect("mount, softiec", "PUT /v1/drives/softiec:mount?image=/SD/games/a.d64 HTTP/1.1\r\n\r\n",
+          mounted(503, "Unknown", 7, 1541, 0x1520, "/SD/games/a.d64", "SubSystem does not exist"));
+   expect("mount, no file", "PUT /v1/drives/a:mount?image=/SD/games/x.d64 HTTP/1.1\r\n\r\n",
+          mounted(404, "Not Found", 2, 1541, 0x1520, "/SD/games/x.d64", "Cannot open file"));
+   expect("mount, not an image's size", "PUT /v1/drives/a:mount?image=/SD/games/c.d81 HTTP/1.1\r\n\r\n",
+          mounted(415, "Unknown", 2, 1581, 0x1520, "/SD/games/c.d81", "Error detected in file format"));
+   expect("mount, the other drive's image", "PUT /v1/drives/a:mount?image=/SD/games/b.d71 HTTP/1.1\r\n\r\n",
+          mounted(404, "Not Found", 2, 1571, 0x1520, "/SD/games/b.d71", "Cannot open file"));
+   check("failed mounts: a keeps its image", !strcmp(drv_card[0], "/games/a.d64"), NULL);
+   expect("mount, no image", "PUT /v1/drives/a:mount HTTP/1.1\r\n\r\n", bad("\"Function mount requires parameter image\""));
+
+   // unlinked: a copy in /c128/temp, shown as the file
+   expect("mount unlinked", "PUT /v1/drives/a:mount?image=/SD/games/a.d64&mode=unlinked HTTP/1.1\r\n\r\n",
+          mounted(200, "OK", 2, 1541, 0x1520 | 0x4000, "/SD/games/a.d64", NULL));
+   static uint8_t got[349696];
+   check("mount unlinked: a copy", !strcmp(drv_card[0], "/c128/temp/a.d64") &&
+         get_file("/c128/temp/a.d64", got, sizeof got) == 174848 && !memcmp(got, img_a, 174848), drv_card[0]);
+   expect("unlink", "PUT /v1/drives/b:unlink HTTP/1.1\r\n\r\n", OK);
+   check("unlink: onto a copy, let go", !strcmp(drv_card[1], "/c128/temp/b.d71") && remaps == 1 && !drv_held[1] &&
+         get_file("/c128/temp/b.d71", got, sizeof got) == 349696 && !memcmp(got, img_a, 349696), drv_card[1]);
+   expect("drives, unlinked: as the files", "GET /v1/drives HTTP/1.1\r\n\r\n",
+          drives_json(drive_obj("a", "true", 8, "1571", "/SD/games/a.d64", ""),
+                      drive_obj("b", "true", 9, "1571", "/SD/games/b.d71", "")));
+   expect("unlink again: another copy", "PUT /v1/drives/b:unlink HTTP/1.1\r\n\r\n", OK);
+   check("unlink again: _1", !strcmp(drv_card[1], "/c128/temp/b_1.d71"), drv_card[1]);
+   expect("remove", "PUT /v1/drives/a:remove HTTP/1.1\r\n\r\n", OK);
+   check("remove: gone", !drv_mounted[0], NULL);
+   expect("unlink, nothing in", "PUT /v1/drives/a:unlink HTTP/1.1\r\n\r\n", OK);
+   expect("remove, softiec", "PUT /v1/drives/softiec:remove HTTP/1.1\r\n\r\n", errs(503, "Unknown", "SubSystem does not exist"));
+   expect("remove, an argument", "PUT /v1/drives/a:remove?file=x HTTP/1.1\r\n\r\n",
+          bad("\"Function remove does not have parameter file\""));
+
+   // A menu mount shows folder and name
+   strcpy(drv_card[0], "/games/a.d64");
+   drv_mounted[0] = 1;
+   drv_type[0] = 0;
+   expect("drives, a menu mount", "GET /v1/drives HTTP/1.1\r\n\r\n",
+          drives_json(drive_obj("a", "true", 8, "1571", "a.d64", "/SD/games"),
+                      drive_obj("b", "true", 9, "1571", "/SD/games/b.d71", "")));
+   drv_mounted[0] = 0;
+
+   // power, reset
+   int r0 = rom_reloads[0];
+   expect("reset", "PUT /v1/drives/a:reset HTTP/1.1\r\n\r\n", OK);
+   check("reset: reloaded", rom_reloads[0] == r0 + 1, NULL);
+   expect("off", "PUT /v1/drives/a:off HTTP/1.1\r\n\r\n", OK);
+   check("off: off", !drive_on[0] && drive_power_of(0) == DRIVE_OFF, NULL);
+   expect("on", "PUT /v1/drives/a:on HTTP/1.1\r\n\r\n", OK);
+   check("on: on, no reset", drive_on[0] && rom_reloads[0] == r0 + 1, NULL);
+   expect("on again: a reset", "PUT /v1/drives/a:on HTTP/1.1\r\n\r\n", OK);
+   check("on again: reloaded", rom_reloads[0] == r0 + 2, NULL);
+
+   // load_rom: drive a's bank for its model (1571: bank 2)
+   static uint8_t rom[32768];
+   for (int i = 0; i < 32768; i++)
+      rom[i] = i * 5 + 1;
+   put_file("/roms/j.rom", rom, 16384);
+   put_file("/roms/odd.rom", rom, 20000);
+   expect("load_rom 16 KB", "PUT /v1/drives/a:load_rom?file=/SD/roms/j.rom HTTP/1.1\r\n\r\n", OK);
+   int same = 1;
+   for (int i = 0; i < 32768; i++)
+      same &= drive_rom[2 * 32768 + i] == rom[i & 16383];
+   check("load_rom: twice into the 1571 bank, reloaded", same && rom_reloads[0] == r0 + 3, NULL);
+   expect("load_rom 20 KB", "PUT /v1/drives/a:load_rom?file=/SD/roms/odd.rom HTTP/1.1\r\n\r\n",
+          errs(412, "Unknown", "Drive ROM is invalid"));
+   check("load_rom 20 KB: written, reloaded", drive_rom[2 * 32768 + 19999] == rom[19999] && rom_reloads[0] == r0 + 4, NULL);
+   expect("load_rom, no file", "PUT /v1/drives/a:load_rom?file=/SD/roms/x.rom HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "Cannot open file"));
+   static char req[40000];
+   int hl = sprintf(req, "POST /v1/drives/b:load_rom HTTP/1.1\r\nContent-Length: 32768\r\n\r\n");
+   memcpy(req + hl, rom, 32768);
+   client_t *c = cl_open();
+   cl_send(c, req, hl + 32768);
+   run_until(c, 30000000);
+   same = 1;
+   for (int i = 0; i < 32768; i++)
+      same &= drive_rom[3 * 32768 + i] == rom[i];
+   check("POST load_rom 32 KB: drive b's 1571 bank", !strcmp(c->got, OK) && same && rom_reloads[1] >= 1, c->got);
+   free(c);
+
+   // set_mode: one model for both 5.25" drives; a 1581 is one by its image
+   expect("set_mode 1541", "PUT /v1/drives/a:set_mode?mode=1541 HTTP/1.1\r\n\r\n",
+          json(200, "OK", "{ \n  \"mode\" : \"1541\",\n  \"errors\" : [  ]\n}"));
+   check("set_mode: the menu's model", settings[OPTM_G_DRV_MODEL][0] && !settings[OPTM_G_DRV_MODEL][1], NULL);
+   expect("set_mode 1581 on a 5.25\" drive", "PUT /v1/drives/a:set_mode?mode=1581 HTTP/1.1\r\n\r\n",
+          json(415, "Unknown", "{ \n  \"mode\" : \"1581\",\n  \"errors\" : [ \"Drive is in the wrong mode\" ]\n}"));
+   expect("set_mode, no such model", "PUT /v1/drives/a:set_mode?mode=1234 HTTP/1.1\r\n\r\n",
+          bad("\"Invalid Drive Type '1234'\""));
+   expect("set_mode 1571", "PUT /v1/drives/b:set_mode?mode=1571 HTTP/1.1\r\n\r\n",
+          json(200, "OK", "{ \n  \"mode\" : \"1571\",\n  \"errors\" : [  ]\n}"));
+
+   // The internal floppy as drive 8: a 1581 without an image; a mount turns it off, as the menu
+   int1581 = 0;
+   expect("drives, the internal floppy", "GET /v1/drives HTTP/1.1\r\n\r\n",
+          drives_json(drive_obj("a", "true", 8, "1581", "", ""), drive_obj("b", "true", 9, "1571", "/SD/games/b.d71", "")));
+   expect("mount on the internal floppy's drive", "PUT /v1/drives/a:mount?image=/SD/games/a.d64 HTTP/1.1\r\n\r\n",
+          mounted(200, "OK", 2, 1541, 0x1520, "/SD/games/a.d64", NULL));
+   check("the internal floppy off", int1581 < 0 && drv_mounted[0], NULL);
+
+   // POST: into /c128/temp, the name's ':' a '_' (his fix_filename)
+   char *up = malloc(200000), part[200];
+   int bl = sprintf(part, "--XyZ\r\nContent-Disposition: form-data; name=\"file\"; filename=\"up:1.d64\"\r\n\r\n");
+   hl = sprintf(up, "POST /v1/drives/a:mount HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=XyZ\r\n"
+                "Content-Length: %d\r\n\r\n%s", bl + 174848 + 11, part);
+   memcpy(up + hl, img_a, 174848);
+   memcpy(up + hl + 174848, "\r\n--XyZ--\r\n", 11);
+   c = cl_open();
+   cl_send(c, up, hl + 174848 + 11);
+   run_until(c, 60000000);
+   check("POST mount: written, mounted", !strcmp(c->got, mounted(200, "OK", 2, 1541, 0x1520, "/SD/c128/temp/up_1.d64", NULL)) &&
+         !strcmp(drv_card[0], "/c128/temp/up_1.d64") && get_file("/c128/temp/up_1.d64", got, sizeof got) == 174848 &&
+         !memcmp(got, img_a, 174848), c->got);
+   free(c);
+   hl = sprintf(up, "POST /v1/drives/b:mount?type=d64 HTTP/1.1\r\nContent-Length: 174848\r\n\r\n");
+   memcpy(up + hl, img_a, 174848);
+   c = cl_open();
+   cl_send(c, up, hl + 174848);
+   run_until(c, 60000000);
+   check("POST mount, raw: temp0000", !strcmp(c->got, mounted(200, "OK", 3, 1541, 0x1520, "/SD/c128/temp/temp0000", NULL)) &&
+         !strcmp(drv_card[1], "/c128/temp/temp0000"), c->got);
+   free(c);
+   free(up);
+   expect("POST mount, no body", "POST /v1/drives/a:mount HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
+          errs(412, "Unknown", "Expected Body, but got none."));
+}
+
+static void files(void)
+{
+   static uint8_t got[819200];
+   expect("info", "GET /v1/files/SD/games/a.d64:info HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"files\" : { \n  \"path\" : \"SD/games/a.d64\",\n  \"filename\" : \"a.d64\",\n"
+             "  \"size\" : 174848,\n  \"extension\" : \"D64\"\n},\n  \"errors\" : [  ]\n}"));
+   expect("info, no file", "GET /v1/files/SD/games/x.d64:info HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "FILE DOESN'T EXIST"));
+   expect("info, no folder", "GET /v1/files/SD/nope/x.d64:info HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "PATH DOESN'T EXIST"));
+   expect("info, not the card", "GET /v1/files/Usb0/x.d64:info HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "PATH DOESN'T EXIST"));
+
+   expect("create_d64", "PUT /v1/files/SD/games/new.d64:create_d64 HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"path\" : \"SD/games/new.d64\",\n  \"tracks\" : 35,\n  \"diskname\" : \"new\",\n"
+             "  \"bytes_written\" : 174848,\n  \"errors\" : [  ]\n}"));
+   int n = get_file("/games/new.d64", got, sizeof got);
+   const uint8_t *bam = got + 357 * 256, *dir = got + 358 * 256;
+   check("create_d64: 683 blocks, the BAM, the directory", n == 174848 && bam[0] == 18 && bam[1] == 1 &&
+         bam[2] == 0x41 && bam[3] == 0x20 && bam[4] == 21 && !memcmp(bam + 5, "\xFF\xFF\x1F", 3) &&
+         bam[4 * 18] == 17 && !memcmp(bam + 4 * 18 + 1, "\xFC\xFF\x07", 3) && bam[4 * 35] == 17 &&
+         !memcmp(bam + 0x90, "NEW\xA0", 4) && bam[0xA2] == 0xA0 && bam[0xA3] == 0xA0 && bam[0xA4] == 0xA0 &&
+         !memcmp(bam + 0xA5, "2A", 2) && bam[0xAA] == 0xA0 && bam[0xAB] == 0 && dir[0] == 0 && dir[1] == 0xFF &&
+         got[0] == 0 && got[174847] == 0, NULL);
+   expect("create_d64, there already", "PUT /v1/files/SD/games/new.d64:create_d64?diskname=x HTTP/1.1\r\n\r\n",
+          json(500, "Unknown", "{ \n  \"path\" : \"SD/games/new.d64\",\n  \"tracks\" : 35,\n  \"diskname\" : \"x\",\n"
+               "  \"errors\" : [ \"FILE EXISTS\" ]\n}"));
+   expect("create_d64, 40 tracks and a name", "PUT /v1/files/SD/games/t40.d64:create_d64?tracks=40&diskname=my%20disk,ab HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"path\" : \"SD/games/t40.d64\",\n  \"tracks\" : 40,\n  \"diskname\" : \"my disk,ab\",\n"
+             "  \"bytes_written\" : 196608,\n  \"errors\" : [  ]\n}"));
+   n = get_file("/games/t40.d64", got, sizeof got);
+   check("create_d64, 40 tracks: the name and id", n == 196608 && !memcmp(bam + 0x90, "MY DISK\xA0", 8) &&
+         !memcmp(bam + 0xA2, "AB\xA0" "2A", 5), NULL);
+   expect("create_d64, 42 tracks", "PUT /v1/files/SD/games/t42.d64:create_d64?tracks=42 HTTP/1.1\r\n\r\n",
+          json(400, "Bad Request", "{ \n  \"path\" : \"SD/games/t42.d64\",\n  \"tracks\" : 42,\n  \"diskname\" : \"t42\",\n"
+               "  \"errors\" : [ \"Track count should be between 35 and 41.\" ]\n}"));
+   expect("create_d71", "PUT /v1/files/SD/games/new.d71:create_d71 HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"path\" : \"SD/games/new.d71\",\n  \"tracks\" : 70,\n  \"diskname\" : \"new\",\n"
+             "  \"bytes_written\" : 349696,\n  \"errors\" : [  ]\n}"));
+   n = get_file("/games/new.d71", got, sizeof got);
+   const uint8_t *bam2 = got + (683 + 357) * 256;
+   check("create_d71: double sided, side 2's BAM, track 53 used", n == 349696 && bam[3] == 0x80 &&
+         bam[0xDD] == 21 && bam[0xDD + 17] == 0 && !memcmp(bam2, "\xFF\xFF\x1F", 3) &&
+         !memcmp(bam2 + 3 * 17, "\0\0\0", 3) && !memcmp(bam + 0x90, "NEW\xA0", 4), NULL);
+   expect("create_d81", "PUT /v1/files/SD/games/new.d81:create_d81?diskname=big%2C81 HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"path\" : \"SD/games/new.d81\",\n  \"diskname\" : \"big,81\",\n"
+             "  \"bytes_written\" : 819200,\n  \"errors\" : [  ]\n}"));
+   n = get_file("/games/new.d81", got, sizeof got);
+   const uint8_t *hdr = got + 39 * 40 * 256, *b1 = hdr + 256, *b2 = hdr + 512, *d81dir = hdr + 768;
+   check("create_d81: header, BAM, directory", n == 819200 && hdr[0] == 40 && hdr[1] == 3 && hdr[2] == 0x44 &&
+         !memcmp(hdr + 4, "BIG\xA0", 4) && !memcmp(hdr + 22, "81", 2) && !memcmp(hdr + 25, "3D", 2) &&
+         b1[0] == 40 && b1[1] == 2 && b1[2] == 0x44 && b1[3] == 0xBB && !memcmp(b1 + 4, "81\xC0", 3) &&
+         b1[0x10] == 40 && b1[0x10 + 6 * 39] == 36 && b2[0] == 0 && b2[1] == 0xFF && !memcmp(b2 + 2, "\x44\xBB" "81", 4) &&
+         b2[6] == 0 && b2[0x10] == 40 && d81dir[1] == 0xFF, NULL);
+   expect("create_dnp: 501", "PUT /v1/files/SD/games/x.dnp:create_dnp?tracks=10 HTTP/1.1\r\n\r\n",
+          json(501, "Unknown", "{ \n  \"path\" : \"SD/games/x.dnp\",\n  \"tracks\" : 10,\n  \"diskname\" : \"x\",\n"
+               "  \"errors\" : [ \"This command is not supported on this architecture\" ]\n}"));
+   expect("create_dnp, 0 tracks", "PUT /v1/files/SD/games/x.dnp:create_dnp?tracks=0 HTTP/1.1\r\n\r\n",
+          json(400, "Bad Request", "{ \n  \"path\" : \"SD/games/x.dnp\",\n  \"tracks\" : 0,\n"
+               "  \"errors\" : [ \"Invalid number of tracks (1-255).\" ]\n}"));
+   expect("create_dnp, no tracks", "PUT /v1/files/SD/games/x.dnp:create_dnp HTTP/1.1\r\n\r\n",
+          bad("\"Function create_dnp requires parameter tracks\""));
+   check("create_dnp: no file", get_file("/games/x.dnp", got, 1) < 0, NULL);
+}
+
+// A C128 program: 10 PRINT"HI", its link wrong (his runner relinks it to $1C0B)
+static const uint8_t prg128[] = { 0x01, 0x1C, 0x34, 0x12, 0x0A, 0x00, 0x99, 0x22, 'H', 'I', 0x22, 0x00, 0x00, 0x00 };
+static const uint8_t prg64[]  = { 0x01, 0x08, 0x0B, 0x08, 0x0A, 0x00, 0x99, 0x22, 'H', 'I', 0x22, 0x00, 0x00, 0x00 };
+
+static void runners(void)
+{
+   put_file("/prg/hello.prg", prg128, sizeof prg128);
+   put_file("/prg/hi64.prg", prg64, sizeof prg64);
+   put_file("/prg/hi64.cfg", "[Drive B Settings]\nDrive=Disabled\n", 34);
+   memset(c128_mem, 0xEE, sizeof c128_mem);
+   c128_settle();
+   int boots = reboots;
+   typed[0] = 0;
+
+   expect("run_prg, C128", "PUT /v1/runners:run_prg?file=/SD/prg/hello.prg HTTP/1.1\r\n\r\n", OK);
+   check("run_prg, C128: reset, at READY, loaded, relinked, pointers, RUN typed",
+         reboots == boots + 1 && !c128_c64 && !strcmp(typed, "@RUN\r") && c128_mem[0x1C01] == 0x0B &&
+         c128_mem[0x1C02] == 0x1C && !memcmp(c128_mem + 0x1C03, prg128 + 4, 10) &&
+         c128_mem[0x1210] == 0x0D && c128_mem[0x1211] == 0x1C && c128_mem[0xAE] == 0x0D && c128_mem[0x90] == 0x40 &&
+         c128_mem[0xBA] == 8 && !memcmp(c128_mem + 0x34A, "RUN\r", 4) && !dma_held_v, typed);
+   typed[0] = 0;
+   expect("load_prg, C128", "PUT /v1/runners:load_prg?file=/SD/prg/hello.prg HTTP/1.1\r\n\r\n", OK);
+   check("load_prg: no RUN", !strcmp(typed, "@"), typed);
+
+   typed[0] = 0;
+   drive_on[1] = 1;
+   expect("run_prg, C64", "PUT /v1/runners:run_prg?file=/SD/prg/hi64.prg HTTP/1.1\r\n\r\n", OK);
+   check("run_prg, C64: GO64, loaded, pointers, RUN", c128_c64 && !strcmp(typed, "@GO64\rY\r@RUN\r") &&
+         !memcmp(c128_mem + 0x801, prg64 + 2, 12) && !memcmp(c128_mem + 0x2D, "\x0D\x08\x0D\x08\x0D\x08", 6) &&
+         c128_mem[0x35] == 0 && c128_mem[0x36] == 0xA0 && !memcmp(c128_mem + 0x277, "RUN\r", 4), typed);
+   check("run_prg: its .cfg loaded", !drive_on[1], NULL);
+
+   typed[0] = 0;
+   c64_cart = 1;
+   expect("run_prg, C64, a C64 cartridge: no GO64", "PUT /v1/runners:run_prg?file=/SD/prg/hi64.prg HTTP/1.1\r\n\r\n", OK);
+   check("no GO64", !strcmp(typed, "@RUN\r"), typed);
+   expect("run_prg, C128 program, a C64 cartridge: 423", "PUT /v1/runners:run_prg?file=/SD/prg/hello.prg HTTP/1.1\r\n\r\n",
+          errs(423, "Unknown", "Could not obtain lock of subsystem"));
+   c64_cart = 0;
+   check("423: let go", !dma_held_v, NULL);
+
+   boots = reboots;
+   dma_z80_v = 1;
+   expect("run_prg, the Z80 runs: 423 at once", "PUT /v1/runners:run_prg?file=/SD/prg/hello.prg HTTP/1.1\r\n\r\n",
+          errs(423, "Unknown", "Could not obtain lock of subsystem"));
+   dma_z80_v = 0;
+   check("Z80: no reset", reboots == boots, NULL);
+   boot_never = 1;
+   client_t *c = ask("PUT /v1/runners:run_prg?file=/SD/prg/hello.prg HTTP/1.1\r\n\r\n");
+   boot_never = 0;
+   check("run_prg, no BASIC: 423 after 10 s", !strcmp(c->got, errs(423, "Unknown", "Could not obtain lock of subsystem")) &&
+         !dma_held_v, c->got);
+   free(c);
+   expect("run_prg, no file", "PUT /v1/runners:run_prg?file=/SD/prg/x.prg HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "Cannot open file"));
+
+   char req[512];
+   int hl = sprintf(req, "POST /v1/runners:run_prg HTTP/1.1\r\nContent-Length: %d\r\n\r\n", (int)sizeof prg128);
+   memcpy(req + hl, prg128, sizeof prg128);
+   memset(c128_mem + 0x1C00, 0, 32);
+   c = cl_open();
+   cl_send(c, req, hl + sizeof prg128);
+   run_until(c, 30000000);
+   check("POST run_prg", !strcmp(c->got, OK) && !memcmp(c128_mem + 0x1C03, prg128 + 4, 10), c->got);
+   free(c);
+
+   // run_crt
+   static uint8_t crt[8192];
+   memcpy(crt, "C64 CARTRIDGE   ", 16);
+   put_file("/carts/x.crt", crt, sizeof crt);
+   put_file("/carts/bad.crt", "nothing", 7);
+   expect("run_crt", "PUT /v1/runners:run_crt?file=/SD/carts/x.crt HTTP/1.1\r\n\r\n", OK);
+   check("run_crt: the cartridge's source, the name", settings[OPTM_G_CART][1] && !strcmp(crt_shown, "x.crt"), crt_shown);
+   expect("run_crt, not a .crt", "PUT /v1/runners:run_crt?file=/SD/carts/bad.crt HTTP/1.1\r\n\r\n",
+          errs(415, "Unknown", "Error detected in file format"));
+   expect("run_crt, no file", "PUT /v1/runners:run_crt?file=/SD/carts/x.bin HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "Cannot open file"));
+   memset(crt_mem, 0, 64);
+   static char creq[9000];
+   hl = sprintf(creq, "POST /v1/runners:run_crt HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=b\r\n"
+                "Content-Length: %d\r\n\r\n", (int)(sizeof crt + 70 + 8));
+   int bl = sprintf(creq + hl, "--b\r\nContent-Disposition: form-data; filename=\"up.crt\"\r\n\r\n");
+   memcpy(creq + hl + bl, crt, sizeof crt);
+   int tl = sprintf(creq + hl + bl + sizeof crt, "\r\n--b--\r\n");
+   char *len = strstr(creq, "Length: ") + 8;
+   char num[8];
+   snprintf(num, sizeof num, "%d", (int)(bl + sizeof crt + tl));
+   memcpy(len, num, 4);                           // four digits either way
+   c = cl_open();
+   cl_send(c, creq, hl + bl + sizeof crt + tl);
+   run_until(c, 30000000);
+   check("POST run_crt: into the cartridge's memory", !strcmp(c->got, OK) && crt_mem[0] == 'C' &&
+         crt_parsed == (int)sizeof crt && !strcmp(crt_shown, "up.crt"), c->got);
+   free(c);
+
+   expect("sidplay", "PUT /v1/runners:sidplay?file=/SD/x.sid HTTP/1.1\r\n\r\n",
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("sidplay, POST", post("/v1/runners:sidplay", "application/octet-stream", "PSID"),
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("sidplay, POST without a body", "POST /v1/runners:sidplay HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
+          errs(412, "Unknown", "Expected Body, but got none."));
+   expect("modplay", "PUT /v1/runners:modplay?file=/SD/x.mod HTTP/1.1\r\n\r\n",
+          errs(501, "Unknown", "Sampler module not available"));
+}
+
 int main(int argc, char **argv)
 {
    setvbuf(stdout, NULL, _IONBF, 0);
@@ -944,9 +1334,15 @@ int main(int argc, char **argv)
    host_rest_init();
    stores_net_defaults();
 
-   if (argc == 3 && !strcmp(argv[1], "-serve")) {
+   if (argc == 4 && !strcmp(argv[1], "-serve")) {
+      if (!host_rest_card(argv[3]))
+         return 2;
       serve(atoi(argv[2]));
       return 0;
+   }
+   if (argc != 2 || !host_rest_card(argv[1])) {
+      printf("usage: test_http IMG | -serve PORT IMG\n");
+      return 2;
    }
    about();
    urls();
@@ -956,6 +1352,9 @@ int main(int argc, char **argv)
    connections();
    machine();
    configs();
+   drives();
+   files();
+   runners();
    printf("test_http: %d checks, %d failed\n", checks, failures);
    return failures != 0;
 }

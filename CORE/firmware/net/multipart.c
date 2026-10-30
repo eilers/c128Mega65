@@ -1,7 +1,7 @@
 // A port of MicroHttpServer's c-version/lib/multipart.c at ad73d32 (Gideon's software/httpd;
 // Copyright (c) 2015, StarNight; BSD licence in MicroHttpServer-LICENSE.md): the same state
-// machine, so a body splits into the same parts. Its part headers aren't parsed here: the
-// core keeps no file names.
+// machine, so a body splits into the same parts. A part's header goes out with its
+// MP_SUBHEADER, as text (his server splits it into fields).
 //
 // A multipart form is (--, SEPARATOR, \r\n, (HEADER FIELD, \r\n)+, \r\n, DATA)+, --,
 // SEPARATOR, \r\n. With the separator searched for as \r\n--SEP, that is (SEPARATOR,
@@ -20,6 +20,7 @@ typedef struct {
    int      boundary_length;
    int      match_state;
    int      header_size;
+   char     header[512];             // the part's header, as much as fits
    uint8_t  data[4096];
    int      data_size;
    mp_cb_t  cb;
@@ -123,13 +124,17 @@ void mp_in(void *mp, const uint8_t *buf, int len)
             if (s->match_state == 4) {
                // After the header's empty line there is always data
                s->match_state = 0;
-               event(s, MP_SUBHEADER, NULL, 0);
+               event(s, MP_SUBHEADER, (const uint8_t *)s->header, s->header_size);
                s->state = S_DATA;
                s->header_size = 0;
-            } else if (buf[i] == (uint8_t)header_end[s->match_state]) {
-               s->match_state++;
             } else {
-               s->match_state = 0;
+               if (s->header_size < (int)sizeof s->header - 1)
+                  s->header[s->header_size++] = buf[i];
+               s->header[s->header_size] = 0;
+               if (buf[i] == (uint8_t)header_end[s->match_state])
+                  s->match_state++;
+               else
+                  s->match_state = 0;
             }
          }
          if (s->state == S_DATA && s->match_state == 0)

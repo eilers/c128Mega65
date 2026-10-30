@@ -501,6 +501,40 @@ begin
       end if;
       report "7 drive power: done";
 
+      -- 8. Hold (CSR 0x035): a held drive's request waits, the other drive's doesn't; it is
+      -- served once released; a reset releases it
+      mount(0);
+      mount(1);
+      qwrite(0, x"FFFF", 16#035#, 1);
+      csr(0, 16#035#, st);
+      sd_lba(0)     <= std_logic_vector(to_unsigned(8, 32));
+      sd_blk_cnt(0) <= std_logic_vector(to_unsigned(1, 6));
+      sd_rd(0)      <= '1';
+      request(1, false, 0, 2);                     -- drive 9 meanwhile
+      wait for 2000 * C_CLK;
+      if st(0) /= '1' or sd_ack(0) = '1' then
+         report "8a: a held drive was served (hold reads " & std_logic'image(st(0)) & ")" severity error;
+         errors := errors + 1;
+      end if;
+      check_read(1, 0, 2, "8a the other drive while one is held");
+      qwrite(0, x"FFFF", 16#035#, 0);
+      wait until rising_edge(clk) and sd_ack(0) = '1';
+      sd_rd(0) <= '0';
+      wait until rising_edge(clk) and sd_ack(0) = '0';
+      wait until rising_edge(clk);
+      check_read(0, 8, 2, "8b served once released");
+      qwrite(1, x"FFFF", 16#035#, 1);
+      rst <= '1';
+      wait for 3 * C_CLK;
+      rst <= '0';
+      wait for 3 * C_CLK;
+      csr(1, 16#035#, st);
+      if st(0) /= '0' then
+         report "8c: hold not released by a reset" severity error;
+         errors := errors + 1;
+      end if;
+      report "8 hold: done";
+
       if errors = 0 then
          report "ALL CHECKS PASSED";
       else

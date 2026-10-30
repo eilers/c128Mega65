@@ -181,6 +181,8 @@ entity main is
       -- Drive ROM pull interface (clk_sd_i domain). The drives fetch their DOS ROM
       -- byte by byte out of the boot1.rom block RAM that mega65.vhd serves.
       drv_rom_loading_i       : in  std_logic;
+      drv_rom_reload_i        : in  std_logic_vector(1 downto 0) := "00";  -- a pulse: drive i's bank again
+      drv_rom_ready_o         : out std_logic_vector(1 downto 0);          -- drive i has its ROM
       drv_rom_req_o           : out std_logic;
       drv_rom_addr_o          : out std_logic_vector(18 downto 0);
       drv_rom_data_i          : in  std_logic_vector(7 downto 0);
@@ -634,6 +636,7 @@ signal iec_img_type4    : std_logic_vector(3 downto 0);
 signal iec_img_type_latched : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0) := (others => "00");
 
 signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
+signal iec_rom_ready    : std_logic_vector(G_VDNUM - 1 downto 0);
 signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drive_led    : std_logic_vector(G_VDNUM - 1 downto 0);
 
@@ -2394,6 +2397,12 @@ with iec_img_type select iec_img_type4 <=
   "1000" when "10",     -- D81: HD 3.5"
   "0010" when others;
 
+p_rom_ready : process (all)
+begin
+   drv_rom_ready_o <= (others => '0');
+   drv_rom_ready_o(G_VDNUM - 1 downto 0) <= iec_rom_ready;
+end process p_rom_ready;
+
 iec_drive_inst : entity work.iec_drive
   generic map (
     PARPORT => 0,       -- no parallel port (DolphinDOS speeder)
@@ -2452,6 +2461,8 @@ iec_drive_inst : entity work.iec_drive
 
     -- DOS ROM, pulled out of boot1.rom by the server FSM in mega65.vhd
     rom_loading  => drv_rom_loading_i,
+    rom_reload   => drv_rom_reload_i(G_VDNUM - 1 downto 0),
+    rom_ready    => iec_rom_ready,
     rom_req      => drv_rom_req_o,
     rom_addr     => drv_rom_addr_o,
     rom_data     => drv_rom_data_i,

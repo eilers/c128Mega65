@@ -126,6 +126,32 @@ int shell_mount(int d, const char *path, const char **msg)
    return 0;
 }
 void shell_unmount(int d) { mounted_d = -(d + 10); }
+
+// The REST routes link in too (http.c, through UCI's network target); UCI never calls these
+int  shell_mount_ro(int d, const char *path, int ro, const char **msg) { (void)ro; return shell_mount(d, path, msg); }
+int  drive_mounted(int d) { return mounted_d == d; }
+const char *drive_path(int d) { return mounted_d == d ? mounted_path : ""; }
+enum drive_power drive_power_of(int d) { return drive_pow[d]; }
+void drive_hold(int d, int on) { (void)d, (void)on; }
+void drive_flush(int d) { (void)d; }
+int  drive_quiet(int d) { (void)d; return 1; }
+int  drive_remap(int d, const char *path) { (void)d, (void)path; return 1; }
+void core_sel_pre(int group, int item) { (void)group, (void)item; }
+int  core_prep_load(uint32_t size, int ctx, int group, int *type, const char **msg)
+{
+   (void)size, (void)ctx, (void)group, (void)msg;
+   *type = 0;
+   return 1;
+}
+int      crtrom_count(void) { return 0; }
+uint16_t crtrom_dev(int k) { (void)k; return 0; }
+void     crtrom_begin(int k) { (void)k; }
+int      crtrom_parse(int k, uint32_t size, const char **msg) { (void)k, (void)size, (void)msg; return 1; }
+int      crtrom_load_quiet(int k, const char *path, int group, const char **msg)
+{
+   (void)k, (void)path, (void)group, (void)msg;
+   return 1;
+}
 void shell_fatal(const char *msg, uint32_t code) { printf("FATAL %s %u\n", msg, code); exit(2); }
 void uart_puts(const char *s) { fputs(s, stdout); }
 

@@ -22,7 +22,8 @@ import time
 # (name, request bytes, how to compare): "exact", "info" (the same keys in the same order),
 # "ours" (only ours is checked: the Ultimate has a web UI there), "status" (the same status
 # line and Content-Length: a C128's memory differs), or "mine" (only ours is checked: the
-# Ultimate has other settings). Machine and configs cases change nothing on either machine.
+# Ultimate has other settings). Machine, configs, drives, files and runners cases change
+# nothing on either machine: their files aren't there, or the request is refused first.
 CASES = [
     ("version", b"GET /v1/version HTTP/1.1\r\nHost: x\r\n\r\n", "exact"),
     ("info", b"GET /v1/info HTTP/1.1\r\n\r\n", "info"),
@@ -99,6 +100,25 @@ CASES = [
      b"Content-Length: 12\r\n\r\n{\"Nosuch\":{}}", "exact"),
     ("save_to_flash, too deep", b"PUT /v1/configs/a/b:save_to_flash HTTP/1.1\r\n\r\n", "exact"),
     ("load_from_flash, too deep", b"PUT /v1/configs/a/b:load_from_flash HTTP/1.1\r\n\r\n", "exact"),
+    ("drives", b"GET /v1/drives HTTP/1.1\r\n\r\n", "mine"),
+    ("mount, drive c", b"PUT /v1/drives/c:mount?image=/SD/nosuch.d64 HTTP/1.1\r\n\r\n", "exact"),
+    ("mount, no drive", b"PUT /v1/drives:mount?image=/SD/nosuch.d64 HTTP/1.1\r\n\r\n", "exact"),
+    ("mount, a type it hasn't", b"PUT /v1/drives/a:mount?image=/SD/nosuch.d64&type=xyz HTTP/1.1\r\n\r\n", "exact"),
+    ("mount, no image", b"PUT /v1/drives/a:mount HTTP/1.1\r\n\r\n", "exact"),
+    ("mount, no file", b"PUT /v1/drives/a:mount?image=/SD/nosuch/x.d64 HTTP/1.1\r\n\r\n", "exact"),
+    ("POST mount, no body", b"POST /v1/drives/a:mount HTTP/1.1\r\nContent-Length: 0\r\n\r\n", "exact"),
+    ("set_mode, no such model", b"PUT /v1/drives/a:set_mode?mode=1234 HTTP/1.1\r\n\r\n", "exact"),
+    ("remove, an argument", b"PUT /v1/drives/a:remove?file=x HTTP/1.1\r\n\r\n", "exact"),
+    ("load_rom, drive c", b"PUT /v1/drives/c:load_rom?file=/SD/x.rom HTTP/1.1\r\n\r\n", "exact"),
+    ("load_rom, no file", b"PUT /v1/drives/a:load_rom?file=/SD/nosuch.rom HTTP/1.1\r\n\r\n", "exact"),
+    ("files info, no file", b"GET /v1/files/SD/nosuch.d64:info HTTP/1.1\r\n\r\n", "exact"),
+    ("create_d64, 42 tracks", b"PUT /v1/files/SD/nosuch/t.d64:create_d64?tracks=42 HTTP/1.1\r\n\r\n", "exact"),
+    ("create_dnp, 0 tracks", b"PUT /v1/files/SD/nosuch/t.dnp:create_dnp?tracks=0 HTTP/1.1\r\n\r\n", "exact"),
+    ("create_dnp, no tracks", b"PUT /v1/files/SD/nosuch/t.dnp:create_dnp HTTP/1.1\r\n\r\n", "exact"),
+    ("run_prg, no file", b"PUT /v1/runners:run_prg?file=/SD/nosuch.prg HTTP/1.1\r\n\r\n", "exact"),
+    ("load_prg, no file", b"PUT /v1/runners:load_prg?file=/SD/nosuch.prg HTTP/1.1\r\n\r\n", "exact"),
+    ("run_crt, no file", b"PUT /v1/runners:run_crt?file=/SD/nosuch.crt HTTP/1.1\r\n\r\n", "exact"),
+    ("sidplay, no body", b"POST /v1/runners:sidplay HTTP/1.1\r\nContent-Length: 0\r\n\r\n", "exact"),
     ("/", b"GET / HTTP/1.1\r\n\r\n", "ours"),
     ("index.html", b"GET /index.html HTTP/1.1\r\n\r\n", "ours"),
 ]
@@ -107,11 +127,13 @@ NOT_FOUND = b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 
 # What his OpenAPI document describes; the other cases are odd requests it says nothing
 # about (and for help without its argument it says HTML, where his code answers JSON)
-# The machine and configs cases too, but an argument a call hasn't: his code answers 400 for
-# it anywhere, where his document only lists it for some calls
+# The machine, configs, drives, files and runners cases too, but an argument a call hasn't
+# (his code answers 400 for it anywhere, where his document only lists it for some calls) and
+# a drive call without its drive (not a path of his document)
 DOCUMENTED = {"version", "info", "help", "help, the argument decoded"} | {
-    name for name, req, how in CASES if req and (b"/v1/machine" in req or b"/v1/configs" in req)} - {
-    "configs, an argument"}
+    name for name, req, how in CASES if req and any(r in req for r in (
+        b"/v1/machine", b"/v1/configs", b"/v1/drives", b"/v1/files", b"/v1/runners"))} - {
+    "configs, an argument", "mount, no drive"}
 
 
 def header(n):

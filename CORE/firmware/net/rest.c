@@ -192,6 +192,46 @@ void binary_response(rest_t *r, const uint8_t *data, int len)
                              "Connection: close\r\n\r\n", len);
 }
 
+// SubsysCommand's error_string and http_response_map
+static const struct { const char *text; int code; } subsys[] = {
+   { NULL, 200 },
+   { "Invalid Parameter", 400 },
+   { "Call requires user interaction, but no user interface object exists", 503 },
+   { "Generic Error", 500 },
+   { "Disk Error", 500 },
+   { "SubSystem does not exist", 503 },
+   { "SubSystem does not implement command executer", 405 },
+   { "Could not obtain lock of subsystem", 423 },
+   { "Disk has been modified, save first", 403 },
+   { "Drive ROM not found", 412 },
+   { "Drive ROM is invalid", 412 },
+   { "This hardware only supports 1541", 405 },
+   { "Drive is in the wrong mode", 415 },
+   { "Cannot open file", 404 },
+   { "Seek operation on file failed", 500 },
+   { "Read operation on file failed", 500 },
+   { "Illegal mount mode / drive type", 500 },
+   { "Undefined subsystem command", 500 },
+   { "Operation aborted by user", 500 },
+   { "Save failed", 424 },
+   { "EEPROM data is too large", 412 },
+   { "EEPROM defined more than once", 412 },
+   { "ROM image is too large", 412 },
+   { "Error detected in file format", 415 },
+   { "This command is not supported on this architecture", 501 },
+   { "Out of memory", 507 },
+   { "MegaPatch3: Invalid image size", 400 },
+   { "MegaPatch3: DNP Image too large", 400 },
+   { "Internal Error", 500 },
+};
+
+void subsys_response(rest_t *r, int ss)
+{
+   if (subsys[ss].text)
+      error(r, "%s", subsys[ss].text);
+   json_response(r, subsys[ss].code);
+}
+
 static void not_found(http_resp_t *res)
 {
    res->body_cb = NULL;
@@ -444,6 +484,12 @@ static const call_t *find_call(http_method_t m, const char *route, const char *c
       c = find_in(rest_machine_calls, rest_machine_count, m, route, cmd);
    if (!c)
       c = find_in(rest_configs_calls, rest_configs_count, m, route, cmd);
+   if (!c)
+      c = find_in(rest_drives_calls, rest_drives_count, m, route, cmd);
+   if (!c)
+      c = find_in(rest_files_calls, rest_files_count, m, route, cmd);
+   if (!c)
+      c = find_in(rest_runners_calls, rest_runners_count, m, route, cmd);
    return c;
 }
 
@@ -456,23 +502,75 @@ static void run(rest_t *r)
    r->call->proc(r);
 }
 
-// His TempfileWriter: the first part of the body, as much as the call keeps, and its size;
-// the call runs once the body is in (writer_complete)
+// A part's file name, from its Content-Disposition's filename="..." (his TempfileWriter:
+// the field's first 127 characters, no leading '.', '/' or '\\', fix_filename's '_' for
+// the characters a file name can't have)
+static void part_name(rest_t *r, const char *hdr)
+{
+   for (const char *l = hdr; *l; l += strcspn(l, "\n"), l += *l == '\n') {
+      char value[128];
+      while (*l == '\r' || *l == '\n')
+         l++;
+      int k = strcspn(l, ":\r\n");
+      if (l[k] != ':' || k != 19 || strncasecmp(l, "Content-Disposition", 19))
+         continue;
+      const char *v = l + k + 1;
+      while (*v == ' ')
+         v++;
+      int n = strcspn(v, "\r\n");
+      if (n > (int)sizeof value - 1)
+         n = sizeof value - 1;
+      memcpy(value, v, n);
+      value[n] = 0;
+      char *f = strstr(value, "filename=\"");
+      if (!f)
+         continue;
+      f += 10;
+      char *q = strchr(f, '"');
+      if (q)
+         *q = 0;
+      while (*f == '.' || *f == '\\' || *f == '/')
+         f++;
+      for (char *c = f; *c; c++)
+         if (strchr("\"*:/<>\\?|,\x7F", *c))
+            *c = '_';
+      fmt_snprintf(r->up_name, sizeof r->up_name, "%s", f);
+   }
+}
+
+// His TempfileWriter: the first part of the body, as much as the call keeps, and its size,
+// or the call's sink takes it as it comes; the call runs once the body is in (writer_complete)
 static void upload_event(void *ctx, mp_event_t ev, const uint8_t *data, int len)
 {
    rest_t *r = ctx;
    switch (ev) {
    case MP_DATA_START:
    case MP_SUBHEADER:
-      r->up_parts++;
+      if (++r->up_parts == 1) {
+         if (ev == MP_SUBHEADER)
+            part_name(r, (const char *)data);
+         if (r->call->sink)
+            r->call->sink(r, ev, data, len);
+      }
       break;
    case MP_DATA:
-      if (r->up_parts == 1) {
+      if (r->up_parts == 1 && r->call->sink) {
+         r->up_size += len;
+         r->call->sink(r, ev, data, len);
+      } else if (r->up_parts == 1) {
          int room = r->call->upload - r->up_len;
          memcpy(r->up + r->up_len, data, len < room ? len : room);
          r->up_len += len < room ? len : room;
          r->up_size += len;
       }
+      break;
+   case MP_DATA_END:
+      if (r->up_parts == 1 && r->call->sink)
+         r->call->sink(r, ev, data, len);
+      break;
+   case MP_ABORT:
+      if (r->call->sink)
+         r->call->sink(r, ev, data, len);
       break;
    case MP_END:
       run(r);
@@ -536,6 +634,9 @@ void rest_dispatch(http_req_t *req, http_resp_t *res)
    if (!r->mp)
       r->mp = mp_new();
    r->up_len = r->up_size = r->up_parts = 0;
+   r->up_name[0] = 0;
+   r->up_err = 0;
+   r->up_at = 0;
    req->body_cb = upload_in;
    req->body_ctx = r;
    mp_start(r->mp, req->content_type, upload_event, r);

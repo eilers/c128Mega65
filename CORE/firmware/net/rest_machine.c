@@ -19,18 +19,26 @@ static const char locked[] = "Could not obtain lock of subsystem";   // his SSRE
 static struct {
    rest_t *owner;                       // the request whose job has the DMA
    int     paused;                      // machine:pause
+   int     kept;                        // dma_keep: a runner between its jobs
 } m;
 
-// A C128 reset clears the hardware's hold: a pause is over then
+// A C128 reset clears the hardware's hold: a pause or a keep is over then
 static void synced(void)
 {
-   if (m.paused && !dma_held())
-      m.paused = 0;
+   if ((m.paused || m.kept) && !dma_held())
+      m.paused = m.kept = 0;
 }
 
 static void hold(void)
 {
-   dma_hold(m.paused || m.owner);
+   dma_hold(m.paused || m.kept || m.owner);
+}
+
+void dma_keep(int on)
+{
+   synced();
+   m.kept = on;
+   hold();
 }
 
 // --- his chartohex and parse_hex ----------------------------------------------------------
@@ -73,7 +81,7 @@ static void job_end(rest_t *r)
    }
 }
 
-static void job_cancel(rest_t *r)
+void job_cancel(rest_t *r)
 {
    if (m.owner == r)
       dma_stop();
@@ -81,13 +89,15 @@ static void job_cancel(rest_t *r)
 }
 
 // 1 once the job is over (r->job.pos == r->job.len, or not: it failed and answered)
-static int job_step(rest_t *r)
+int job_step(rest_t *r)
 {
    rest_job_t *j = &r->job;
    if (!m.owner) {
       if (dma_z80()) {
-         error(r, locked);
-         json_response(r, HTTP_LOCKED);
+         if (!j->soft) {
+            error(r, locked);
+            json_response(r, HTTP_LOCKED);
+         }
          return 1;
       }
       synced();
@@ -102,13 +112,15 @@ static int job_step(rest_t *r)
          if (net_millis() - j->t0 < JOB_TIMEOUT)
             return 0;
          job_cancel(r);
-         error(r, locked);
-         json_response(r, HTTP_LOCKED);
+         if (!j->soft) {
+            error(r, locked);
+            json_response(r, HTTP_LOCKED);
+         }
          return 1;
       }
       if (!j->write)
          for (int i = 0; i < j->chunk; i++)
-            r->mem[j->pos + i] = dma_get(i);
+            j->buf[j->pos + i] = dma_get(i);
       j->pos += j->chunk;
       j->chunk = 0;
    }
@@ -119,7 +131,7 @@ static int job_step(rest_t *r)
    j->chunk = j->len - j->pos < DMA_MAX ? j->len - j->pos : DMA_MAX;
    if (j->write)
       for (int i = 0; i < j->chunk; i++)
-         dma_put(i, r->up[j->pos + i]);
+         dma_put(i, j->buf[j->pos + i]);
    dma_start(j->addr + j->pos, j->chunk, j->write);
    j->t0 = net_millis();
    return 0;
@@ -143,15 +155,22 @@ static int read_step(rest_t *r)
    return 1;
 }
 
-static void job(rest_t *r, int addr, int len, int write)
+void job_begin(rest_t *r, int addr, int len, int write, uint8_t *buf)
 {
    r->job.addr  = addr;
    r->job.len   = len;
    r->job.pos   = 0;
    r->job.chunk = 0;
    r->job.write = write;
+   r->job.buf   = buf;
+   r->job.soft  = 0;
+}
+
+static void job(rest_t *r, int addr, int len, int write)
+{
    if (!write && !r->mem)
       r->mem = heap_alloc(65536);
+   job_begin(r, addr, len, write, write ? r->up : r->mem);
    rest_pending(r, write ? write_step : read_step, job_cancel);
 }
 

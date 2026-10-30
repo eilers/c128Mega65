@@ -36,6 +36,8 @@
 --               floppy), 1 on (with no disk too), 2 off (with a disk too); kept over a C128
 --               reset, automatic again after a QNICE reset
 --            R: bits 1-0 as written, bit 2 the drive runs (is out of reset)
+--     0x035  W/R: bit 0 hold: the drive's requests wait (REST's unlink moves a drive to a
+--            copy of its image: hold, write back, copy, new table, release)
 --
 -- QNICE clock. Done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -134,6 +136,7 @@ architecture synthesis of vd_sd is
    type t_card_arr is array (0 to G_VDNUM - 1) of std_logic_vector(7 downto 0);
    type t_nblk_arr is array (0 to G_VDNUM - 1) of unsigned(11 downto 0);
    signal d_on           : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+   signal hold           : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
    signal d_card         : t_card_arr := (others => (others => '0'));
    signal d_nblk         : t_nblk_arr := (others => (others => '0'));
    signal d_fault        : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
@@ -341,11 +344,14 @@ begin
                   q_fl_req(qnice_drive_i) <= not q_fl_req(qnice_drive_i);
                when x"034" =>
                   power(qnice_drive_i) <= qnice_data_i(1 downto 0);
+               when x"035" =>
+                  hold(qnice_drive_i) <= qnice_data_i(0);
                when others => null;
             end case;
          end if;
          if rst_i = '1' then
             power <= (others => "00");
+            hold  <= (others => '0');
          end if;
       end if;
    end process p_qnice_wr;
@@ -372,6 +378,8 @@ begin
             when x"034" =>
                qnice_data_o(1 downto 0) <= power(d);
                qnice_data_o(2)          <= running_s(d);
+            when x"035" =>
+               qnice_data_o(0) <= hold(d);
             when others => null;
          end case;
       end if;
@@ -493,7 +501,7 @@ begin
                -- the next drive request, round robin
                for n in 0 to G_VDNUM - 1 loop
                   d := (rr + n) mod G_VDNUM;
-                  if sel < 0 and (sd_rd_i(d) = '1' or sd_wr_i(d) = '1') then
+                  if sel < 0 and (sd_rd_i(d) = '1' or sd_wr_i(d) = '1') and hold(d) = '0' then
                      sel := d;
                   end if;
                end loop;

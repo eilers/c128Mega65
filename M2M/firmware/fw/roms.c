@@ -174,12 +174,15 @@ int crtrom_loaded(int k)
    return crtrom_csr_get(crtrom_dev(k), CSR_STATUS) == CSR_ST_OK;
 }
 
-// The progress bar on the frame's bottom line, a character per 39th of the file
+// The progress bar on the frame's bottom line, a character per 39th of the file; none
+// for a quiet load (REST's)
 static uint32_t prog_step, prog_left;
-static int      prog_x;
+static int      prog_x, quiet;
 
 static void progress_start(uint32_t size)
 {
+   if (quiet)
+      return;
    char bar[OSM_DX];
    int w = OSM_DX - 6;
    bar[0] = (char)185;
@@ -195,6 +198,8 @@ static void progress_start(uint32_t size)
 void crtrom_progress(uint32_t bytes)
 {
    static const char c[] = { (char)254, 0 };
+   if (quiet)
+      return;
    while (bytes >= prog_left) {
       bytes    -= prog_left;
       prog_left = prog_step;
@@ -270,7 +275,6 @@ static int copy_load(uint16_t dev, FIL *f)
 
 int crtrom_load(int k, const char *path, int group, const char **msg)
 {
-   static char parse_msg[128];
    uint16_t dev = crtrom_dev(k);
    int type, err;
    FIL f;
@@ -299,6 +303,26 @@ int crtrom_load(int k, const char *path, int group, const char **msg)
    f_close(&f);
    if (err)
       shell_fatal("SD Card:\nUnkown error while loading disk image\n", err);
+   return crtrom_parse(k, size, msg);
+}
+
+int crtrom_load_quiet(int k, const char *path, int group, const char **msg)
+{
+   quiet = 1;
+   int err = crtrom_load(k, path, group, msg);
+   quiet = 0;
+   return err;
+}
+
+void crtrom_begin(int k)
+{
+   crtrom_csr_set(crtrom_dev(k), CSR_STATUS, CSR_ST_LOADING);
+}
+
+int crtrom_parse(int k, uint32_t size, const char **msg)
+{
+   static char parse_msg[128];
+   uint16_t dev = crtrom_dev(k);
 
    // The device parses it
    crtrom_csr_set(dev, CSR_FS_LO, size & 0xFFFF);

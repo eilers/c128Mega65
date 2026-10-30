@@ -364,7 +364,7 @@ static const param_t value_params[] = { { "value", 0 } };
 const call_t rest_configs_calls[] = {
    CALL0(HTTP_GET, "configs", "none", get_configs),
    CALL(HTTP_PUT, "configs", "none", put_configs, value_params, 0),
-   { HTTP_POST, "configs", "none", post_configs, NULL, 0, JSON_MAX },
+   CALLU(HTTP_POST, "configs", "none", post_configs, JSON_MAX),
    CALL0(HTTP_PUT, "configs", "load_from_flash", put_load),
    CALL0(HTTP_PUT, "configs", "save_to_flash", put_save),
    CALL0(HTTP_PUT, "configs", "reset_to_default", put_reset),

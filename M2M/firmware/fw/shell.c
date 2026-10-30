@@ -712,13 +712,18 @@ static void mount_shown(int i, int on)
 
 int shell_mount(int d, const char *path, const char **msg)
 {
+   return shell_mount_ro(d, path, 0, msg);
+}
+
+int shell_mount_ro(int d, const char *path, int ro, const char **msg)
+{
    int i = mount_item(d), err;
    *msg = 0;
    if (i < 0)
       return -1;
    uint16_t group = menu.group[i] & MENU_ID;
    core_sel_pre(group, 0);
-   if ((err = drive_mount(d, path, group, msg)))
+   if ((err = drive_mount_ro(d, path, group, ro, msg)))
       return err;
    const char *name = strrchr(path, '/');
    strncpy(drv_name[d], name ? name + 1 : path, menu.dx - 1);
