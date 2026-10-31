@@ -88,10 +88,8 @@ constant CORE_VERSION : string := "V1.1_Beta1";
 
 constant SCR_CREDITS : string :=
 
-   "\n Commodore 128 for MEGA65 " & CORE_VERSION & "\n\n" &
-   " Core port to the MEGA65\n" &
-   "   Stefan Eilers\n\n" &
-   " Special thanks for contributions:\n" &
+   "\n Commodore 128 for MEGA65 " & CORE_VERSION & "\n" &
+   "   Stefan Eilers\n" &
    "   Jeff Flitton\n\n" &
    " MiSTer C128 core\n" &
    "   Erik Scheffers, based on C64_MiSTer\n" &
