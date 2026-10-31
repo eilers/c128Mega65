@@ -42,13 +42,13 @@ const item_t stores_items[] = {
    { ST_C64,     I_UCI,          IT_ENUM,   "Command Interface",          en_dis,      0, 0, 0, NULL },
    { ST_DRIVE_A, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL },
    { ST_DRIVE_A, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL },
-   { ST_DRIVE_A, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 8, 8, NULL },
+   { ST_DRIVE_A, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 8, NULL },
    { ST_DRIVE_A, I_ROM + RP_DRV(0, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom" },
    { ST_DRIVE_A, I_ROM + RP_DRV(0, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom" },
    { ST_DRIVE_A, I_ROM + RP_DRV(0, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom" },
    { ST_DRIVE_B, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL },
    { ST_DRIVE_B, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL },
-   { ST_DRIVE_B, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        9, 9, 9, NULL },
+   { ST_DRIVE_B, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 9, NULL },
    { ST_DRIVE_B, I_ROM + RP_DRV(1, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom" },
    { ST_DRIVE_B, I_ROM + RP_DRV(1, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom" },
    { ST_DRIVE_B, I_ROM + RP_DRV(1, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom" },
@@ -74,7 +74,7 @@ const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
 // What a change asks for, -1 where it says nothing; strings in their own buffers
 static struct {
-   int8_t reu, size, image, uci, power[2], model, modem, dhcp, rest, net[NC_COUNT], rom[RP_COUNT];
+   int8_t reu, size, image, uci, power[2], model[2], id[2], modem, dhcp, rest, net[NC_COUNT], rom[RP_COUNT];
 } want;
 static char    want_str[NC_COUNT][32];
 static char    want_rom[RP_COUNT][PICK_MAX];
@@ -100,14 +100,96 @@ int store_find(const char *name)
 
 // --- values now ---------------------------------------------------------------------------
 
-int stores_drive_type(int d)
+// A drive's submenu (config.vhd): its bus ID 8-11, its model
+static int id_group(int d)
+{
+   return d ? OPTM_G_DRVB_ID : OPTM_G_DRVA_ID;
+}
+
+static int model_group(int d)
+{
+   return d ? OPTM_G_DRVB_MODEL : OPTM_G_DRVA_MODEL;
+}
+
+int stores_drive_model(int d)
+{
+   for (int m = 0; m < 4; m++)
+      if (shell_setting(model_group(d), m))
+         return m;
+   return DM_1571;
+}
+
+void stores_drive_set_model(int d, int m)
+{
+   if (stores_drive_model(d) != m)
+      shell_force(model_group(d), m, 1);
+}
+
+int stores_drive_id(int d)
+{
+   for (int i = 0; i < 4; i++)
+      if (shell_setting(id_group(d), i))
+         return 8 + i;
+   return 8 + d;
+}
+
+// The other drive with that ID takes this one's: never two drives on one ID
+void stores_drive_set_id(int d, int id)
+{
+   int was = stores_drive_id(d);
+   if (id != was && stores_drive_id(!d) == id)
+      shell_force(id_group(!d), was - 8, 1);
+   shell_force(id_group(d), id - 8, 1);
+}
+
+int stores_drive_of_id(int id)
+{
+   for (int d = 0; d < 2; d++)
+      if (stores_drive_id(d) == id)
+         return d;
+   return -1;
+}
+
+// Should both say so, drive A is it (main.vhd)
+int stores_drive_internal(int d)
+{
+   return stores_drive_model(d) == DM_INTERNAL && (d == 0 || stores_drive_model(0) != DM_INTERNAL);
+}
+
+int stores_drive_fit(int d, int m)
 {
    int img = drive_image_type(d);
-   if (core_mount_label(d) || img == 2)
-      return 2;                                        // the internal floppy, or a D81
-   if (img == 1)
-      return 1;                                        // a D71 makes it a 1571 (main.vhd)
-   return shell_setting(OPTM_G_DRV_MODEL, 0) ? 0 : 1;  // the menu's 5.25" model
+   if (m == DM_INTERNAL || img < 0 || (img == 0 && m != DM_1581))
+      return m;
+   return img == 2 ? DM_1581 : DM_1571;
+}
+
+// Leaving the internal floppy, an image under it takes the nearest model
+int stores_drive_ask_model(int d, int m)
+{
+   if (stores_drive_internal(d)) {
+      if (m != DM_1581)
+         stores_drive_set_model(d, stores_drive_fit(d, m));
+      return 1;
+   }
+   if (stores_drive_fit(d, m) != m)
+      return 0;
+   stores_drive_set_model(d, m);
+   return 1;
+}
+
+// As main.vhd runs it: the image's type where the model can't read it, a D64 in a 1581 as a
+// 1571 (a C128's drive)
+int stores_drive_type(int d)
+{
+   int img = drive_image_type(d), m = stores_drive_model(d);
+   if (stores_drive_internal(d) || img == 2)
+      return 2;
+   if (img == 1 || m == DM_INTERNAL)
+      return 1;
+   if (img == 0)
+      return m == DM_1541 ? 0 : 1;
+   return m;
 }
 
 static int reu_now(void)
@@ -147,8 +229,8 @@ int item_get(const item_t *it)
       return r - 1 < item_choices(it) ? r - 1 : 0;
    case I_UCI:        return shell_setting(OPTM_G_UCI, 0);
    case I_DRIVE:      return drive_running(d) != 0;
-   case I_DRIVE_TYPE: return stores_drive_type(d);
-   case I_DRIVE_ID:   return 8 + d;
+   case I_DRIVE_TYPE: return stores_drive_model(d) == DM_INTERNAL ? DM_1581 : stores_drive_model(d);
+   case I_DRIVE_ID:   return stores_drive_id(d);
    case I_MODEM_MAP:  return group_pos(OPTM_G_MODEM, 4);
    case I_DHCP:       return shell_setting(OPTM_G_NET_DHCP, 0);
    case I_REST:       return shell_setting(OPTM_G_NET_REST, 0);
@@ -240,12 +322,9 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
    case I_REU_SIZE: want.size = c + 1; return WANT_OK;
    case I_MODEM_MAP: want.modem = c;   return WANT_OK;
    case I_DRIVE_TYPE:
-      // One model for both 5.25" drives: a second, other one can't be; a drive that is a
-      // 1581 (the internal floppy, a D81) stays one
-      if (c == 2 ? stores_drive_type(d) != 2 : want.model >= 0 && want.model != c)
-         return WANT_CHOICE;
-      if (c < 2)
-         want.model = c;
+      if (!stores_drive_internal(d) && stores_drive_fit(d, c) != c)
+         return WANT_CHOICE;                        // its image can't run it
+      want.model[d] = c;
       return WANT_OK;
    case I_DRIVE_ID:
       if (!loadcfg)
@@ -254,6 +333,7 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
          return WANT_NONUM;                         // LOAD_CONFIG's says nothing of it
       if (*n < it->min || *n > it->max)
          return loadcfg ? WANT_CHOICE : WANT_RANGE;
+      want.id[d] = *n;
       return WANT_OK;
    case I_REU_IMAGE:
       if (!*v) {
@@ -327,7 +407,14 @@ void stores_want_saved(int s)
             stores_want(&stores_items[i + 1], reu_sizes[v - 1], 0, &n);
          break;
       case I_UCI:        stores_want(it, en_dis[shell_saved_setting(OPTM_G_UCI, 0)], 0, &n); break;
-      case I_DRIVE_TYPE: stores_want(it, drive_types[saved_pos(OPTM_G_DRV_MODEL, 2)], 0, &n); break;
+      case I_DRIVE_TYPE:                       // the internal floppy too, which his names can't say
+         want.model[it->store == ST_DRIVE_B] = saved_pos(model_group(it->store == ST_DRIVE_B), 4);
+         want_store[s] = 1;
+         break;
+      case I_DRIVE_ID:
+         want.id[it->store == ST_DRIVE_B] = 8 + saved_pos(id_group(it->store == ST_DRIVE_B), 4);
+         want_store[s] = 1;
+         break;
       case I_MODEM_MAP:  stores_want(it, acia_maps[saved_pos(OPTM_G_MODEM, 4)], 0, &n); break;
       case I_DHCP:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_DHCP, 0)], 0, &n); break;
       case I_REST:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_REST, 0)], 0, &n); break;
@@ -358,7 +445,10 @@ void stores_want_defaults(int s)
          continue;
       if (it->type == IT_ENUM)
          stores_want(it, it->choices[it->id == I_REU_SIZE && item_choices(it) <= it->def ? 0 : it->def], 0, &n);
-      else if (it->type != IT_VALUE)
+      else if (it->id == I_DRIVE_ID) {
+         want.id[it->store == ST_DRIVE_B] = it->def;
+         want_store[s] = 1;
+      } else if (it->type != IT_VALUE)
          stores_want(it, it->sdef, 0, &n);
    }
 }
@@ -382,8 +472,12 @@ int stores_apply(void)
          drive_power(d, want.power[d] ? DRIVE_ON : DRIVE_OFF);
          power_kept[d] = want.power[d];
       }
-   if (want.model >= 0)
-      shell_force(OPTM_G_DRV_MODEL, want.model, 1);
+   for (int d = 0; d < 2; d++) {
+      if (want.model[d] >= 0)
+         stores_drive_ask_model(d, want.model[d]);
+      if (want.id[d] >= 0)
+         stores_drive_set_id(d, want.id[d]);
+   }
    if (want.modem >= 0)
       shell_force(OPTM_G_MODEM, want.modem, 1);
    if (want.image >= 0) {

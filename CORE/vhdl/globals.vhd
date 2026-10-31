@@ -51,49 +51,48 @@ constant QNICE_CLK_SPEED      : natural := 50_000_000;   -- a change here has de
 -- mega65.vhd moves their later bits back
 ----------------------------------------------------------------------------------------------------------
 
-constant C_MENU_DRV_1541         : natural := 7;   -- 5.25" drive model: 1541
-constant C_MENU_DRV_1571         : natural := 8;   -- 5.25" drive model: 1571
-constant C_MENU_INT1581_OFF      : natural := 14;  -- Internal 1581: off (default)
-constant C_MENU_INT1581_D8       : natural := 15;  -- Internal 1581: the internal floppy is drive 8
-constant C_MENU_INT1581_D9       : natural := 16;  -- Internal 1581: the internal floppy is drive 9
-constant C_MENU_VIDEO_FOLLOW     : natural := 27;  -- Video Output: Follow 40/80 on both ports
-constant C_MENU_VIDEO_40         : natural := 28;  -- Video Output: 40 columns on both ports
-constant C_MENU_VIDEO_80         : natural := 29;  -- Video Output: 80 columns on both ports
-constant C_MENU_VIDEO_H40_V80    : natural := 33;  -- Dual screen: HDMI 40, VGA 80
-constant C_MENU_VIDEO_H80_V40    : natural := 34;  -- Dual screen: HDMI 80, VGA 40
-constant C_MENU_VIDEO_SWAP       : natural := 35;  -- Dual screen: HDMI follows 40/80, VGA shows the other
-constant C_MENU_JAILBARS_OFF     : natural := 39;
-constant C_MENU_JAILBARS_LOW     : natural := 40;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 41;
-constant C_MENU_JAILBARS_HIGH    : natural := 42;
-constant C_MENU_HDMI_720p_50     : natural := 48;
-constant C_MENU_HDMI_720p_60     : natural := 49;
-constant C_MENU_HDMI_576p_50     : natural := 50;
-constant C_MENU_HDMI_576p_50_5_4 : natural := 51;
-constant C_MENU_HDMI_640_60      : natural := 52;
-constant C_MENU_HDMI_720_5994    : natural := 53;
-constant C_MENU_HDMI_800_60      : natural := 54;
-constant C_MENU_HDMI_FF          : natural := 56;  -- HDMI: Flicker-free
-constant C_MENU_HDMI_AUDIO       : natural := 57;  -- HDMI audio (default on); off selects DVI
-constant C_MENU_CRT_EMULATION    : natural := 60;
-constant C_MENU_VGA_STD          : natural := 64;  -- VGA: Standard, scandoubled ~31 kHz (default)
-constant C_MENU_VGA_15KHZHSVS    : natural := 68;  -- VGA: native 15 kHz, separate HS/VS
-constant C_MENU_VGA_15KHZCS      : natural := 69;  -- VGA: native 15 kHz, composite sync on pin 13
-constant C_MENU_KEYS_4080        : natural := 78;  -- real Caps Lock is the 40/80 key (default)
-constant C_MENU_KEYS_ASCII       : natural := 79;  -- real Caps Lock is ASCII/DIN; F9 latches 40/80
-constant C_MENU_HELP_F13         : natural := 84;  -- OSM trigger on F13 (Help stays C128 Help)
-constant C_MENU_IEC              : natural := 88;  -- IEC: Use hardware port
-constant C_MENU_REU_OFF          : natural := 92;  -- REU: off (default)
-constant C_MENU_REU_512K         : natural := 93;  -- REU: 512 KB
-constant C_MENU_REU_2M           : natural := 94;  -- REU: 2 MB, not on R3-memory builds
-constant C_MENU_REU_16M          : natural := 95;  -- REU: 16 MB, not on R3-memory builds
+constant C_MENU_DRVA_ID8         : natural := 8;   -- Drive A's bus ID: 8, 9, 10, 11 from here (default 8)
+constant C_MENU_DRVA_1541        : natural := 14;  -- Drive A's model: 1541, 1571 (default), 1581, Internal 1581 from here
+constant C_MENU_DRVB_ID8         : natural := 31;  -- Drive B's (default 9)
+constant C_MENU_DRVB_1541        : natural := 37;  -- Drive B's
+constant C_MENU_VIDEO_FOLLOW     : natural := 54;  -- Video Output: Follow 40/80 on both ports
+constant C_MENU_VIDEO_40         : natural := 55;  -- Video Output: 40 columns on both ports
+constant C_MENU_VIDEO_80         : natural := 56;  -- Video Output: 80 columns on both ports
+constant C_MENU_VIDEO_H40_V80    : natural := 60;  -- Dual screen: HDMI 40, VGA 80
+constant C_MENU_VIDEO_H80_V40    : natural := 61;  -- Dual screen: HDMI 80, VGA 40
+constant C_MENU_VIDEO_SWAP       : natural := 62;  -- Dual screen: HDMI follows 40/80, VGA shows the other
+constant C_MENU_JAILBARS_OFF     : natural := 66;
+constant C_MENU_JAILBARS_LOW     : natural := 67;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 68;
+constant C_MENU_JAILBARS_HIGH    : natural := 69;
+constant C_MENU_HDMI_720p_50     : natural := 75;
+constant C_MENU_HDMI_720p_60     : natural := 76;
+constant C_MENU_HDMI_576p_50     : natural := 77;
+constant C_MENU_HDMI_576p_50_5_4 : natural := 78;
+constant C_MENU_HDMI_640_60      : natural := 79;
+constant C_MENU_HDMI_720_5994    : natural := 80;
+constant C_MENU_HDMI_800_60      : natural := 81;
+constant C_MENU_HDMI_FF          : natural := 83;  -- HDMI: Flicker-free
+constant C_MENU_HDMI_AUDIO       : natural := 84;  -- HDMI audio (default on); off selects DVI
+constant C_MENU_CRT_EMULATION    : natural := 87;
+constant C_MENU_VGA_STD          : natural := 91;  -- VGA: Standard, scandoubled ~31 kHz (default)
+constant C_MENU_VGA_15KHZHSVS    : natural := 95;  -- VGA: native 15 kHz, separate HS/VS
+constant C_MENU_VGA_15KHZCS      : natural := 96;  -- VGA: native 15 kHz, composite sync on pin 13
+constant C_MENU_KEYS_4080        : natural := 105; -- real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 106; -- real Caps Lock is ASCII/DIN; F9 latches 40/80
+constant C_MENU_HELP_F13         : natural := 111; -- OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_IEC              : natural := 115; -- IEC: Use hardware port
+constant C_MENU_REU_OFF          : natural := 119; -- REU: off (default)
+constant C_MENU_REU_512K         : natural := 120; -- REU: 512 KB
+constant C_MENU_REU_2M           : natural := 121; -- REU: 2 MB, not on R3-memory builds
+constant C_MENU_REU_16M          : natural := 122; -- REU: 16 MB, not on R3-memory builds
 constant C_MENU_R3_DROP          : natural := 2;   -- R3-memory builds have neither
-constant C_MENU_CART_HW          : natural := 103; -- Cartridge: hardware slot (default)
-constant C_MENU_CART_CRT         : natural := 104; -- Cartridge: virtual cartridge (.crt)
-constant C_MENU_MODEM_DE00       : natural := 114; -- Modem: SwiftLink at $DE00 (Off at 113 is the default)
-constant C_MENU_MODEM_DF00       : natural := 115; -- Modem: SwiftLink at $DF00, REU off
-constant C_MENU_MODEM_D700       : natural := 116; -- Modem: SwiftLink at $D700
-constant C_MENU_UCI              : natural := 119; -- UCI at $DF1C: Ultimate Command Interface (default off)
+constant C_MENU_CART_HW          : natural := 130; -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 131; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 141; -- Modem: SwiftLink at $DE00 (Off at 140 is the default)
+constant C_MENU_MODEM_DF00       : natural := 142; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 143; -- Modem: SwiftLink at $D700
+constant C_MENU_UCI              : natural := 146; -- UCI at $DF1C: Ultimate Command Interface (default off)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -234,21 +233,21 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- The core's own (C_CRTROMTYPE_CORE): the firmware loads them (CORE/firmware/core.c), the second
 -- word says which.
 constant C_CRTROMS_MAN_NUM       : natural := 15;                                      -- amount of manually loadable ROMs and carts; maximum is 16
-constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"0000",      -- the REU's File:%s menu item
+constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"0016",      -- the Drive A submenu: 1541 ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"0017",      -- 1571 ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"0018",      -- 1581 ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"0019",      -- the Drive B submenu: 1541 ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"001A",      -- 1571 ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"001B",      -- 1581 ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"0000",      -- the REU's File:%s menu item
                                                          C_CRTROMTYPE_DEVICE, C_DEV_CRT,  -- the CRT:%s menu item
                                                          C_CRTROMTYPE_CORE, x"0001",      -- Boot:%s, the .crt loaded at every start
-                                                         C_CRTROMTYPE_CORE, x"0010",      -- the ROMs submenu: C128 KERNAL:%s
+                                                         C_CRTROMTYPE_CORE, x"0010",      -- the System ROMs submenu: C128 KERNAL:%s
                                                          C_CRTROMTYPE_CORE, x"0011",      -- C128 BASIC:%s
                                                          C_CRTROMTYPE_CORE, x"0012",      -- C64 KERNAL:%s
                                                          C_CRTROMTYPE_CORE, x"0013",      -- C64 BASIC:%s
                                                          C_CRTROMTYPE_CORE, x"0014",      -- Characters:%s
                                                          C_CRTROMTYPE_CORE, x"0015",      -- Function ROM:%s
-                                                         C_CRTROMTYPE_CORE, x"0016",      -- drive 8: 1541:%s
-                                                         C_CRTROMTYPE_CORE, x"0017",      -- 1571:%s
-                                                         C_CRTROMTYPE_CORE, x"0018",      -- 1581:%s
-                                                         C_CRTROMTYPE_CORE, x"0019",      -- drive 9: 1541:%s
-                                                         C_CRTROMTYPE_CORE, x"001A",      -- 1571:%s
-                                                         C_CRTROMTYPE_CORE, x"001B",      -- 1581:%s
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

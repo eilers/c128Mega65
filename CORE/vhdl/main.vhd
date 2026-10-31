@@ -657,6 +657,8 @@ constant C_DRIVE_LED_IDLE : natural := CORE_CLK_SPEED / 2;   -- 0.5 s
 signal iec_out_track    : vd_vec_array(0 to G_VDNUM - 1)(7 downto 0);
 signal iec_out_we       : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drv_mode     : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);
+signal iec_drv_id       : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);   -- bus ID - 8
+signal iec_drv_1581     : std_logic_vector(G_VDNUM - 1 downto 0);      -- its model is the 1581
 
 signal iec_sd_lba          : vd_vec_array(0 to G_VDNUM - 1)(31 downto 0);
 signal iec_sd_blk_cnt      : vd_vec_array(0 to G_VDNUM - 1)( 5 downto 0);
@@ -2335,11 +2337,11 @@ begin
   end if;
 end process iec_drive_ce_proc;
 
--- The internal floppy is drive 8 or drive 9 or off (one menu group). Should a bad
--- config file set both, drive 8 wins.
+-- The internal floppy is drive A's or drive B's model, Internal 1581 (the fourth). Should a
+-- bad config file set both, drive A wins.
 phys_en_gen : for i in 0 to G_VDNUM - 1 generate
-  phys_en(i) <= osm_control_i(C_MENU_INT1581_D8) when i = 0 else
-                osm_control_i(C_MENU_INT1581_D9) and not osm_control_i(C_MENU_INT1581_D8) when i = 1 else
+  phys_en(i) <= osm_control_i(C_MENU_DRVA_1541 + 3) when i = 0 else
+                osm_control_i(C_MENU_DRVB_1541 + 3) and not osm_control_i(C_MENU_DRVA_1541 + 3) when i = 1 else
                 '0';
 end generate phys_en_gen;
 
@@ -2376,12 +2378,43 @@ begin
 end process iec_power_sync;
 
 iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
-  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or iec_power(i)(1) or
+  -- Each drive's submenu (drive B's lies 23 items after drive A's): its bus ID, its model
+  constant C_ID     : natural := C_MENU_DRVA_ID8 + i * (C_MENU_DRVB_ID8 - C_MENU_DRVA_ID8);
+  constant C_MODEL  : natural := C_MENU_DRVA_1541 + i * (C_MENU_DRVB_1541 - C_MENU_DRVA_1541);
+  constant C_ID_RST : natural := CORE_CLK_SPEED / 1000;   -- 1 ms
+  signal id_d       : std_logic_vector(1 downto 0) := "00";
+  signal id_cnt     : natural range 0 to C_ID_RST := 0;
+  signal id_rst     : std_logic := '0';
+begin
+  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or iec_power(i)(1) or id_rst or
                          (not vdrives_mounted(i) and not phys_en_q(i) and not iec_power(i)(0));
 
-  -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
-  -- overrides this inside iec_drive (img_hd). A long reset drops the volume
-  -- (vdrives clears drive_mounted), so the remembered type goes with it.
+  -- The ID jumpers: a drive reads them as it starts, so a new ID resets it. No bit set (a
+  -- bad config file): drive A 8, drive B 9.
+  iec_drv_id(i) <= "01" when osm_control_i(C_ID + 1) = '1' else
+                   "10" when osm_control_i(C_ID + 2) = '1' else
+                   "11" when osm_control_i(C_ID + 3) = '1' else
+                   "00" when osm_control_i(C_ID) = '1' else
+                   std_logic_vector(to_unsigned(i, 2));
+
+  id_reset_proc : process (clk_main_i)
+  begin
+    if rising_edge(clk_main_i) then
+      id_d   <= iec_drv_id(i);
+      id_rst <= '0';
+      if iec_drv_id(i) /= id_d then
+        id_cnt <= C_ID_RST;
+        id_rst <= '1';
+      elsif id_cnt /= 0 then
+        id_cnt <= id_cnt - 1;
+        id_rst <= '1';
+      end if;
+    end if;
+  end process id_reset_proc;
+
+  -- The model; the image may say otherwise. A D81 makes it a 1581 (iec_drive's img_hd), a D71
+  -- a 1571, a D64 in a 1581 a 1571 (a C128's drive). The 1581 without a 5.25" image is one.
+  -- A long reset drops the volume (vdrives clears drive_mounted), so the type goes with it.
   latch_img_type : process (clk_main_i)
   begin
     if rising_edge(clk_main_i) then
@@ -2393,9 +2426,10 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
     end if;
   end process latch_img_type;
 
-  iec_drv_mode(i) <= "10" when iec_img_type_latched(i) = "01" else
-                     "00" when osm_control_i(C_MENU_DRV_1541) = '1' else
+  iec_drv_mode(i) <= "00" when osm_control_i(C_MODEL) = '1' and
+                              not (vdrives_mounted(i) = '1' and iec_img_type_latched(i) = "01") else
                      "10";
+  iec_drv_1581(i) <= osm_control_i(C_MODEL + 2);
 
   vd_sd_lba(i)          <= iec_sd_lba(i);
   vd_sd_blk_cnt(i)      <= iec_sd_blk_cnt(i);
@@ -2430,6 +2464,8 @@ iec_drive_inst : entity work.iec_drive
     pause        => pause_i,
 
     drv_mode     => iec_drv_mode,
+    drv_id       => iec_drv_id,
+    drv_1581     => iec_drv_1581,
 
     -- IEC bus, wired-AND merged with the physical port (see the assignments further up)
     iec_atn_i    => core_iec_atn_o,

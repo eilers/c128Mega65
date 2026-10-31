@@ -584,7 +584,9 @@ static void upload_event(void *ctx, mp_event_t ev, const uint8_t *data, int len)
       if (r->call->sink)
          r->call->sink(r, ev, data, len);
       break;
-   case MP_END:
+   case MP_END:                            // a sink's part may have no MP_DATA_END: his eTerminate
+      if (r->up_parts >= 1 && r->call->sink)
+         r->call->sink(r, ev, data, len);
       run(r);
       break;
    default:

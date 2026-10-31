@@ -2,8 +2,10 @@
 // Menu items are found by their config.vhd group and their place in it.
 #include <stddef.h>
 #include <string.h>
+#include "cfg.h"
 #include "config_ids.h"
 #include "core.h"
+#include "drives.h"
 #include "fmt.h"
 #include "http.h"
 #include "m2m_rv.h"
@@ -14,9 +16,9 @@
 #include "stores.h"
 #include "uci.h"
 
-// Internal 1581: Off, Drive 8, Drive 9. Cartridge: Hardware, CRT file.
-#define INT1581_OFF 0
+// Cartridge: Hardware, CRT file
 #define CART_CRT    1
+#define MENU_WIDTH  23             // a line's text, as the Shell shows it (config.vhd's OPTM_DX)
 
 // C_CRTROMS_MAN's core items (globals.vhd): the REU's file, the boot cartridge, the ROMs
 #define DEV_REU     0x0000
@@ -29,6 +31,28 @@
 #define CRT_CSR_STALL_MAX 0x022    // R: the longest, in C64 cycles
 #define CRT_CSR_STATS     0x023    // R: 1 = show them in the menu
 
+// A drive's line on the main menu: its ID and what it runs as, then its image, e.g.
+// " 8:1571 game.d64", cut to the menu's width (OPTM_DX) as the Shell cuts an image's name
+static const char *drive_line(int d)
+{
+   static const char *const types[] = { "1541", "1571", "1581" };
+   static char line[64];
+   char none[32];
+   const char *name = drive_path(d), *slash = strrchr(name, '/');
+   if (stores_drive_internal(d))
+      name = "Internal";
+   else if (*name)
+      name = slash ? slash + 1 : name;
+   else {
+      cfg_str(CFG_OPTM_MSTR, none, sizeof none);
+      name = none;
+   }
+   int n = fmt_snprintf(line, sizeof line, " %d:%s %s", stores_drive_id(d), types[stores_drive_type(d)], name);
+   if (n > MENU_WIDTH)
+      strcpy(line + MENU_WIDTH - 3, "...");
+   return line;
+}
+
 // In a build that asks for it (CSR $023, the 6r3 builds), while a .crt file is the source,
 // the Cartridge line shows how often the C128 waited a C64 cycle or more for a bank of the
 // cache since the menu was last drawn, and the longest wait. Drawing it clears both.
@@ -37,15 +61,17 @@ const char *core_submenu_summary(int idx)
    static char line[32];
    int g;
 
-   // A submenu's first menu group: the Cartridge submenu's source, the ROMs submenu's C128
-   // KERNAL line, the Network submenu's REST on or off
+   // A submenu's first menu group: a drive's Disk line, the Cartridge submenu's source, the
+   // System ROMs submenu's C128 KERNAL line, the Network submenu's REST on or off
    while ((g = shell_group(++idx)) == 0)
       ;
+   if (g == OPTM_G_MOUNT_D8 || g == OPTM_G_MOUNT_D9)
+      return drive_line(g == OPTM_G_MOUNT_D9);
    if (g == OPTM_G_ROM_K128) {
       int custom = 0;
-      for (int p = 0; p < RP_BOOT; p++)
+      for (int p = 0; p < RP_DRIVE; p++)
          custom |= rompick_state(p) != RS_STOCK;
-      return custom ? " ROMs: Custom" : " ROMs: Stock";
+      return custom ? " System ROMs: Custom" : " System ROMs: Stock";
    }
    if (g == OPTM_G_NET_REST) {
       const char *ip = netcfg_live(NC_IP);
@@ -72,22 +98,25 @@ const char *core_submenu_summary(int idx)
    return line;
 }
 
-// The drive that is the internal floppy says so instead of naming an image
-const char *core_mount_label(int drive)
+// A drive's Disk line: the internal floppy says so instead of naming an image
+const char *core_mount_text(int drive, const char *name)
 {
-   if (drive <= 1 && shell_setting(OPTM_G_INT1581, drive + 1))
-      return "Internal 1581";
-   return NULL;
+   (void)name;
+   return drive <= 1 && stores_drive_internal(drive) ? "Internal 1581" : NULL;
 }
+
+static int id_was[2];   // a drive's ID before the menu changed it
 
 void core_sel_pre(int group, int item)
 {
    (void)item;
+   if (group == OPTM_G_DRVA_ID || group == OPTM_G_DRVB_ID)
+      id_was[group == OPTM_G_DRVB_ID] = stores_drive_id(group == OPTM_G_DRVB_ID);
    // Choosing an image for the drive that is the internal floppy gives the drive back
-   // to images first
-   if ((group == OPTM_G_MOUNT_D8 && shell_setting(OPTM_G_INT1581, 1)) ||
-       (group == OPTM_G_MOUNT_D9 && shell_setting(OPTM_G_INT1581, 2)))
-      shell_force(OPTM_G_INT1581, INT1581_OFF, 1);
+   // to images first, as a 1581
+   for (int d = 0; d < 2; d++)
+      if (group == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8) && stores_drive_internal(d))
+         stores_drive_set_model(d, DM_1581);
    // Loading a .crt file selects the virtual cartridge. main.vhd resets the C128 when
    // the source changes, and again once the file is loaded.
    if (group == OPTM_G_MOUNT_CRT && !shell_setting(OPTM_G_CART, CART_CRT))
@@ -96,7 +125,25 @@ void core_sel_pre(int group, int item)
 
 void core_sel_post(int group, int item)
 {
-   (void)item;
+   // Never two drives on one ID: the other one takes this one's old ID
+   if (group == OPTM_G_DRVA_ID || group == OPTM_G_DRVB_ID) {
+      int d = group == OPTM_G_DRVB_ID;
+      if (stores_drive_id(!d) == 8 + item)
+         stores_drive_set_id(!d, id_was[d]);
+   }
+   // A drive's model is always one its image runs: a model it can't run ejects the image
+   if (group == OPTM_G_DRVA_MODEL || group == OPTM_G_DRVB_MODEL) {
+      int d = group == OPTM_G_DRVB_MODEL;
+      if (stores_drive_fit(d, item) != item)
+         shell_unmount(d);
+      // One drive at a time is the internal floppy: the other one becomes a 1581 of images
+      else if (item == DM_INTERNAL && stores_drive_model(!d) == DM_INTERNAL)
+         stores_drive_set_model(!d, stores_drive_fit(!d, DM_1581));
+   }
+   // A mount moves the model to one its image runs
+   for (int d = 0; d < 2; d++)
+      if (group == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8))
+         stores_drive_set_model(d, stores_drive_fit(d, stores_drive_model(d)));
    if (group == OPTM_G_NET_DHCP || group == OPTM_G_NET_REST)
       netcfg_apply();
 }

@@ -7,13 +7,13 @@ extern int     dma_held_v, dma_z80_v, dma_polls, dma_jobs, dma_stops, z80_cpm;
 extern int     menu_buttons, menu_open, reboots, saves, net_applies, func_size, c128_resets, rom_under_z80;
 extern uint16_t *sys_rom;
 extern uint32_t csr_reg;           // M2M_CSR
-extern uint8_t settings[32][8], saved[32][8];   // the menu's bits by group and item, in use and in the file
+extern uint8_t settings[64][8], saved[64][8];   // the menu's bits by group and item, in use and in the file
 extern int     drive_on[2];
 extern char    reu_path[256];
 
 // The drives: an image (a card path), write protect, type (0 D64, 1 D71, 2 D81), the internal
 // floppy (its drive, or -1), hold, remaps; a 1541/1571 acts out a disk change over polls
-extern int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], int1581, mounts, remaps;
+extern int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], mounts, remaps;
 extern char    drv_card[2][256];
 // The drive ROM device (boot1.rom's six banks) and reloads; the cartridge device and its loads
 extern uint16_t *drive_rom, *crt_mem;

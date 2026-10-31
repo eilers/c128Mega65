@@ -368,6 +368,15 @@ static void dos_tests(void)
    dos(1, 0x03, NULL, 0, NULL);
    dos(1, 0x23, "\x09", 1, "/SD/uci/x.d81");
    check(drive_reads == 0 && !strcmp(rtext, "00,OK"), "a D81 answers at once: a 1581 flags the change itself");
+   memset(settings[OPTM_G_DRVB_ID], 0, sizeof settings[OPTM_G_DRVB_ID]);
+   settings[OPTM_G_DRVB_ID][2] = 1;                  // drive B at 10, as his getDriveByID
+   dos(1, 0x23, "\x0A", 1, "/SD/Long folder name with spaces/A file with a rather long name, to see.d64");
+   want("MOUNT_DISK on drive B at 10", "00,OK");
+   check(mounted_d == 1, "the Shell mounts it on drive B");
+   dos(1, 0x23, "\x09", 1, "/SD/Long folder name with spaces/A file with a rather long name, to see.d64");
+   want("MOUNT_DISK on 9, now no drive's", "90,DRIVE NOT PRESENT");
+   memset(settings[OPTM_G_DRVB_ID], 0, sizeof settings[OPTM_G_DRVB_ID]);
+   settings[OPTM_G_DRVB_ID][1] = 1;
 
    // The clock: BCD in rtc_controller's words 1-7 (day 0 is Monday)
    rtc = host_dev_at(M2M_DEV_RTC);
@@ -465,13 +474,19 @@ static void ctrl_tests(void)
    want_bytes("GET_DRVINFO, no disks", "00,OK", (uint8_t[]){ 2, 0, 8, 0, 0, 9, 0 }, 7);
    mounted_d    = 1;
    mounted_type = 1;
-   settings[OPTM_G_DRV_MODEL][0] = 0;
+   memset(settings[OPTM_G_DRVA_MODEL], 0, sizeof settings[OPTM_G_DRVA_MODEL]);
+   settings[OPTM_G_DRVA_MODEL][1] = 1;
    dos(4, 0x29, "\1", 1, NULL);
-   want_bytes("GET_DRVINFO, a D71 in 9, model 1571", "00,OK", (uint8_t[]){ 2, 1, 8, 0, 1, 9, 1 }, 7);
+   want_bytes("GET_DRVINFO, a 1571 in 8, a D71 in a 1541 at 9", "00,OK", (uint8_t[]){ 2, 1, 8, 0, 1, 9, 1 }, 7);
    mounted_type = 2;
+   memset(settings[OPTM_G_DRVB_ID], 0, sizeof settings[OPTM_G_DRVB_ID]);
+   settings[OPTM_G_DRVB_ID][3] = 1;
    dos(4, 0x29, NULL, 0, NULL);
-   want_bytes("GET_DRVINFO, a D81 in 9", "00,OK", (uint8_t[]){ 2, 1, 8, 0, 2, 9, 1 }, 7);
-   settings[OPTM_G_DRV_MODEL][0] = 1;
+   want_bytes("GET_DRVINFO, a D81 in drive B at 11", "00,OK", (uint8_t[]){ 2, 1, 8, 0, 2, 11, 1 }, 7);
+   memset(settings[OPTM_G_DRVB_ID], 0, sizeof settings[OPTM_G_DRVB_ID]);
+   settings[OPTM_G_DRVB_ID][1] = 1;
+   memset(settings[OPTM_G_DRVA_MODEL], 0, sizeof settings[OPTM_G_DRVA_MODEL]);
+   settings[OPTM_G_DRVA_MODEL][0] = 1;
    dos(4, 0x34, NULL, 0, NULL);
    want_data("DISK_A_POWER, no disk", "00,OK", "off");
    dos(4, 0x35, NULL, 0, NULL);
@@ -541,8 +556,9 @@ static void cfg_tests(void)
    settings[OPTM_G_REU][0]   = 1;                   // REU off, modem off, UCI on, 1571
    settings[OPTM_G_MODEM][0] = 1;
    settings[OPTM_G_UCI][0]   = 1;
-   settings[OPTM_G_DRV_MODEL][0] = 0;
-   settings[OPTM_G_DRV_MODEL][1] = 1;
+   memset(settings[OPTM_G_DRVA_MODEL], 0, sizeof settings[OPTM_G_DRVA_MODEL]);
+   memset(settings[OPTM_G_DRVB_MODEL], 0, sizeof settings[OPTM_G_DRVB_MODEL]);
+   settings[OPTM_G_DRVA_MODEL][1] = settings[OPTM_G_DRVB_MODEL][1] = 1;
    mounted_d = -1;
    drive_pow[0] = drive_pow[1] = DRIVE_AUTO;
    reu_sync();
@@ -596,25 +612,37 @@ static void cfg_tests(void)
    cfg("[C64 and Cartridge Settings]\nRAM Expansion Unit=Disabled");
    check(reu_pos() == 2, "a last line without its LF isn't read, as on an Ultimate");
 
-   // Drives: power, the one 5.25" model, their addresses
+   // Drives: power, a model and an address each
    cfg("[Drive A Settings]\nDrive=Disabled\nDrive Type=1541\nDrive Bus ID=8\n"
        "[Drive B Settings]\nDrive=Enabled\nDrive Bus ID= 9\nROM for 1541 mode=1541.rom\nExtra RAM=Disabled\n");
    want_data("LOAD_CONFIG: drives (his ROM item, not his Extra RAM)", "00,OK",
              "Line 9: Item 'Extra RAM' not found in this store [Drive B Settings]; ignored.\n");
    check(drive_pow[0] == DRIVE_OFF && drive_pow[1] == DRIVE_ON, "drive A off, B on");
-   check(settings[OPTM_G_DRV_MODEL][0] && !settings[OPTM_G_DRV_MODEL][1], "the model is 1541");
+   check(settings[OPTM_G_DRVA_MODEL][0] && settings[OPTM_G_DRVB_MODEL][1], "A's model is 1541, B's stays 1571");
    cfg("[Drive A Settings]\nDrive Type=1571\n[Drive B Settings]\nDrive Type=1541\nDrive Bus ID=10\n"
-       "[Drive A Settings]\nDrive Type=1581\nDrive Bus ID=x\n");
-   want_data("LOAD_CONFIG: two models, address 10, a 1581 that isn't one", "89,CONFIG FILE HAD ERRORS",
-             "Line 4: Value '1541' is not a valid choice for item Drive Type\n"
-             "Line 5: Value '10' is not a valid choice for item Drive Bus ID\n"
-             "Line 7: Value '1581' is not a valid choice for item Drive Type\n");
-   check(settings[OPTM_G_DRV_MODEL][0] && drive_pow[0] == DRIVE_OFF, "nothing changed");
+       "[Drive A Settings]\nDrive Type=1581\nDrive Bus ID=12\n");
+   want_data("LOAD_CONFIG: address 12", "89,CONFIG FILE HAD ERRORS",
+             "Line 8: Value '12' is not a valid choice for item Drive Bus ID\n");
+   check(settings[OPTM_G_DRVA_MODEL][0] && settings[OPTM_G_DRVB_ID][1] && drive_pow[0] == DRIVE_OFF, "nothing changed");
+   cfg("[Drive A Settings]\nDrive Type=1571\n[Drive B Settings]\nDrive Type=1541\nDrive Bus ID=10\n"
+       "[Drive A Settings]\nDrive Type=1581\n");
+   want_data("LOAD_CONFIG: two models, B at 10, a 1581", "00,OK", "");
+   check(settings[OPTM_G_DRVA_MODEL][2] && settings[OPTM_G_DRVB_MODEL][0] && settings[OPTM_G_DRVB_ID][2],
+         "A a 1581, B a 1541 at 10");
+   cfg("[Drive A Settings]\nDrive Bus ID=10\n");
+   want_data("LOAD_CONFIG: A at B's 10", "00,OK", "");
+   check(settings[OPTM_G_DRVA_ID][2] && settings[OPTM_G_DRVB_ID][0], "they swap: A at 10, B at A's 8");
+   cfg("[Drive A Settings]\nDrive Bus ID=8\n");
    mounted_d    = 1;
    mounted_type = 2;
-   cfg("[Drive B Settings]\nDrive Type=1581\n[Drive A Settings]\nDrive Type=1571\nDrive=Enabled\n");
+   cfg("[Drive B Settings]\nDrive Type=1541\n");
+   want_data("LOAD_CONFIG: a 1541 for B's D81", "89,CONFIG FILE HAD ERRORS",
+             "Line 2: Value '1541' is not a valid choice for item Drive Type\n");
+   check(settings[OPTM_G_DRVB_MODEL][0] && !settings[OPTM_G_DRVB_MODEL][2], "B's model unchanged");
+   cfg("[Drive B Settings]\nDrive Type=1581\nDrive Bus ID=9\n[Drive A Settings]\nDrive Type=1571\nDrive=Enabled\n");
    want_data("LOAD_CONFIG: B holds a D81, A 1571", "00,OK", "");
-   check(settings[OPTM_G_DRV_MODEL][1] && drive_pow[0] == DRIVE_ON, "the model is 1571, A is on");
+   check(settings[OPTM_G_DRVA_MODEL][1] && settings[OPTM_G_DRVB_MODEL][2] && settings[OPTM_G_DRVB_ID][1] &&
+         drive_pow[0] == DRIVE_ON, "A a 1571, B a 1581 at 9, A is on");
    mounted_d = -1;
    drive_pow[0] = drive_pow[1] = DRIVE_AUTO;
 

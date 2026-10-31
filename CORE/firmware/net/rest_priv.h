@@ -60,8 +60,8 @@ typedef struct {
    const param_t *params;
    int            nparams;
    int            upload;               // a POST's body: the most kept of its first part, or 0
-   // Or the first part as it comes (MP_DATA_START or MP_SUBHEADER, MP_DATA, MP_DATA_END):
-   // into a file, a device
+   // Or the first part as it comes (MP_DATA_START or MP_SUBHEADER, MP_DATA, MP_DATA_END, then
+   // MP_END at the body's end, or MP_ABORT): into a file, a device
    void         (*sink)(rest_t *r, mp_event_t ev, const uint8_t *data, int len);
 } call_t;
 

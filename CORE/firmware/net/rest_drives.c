@@ -122,7 +122,7 @@ static void drive_info(rest_t *r, int d)
    obj_open(r, d ? "b" : "a");
    key(r, "enabled");
    put(r, drive_running(d) ? "true" : "false");
-   add_int(r, "bus_id", 8 + d);
+   add_int(r, "bus_id", stores_drive_id(d));
    add_str(r, "type", types[stores_drive_type(d)]);
    // The pick for its model, as his current_drive_rom: the stock one under his default name
    int p = RP_DRV(d, stores_drive_type(d));
@@ -203,6 +203,7 @@ void temp_sink(rest_t *r, mp_event_t ev, const uint8_t *data, int len)
       }
       break;
    case MP_DATA_END:
+   case MP_END:
    case MP_ABORT:
       if (r->up_open)
          f_close(&r->up_f);
@@ -564,7 +565,7 @@ static void put_unlink(rest_t *r)
    int d = drive_or_answer(r);
    if (d < 0)
       return;
-   if (!drive_mounted(d) || core_mount_label(d)) {
+   if (!drive_mounted(d) || stores_drive_internal(d)) {
       subsys_response(r, SS_OK);               // nothing to unlink
       return;
    }
@@ -634,8 +635,8 @@ static void post_load_rom(rest_t *r)
    load_rom(r, d, r->up, r->up_len);
 }
 
-// The core has one model for both 5.25" drives; a 1581 is one by its image (a D81, the
-// internal floppy) and can't be another
+// The drive's model, as his set_drive_type and its config; the drive that is the internal
+// floppy stays it as a 1581. Not a model its image can't run.
 static void put_set_mode(rest_t *r)
 {
    const char *mode = arg(r, "mode");
@@ -650,14 +651,12 @@ static void put_set_mode(rest_t *r)
       json_response(r, HTTP_BAD_REQUEST);
       return;
    }
-   add_str(r, "mode", mode);
-   int now = stores_drive_type(d);
-   if ((m == 2) != (now == 2)) {
-      subsys_response(r, SS_WRONG_DRIVE_TYPE);
+   if (!stores_drive_ask_model(d, m)) {
+      error(r, "The drive's image can't run as a %s", types[m]);
+      json_response(r, HTTP_BAD_REQUEST);
       return;
    }
-   if (m < 2)
-      shell_force(OPTM_G_DRV_MODEL, m, 1);
+   add_str(r, "mode", mode);
    subsys_response(r, SS_OK);
 }
 

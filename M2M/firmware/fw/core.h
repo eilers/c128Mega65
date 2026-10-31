@@ -12,8 +12,9 @@
 
 // The submenu headline at menu index idx: a whole new line, or NULL for the standard one
 const char *core_submenu_summary(int idx);
-// What drive's line shows in place of its image: NULL for the standard text
-const char *core_mount_label(int drive);
+// A drive's line, given what it would show (its image's name, or OPTM_S_MOUNT): a whole new
+// text, or NULL for that
+const char *core_mount_text(int drive, const char *name);
 // Called before and after the Shell handles a selection in the menu
 void        core_sel_pre(int group, int item);
 void        core_sel_post(int group, int item);

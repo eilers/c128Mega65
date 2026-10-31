@@ -11,7 +11,8 @@
 // 3: every key (M2M_MATRIX), the core's bus DMA device
 // 4: drive ROM reload (C_DEV_DRIVE_ROM's CSR), vd_sd's hold
 // 5: the internal function ROM (C_DEV_SYSTEM_ROM from 0x18000, its CSR), 15 CRT/ROM items
-#define M2M_RV_HW_VERSION    5u
+// 6: drives A and B: a bus ID and a model each, the drive ROM items in their submenus
+#define M2M_RV_HW_VERSION    6u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

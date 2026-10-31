@@ -14,6 +14,7 @@
 #include "m2m_rv.h"
 #include "reu.h"
 #include "sdcard.h"
+#include "stores.h"
 #include "uci.h"
 
 #define CMD_IDENTIFY       0x01
@@ -421,11 +422,12 @@ static void dos_work(uci_reply_t *r)
    }
 }
 
-// MOUNT_DISK, UMOUNT_DISK: drive 8 or 9, or 0 for the one last mounted
+// MOUNT_DISK, UMOUNT_DISK: the drive with that bus ID (his getDriveByID), or 0 for the one
+// last mounted
 static int drive_of(int id)
 {
-   int d = id == 0 ? last_drive : id - 8;
-   if (d < 0 || d >= drives_count() || d > 1 || core_mount_label(d))
+   int d = id == 0 ? last_drive : stores_drive_of_id(id);
+   if (d < 0 || d >= drives_count() || d > 1 || stores_drive_internal(d))
       return -1;                                       // the internal floppy is no image drive
    return d;
 }

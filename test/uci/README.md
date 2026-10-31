@@ -133,7 +133,7 @@ gives (3.15a on, unchanged since); a log that differs is shown in upper case und
 | REU OFF, NO REU AT $DF00 | `Disabled`: nothing answers at `$DF02`. |
 | ERRORS, NOTHING CHANGED | A line outside a store, `REU Size=3 MB`, `=5` and a good `RAM Expansion Unit=Enabled`: `89` and his three log lines, and still no REU. (His firmware keeps the good value and switches it in with the next file without errors; the core drops it.) |
 | DRIVE B OFF / ON, GET_DRVINFO | `[Drive B Settings]` `Drive=Disabled`, then `Enabled`: GET_DRVINFO's power byte for B. |
-| DRIVE A 1571 / 1541, GET_DRVINFO | `Drive Type`, GET_DRVINFO's type for A. Skipped if drive A is a 1581 (the internal floppy, a D81). On the core this is the one model of both drives. |
+| DRIVE A 1571 / 1541, GET_DRVINFO | `Drive Type`, GET_DRVINFO's type for A. Skipped if drive A is a 1581 (the internal floppy, a D81). |
 | BACK AS IT WAS, REU, DRIVES AS BEFORE | One file with the REU, A's type and B's power from the start: `00,OK`, and the three as they were. |
 | DELETE UCICFG.CFG | `00,OK`. |
 

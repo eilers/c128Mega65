@@ -38,7 +38,22 @@ int         item_get(const item_t *it);
 int         item_pick(const item_t *it);      // an IT_FILE's rompick.h pick
 const char *item_text(const item_t *it);
 int         item_choices(const item_t *it);   // an IT_ENUM's choices on this board (REU sizes)
-// A drive as his get_drive_type() gives it: 0 1541, 1 1571, 2 1581
+// The drives' submenus: a model (DM_*) and a bus ID (8-11) each. The internal floppy is the
+// model of one drive at a time.
+enum { DM_1541, DM_1571, DM_1581, DM_INTERNAL };
+int         stores_drive_model(int d);
+void        stores_drive_set_model(int d, int m);
+int         stores_drive_id(int d);
+void        stores_drive_set_id(int d, int id);   // swaps with the other drive if that has it
+int         stores_drive_of_id(int id);     // -1 for none
+int         stores_drive_internal(int d);
+// The model nearest m that the drive's image runs: a D64 a 1541 or 1571, a D71 a 1571, a D81
+// a 1581. Without an image, and for the internal floppy, m.
+int         stores_drive_fit(int d, int m);
+// A model REST or a config asks for: 0 if the drive's image can't run it. The internal
+// floppy's drive stays it for a 1581 (his names can't say it).
+int         stores_drive_ask_model(int d, int m);
+// What a drive runs as, as his get_drive_type() gives it: 0 1541, 1 1571, 2 1581
 int         stores_drive_type(int d);
 
 // What a change wants (stores_want's results)

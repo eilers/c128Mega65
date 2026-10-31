@@ -67,7 +67,7 @@ static void drive_info(uci_reply_t *r)
    uci_data[0] = n;
    for (int d = 0; d < n; d++) {
       uci_data[1 + 3 * d] = stores_drive_type(d);
-      uci_data[2 + 3 * d] = 8 + d;
+      uci_data[2 + 3 * d] = stores_drive_id(d);
       uci_data[3 + 3 * d] = drive_running(d);
    }
    r->data = uci_data;

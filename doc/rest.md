@@ -23,7 +23,7 @@ firmware does, byte for byte, because tools parse his answers.
 | Route | Answer |
 |---|---|
 | `GET /v1/version` | `0.1`, as his |
-| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`105`), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. No `core_version`, so his tests take it for a U2 (a cartridge) and check it against his U2 document; no `wifi_mac` |
+| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`106`), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. No `core_version`, so his tests take it for a U2 (a cartridge) and check it against his U2 document; no `wifi_mac` |
 | `GET /v1/help?command=` | his fixed page |
 | `PUT /v1/machine:reset`, `:reboot` | the reset button, as UCI's REBOOT; a pause ends with it |
 | `PUT /v1/machine:pause`, `:resume` | the C128's CPU held by bus DMA, as his `stop()`; answered at once |
@@ -37,12 +37,12 @@ firmware does, byte for byte, because tools parse his answers.
 | `PUT /v1/configs/CATEGORY/ITEM?value=` or `/VALUE` | one item, in effect at once, in memory |
 | `POST /v1/configs` | a JSON body of categories and items, each tried |
 | `PUT /v1/configs[/CATEGORY]:save_to_flash`, `:load_from_flash`, `:reset_to_default` | once a matching category has changes, the menu's settings file and `/c128/settings.cfg`, both written whole (`written` names the changed categories); back from them; the defaults |
-| `GET /v1/drives` | `a` (drive 8) and `b` (drive 9): power, bus id, model, `rom` the ROM picked for its model (his default name, `1571.rom`, for the stock one; `Unable to load!` for a file that won't), the image as his: a REST mount shows the path it was given as `image_file` with an empty `image_path`, a menu or UCI mount its folder and name. The internal floppy, when it's drive 8 or 9, is that drive: a 1581 with no image. No `softiec` |
+| `GET /v1/drives` | `a` and `b`: power, bus id (8-11, its submenu's), what it runs as, `rom` the ROM picked for its model (his default name, `1571.rom`, for the stock one; `Unable to load!` for a file that won't), the image as his: a REST mount shows the path it was given as `image_file` with an empty `image_path`, a menu or UCI mount its folder and name. The internal floppy, when it is a drive's model, is that drive: a 1581 with no image. No `softiec` |
 | `PUT /v1/drives/D:mount?image=&type=&mode=`, `POST` | the image into the drive, answered once a 1541/1571 has it (as UCI's MOUNT_DISK). `type` (default: the extension) only picks his command and Ftype; the core takes D64, D71 and D81 by their size, G64/G71 answer 501. `readonly` write protects the disk. `unlinked` mounts a copy in `/c128/temp`: writes go to the copy, the file stays as it was. On the internal floppy's drive the floppy is turned off first, as the menu does. POST: the body goes to `/c128/temp/NAME` (NAME from the part's file name, `temp0000` and up without one; `_1`, `_2` while that name is in a drive) |
 | `PUT /v1/drives/D:reset`, `:on`, `:off`, `:remove` | the drive's ROM reloaded (a reset), its power, the image out |
 | `PUT /v1/drives/D:unlink` | the drive moves onto a copy of its image in `/c128/temp` without a disk change: its requests wait (vd_sd's hold) while its changes go to the card and the copy is made, then its table points at the copy. GET drives still shows the file it came from |
 | `PUT /v1/drives/D:load_rom?file=`, `POST` | 16 or 32 KB into the drive's bank of `boot1.rom` for its model (a 16 KB image twice), then the bank reloaded into the drive, which resets it; another size is written anyway and answers his 412. Lasts until a long reset loads `boot1.rom` again |
-| `PUT /v1/drives/D:set_mode?mode=` | 1541 or 1571: the menu's model, which both 5.25" drives share. A drive that is a 1581 (a D81, the internal floppy) takes only 1581, and only it does; else his 415 |
+| `PUT /v1/drives/D:set_mode?mode=` | 1541, 1571 or 1581: the drive's model, as his set_drive_type and its config; the internal floppy's drive stays it as a 1581. Not a model its image can't run: 400 `The drive's image can't run as a 1581` (the menu ejects the image instead). A mount moves the model to one its image runs: a D81 a 1581, a D71 a 1571, a D64 in a 1581 a 1571 |
 | `GET /v1/files/PATH:info` | his name, size and extension of a file on the card (`SD/...`) |
 | `PUT /v1/files/PATH:create_d64?tracks=&diskname=`, `:create_d71`, `:create_d81` | zeros, then his `format()`: the BAM and the first directory block (byte for byte his, `$20` in a D64's byte 3 included). `create_dnp` checks his arguments, then 501 |
 | `PUT /v1/runners:load_prg?file=`, `:run_prg`, `POST` | a program for `$0801` runs in C64 mode, any other in C128 mode: the C128 reset, BASIC's READY awaited, GO64 typed for C64 mode, the program and his loader's pointers by DMA with the CPU held, the lines relinked (his runner's LINKPRG), RUN typed for run_prg. A `.cfg` (or `.usr`) next to the file is loaded first, as his: a line with an error is skipped, the rest take effect. A P00's header is skipped. 423 while the Z80 runs, when C64 BASIC comes up for a C128 program (a C64 cartridge), or when READY doesn't come within 10 s (a cartridge, a boot or CP/M disk) |
@@ -62,7 +62,7 @@ choices are the core's, under his names where he has the same.
 | Category | Items |
 |---|---|
 | C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, loaded at every start), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
-| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541/1571 for both 5.25" drives, 1581 only for a drive that is one), Drive Bus ID (8, or 9), ROM for 1541 mode, 1571 mode, 1581 mode (16 or 32 KB) |
+| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581: its model, not one its image can't run; 1581 for the internal floppy's drive), Drive Bus ID (8-11; the other drive's swaps them), ROM for 1541 mode, 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, Web Remote Control Service |
@@ -76,6 +76,11 @@ runs that model. The cartridge loads at the next start.
 
 What the menu's settings file can't hold (the strings, the ROMs, drive power set here) is in
 `/c128/settings.cfg`, his settings format.
+
+A change made here stays in memory until `save_to_flash`, unless the menu saves first: it
+writes its own file whole when it closes after a change, and `settings.cfg` whole when a ROM
+or the REU's file is picked or cleared, or a network setting is typed. Unsaved REST changes
+go with them.
 
 The routes are in `net/rest_machine.c`, `rest_configs.c`, `rest_drives.c`, `rest_files.c`
 and `rest_runners.c`.
@@ -117,6 +122,8 @@ gave them. The main menu's line shows the address. Defaults: REST on, no passwor
   would reset it then.
 - run_prg/load_prg load by DMA in the program's own mode, and run_prg then types RUN; his boot
   cartridge always starts C64 mode (on a C128 too) and prints LOAD/SEARCHING/LOADING lines first.
+- A D64 mounted in a 1581 makes the drive a 1571 (a C128's drive); his makes it a 1541.
+- Two drives never share a bus ID: giving one the other's swaps them. His lets them clash.
 - A load_rom'd ROM stays in its bank through a drive model change; his reloads the configured
   ROM file then.
 - Uploads are files on the card (`/c128/temp`), where his are in a RAM disk; a .crt upload

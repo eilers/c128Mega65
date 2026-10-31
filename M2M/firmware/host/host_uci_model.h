@@ -38,7 +38,7 @@ extern int     drive_pow[2], mounted_type, menu_opens;
 // The cartridge's CSR (crtrom_csr_get/set) for EASYFLASH's erase: the last sector written,
 // the starts, and how many more reads of its busy bit read 1
 extern int     ef_sector, ef_starts, ef_busy;
-extern uint8_t settings[32][8];
+extern uint8_t settings[64][8];
 // LOAD_CONFIG's: the REU group's items in the menu (4, or 2 on R3 memory), shell_crtrom_named's
 // calls for the REU file and its last path ("-" for none). The menu's REU setting (0-3), and
 // main.vhd's, which follows a change a few reads of word 0x012 later, or at reu_settle;

@@ -25,11 +25,10 @@ int drives_ready(void)
    drive_reads++;
    return drive_reads <= 3 || drive_reads > 3 + drive_low || !drive_low;
 }
-const char *core_mount_label(int drive) { (void)drive; return NULL; }
 
 // What the control target uses: vd_sd's drive power, the menu's settings, the menu
 int     drive_pow[2], mounted_type, menu_opens;
-uint8_t settings[32][8];
+uint8_t settings[64][8];
 int  drive_image_type(int d) { return mounted_d == d ? mounted_type : -1; }
 void drive_power(int d, enum drive_power p) { drive_pow[d] = p; }
 int  drive_running(int d)
@@ -301,6 +300,7 @@ void uci_model_init(void)
    um.resp = 896;
    um.stat = 1792;
    settings[OPTM_G_REU][0]       = 1;   // REU: Off
-   settings[OPTM_G_DRV_MODEL][0] = 1;   // 1541
+   settings[OPTM_G_DRVA_MODEL][0] = settings[OPTM_G_DRVB_MODEL][0] = 1;   // 1541
+   settings[OPTM_G_DRVA_ID][0] = settings[OPTM_G_DRVB_ID][1] = 1;         // 8, 9
    um.reu_mem = 0x8800;                 // SDRAM, window 0x0800 (C_SMAP_REU), as on the R6
 }

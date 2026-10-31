@@ -323,14 +323,15 @@ static void show(int idx, const char *line, char *out)
    }
    if (is_mount[idx]) {
       int d = is_mount[idx] - 1;
-      if (!(custom = core_mount_label(d))) {
-         if (drive_mounted(d))
-            custom = drv_name[d];
-         else {
-            cfg_str(CFG_OPTM_MSTR, with, sizeof with);
-            custom = with;
-         }
+      const char *text;
+      if (drive_mounted(d))
+         custom = drv_name[d];
+      else {
+         cfg_str(CFG_OPTM_MSTR, with, sizeof with);
+         custom = with;
       }
+      if ((text = core_mount_text(d, custom)))
+         custom = text;
       replace_s(line, custom, out, max);
       return;
    }
@@ -441,11 +442,12 @@ static void selected(uint16_t group, int item)
 }
 
 // Lines whose text the core gives can change with a selection, or by themselves
-// (core_menu_stale): the menu is drawn again then
+// (core_menu_stale): the menu is drawn again then. A drive's line too (core_mount_text).
 static void redraw_core_lines(void)
 {
    for (int i = 0; i < menu.n; i++)
-      if (menu_visible(i) && strstr(menu.line[i], "%s") && core_item_text(menu.group[i] & MENU_ID)) {
+      if (menu_visible(i) && strstr(menu.line[i], "%s") &&
+          (is_mount[i] || core_item_text(menu.group[i] & MENU_ID))) {
          menu_show();
          menu_cursor_on();
          return;

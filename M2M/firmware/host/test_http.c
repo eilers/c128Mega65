@@ -228,7 +228,7 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"105\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"106\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -747,8 +747,8 @@ static void configs(void)
              "  \"errors\" : [  ]\n}"));
    expect("an item in full", "GET /v1/configs/drive*/*bus* HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Drive A Settings\" : { \n  \"Drive Bus ID\" : { \n  \"current\" : 8,\n  \"min\" : 8,\n"
-             "  \"max\" : 8,\n  \"format\" : \"%d\",\n  \"default\" : 8\n}\n},\n  \"Drive B Settings\" : { \n"
-             "  \"Drive Bus ID\" : { \n  \"current\" : 9,\n  \"min\" : 9,\n  \"max\" : 9,\n  \"format\" : \"%d\",\n"
+             "  \"max\" : 11,\n  \"format\" : \"%d\",\n  \"default\" : 8\n}\n},\n  \"Drive B Settings\" : { \n"
+             "  \"Drive Bus ID\" : { \n  \"current\" : 9,\n  \"min\" : 8,\n  \"max\" : 11,\n  \"format\" : \"%d\",\n"
              "  \"default\" : 9\n}\n},\n  \"errors\" : [  ]\n}"));
    expect("a choice in full", "GET /v1/configs/modem%20settings/acia* HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Modem Settings\" : { \n  \"ACIA (6551) Mapping\" : { \n  \"current\" : \"Off\",\n"
@@ -764,8 +764,8 @@ static void configs(void)
    expect("an argument", "GET /v1/configs?x=1 HTTP/1.1\r\n\r\n", bad("\"Function none does not have parameter x\""));
 
    // PUT
-   expect("out of range", "PUT /v1/configs/drive%20a%20settings/drive%20bus%20id?value=9 HTTP/1.1\r\n\r\n",
-          bad("\"Value 9 is outside of the allowable range (8-8)\""));
+   expect("out of range", "PUT /v1/configs/drive%20a%20settings/drive%20bus%20id?value=12 HTTP/1.1\r\n\r\n",
+          bad("\"Value 12 is outside of the allowable range (8-11)\""));
    expect("a number in hex", "PUT /v1/configs/drive%20b%20settings/drive%20bus%20id?value=0x9 HTTP/1.1\r\n\r\n", OK);
    int applies = net_applies;
    expect("drive off", "PUT /v1/configs/Drive%20A%20Settings/Drive/disabled HTTP/1.1\r\n\r\n", OK);
@@ -846,12 +846,12 @@ static void configs(void)
    expect("POST, not JSON", "POST /v1/configs HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
           bad("\"Content type should be 'application/json'.\""));
    expect("POST, empty", "POST /v1/configs HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}", OK);
-   const char *b1 = "{\"Drive A Settings\": {\"Drive\": \"Disabled\", \"Drive Bus ID\": 9}, \"Bogus\": {}, "
+   const char *b1 = "{\"Drive A Settings\": {\"Drive\": \"Disabled\", \"Drive Bus ID\": 12}, \"Bogus\": {}, "
                     "\"Modem Settings\": 5, \"drive b settings\": {\"Speed\": 1, \"Drive\": true, \"Drive Type\": [1]}}";
    char req[1024];
    sprintf(req, "POST /v1/configs HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
            (int)strlen(b1), b1);
-   expect("POST, errors", req, bad("\"Value 9 is outside of the allowable range (8-8)\", "
+   expect("POST, errors", req, bad("\"Value 12 is outside of the allowable range (8-11)\", "
           "\"'Bogus' is not a valid configuration category name.\", \"Element 'Modem Settings' should be an object.\", "
           "\"'Speed' is not a valid item name in category 'Drive B Settings'.\", "
           "\"Value given for 'Drive' cannot be of type boolean.\", \"Value given for 'Drive Type' should be a literal.\""));
@@ -1118,24 +1118,46 @@ static void drives(void)
    check("POST load_rom 32 KB: drive b's 1571 bank", !strcmp(c->got, OK) && same && rom_reloads[1] >= 1, c->got);
    free(c);
 
-   // set_mode: one model for both 5.25" drives; a 1581 is one by its image
+   // set_mode: the drive's own model, one its image runs
    expect("set_mode 1541", "PUT /v1/drives/a:set_mode?mode=1541 HTTP/1.1\r\n\r\n",
           json(200, "OK", "{ \n  \"mode\" : \"1541\",\n  \"errors\" : [  ]\n}"));
-   check("set_mode: the menu's model", settings[OPTM_G_DRV_MODEL][0] && !settings[OPTM_G_DRV_MODEL][1], NULL);
-   expect("set_mode 1581 on a 5.25\" drive", "PUT /v1/drives/a:set_mode?mode=1581 HTTP/1.1\r\n\r\n",
-          json(415, "Unknown", "{ \n  \"mode\" : \"1581\",\n  \"errors\" : [ \"Drive is in the wrong mode\" ]\n}"));
+   check("set_mode: drive a's model, not b's", settings[OPTM_G_DRVA_MODEL][0] && settings[OPTM_G_DRVB_MODEL][1], NULL);
+   expect("set_mode 1581 for b's D71", "PUT /v1/drives/b:set_mode?mode=1581 HTTP/1.1\r\n\r\n",
+          bad("\"The drive's image can't run as a 1581\""));
+   expect("Drive Type 1541 for b's D71", "PUT /v1/configs/drive%20b%20settings/drive%20type?value=1541 HTTP/1.1\r\n\r\n",
+          bad("\"Value '1541' is not a valid choice for item Drive Type\""));
+   check("b stays a 1571", settings[OPTM_G_DRVB_MODEL][1] && stores_drive_type(1) == 1, NULL);
    expect("set_mode, no such model", "PUT /v1/drives/a:set_mode?mode=1234 HTTP/1.1\r\n\r\n",
           bad("\"Invalid Drive Type '1234'\""));
-   expect("set_mode 1571", "PUT /v1/drives/b:set_mode?mode=1571 HTTP/1.1\r\n\r\n",
+   expect("set_mode 1571, a", "PUT /v1/drives/a:set_mode?mode=1571 HTTP/1.1\r\n\r\n",
+          json(200, "OK", "{ \n  \"mode\" : \"1571\",\n  \"errors\" : [  ]\n}"));
+   expect("set_mode 1571, b", "PUT /v1/drives/b:set_mode?mode=1571 HTTP/1.1\r\n\r\n",
           json(200, "OK", "{ \n  \"mode\" : \"1571\",\n  \"errors\" : [  ]\n}"));
 
-   // The internal floppy as drive 8: a 1581 without an image; a mount turns it off, as the menu
-   int1581 = 0;
+   // A bus ID: GET drives and the mount answer go by it
+   expect("drive b at 10", "PUT /v1/configs/drive%20b%20settings/drive%20bus%20id?value=10 HTTP/1.1\r\n\r\n", OK);
+   client_t *ids = ask("GET /v1/drives HTTP/1.1\r\n\r\n");
+   check("drives, b at 10", strstr(ids->got, "\"b\" : { \n  \"enabled\" : true,\n  \"bus_id\" : 10,") != NULL, ids->got);
+   free(ids);
+   expect("drive a at b's 10", "PUT /v1/configs/drive%20a%20settings/drive%20bus%20id?value=10 HTTP/1.1\r\n\r\n", OK);
+   check("never two drives on one ID: b takes a's 8", stores_drive_id(0) == 10 && stores_drive_id(1) == 8, NULL);
+   expect("drive a at 8 again", "PUT /v1/configs/drive%20a%20settings/drive%20bus%20id?value=8 HTTP/1.1\r\n\r\n", OK);
+   expect("drive b at 9 again", "PUT /v1/configs/drive%20b%20settings/drive%20bus%20id?value=9 HTTP/1.1\r\n\r\n", OK);
+   check("drives at 8 and 9", stores_drive_id(0) == 8 && stores_drive_id(1) == 9, NULL);
+
+   // The internal floppy as drive a's model: a 1581 without an image; a mount turns it off, as
+   // the menu, leaving the model its image runs
+   stores_drive_set_model(0, DM_INTERNAL);
    expect("drives, the internal floppy", "GET /v1/drives HTTP/1.1\r\n\r\n",
           drives_json(drive_obj("a", "true", 8, "1581", "", ""), drive_obj("b", "true", 9, "1571", "/SD/games/b.d71", "")));
    expect("mount on the internal floppy's drive", "PUT /v1/drives/a:mount?image=/SD/games/a.d64 HTTP/1.1\r\n\r\n",
           mounted(200, "OK", 2, 1541, 0x1520, "/SD/games/a.d64", NULL));
-   check("the internal floppy off", int1581 < 0 && drv_mounted[0], NULL);
+   check("the internal floppy off: a 1581, then a 1571 for its D64", !stores_drive_internal(0) &&
+         settings[OPTM_G_DRVA_MODEL][1] && drv_mounted[0] && stores_drive_type(0) == 1, NULL);
+   expect("set_mode 1541 for a's D64", "PUT /v1/drives/a:set_mode?mode=1541 HTTP/1.1\r\n\r\n",
+          json(200, "OK", "{ \n  \"mode\" : \"1541\",\n  \"errors\" : [  ]\n}"));
+   check("a 1541", settings[OPTM_G_DRVA_MODEL][0] && stores_drive_type(0) == 0, NULL);
+   stores_drive_set_model(0, DM_1571);
 
    // POST: into /c128/temp, the name's ':' a '_' (his fix_filename)
    char *up = malloc(200000), part[200];
@@ -1160,6 +1182,21 @@ static void drives(void)
          !strcmp(drv_card[1], "/c128/temp/temp0000"), c->got);
    free(c);
    free(up);
+   // No closing boundary, a part of whole 4 KB blocks: the file is closed at the body's end, as his
+   up = calloc(1, 900000);
+   bl = sprintf(part, "--XyZ\r\nContent-Disposition: form-data; name=\"file\"; filename=\"up.d81\"\r\n\r\n");
+   hl = sprintf(up, "POST /v1/drives/a:mount HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=XyZ\r\n"
+                "Content-Length: %d\r\n\r\n%s", bl + 819200, part);
+   c = cl_open();
+   cl_send(c, up, hl + 819200);
+   run_until(c, 60000000);
+   check("POST mount, no closing boundary: written, mounted",
+         !strcmp(c->got, mounted(200, "OK", 2, 1581, 0x1520, "/SD/c128/temp/up.d81", NULL)) &&
+         !strcmp(drv_card[0], "/c128/temp/up.d81"), c->got);
+   free(c);
+   free(up);
+   expect("drive 8's D64 again", "PUT /v1/drives/a:mount?image=/SD/c128/temp/up_1.d64 HTTP/1.1\r\n\r\n",
+          mounted(200, "OK", 2, 1541, 0x1520, "/SD/c128/temp/up_1.d64", NULL));
    expect("POST mount, no body", "POST /v1/drives/a:mount HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
           errs(412, "Unknown", "Expected Body, but got none."));
 }

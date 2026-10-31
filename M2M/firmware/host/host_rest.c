@@ -13,12 +13,13 @@
 #include "ff.h"
 #include "host_rest.h"
 #include "net/netcfg.h"
+#include "stores.h"
 #include "roms.h"
 
 uint8_t c128_mem[65536];
 int     dma_held_v, dma_z80_v, dma_polls = 3, dma_jobs, dma_stops;
 int     z80_cpm;                        // the Z80 runs CP/M until the next reset
-int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], int1581 = -1, mounts, remaps;
+int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], mounts, remaps;
 char    drv_card[2][256];
 uint16_t *drive_rom, *crt_mem, *sys_rom;
 uint32_t  csr_reg = 0x0038;            // M2M_CSR: keyboard and joysticks, out of reset
@@ -32,7 +33,7 @@ static enum drive_power power[2];
 static int ready_calls[2], rom_wait[2], reset_pend, z80_left, boot_left;
 static uint32_t ramrom;
 int     menu_buttons, menu_open, reboots, saves, net_applies;
-uint8_t settings[32][8], saved[32][8];
+uint8_t settings[64][8], saved[64][8];
 int     drive_on[2] = { 1, 1 };
 char    reu_path[256];
 char    netcfg[NC_COUNT][32];
@@ -207,7 +208,6 @@ int  drives_count(void) { return 2; }
 int  drive_mounted(int d) { return drv_mounted[d]; }
 const char *drive_path(int d) { return drv_mounted[d] ? drv_card[d] : ""; }
 int  drive_image_type(int d) { return drv_mounted[d] ? drv_type[d] : -1; }
-const char *core_mount_label(int d) { return d == int1581 ? "Internal 1581" : NULL; }
 int  drive_running(int d) { return drive_on[d]; }
 void drive_power(int d, enum drive_power p) { power[d] = p; drive_on[d] = p == DRIVE_ON; }
 enum drive_power drive_power_of(int d) { return power[d]; }
@@ -225,13 +225,13 @@ int drives_ready(void)
 }
 
 // As the menu: an image for the internal floppy's drive turns it off first; a size the core
-// takes; not the other drive's
+// takes; not the other drive's; then the model one the image runs
 int shell_mount_ro(int d, const char *path, int ro, const char **msg)
 {
    FILINFO fi;
    *msg = NULL;
-   if (d == int1581)
-      int1581 = -1;
+   if (stores_drive_internal(d))
+      stores_drive_set_model(d, DM_1581);
    if (f_stat(path, &fi) != FR_OK)
       return 0x104;
    int t = fi.fsize == 174848 || fi.fsize == 196608 ? 0 : fi.fsize == 349696 ? 1 : fi.fsize == 819200 ? 2 : -1;
@@ -243,6 +243,7 @@ int shell_mount_ro(int d, const char *path, int ro, const char **msg)
    drv_mounted[d] = 1;
    drv_ro[d] = ro;
    drv_type[d] = t;
+   stores_drive_set_model(d, stores_drive_fit(d, stores_drive_model(d)));
    mounts++;
    ready_calls[d] = t == 2 || power[d] == DRIVE_OFF ? 0 : 3;
    return 0;
@@ -430,6 +431,7 @@ void host_rest_init(void)
    }
    memset(settings, 0, sizeof settings);
    settings[OPTM_G_NET_REST][0] = settings[OPTM_G_NET_DHCP][0] = 1;
-   settings[OPTM_G_DRV_MODEL][1] = 1;
+   settings[OPTM_G_DRVA_MODEL][1] = settings[OPTM_G_DRVB_MODEL][1] = 1;   // 1571
+   settings[OPTM_G_DRVA_ID][0] = settings[OPTM_G_DRVB_ID][1] = 1;         // 8, 9
    memcpy(saved, settings, sizeof saved);
 }
