@@ -5,14 +5,12 @@
 // ports from 51000, 5 s for a data connection, 300 s for an idle session. Paths are UCI DOS's:
 // '/' holds SD, the active card. lwIP's callbacks only move bytes; the commands and the card
 // work run from the main loop (ftp_poll), a step a round.
-// Not his: a file the core uses in place (a mounted disk image, the menu's settings file)
-// can't be overwritten, deleted or renamed (450), as the drives write it behind FatFs. An
-// empty upload makes an empty file, and ABOR has a reply.
+// Not his: a mounted disk image can't be overwritten, deleted or renamed (450), as the
+// drives write it behind FatFs. An empty upload makes an empty file, and ABOR has a reply.
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
-#include "cfg.h"
 #include "drives.h"
 #include "ff.h"
 #include "fmt.h"
@@ -193,19 +191,17 @@ static DWORD first_cluster(const char *c)
    return cl;
 }
 
-// The core writes these behind FatFs: a mounted disk image, the menu's settings file. By
-// first cluster, so any spelling of the name counts.
+// The core writes a mounted disk image behind FatFs. By first cluster, so any spelling of
+// the name counts.
 static bool in_use(const char *c)
 {
-   char name[64];
    DWORD cl = first_cluster(c);
    if (!cl)
       return false;
    for (int d = 0; d < drives_count(); d++)
       if (drive_mounted(d) && first_cluster(drive_path(d)) == cl)
          return true;
-   cfg_str(CFG_CFG_FILE, name, sizeof name);
-   return first_cluster(name) == cl;
+   return false;
 }
 
 // Wildcards * and ?, case ignored (his pattern_match)

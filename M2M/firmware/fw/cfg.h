@@ -7,7 +7,6 @@
 // config.vhd selectors (M2M$CFG_*)
 #define CFG_WHS          0x1000u   // + record << 8 + page: welcome and help screens
 #define CFG_DIR_START    0x0100u
-#define CFG_CFG_FILE     0x0101u
 #define CFG_GENERAL      0x0110u
 #define CFG_CORENAME     0x0200u
 #define CFG_OPTM_ITEMS   0x0300u
@@ -40,7 +39,6 @@
 #define CFG_ASCAL_MODE   12
 #define CFG_VD_AT_DELAY  13
 #define CFG_VD_ITERSIZE  14
-#define CFG_SAVEOSDCFG   15
 
 #define CFG_AUSE_CFG     0         // CFG_ASCAL_USAGE: the mode from config.vhd
 #define CFG_AUSE_CUSTOM  1         //                  left to the firmware

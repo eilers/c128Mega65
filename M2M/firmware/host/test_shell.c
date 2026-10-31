@@ -26,7 +26,6 @@ int  disk_file_open(const char *path);
 extern uint32_t host_regs[];
 
 static int fails, runs, verbose;
-static char cfg_name[64];
 static const char *image;
 static int cluster;                      // bytes
 
@@ -326,9 +325,9 @@ static void put_file(const char *name, int file, int size)
    f_close(&f);
 }
 
-// The ROMs, and a new settings file (all 0xFF) unless an earlier run left one: its bytes
-// go to file
-static void make_card(uint8_t *file)
+// The ROMs; and the settings the first run saved, as it recorded them in /bits.bin: 1 if
+// there are some
+static int make_card(uint8_t *bits)
 {
    static FATFS fs;
    FIL f;
@@ -350,15 +349,12 @@ static void make_card(uint8_t *file)
    put_disk("/c128/split.d64", 11, 174848, "/c128/filler2.bin", 2048);
    put_disk("/c128/Sub/disk.d81", 12, 819200, NULL, 0);
    cluster = fs.csize * 512;
-   cfg_str(CFG_CFG_FILE, cfg_name, sizeof cfg_name);
-   if (f_open(&f, cfg_name, FA_READ) == FR_OK) {
-      f_read(&f, file, MENU_MAX, &got);
+   if (f_open(&f, "/bits.bin", FA_READ) == FR_OK) {
+      f_read(&f, bits, MENU_MAX, &got);
       f_close(&f);
-   } else
-      put_file(cfg_name, -1, cfg_get(CFG_OPTM_ICOUNT, 0));
-   if (got == 0)
-      file[0] = 0xFF;
+   }
    f_unmount("");
+   return got != 0;
 }
 
 static int device_holds(int dev, int file, int size)
@@ -398,7 +394,7 @@ static int dev_at(int dev, int at, int file, int off, int size)
 // The settings file holds a line
 static int setting_line(const char *line)
 {
-   static char text[2048];
+   static char text[4096];
    FIL f;
    UINT got = 0;
    if (f_open(&f, SETTINGS_FILE, FA_READ) == FR_OK) {
@@ -455,18 +451,56 @@ static int in_pieces(int dev, int size)
    return 0;
 }
 
-// The settings file's byte for a menu item, read through the firmware's mount: mounting
-// again would look like a new card, and the Shell would stop saving
-static int saved(int idx)
+// A menu item whose setting the settings file keeps: an item of a store is its group
+static int kept(int idx)
 {
-   uint8_t b[MENU_MAX];
-   FIL f;
-   UINT got = 0;
-   if (f_open(&f, cfg_name, FA_READ) == FR_OK) {
-      f_read(&f, b, sizeof b, &got);
-      f_close(&f);
+   static const int own[] = { OPTM_G_REU, OPTM_G_UCI, OPTM_G_DRVA_MODEL, OPTM_G_DRVB_MODEL,
+                              OPTM_G_DRVA_ID, OPTM_G_DRVB_ID };   // stores.c's own items
+   int g = shell_group(idx);
+   for (int k = 0; k < stores_count; k++)
+      if (g > 0 && stores_items[k].group == g)
+         return 1;
+   for (int k = 0; k < (int)(sizeof own / sizeof own[0]); k++)
+      if (own[k] == g)
+         return 1;
+   return 0;
+}
+
+// The stores' menu groups: a name per line in its order (the menu's words in MEGA65
+// Settings), or Disabled/Enabled for a single-select line; config.vhd's default. And every
+// setting of the menu kept: all but drives, files, help and text lines.
+static void check_stores(void)
+{
+   for (int k = 0; k < stores_count; k++) {
+      const item_t *it = &stores_items[k];
+      if (!it->group)
+         continue;
+      int n = 0, def = -1, words = 1, toggle = !strcmp(it->choices[0], "Disabled") && !it->choices[2];
+      for (int i = 0; i < menu.n; i++) {
+         if (shell_group(i) != it->group)
+            continue;
+         const char *l = menu.line[i];
+         while (*l == ' ')
+            l++;
+         if (!toggle && it->store == ST_MEGA65 && (n >= item_choices(it) || strcmp(l, it->choices[n])))
+            words = 0;
+         if (cfg_get(CFG_OPTM_STDSEL, i))
+            def = n;
+         n++;
+      }
+      check(toggle ? n == 1 && it->def == (def == 0) : n == item_choices(it) && it->def == def && words, it->name);
    }
-   return idx < (int)got ? b[idx] : -1;
+   int all = 1;
+   for (int i = 0; i < menu.n; i++) {
+      int g = shell_group(i), max = 0;
+      char text[64];
+      if (g > 0 && g < 255 && !cfg_get(CFG_OPTM_MOUNT, i) && !cfg_get(CFG_OPTM_CRTROM, i) &&
+          !cfg_get(CFG_OPTM_HELP, i) && !core_text_item(g, text, &max) && !kept(i)) {
+         printf("not in the settings file: \"%s\"\n", menu.line[i]);
+         all = 0;
+      }
+   }
+   check(all, "every setting of the menu in the settings file");
 }
 
 // -------------------------------------------------------------------------------------
@@ -484,12 +518,11 @@ int main(int argc, char **argv)
    load_dump(argv[1]);
    crtrom_csr_set(D8_DEV, 0x030, 0x5D4D);             // the drives map their images
    crtrom_csr_set(D9_DEV, 0x030, 0x5D4D);
-   uint8_t file[MENU_MAX];
-   make_card(file);
+   uint8_t bits[MENU_MAX];
+   int second = make_card(bits);                      // the first run left its settings
    M2M_CSR |= M2M_CSR_SD_DET_EXT | M2M_CSR_SD_ACTIVE;
    crtrom_csr_set(CRT_DEV, CSR_MAX_HI, 2);            // the cartridge takes up to 128 KB, parses OK
    crtrom_csr_set(CRT_DEV, CSR_PARSEST, 2);
-   int second = file[0] != 0xFF;                      // the first run left its settings
 
    // Start: ROMs loaded, defaults set, the core out of reset with keyboard and joysticks
    shell_start();
@@ -527,11 +560,11 @@ int main(int argc, char **argv)
    int want = 1;
    for (int i = 0; i < menu.n; i++)
       want &= cfg_get(CFG_OPTM_CRTROM, i) || (second && (i == item(" Hardware") || i == item(" CRT file"))) ||
-              setting_get(i) == (file[0] == 0xFF ? cfg_get(CFG_OPTM_STDSEL, i) : file[i]);
-   check(want, file[0] == 0xFF ? "settings are config.vhd's defaults (new settings file)" :
-                                 "settings from the settings file");
-   if (file[0] != 0xFF)
+              setting_get(i) == (second && kept(i) ? bits[i] : cfg_get(CFG_OPTM_STDSEL, i));
+   check(want, second ? "settings from the settings file" : "settings are config.vhd's defaults (no settings file)");
+   if (second)
       check(!setting_get(item(" Use IEC port")), "IEC port off, as the first run left it");
+   check_stores();
    // Back to the defaults for the checks below
    M2M_CONTROL_M(0) = M2M_CONTROL_M(1) = M2M_CONTROL_M(2) = M2M_CONTROL_M(3) = 0;
    for (int i = 0; i < menu.n; i++)
@@ -593,7 +626,10 @@ int main(int argc, char **argv)
    check(!(M2M_CSR & M2M_CSR_OSM), "Help closes the menu");
    idle();
    check(M2M_CSR & M2M_CSR_KBD, "keyboard back after closing");
-   check(saved(item(" 1541")) == 1 && saved(item(" 1571")) == 0 && saved(0) == 0, "settings file saved");
+   check(setting_line("[Drive A Settings]\nDrive Type=1541\nDrive Bus ID=8\n") &&
+         setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
+                      "HDMI Display Mode=720p 50 Hz 16:9\nHDMI Flicker-free=Disabled\nHDMI Audio=Enabled\n") &&
+         setting_line("Use IEC Port=Enabled\n"), "settings file saved");
    press(M2M_KEY_HELP);
    check(cursor_on("8:1541"), "cursor remembered");
 
@@ -980,7 +1016,7 @@ int main(int argc, char **argv)
    type("9");
    press(M2M_KEY_RUNSTOP);
    check(find_row(" Mask:255.255.255.0") > 0 && cursor_on("Mask:"), "Run/Stop: the old text");
-   check(setting_line("[Ethernet Settings]\nStatic IP=1.2.3.4\nStatic Netmask=255.255.255.0\n"
+   check(setting_line("[Ethernet Settings]\nUse DHCP=Disabled\nStatic IP=1.2.3.4\nStatic Netmask=255.255.255.0\n"
                       "Static Gateway=192.168.2.1\nStatic DNS=8.8.8.8\n[Network Settings]\n"
                       "Host Name=c128-myX\nNetwork Password=\n"), "settings file: the network");
    go_to("DHCP");
@@ -1088,7 +1124,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RETURN);
    check(setting_line("C128 Kernal ROM=k16.bin\n") && setting_line("Internal Function ROM=f32.bin\n") &&
-         setting_line("[Drive A Settings]\nROM for 1541 mode=f32.bin\nROM for 1571 mode=k16.bin\n"),
+         setting_line("Drive Bus ID=8\nROM for 1541 mode=f32.bin\nROM for 1571 mode=k16.bin\n"),
          "the settings file for the next run");
    press(M2M_KEY_RUNSTOP);
 
@@ -1110,7 +1146,17 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    press(M2M_KEY_HELP);
    idle();
-   check(saved(item(" Use IEC port")) == 0 && saved(item(" 1571")) == 1, "saved for the next run");
+   check(setting_line("[Drive A Settings]\nDrive Type=1571\n") && setting_line("Use IEC Port=Disabled\n"),
+         "saved for the next run");
+   // What the next run should start with
+   uint8_t b[MENU_MAX];
+   FIL f;
+   UINT put;
+   for (int i = 0; i < menu.n; i++)
+      b[i] = setting_get(i);
+   f_open(&f, "/bits.bin", FA_WRITE | FA_CREATE_ALWAYS);
+   f_write(&f, b, menu.n, &put);
+   f_close(&f);
 
    printf("%s: %d of %d checks passed\n", argv[1], runs - fails, runs);
    return fails != 0;

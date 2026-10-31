@@ -81,9 +81,8 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 -- No Welcome Screen is used (WELCOME_ACTIVE is false), therefore WHS array position 0 stays empty.
 
--- Version of this core. It ends up inside a FAT32 path (see CFG_FILE), so keep it to characters
--- that are legal there and use "_" instead of spaces. CORE/scripts/build_release.sh refuses to
--- build unless this matches the release name that is being packaged.
+-- Version of this core. CORE/scripts/build_release.sh refuses to build unless this matches the
+-- release name that is being packaged.
 constant CORE_VERSION : string := "V1.1_Beta1";
 
 constant SCR_CREDITS : string :=
@@ -136,25 +135,14 @@ constant WHS : WHS_RECORD_ARRAY_TYPE := (
 
 -- !!! DO NOT TOUCH !!!
 constant SEL_DIR_START     : std_logic_vector(15 downto 0) := x"0100";
-constant SEL_CFG_FILE      : std_logic_vector(15 downto 0) := x"0101";
 
 -- START YOUR CONFIGURATION BELOW THIS LINE
 
 -- The file browser opens here, and this is where the ROM files and the disk images live.
 constant DIR_START         : string := "/c128";
 
--- The saved-settings file carries the core version, so that a menu layout change automatically
--- retires the old file instead of loading it with a mismatched length. See doc/KNOWN_BUGS.md.
--- R3-memory builds have two menu items fewer, so they have their own file.
-function cfg_file_name return string is
-begin
-   if G_R3_MEMORY then
-      return "/c128/c128mega65-" & CORE_VERSION & "-r3.cfg";
-   end if;
-   return "/c128/c128mega65-" & CORE_VERSION & ".cfg";
-end function cfg_file_name;
-
-constant CFG_FILE          : string := cfg_file_name;
+-- The firmware keeps the menu's settings, with the rest, in /c128/settings.cfg
+-- (CORE/firmware/stores.c), by name, so no file depends on the menu's layout.
 
 --------------------------------------------------------------------------------------------------------------------
 -- General configuration settings: Reset, Pause, OSD behavior, Ascal, etc. (Selector 0x0110)
@@ -196,12 +184,6 @@ constant JOY_2_AT_OSD      : boolean := false;
 --   where you would wire the output of certain options menu bits with ascal_mode_i
 constant ASCAL_USAGE       : natural := 2;
 constant ASCAL_MODE        : natural := 0;   -- see ascal.vhd for the meaning of this value
-
--- Save on-screen-display settings if the file specified by CFG_FILE exists and if it has
--- the length of OPTM_SIZE bytes. If the first byte of the file has the value 0xFF then it
--- is considered as "default", i.e. the menu items specified by OPTM_G_STDSEL are selected.
--- If the file does not exists, then settings are not saved and OPTM_G_STDSEL always denotes the standard settings.
-constant SAVE_SETTINGS     : boolean := true;
 
 -- Delay in ms between the last write request to a virtual drive from the core and the start of the
 -- cache flushing (i.e. writing to the SD card). Since every new write from the core invalidates the cache,
@@ -296,8 +278,6 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             otherwise you will experience visual glitches.
 constant OPTM_SIZE_ALL     : natural := 178; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
-                                             -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
-                                             -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
@@ -868,7 +848,6 @@ addr_decode : process(clk_i)
          when 12     => return std_logic_vector(to_unsigned(ASCAL_MODE, 16));
          when 13     => return std_logic_vector(to_unsigned(VD_ANTI_THRASHING_DELAY, 16));
          when 14     => return std_logic_vector(to_unsigned(VD_ITERATION_SIZE, 16));
-         when 15     => return bool2slv(SAVE_SETTINGS);
          when others => return x"0000";
       end case;
    end function getGenConf;
@@ -914,7 +893,6 @@ begin
          case address_i(27 downto 12) is
             when SEL_GENERAL           => data_o <= getGenConf(index);
             when SEL_DIR_START         => data_o <= str2data(DIR_START, index);
-            when SEL_CFG_FILE          => data_o <= str2data(CFG_FILE, index);
             when SEL_CORENAME          => data_o <= str2data(CORENAME, index);
             when SEL_OPTM_ITEMS        => data_o <= str2data(OPTM_ITEMS, index);
             when SEL_OPTM_MOUNT_STR    => data_o <= str2data(OPTM_S_MOUNT, index);

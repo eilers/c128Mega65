@@ -32,8 +32,8 @@ char    typed[64];
 static enum drive_power power[2];
 static int ready_calls[2], rom_wait[2], reset_pend, z80_left, boot_left;
 static uint32_t ramrom;
-int     menu_buttons, menu_open, reboots, saves, net_applies;
-uint8_t settings[64][8], saved[64][8];
+int     menu_buttons, menu_open, reboots, net_applies;
+uint8_t settings[64][8];
 int     drive_on[2] = { 1, 1 };
 char    reu_path[256];
 char    netcfg[NC_COUNT][32];
@@ -178,14 +178,12 @@ int shell_menu_screen(uint8_t *out)
    return 1;
 }
 
-int  shell_save_settings(void) { saves++; return 0; }
 void uci_reboot(void) { reboots++; reset_pend = 3; }
 uint32_t heap_free(void) { return 3000000; }
 uint32_t heap_total(void) { return 3500000; }
 
 // The menu: REU 0 off, 1-3 a size; drive model 0 1541, 1 1571
 int shell_setting(int group, int pos) { return settings[group][pos]; }
-int shell_saved_setting(int group, int pos) { return saved[group][pos]; }
 int shell_item(int group, int pos) { return pos < 4 ? pos : -1; }
 
 void shell_force(int group, int pos, int on)
@@ -433,5 +431,5 @@ void host_rest_init(void)
    settings[OPTM_G_NET_REST][0] = settings[OPTM_G_NET_FTP][0] = settings[OPTM_G_NET_DHCP][0] = 1;
    settings[OPTM_G_DRVA_MODEL][1] = settings[OPTM_G_DRVB_MODEL][1] = 1;   // 1571
    settings[OPTM_G_DRVA_ID][0] = settings[OPTM_G_DRVB_ID][1] = 1;         // 8, 9
-   memcpy(saved, settings, sizeof saved);
+   settings[OPTM_G_HDMI_AUDIO][0] = settings[OPTM_G_IEC][0] = 1;          // on, as config.vhd has them
 }

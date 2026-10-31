@@ -36,7 +36,7 @@ firmware does, byte for byte, because tools parse his answers.
 | `GET /v1/configs[/CATEGORY[/ITEM]]` | his stores and items that the core has (below), with his names and patterns |
 | `PUT /v1/configs/CATEGORY/ITEM?value=` or `/VALUE` | one item, in effect at once, in memory |
 | `POST /v1/configs` | a JSON body of categories and items, each tried |
-| `PUT /v1/configs[/CATEGORY]:save_to_flash`, `:load_from_flash`, `:reset_to_default` | once a matching category has changes, the menu's settings file and `/c128/settings.cfg`, both written whole (`written` names the changed categories); back from them; the defaults |
+| `PUT /v1/configs[/CATEGORY]:save_to_flash`, `:load_from_flash`, `:reset_to_default` | once a matching category has changes, `/c128/settings.cfg`, written whole (`written` names the changed categories); back from it (the defaults for what it doesn't name); the defaults |
 | `GET /v1/drives` | `a` and `b`: power, bus id (8-11, its submenu's), what it runs as, `rom` the ROM picked for its model (his default name, `1571.rom`, for the stock one; `Unable to load!` for a file that won't), the image as his: a REST mount shows the path it was given as `image_file` with an empty `image_path`, a menu or UCI mount its folder and name. The internal floppy, when it is a drive's model, is that drive: a 1581 with no image. No `softiec` |
 | `PUT /v1/drives/D:mount?image=&type=&mode=`, `POST` | the image into the drive, answered once a 1541/1571 has it (as UCI's MOUNT_DISK). `type` (default: the extension) only picks his command and Ftype; the core takes D64, D71 and D81 by their size, G64/G71 answer 501. `readonly` write protects the disk. `unlinked` mounts a copy in `/c128/temp`: writes go to the copy, the file stays as it was. On the internal floppy's drive the floppy is turned off first, as the menu does. POST: the body goes to `/c128/temp/NAME` (NAME from the part's file name, `temp0000` and up without one; `_1`, `_2` while that name is in a drive) |
 | `PUT /v1/drives/D:reset`, `:on`, `:off`, `:remove` | the drive's ROM reloaded (a reset), its power, the image out |
@@ -61,12 +61,13 @@ choices are the core's, under his names where he has the same.
 
 | Category | Items |
 |---|---|
-| C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, loaded at every start), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
-| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581: its model, not one its image can't run; 1581 for the internal floppy's drive), Drive Bus ID (8-11; the other drive's swaps them), ROM for 1541 mode, 1571 mode, 1581 mode (16 or 32 KB) |
+| C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
+| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, not one its image can't run; the internal floppy one drive at a time), Drive Bus ID (8-11; the other drive's swaps them), ROM for 1541 mode, 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
+| MEGA65 Settings (ours) | the menu's other settings, its words for the choices: Video Output, VIC-II Jailbars, HDMI Display Mode, HDMI Flicker-free, HDMI Audio, HDMI CRT Emulation, VGA Display Mode, Caps Lock Key, Help Menu on F13, Use IEC Port |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
 GET with an item in full lists his `presets` (the files of the right size). Empty, or a
@@ -74,13 +75,12 @@ drive's default name with no such file, is the stock ROM. A system ROM changes w
 reset (it isn't written under a running CPU), a drive's with a reload of the drive if it
 runs that model. The cartridge loads at the next start.
 
-What the menu's settings file can't hold (the strings, the ROMs, drive power set here) is in
-`/c128/settings.cfg`, his settings format.
+Every item is kept in `/c128/settings.cfg`, his settings format; drive power only once it
+was set here or by LOAD_CONFIG.
 
 A change made here stays in memory until `save_to_flash`, unless the menu saves first: it
-writes its own file whole when it closes after a change, and `settings.cfg` whole when a ROM
-or the REU's file is picked or cleared, or a network setting is typed. Unsaved REST changes
-go with them.
+writes `settings.cfg` whole when it closes after a change, when a ROM or the REU's file is
+picked or cleared, or when a network setting is typed. Unsaved REST changes go with it.
 
 The routes are in `net/rest_machine.c`, `rest_configs.c`, `rest_drives.c`, `rest_files.c`
 and `rest_runners.c`.
@@ -107,9 +107,9 @@ as VICE and a 16 KB EPROM in the C128's 32 KB socket have it, so it uses 0 and 2
 
 ## Settings
 
-The menu's Network submenu: REST API, FTP Server and DHCP are menu items, saved with the
-menu; host name, password and the static address are typed in their lines (Return keeps,
-Run/Stop leaves, Del, Clr), kept in `/c128/settings.cfg` (his settings format) at once. While
+The menu's Network submenu: REST API, FTP Server and DHCP are menu items, saved when the
+menu closes; host name, password and the static address are typed in their lines (Return
+keeps, Run/Stop leaves, Del, Clr), saved at once. Both go into `/c128/settings.cfg`. While
 DHCP is on the address lines show what it gave; typing one turns DHCP off, the others then as
 DHCP gave them. The main menu's line shows the address. Defaults: REST and FTP on, no
 password, host `c128-mega65`, DHCP.

@@ -199,9 +199,8 @@ FILE HAD ERRORS` (or `87,INTERNAL ERROR` if `main.vhd` never takes a REU change)
 error nothing changes: his firmware effectuates only a file without one (it keeps the
 values, though, and they take effect with the next file that has none; here they are
 dropped). Like his, a last line without its line end isn't read. The
-changes are the menu's: saved with the settings when the menu next closes, as his are saved
-only when asked; the strings (ROM, cartridge and REU file names, the network's) go into
-`/c128/settings.cfg` with REST's `save_to_flash` or the menu's next write of that file. A
+changes are kept, as his are only when asked, when `/c128/settings.cfg` is next written: by
+REST's `save_to_flash`, or by the menu after a change. A
 system ROM in the file (not a drive's) restarts the C128 as a pick in the menu does, so the
 program that sent the file gets no reply.
 LOAD_CONFIG doesn't reset the C128 for a REU change (Hardware). An

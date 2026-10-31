@@ -30,9 +30,8 @@ answers as his `software/network/ftpd.cc` (at `4b00732`) does, reply for reply.
 
 ## Not his
 
-- A file the core uses in place can't be overwritten, deleted or renamed: a mounted disk image
-  (the drives read and write it on the card, where his firmware has a copy in memory) and the
-  menu's settings file. Those get `450 File in use.`
+- A mounted disk image can't be overwritten, deleted or renamed (the drives read and write it
+  on the card, where his firmware has a copy in memory): `450 File in use.`
 - An empty upload makes an empty file; his makes none.
 - ABOR is answered with 226; his doesn't answer.
 - MKD's reply names the new folder once (`257 "/SD/new" created.`); his puts a second `/`

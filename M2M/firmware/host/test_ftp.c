@@ -22,7 +22,6 @@
 #define STEP_US   100                  // a main-loop round
 #define WIRE_US   200                  // a packet's time on the wire
 #define SECTOR_US 20                   // a sector's time on the card, with a turn after it
-#define SETTINGS  "/c128/c128mega65-V1.1_Beta1.cfg"
 
 static uint64_t now_us;
 uint32_t net_millis(void) { return (uint32_t)(now_us / 1000); }
@@ -44,7 +43,6 @@ enum sdcard_state sdcard_state(void) { return card_in ? SDCARD_OK : SDCARD_NONE;
 int drives_count(void) { return 2; }
 int drive_mounted(int d) { return mounted[d][0] != 0; }
 const char *drive_path(int d) { return mounted[d]; }
-int cfg_str(uint32_t sel, char *buf, int size) { return snprintf(buf, size, "%s", SETTINGS); }
 
 // --- the loopback ---
 struct netif eth_netif;
@@ -697,7 +695,7 @@ static void files(void)
    ask(c, "DELE dir", "550 Requested action not taken.\r\n");
    ask(c, "DELE", "501 Syntax error in parameters or arguments.\r\n");
 
-   // What the core uses in place: mounted disk images, the menu's settings file
+   // What the core uses in place: mounted disk images. Not the settings file, written whole.
    put_file("/ftp/disk.d64", "disk", 4);
    strcpy(mounted[1], "/ftp/disk.d64");
    ask(c, "DELE disk.d64", "450 File in use.\r\n");
@@ -712,8 +710,8 @@ static void files(void)
    check("a mounted image: RETR", d->n == 4, NULL);
    cl_free(d);
    f_mkdir("/c128");
-   put_file(SETTINGS, "\xFF", 1);
-   ask(c, "STOR " "/SD" SETTINGS, "450 File in use.\r\n");
+   put_file("/c128/settings.cfg", "#", 1);
+   ask(c, "DELE /SD/c128/settings.cfg", "250 Requested file action okay, completed.\r\n");
    mounted[1][0] = 0;
    ask(c, "DELE disk.d64", "250 Requested file action okay, completed.\r\n");
    cl_free(c);

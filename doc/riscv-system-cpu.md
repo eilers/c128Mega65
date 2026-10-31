@@ -89,8 +89,8 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   port needs a JTAG adapter. It gets a banner line, and a monitor (`fw/monitor.c`,
   `tools/mon.py`, see `M2M/firmware/README.md`) that reads and writes memory, devices and
   registers while the core runs.
-- **The Shell** (`fw/shell.c`, step 5): loads the menu from `config.vhd`, the
-  settings file (or the defaults) and the auto-load ROMs from `globals.vhd`, sets up ascal and
+- **The Shell** (`fw/shell.c`, step 5): loads the menu from `config.vhd`, its default
+  settings (the core's settings file changes them) and the auto-load ROMs from `globals.vhd`, sets up ascal and
   its filters, and lets the core out of reset; then Help (or F13) opens the options menu.
   `fw/menu.c` is QNICE's `menu.asm` (groups, single-select items, submenus, headlines,
   lines); `fw/cfg.c` reads `config.vhd` and the sysinfo device. The core's callbacks

@@ -3,7 +3,7 @@
 --
 -- Testbench for config.vhd: R3-memory builds (G_R3_MEMORY) leave the 2 MB and 16 MB REU items
 -- out of the menu. Reads both menus the way the Shell does and checks that the R3 one is the full
--- one without those items, in every selector, and that it has its own settings file.
+-- one without those items, in every selector.
 --
 -- Run with CORE/scripts/run_config_nvc.sh
 ----------------------------------------------------------------------------------
@@ -19,7 +19,6 @@ end entity tb_config;
 
 architecture sim of tb_config is
 
-   constant SEL_CFG_FILE   : natural := 16#0101#;
    constant SEL_OPTM_ITEMS : natural := 16#0300#;
    constant SEL_ICOUNT     : natural := 16#0305#;
    -- every per-item selector: groups, stdsel, lines, start, mount, singlesel, help, crtrom
@@ -108,8 +107,6 @@ begin
       variable f1, f2, r1, r2   : natural;
       variable vf, vr           : natural;
       variable j                : natural;
-      variable cfg_f, cfg_r     : string(1 to 64);
-      variable cl_f, cl_r       : natural;
 
    begin
       wait until rising_edge(clk);
@@ -150,11 +147,6 @@ begin
             check(vf = vr, "selector " & integer'image(SEL_PER_ITEM(s)) & ", R3 item " & integer'image(i));
          end loop;
       end loop;
-
-      rd_str(FULL, SEL_CFG_FILE, cfg_f, cl_f);
-      rd_str(R3,   SEL_CFG_FILE, cfg_r, cl_r);
-      report "settings files: " & cfg_f(1 to cl_f) & ", " & cfg_r(1 to cl_r);
-      check(cfg_r(1 to cl_r) = cfg_f(1 to cl_f - 4) & "-r3.cfg", "R3 settings file " & cfg_r(1 to cl_r));
 
       if errors = 0 then
          report "ALL CHECKS PASSED";

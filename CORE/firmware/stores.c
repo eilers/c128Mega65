@@ -1,7 +1,8 @@
 // Gideon's configuration stores as the core has them (stores.h). The core is a machine with
 // fewer stores, items and choices than an Ultimate. Where it has one of his items, the item
 // has his name and type; its choices are the core's, under his names where he has the same.
-// The C128's own ROMs are in a store of ours, C128 ROM Settings.
+// The C128's own ROMs are in a store of ours, C128 ROM Settings, and the menu's settings he
+// has nothing like in another, MEGA65 Settings.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stdlib.h>
@@ -17,67 +18,93 @@
 #include "stores.h"
 #include "uci.h"
 
+// I_GROUP: a menu group (item_t's group), an en_dis item its single-select line
 enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_MODEM_IF,
-       I_MODEM_MAP, I_MODEM_HW, I_DHCP, I_FTP, I_REST, I_NET };   // I_NET + NC_*: netcfg's strings
+       I_MODEM_HW, I_GROUP, I_NET };                        // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
 static const char *const names[ST_COUNT] = {
    "C64 and Cartridge Settings", "Drive A Settings", "Drive B Settings", "Modem Settings",
-   "Ethernet Settings", "Network Settings", "C128 ROM Settings"
+   "Ethernet Settings", "Network Settings", "C128 ROM Settings", "MEGA65 Settings"
 };
 
 static const char *const en_dis[]      = { "Disabled", "Enabled", NULL };
+static const char *const cart_prefs[]  = { "External", "Internal", NULL };   // the menu's Hardware, CRT file
 static const char *const reu_sizes[]   = { "512 KB", "2 MB", "16 MB", NULL };   // the menu's 1-3
-static const char *const drive_types[] = { "1541", "1571", "1581", NULL };
+static const char *const drive_types[] = { "1541", "1571", "1581", "Internal 1581", NULL };   // DM_*
 static const char *const modem_ifs[]   = { "ACIA / SwiftLink", NULL };
 static const char *const acia_maps[]   = { "Off", "DE00/NMI", "DF00/NMI", "D700/NMI", NULL };   // the menu's 0-3
 static const char *const modem_hws[]   = { "SwiftLink", NULL };
+// The menu's lines
+static const char *const video_outs[]  = { "Follow 40/80", "40 columns", "80 columns", "HDMI 40, VGA 80",
+                                           "HDMI 80, VGA 40", "Swap with 40/80", NULL };
+static const char *const jailbars[]    = { "Off", "Low", "Medium", "High", NULL };
+static const char *const hdmi_modes[]  = { "720p 50 Hz 16:9", "720p 60 Hz 16:9", "576p 50 Hz 4:3", "576p 50 Hz 5:4",
+                                           "640x480 60 Hz", "720x480 59.94 Hz", "800x600 60 Hz", NULL };
+static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
+static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
 
 // In his stores' order; a string's max is his longest (the REU image's is a card path), a
 // file's what the menu can pick
 const item_t stores_items[] = {
-   { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "" },
-   { ST_C64,     I_ROM + RP_K64, IT_FILE,   "Alternate Kernal",           NULL, 0, PICK_MAX - 1, 0, "" },
-   { ST_C64,     I_REU,          IT_ENUM,   "RAM Expansion Unit",         en_dis,      0, 0, 0, NULL },
-   { ST_C64,     I_REU_SIZE,     IT_ENUM,   "REU Size",                   reu_sizes,   0, 0, 1, NULL },
-   { ST_C64,     I_REU_IMAGE,    IT_STRING, "REU Preload Image",          NULL, 0, UCI_PATH_MAX - 1, 0, "" },
-   { ST_C64,     I_UCI,          IT_ENUM,   "Command Interface",          en_dis,      0, 0, 0, NULL },
-   { ST_DRIVE_A, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL },
-   { ST_DRIVE_A, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL },
-   { ST_DRIVE_A, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 8, NULL },
-   { ST_DRIVE_A, I_ROM + RP_DRV(0, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom" },
-   { ST_DRIVE_A, I_ROM + RP_DRV(0, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom" },
-   { ST_DRIVE_A, I_ROM + RP_DRV(0, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom" },
-   { ST_DRIVE_B, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL },
-   { ST_DRIVE_B, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL },
-   { ST_DRIVE_B, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 9, NULL },
-   { ST_DRIVE_B, I_ROM + RP_DRV(1, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom" },
-   { ST_DRIVE_B, I_ROM + RP_DRV(1, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom" },
-   { ST_DRIVE_B, I_ROM + RP_DRV(1, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom" },
-   { ST_MODEM,   I_MODEM_IF,     IT_ENUM,   "Modem Interface",            modem_ifs,   0, 0, 0, NULL },
-   { ST_MODEM,   I_MODEM_MAP,    IT_ENUM,   "ACIA (6551) Mapping",        acia_maps,   0, 0, 0, NULL },
-   { ST_MODEM,   I_MODEM_HW,     IT_ENUM,   "Hardware Mode",              modem_hws,   0, 0, 0, NULL },
-   { ST_ETH,     I_DHCP,         IT_ENUM,   "Use DHCP",                   en_dis,      0, 0, 1, NULL },
-   { ST_ETH,     I_NET + NC_IP,  IT_STRING, "Static IP",                  NULL, 0, 16, 0, "192.168.2.64" },
-   { ST_ETH,     I_NET + NC_MASK,IT_STRING, "Static Netmask",             NULL, 0, 16, 0, "255.255.255.0" },
-   { ST_ETH,     I_NET + NC_GW,  IT_STRING, "Static Gateway",             NULL, 0, 16, 0, "192.168.2.1" },
-   { ST_ETH,     I_NET + NC_DNS, IT_STRING, "Static DNS",                 NULL, 0, 16, 0, "8.8.8.8" },
-   { ST_NET,     I_NET + NC_HOST,IT_STRING, "Host Name",                  NULL, 0, 31, 0, "c128-mega65" },
-   { ST_NET,     I_NET + NC_PASS,IT_PASS,   "Network Password",           NULL, 0, 31, 0, "" },
-   { ST_NET,     I_FTP,          IT_ENUM,   "FTP File Service",           en_dis,      0, 0, 1, NULL },
-   { ST_NET,     I_REST,         IT_ENUM,   "Web Remote Control Service", en_dis,      0, 0, 1, NULL },
+   { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "", 0 },
+   { ST_C64,     I_GROUP,        IT_ENUM,   "Cartridge Preference",       cart_prefs,  0, 0, 0, NULL, OPTM_G_CART },
+   { ST_C64,     I_ROM + RP_K64, IT_FILE,   "Alternate Kernal",           NULL, 0, PICK_MAX - 1, 0, "", 0 },
+   { ST_C64,     I_REU,          IT_ENUM,   "RAM Expansion Unit",         en_dis,      0, 0, 0, NULL, 0 },
+   { ST_C64,     I_REU_SIZE,     IT_ENUM,   "REU Size",                   reu_sizes,   0, 0, 1, NULL, 0 },
+   { ST_C64,     I_REU_IMAGE,    IT_STRING, "REU Preload Image",          NULL, 0, UCI_PATH_MAX - 1, 0, "", 0 },
+   { ST_C64,     I_UCI,          IT_ENUM,   "Command Interface",          en_dis,      0, 0, 0, NULL, 0 },
+   { ST_DRIVE_A, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, 0 },
+   { ST_DRIVE_A, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL, 0 },
+   { ST_DRIVE_A, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 8, NULL, 0 },
+   { ST_DRIVE_A, I_ROM + RP_DRV(0, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom", 0 },
+   { ST_DRIVE_A, I_ROM + RP_DRV(0, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom", 0 },
+   { ST_DRIVE_A, I_ROM + RP_DRV(0, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom", 0 },
+   { ST_DRIVE_B, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, 0 },
+   { ST_DRIVE_B, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL, 0 },
+   { ST_DRIVE_B, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 9, NULL, 0 },
+   { ST_DRIVE_B, I_ROM + RP_DRV(1, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom", 0 },
+   { ST_DRIVE_B, I_ROM + RP_DRV(1, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom", 0 },
+   { ST_DRIVE_B, I_ROM + RP_DRV(1, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom", 0 },
+   { ST_MODEM,   I_MODEM_IF,     IT_ENUM,   "Modem Interface",            modem_ifs,   0, 0, 0, NULL, 0 },
+   { ST_MODEM,   I_GROUP,        IT_ENUM,   "ACIA (6551) Mapping",        acia_maps,   0, 0, 0, NULL, OPTM_G_MODEM },
+   { ST_MODEM,   I_MODEM_HW,     IT_ENUM,   "Hardware Mode",              modem_hws,   0, 0, 0, NULL, 0 },
+   { ST_ETH,     I_GROUP,        IT_ENUM,   "Use DHCP",                   en_dis,      0, 0, 1, NULL, OPTM_G_NET_DHCP },
+   { ST_ETH,     I_NET + NC_IP,  IT_STRING, "Static IP",                  NULL, 0, 16, 0, "192.168.2.64", 0 },
+   { ST_ETH,     I_NET + NC_MASK,IT_STRING, "Static Netmask",             NULL, 0, 16, 0, "255.255.255.0", 0 },
+   { ST_ETH,     I_NET + NC_GW,  IT_STRING, "Static Gateway",             NULL, 0, 16, 0, "192.168.2.1", 0 },
+   { ST_ETH,     I_NET + NC_DNS, IT_STRING, "Static DNS",                 NULL, 0, 16, 0, "8.8.8.8", 0 },
+   { ST_NET,     I_NET + NC_HOST,IT_STRING, "Host Name",                  NULL, 0, 31, 0, "c128-mega65", 0 },
+   { ST_NET,     I_NET + NC_PASS,IT_PASS,   "Network Password",           NULL, 0, 31, 0, "", 0 },
+   { ST_NET,     I_GROUP,        IT_ENUM,   "FTP File Service",           en_dis,      0, 0, 1, NULL, OPTM_G_NET_FTP },
+   { ST_NET,     I_GROUP,        IT_ENUM,   "Web Remote Control Service", en_dis,      0, 0, 1, NULL, OPTM_G_NET_REST },
    // Ours: empty is the stock ROM (rompick.h)
-   { ST_ROMS,    I_ROM + RP_K128,IT_FILE,   "C128 Kernal ROM",            NULL, 0, PICK_MAX - 1, 0, "" },
-   { ST_ROMS,    I_ROM + RP_B128,IT_FILE,   "C128 Basic ROM",             NULL, 0, PICK_MAX - 1, 0, "" },
-   { ST_ROMS,    I_ROM + RP_B64, IT_FILE,   "C64 Basic ROM",              NULL, 0, PICK_MAX - 1, 0, "" },
-   { ST_ROMS,    I_ROM + RP_CHAR,IT_FILE,   "Char ROM",                   NULL, 0, PICK_MAX - 1, 0, "" },
-   { ST_ROMS,    I_ROM + RP_FUNC,IT_FILE,   "Internal Function ROM",      NULL, 0, PICK_MAX - 1, 0, "" },
+   { ST_ROMS,    I_ROM + RP_K128,IT_FILE,   "C128 Kernal ROM",            NULL, 0, PICK_MAX - 1, 0, "", 0 },
+   { ST_ROMS,    I_ROM + RP_B128,IT_FILE,   "C128 Basic ROM",             NULL, 0, PICK_MAX - 1, 0, "", 0 },
+   { ST_ROMS,    I_ROM + RP_B64, IT_FILE,   "C64 Basic ROM",              NULL, 0, PICK_MAX - 1, 0, "", 0 },
+   { ST_ROMS,    I_ROM + RP_CHAR,IT_FILE,   "Char ROM",                   NULL, 0, PICK_MAX - 1, 0, "", 0 },
+   { ST_ROMS,    I_ROM + RP_FUNC,IT_FILE,   "Internal Function ROM",      NULL, 0, PICK_MAX - 1, 0, "", 0 },
+   // Ours: the menu's other settings, under its names
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Video Output",               video_outs,  0, 0, 0, NULL, OPTM_G_VIDEO_OUT },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VIC-II Jailbars",            jailbars,    0, 0, 0, NULL, OPTM_G_JAILBARS },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Display Mode",          hdmi_modes,  0, 0, 0, NULL, OPTM_G_HDMI },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Flicker-free",          en_dis,      0, 0, 0, NULL, OPTM_G_FF },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Audio",                 en_dis,      0, 0, 1, NULL, OPTM_G_HDMI_AUDIO },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI CRT Emulation",         en_dis,      0, 0, 0, NULL, OPTM_G_CRT },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VGA Display Mode",           vga_modes,   0, 0, 0, NULL, OPTM_G_VGA_MODES },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Use IEC Port",               en_dis,      0, 0, 1, NULL, OPTM_G_IEC },
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
+#define ITEMS_MAX 64
+_Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.group holds ITEMS_MAX items");
+
 // What a change asks for, -1 where it says nothing; strings in their own buffers
 static struct {
-   int8_t reu, size, image, uci, power[2], model[2], id[2], modem, dhcp, ftp, rest, net[NC_COUNT], rom[RP_COUNT];
+   int8_t reu, size, image, uci, power[2], model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
+   int8_t group[ITEMS_MAX];          // an I_GROUP item's, by its index
 } want;
 static char    want_str[NC_COUNT][32];
 static char    want_rom[RP_COUNT][PICK_MAX];
@@ -87,6 +114,7 @@ static char    shown[UCI_PATH_MAX + 4];   // item_text's
 static int8_t  reu_kept;                  // the REU's size while it is off, as his REU Size
 static uint8_t stale[ST_COUNT];
 static uint8_t want_store[ST_COUNT];
+static int     starting;                  // stores_load: the C128 held in reset
 
 const char *store_name(int s)
 {
@@ -167,16 +195,18 @@ int stores_drive_fit(int d, int m)
    return img == 2 ? DM_1581 : DM_1571;
 }
 
-// Leaving the internal floppy, an image under it takes the nearest model
+// Leaving the internal floppy, an image under it takes the nearest model. One drive at a
+// time is the internal floppy, as in the menu (core_sel_post).
 int stores_drive_ask_model(int d, int m)
 {
-   if (stores_drive_internal(d)) {
-      if (m != DM_1581)
-         stores_drive_set_model(d, stores_drive_fit(d, m));
+   if (stores_drive_internal(d) && m != DM_INTERNAL) {
+      stores_drive_set_model(d, stores_drive_fit(d, m));
       return 1;
    }
    if (stores_drive_fit(d, m) != m)
       return 0;
+   if (m == DM_INTERNAL && stores_drive_model(!d) == DM_INTERNAL)
+      stores_drive_set_model(!d, stores_drive_fit(!d, DM_1581));
    stores_drive_set_model(d, m);
    return 1;
 }
@@ -232,12 +262,10 @@ int item_get(const item_t *it)
       return r - 1 < item_choices(it) ? r - 1 : 0;
    case I_UCI:        return shell_setting(OPTM_G_UCI, 0);
    case I_DRIVE:      return drive_running(d) != 0;
-   case I_DRIVE_TYPE: return stores_drive_model(d) == DM_INTERNAL ? DM_1581 : stores_drive_model(d);
+   case I_DRIVE_TYPE: return stores_drive_model(d);
    case I_DRIVE_ID:   return stores_drive_id(d);
-   case I_MODEM_MAP:  return group_pos(OPTM_G_MODEM, 4);
-   case I_DHCP:       return shell_setting(OPTM_G_NET_DHCP, 0);
-   case I_FTP:        return shell_setting(OPTM_G_NET_FTP, 0);
-   case I_REST:       return shell_setting(OPTM_G_NET_REST, 0);
+   case I_GROUP:
+      return it->choices == en_dis ? shell_setting(it->group, 0) : group_pos(it->group, item_choices(it));
    default:           return 0;
    }
 }
@@ -319,13 +347,10 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
    case I_REU:      want.reu = c;      return WANT_OK;
    case I_UCI:      want.uci = c;      return WANT_OK;
    case I_DRIVE:    want.power[d] = c; return WANT_OK;
-   case I_DHCP:     want.dhcp = c;     return WANT_OK;
-   case I_FTP:      want.ftp = c;      return WANT_OK;
-   case I_REST:     want.rest = c;     return WANT_OK;
+   case I_GROUP:    want.group[it - stores_items] = c; return WANT_OK;
    case I_MODEM_IF:
    case I_MODEM_HW:                    return WANT_OK;
    case I_REU_SIZE: want.size = c + 1; return WANT_OK;
-   case I_MODEM_MAP: want.modem = c;   return WANT_OK;
    case I_DRIVE_TYPE:
       if (!stores_drive_internal(d) && stores_drive_fit(d, c) != c)
          return WANT_CHOICE;                        // its image can't run it
@@ -380,59 +405,11 @@ static void no_log(const char *fmt, ...)
    (void)fmt;
 }
 
-static int saved_pos(int group, int n)
+// The settings file, or the new one that was to take its name when the power went
+static FRESULT settings_open(FIL *f)
 {
-   for (int i = 0; i < n; i++)
-      if (shell_saved_setting(group, i))
-         return i;
-   return 0;
-}
-
-// The items the settings file keeps
-static int in_file(const item_t *it)
-{
-   return it->type >= IT_STRING || it->id == I_DRIVE;
-}
-
-// What the menu's settings file and the settings file hold; drive power the file doesn't
-// name stays as it is
-void stores_want_saved(int s)
-{
-   int n, v;
-   FIL f;
-   for (int i = 0; i < stores_count; i++) {
-      const item_t *it = &stores_items[i];
-      if (it->store != s)
-         continue;
-      switch (it->id) {
-      case I_REU:
-         v = saved_pos(OPTM_G_REU, 4);
-         stores_want(it, en_dis[v != 0], 0, &n);
-         if (v)
-            stores_want(&stores_items[i + 1], reu_sizes[v - 1], 0, &n);
-         break;
-      case I_UCI:        stores_want(it, en_dis[shell_saved_setting(OPTM_G_UCI, 0)], 0, &n); break;
-      case I_DRIVE_TYPE:                       // the internal floppy too, which his names can't say
-         want.model[it->store == ST_DRIVE_B] = saved_pos(model_group(it->store == ST_DRIVE_B), 4);
-         want_store[s] = 1;
-         break;
-      case I_DRIVE_ID:
-         want.id[it->store == ST_DRIVE_B] = 8 + saved_pos(id_group(it->store == ST_DRIVE_B), 4);
-         want_store[s] = 1;
-         break;
-      case I_MODEM_MAP:  stores_want(it, acia_maps[saved_pos(OPTM_G_MODEM, 4)], 0, &n); break;
-      case I_DHCP:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_DHCP, 0)], 0, &n); break;
-      case I_FTP:        stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_FTP, 0)], 0, &n); break;
-      case I_REST:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_REST, 0)], 0, &n); break;
-      default:
-         if (in_file(it) && it->type != IT_ENUM)
-            stores_want(it, it->sdef, 0, &n);
-      }
-   }
-   if (f_open(&f, SETTINGS_FILE, FA_READ) == FR_OK) {
-      stores_read(&f, 1u << s, no_log);
-      f_close(&f);
-   }
+   FRESULT r = f_open(f, SETTINGS_FILE, FA_READ);
+   return r == FR_OK ? r : f_open(f, SETTINGS_TMP, FA_READ);
 }
 
 void stores_net_defaults(void)
@@ -442,12 +419,13 @@ void stores_net_defaults(void)
          strcpy(netcfg[stores_items[i].id - I_NET], stores_items[i].sdef);
 }
 
-void stores_want_defaults(int s)
+// Drive power only with power: the file's says nothing unless REST or LOAD_CONFIG set it
+static void want_defaults(int s, int power)
 {
    int n;
    for (int i = 0; i < stores_count; i++) {
       const item_t *it = &stores_items[i];
-      if (it->store != s)
+      if (it->store != s || (it->id == I_DRIVE && !power))
          continue;
       if (it->type == IT_ENUM)
          stores_want(it, it->choices[it->id == I_REU_SIZE && item_choices(it) <= it->def ? 0 : it->def], 0, &n);
@@ -456,6 +434,21 @@ void stores_want_defaults(int s)
          want_store[s] = 1;
       } else if (it->type != IT_VALUE)
          stores_want(it, it->sdef, 0, &n);
+   }
+}
+
+void stores_want_defaults(int s)
+{
+   want_defaults(s, 1);
+}
+
+void stores_want_saved(int s)
+{
+   FIL f;
+   want_defaults(s, 0);
+   if (settings_open(&f) == FR_OK) {
+      stores_read(&f, 1u << s, no_log);
+      f_close(&f);
    }
 }
 
@@ -470,7 +463,9 @@ int stores_apply(void)
    if (on && !reu_kept)
       reu_kept = shell_item(OPTM_G_REU, 2) >= 0 ? 2 : 1;   // his default, 2 MB; else 512 KB
    to = on ? reu_kept : 0;
-   if (to != now && uci_reu_set(to))
+   if (to != now && starting)
+      shell_force(OPTM_G_REU, to, 1);           // nothing runs that the change could reset
+   else if (to != now && uci_reu_set(to))
       done = 0;
 
    for (int d = 0; d < 2; d++)
@@ -484,23 +479,20 @@ int stores_apply(void)
       if (want.id[d] >= 0)
          stores_drive_set_id(d, want.id[d]);
    }
-   if (want.modem >= 0)
-      shell_force(OPTM_G_MODEM, want.modem, 1);
+   for (int i = 0; i < stores_count; i++) {
+      const item_t *it = &stores_items[i];
+      int c = want.group[i];
+      if (it->id != I_GROUP || c < 0)
+         continue;
+      if (it->choices == en_dis)
+         shell_force(it->group, 0, c);
+      else
+         shell_force(it->group, c, 1);
+      net |= it->group == OPTM_G_NET_DHCP || it->group == OPTM_G_NET_FTP || it->group == OPTM_G_NET_REST;
+   }
    if (want.image >= 0) {
       reu_file_set(want.image ? want_image : NULL);
       shell_crtrom_named(OPTM_G_REU_FILE, want.image ? want_image : NULL);
-   }
-   if (want.dhcp >= 0) {
-      shell_force(OPTM_G_NET_DHCP, 0, want.dhcp);
-      net = 1;
-   }
-   if (want.ftp >= 0) {
-      shell_force(OPTM_G_NET_FTP, 0, want.ftp);
-      net = 1;
-   }
-   if (want.rest >= 0) {
-      shell_force(OPTM_G_NET_REST, 0, want.rest);
-      net = 1;
    }
    for (int k = 0; k < NC_COUNT; k++)
       if (want.net[k] >= 0) {
@@ -637,36 +629,61 @@ int stores_load(void)
 {
    FIL f;
    stores_net_defaults();
-   if (f_open(&f, SETTINGS_FILE, FA_READ) != FR_OK)
+   if (settings_open(&f) != FR_OK)
       return -1;
    stores_begin();
    stores_read(&f, ~0u, no_log);
    f_close(&f);
+   starting = 1;
    stores_apply();
+   starting = 0;
    for (int s = 0; s < ST_COUNT; s++)
       stores_saved(s);
    return 0;
 }
 
+static const char *value_text(const item_t *it)
+{
+   static char num[8];
+   if (it->id == I_DRIVE)
+      return en_dis[power_kept[it->store == ST_DRIVE_B]];
+   if (it->type == IT_ENUM)
+      return it->choices[item_get(it)];
+   if (it->type == IT_VALUE) {
+      fmt_snprintf(num, sizeof num, "%d", item_get(it));
+      return num;
+   }
+   return item_text(it);
+}
+
+// Into a new file that then takes the old one's name, so that a power cut leaves one whole
+// file or the other
 int stores_save(void)
 {
    FIL f;
    char line[UCI_PATH_MAX + 80];
    UINT put;
    int last = -1, ok = 1;
-   if (f_open(&f, SETTINGS_FILE, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
+   if (f_open(&f, SETTINGS_TMP, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK)
       return -1;
    for (int i = 0; i < stores_count && ok; i++) {
       const item_t *it = &stores_items[i];
-      int d = it->store == ST_DRIVE_B, n = 0;
-      if (!in_file(it) || (it->id == I_DRIVE && power_kept[d] < 0))
+      int n = 0;
+      if (it->id == I_DRIVE && power_kept[it->store == ST_DRIVE_B] < 0)
          continue;
       if (it->store != last)
          n = fmt_snprintf(line, sizeof line, "[%s]\n", names[it->store]);
       last = it->store;
-      n += fmt_snprintf(line + n, sizeof line - n, "%s=%s\n", it->name,
-                        it->id == I_DRIVE ? en_dis[power_kept[d]] : item_text(it));
+      n += fmt_snprintf(line + n, sizeof line - n, "%s=%s\n", it->name, value_text(it));
       ok = f_write(&f, line, n, &put) == FR_OK && put == (UINT)n;
    }
-   return f_close(&f) == FR_OK && ok ? 0 : -1;
+   ok &= f_close(&f) == FR_OK;
+   if (!ok) {
+      f_unlink(SETTINGS_TMP);
+      return -1;
+   }
+   FRESULT r = f_unlink(SETTINGS_FILE);
+   if (r != FR_OK && r != FR_NO_FILE)
+      return -1;
+   return f_rename(SETTINGS_TMP, SETTINGS_FILE) == FR_OK ? 0 : -1;   // else the new one is read
 }
