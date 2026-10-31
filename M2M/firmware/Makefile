@@ -26,10 +26,10 @@ FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.a
 ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -Os -g -std=gnu11 -ffunction-sections -fdata-sections -MMD -MP \
            -Wall -Wextra -Iinclude -Ilib -Ifatfs
-# Data and stack in the 64 KB data RAM; code and constants in the boot ROM, or for the
+# Data and stack in the 128 KB data RAM; code and constants in the boot ROM, or for the
 # firmware in its HyperRAM region
 LD      := $(ARCH) -nostartfiles -Wl,--gc-sections -T neorv32/neorv32.ld --specs=nano.specs \
-           -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=64K
+           -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=128K
 ROM_LD  := $(LD) -Wl,--defsym,__neorv32_rom_base=0x0 -Wl,--defsym,__neorv32_rom_size=8K
 FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv32_rom_size=4088K
 

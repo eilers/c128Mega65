@@ -1,5 +1,5 @@
 // lwIP for the system firmware: raw API, no OS, IPv4 only. Sized for the modem's call,
-// UCI's network target (4 sockets) and the REST server, in the 64 KB data RAM; the TCP
+// UCI's network target (4 sockets) and the REST server, in the 128 KB data RAM; the TCP
 // window only has to cover modem speed x RTT.
 #pragma once
 

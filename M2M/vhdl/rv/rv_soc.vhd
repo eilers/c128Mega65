@@ -281,7 +281,7 @@ begin
          RISCV_ISA_Zicntr  => true,
          CPU_RF_ARCH_SEL   => 2,               -- register file in flip-flops: a RAM style takes a RAMB36
          DMEM_EN           => true,
-         DMEM_SIZE         => 64 * 1024,        -- lwIP and the network firmware
+         DMEM_SIZE         => 128 * 1024,       -- lwIP and the network firmware
          ICACHE_EN         => true,
          ICACHE_NUM_BLOCKS => 128,             -- 8 KB
          DCACHE_EN         => false,
