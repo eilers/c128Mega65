@@ -44,6 +44,7 @@ static struct rec *recs;
 static uint16_t    order[MAX_ENTRIES];
 static int         n, top, cur;
 static char        path[256];         // "" is the root
+static char        root[64];          // the core's for the item: the browser can't go above it
 static int         stack[DEPTH], depth;
 static int         started, caller_was = -1, ctx_now, group_now;
 static uint32_t    card_changes;
@@ -102,7 +103,7 @@ static void insert(void)
    n++;
 }
 
-static void add(const char *name, int dir)
+static void add(const char *name, int dir, uint32_t size)
 {
    char upper[sizeof new_rec.name];
    int len = strlen(name);
@@ -122,7 +123,7 @@ static void add(const char *name, int dir)
       char c = new_rec.name[i];
       upper[i] = c >= 'a' && c <= 'z' ? c - 32 : c;
    }
-   if (!core_filter_file(upper, dir, ctx_now, group_now))
+   if (!core_filter_file(upper, dir, ctx_now, group_now, size))
       insert();
 }
 
@@ -141,8 +142,8 @@ static int read_folder(void)
       return 1;
    if (r != FR_OK)
       return 0x100 + r;
-   if (path[0])
-      add("..", 1);
+   if (path[0] && strcmp(path, root))
+      add("..", 1, 0);
    while ((r = f_readdir(&d, &fi)) == FR_OK && fi.fname[0]) {
       if (fi.fattrib & AM_HID)
          continue;
@@ -150,7 +151,7 @@ static int read_folder(void)
          full = 1;
          break;
       }
-      add(fi.fname, (fi.fattrib & AM_DIR) != 0);
+      add(fi.fname, (fi.fattrib & AM_DIR) != 0, fi.fsize);
    }
    f_closedir(&d);
    return r != FR_OK ? 0x100 + r : full ? 2 : 0;
@@ -209,12 +210,14 @@ static void message(const char *s)
 static void show(int at)
 {
    int r = read_folder();
-   if (r == 1 && path[0]) {           // no start folder: the root
+   if (r == 1 && path[0] && !root[0]) {   // no start folder: the root
       path[0] = 0;
       depth = 0;
       r = read_folder();
    }
-   if (r != 0 && r != 2) {
+   if (r == 1)
+      n = 0;                           // no root folder: nothing to show
+   else if (r != 0 && r != 2) {
       char m[64];
       fmt_snprintf(m, sizeof m, "SD Card:\nUnknown error while trying to browse.\n%04X", r);
       message(m);
@@ -223,7 +226,7 @@ static void show(int at)
    }
    place(at);
    if (n == 0) {
-      const char *m = core_custom_msg(CMSG_BROWSENOTHING, ctx_now);
+      const char *m = core_custom_msg(CMSG_BROWSENOTHING, ctx_now, group_now);
       message(m ? m : wrn_empty);
       state = NOTHING;
    } else if (r == 2) {
@@ -253,8 +256,15 @@ void browse_open(int ctx, int group, int caller)
    group_now    = group;
    card_changes = sdcard_changes();
    if (!started) {
+      const char *r = core_browse_root(ctx, group);
       started = 1;
-      cfg_str(CFG_DIR_START, path, sizeof path);
+      root[0] = 0;
+      if (r && strlen(r) < sizeof root)
+         strcpy(root, r);
+      if (root[0])
+         strcpy(path, root);
+      else
+         cfg_str(CFG_DIR_START, path, sizeof path);
       if (!strcmp(path, "/"))
          path[0] = 0;
       depth = 0;

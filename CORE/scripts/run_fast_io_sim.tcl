@@ -34,6 +34,7 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/vd_hr_pump.vhd"] \
     [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/reu_sd.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_eng_arb.vhd"] \
     [file join $repo_dir "CORE/vhdl/vd_sd.vhd"] \
     [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_pkg.vhd"] \

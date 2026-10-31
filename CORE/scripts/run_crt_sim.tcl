@@ -70,6 +70,7 @@ foreach required_file [list \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
     [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/reu_sd.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \

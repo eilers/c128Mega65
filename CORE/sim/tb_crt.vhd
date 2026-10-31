@@ -9,10 +9,12 @@
 -- the cartridge's program reads its probes and writes what it read to $0500 and its verdict
 -- to $0400, and this compares that with the cartridge's .exp file.
 --
--- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64 16 kB cartridge, a
--- 4 kB Ultimax chip mirrored at $E000, EasyFlash with more banks than the cache holds, the same
+-- Covers a C128 function ROM (16 kB windows, an 8 kB chip mirrored, also in FAST mode), a C64
+-- 16 kB cartridge (also loaded in a long reset's $8000 mask), a 4 kB Ultimax chip mirrored at
+-- $E000, EasyFlash with more banks than the cache holds, the same
 -- EasyFlash with the REU switched on (it must stay off, out of the cartridge's RAM at $DF00),
--- EasyFlash's flash chips taking programs and erases, a full-size Magic
+-- EasyFlash's flash chips taking programs and erases (also UCI's erase, through the CSR as the
+-- firmware asks for it, and with no EasyFlash nothing to erase), a full-size Magic
 -- Desk 16K (over 2 MiB, SDRAM only), and a type the parser must refuse. It also watches the
 -- expansion port's /ROML-/ROMH: low for a write only in Ultimax mode.
 --
@@ -831,6 +833,8 @@ begin
       constant C_PARSEST : std_logic_vector(27 downto 0) := x"FFFF010";
       constant C_PARSEE1 : std_logic_vector(27 downto 0) := x"FFFF011";
       constant C_MAX_HI  : std_logic_vector(27 downto 0) := x"FFFF020";
+      constant C_ERASE   : std_logic_vector(27 downto 0) := x"FFFF024";
+      constant C_ERASE_GO : std_logic_vector(27 downto 0) := x"FFFF025";
       constant C_ERR_STR : std_logic_vector(27 downto 0) := x"FFFF100";
 
       -- Load a .crt as the Shell does and return the parser's final status (2 ready, 3 error)
@@ -912,6 +916,26 @@ begin
       variable parse : natural;
       variable d     : std_logic_vector(15 downto 0);
       variable s     : string(1 to 16);
+      variable t0    : time;
+      variable n     : natural;
+
+      -- UCI's EASYFLASH erase as the firmware starts it: the sector, then the start; then
+      -- how long its busy bit stayed up
+      procedure uci_erase(sector : std_logic_vector(15 downto 0); took : out time) is
+         variable v : std_logic_vector(15 downto 0);
+      begin
+         q_write(C_ERASE, sector);
+         q_write(C_ERASE_GO, x"0001");
+         t0 := now;
+         loop
+            q_read(C_ERASE_GO, v);
+            exit when v(0) = '0' or now - t0 > 20 ms;
+         end loop;
+         check(v(0) = '0', "UCI erase: still busy after 20 ms");
+         took := now - t0;
+      end procedure uci_erase;
+
+      variable took  : time;
 
    begin
       wait until sysrom_ready = '1';
@@ -935,6 +959,14 @@ begin
       run_crt("crttest-c128fast", 20 ms);
       run_crt("crttest-16k",    20 ms);
       run_crt("crttest-umax4k", 20 ms);
+      -- A long press, as the firmware makes it: the core in a hard reset while it restarts,
+      -- then the boot cartridge loaded at once. It lands in the hard reset's $8000 mask, and
+      -- a 16 KB cartridge has no BASIC to fall back on, so the KERNAL must see its CBM80.
+      reset_hard <= '1';
+      wait for 200 us;
+      reset_hard <= '0';
+      wait for 100 us;
+      run_crt("crttest-16k",    20 ms);
       -- EasyFlash runs take longer: the spare banks of the banks a file lacks are filled first
       run_crt("crttest-ef",     60 ms);
       if G_SDRAM then
@@ -948,6 +980,26 @@ begin
       if G_SDRAM then
          check(n_waits = 0, "a flash job made the CPU wait for the SDRAM");
       end if;
+
+      -- UCI's erase of ROML's sector of banks 0-7 (bank 5 asked for): busy for the chip's erase
+      -- time, then ROML's banks 0 and 1 (in the file, from $50 and $4070) read $FF, and ROMH's
+      -- bank 1 (from $6080; ROMH's bank 0 runs the program) doesn't
+      uci_erase(x"0005", took);
+      check(took > 2 ms, "UCI erase: done in " & time'image(took) & ", sooner than the chip erases");
+      n := 0;
+      for i in 0 to 4095 loop
+         if hyperram.get(C_HR_BASE + 16#28# + i) /= 65535 or hyperram.get(C_HR_BASE + 16#2038# + i) /= 65535 then
+            n := n + 1;
+         end if;
+      end loop;
+      check(n = 0, "UCI erase: " & integer'image(n) & " words of ROML's banks 0 and 1 not erased");
+      n := 0;
+      for i in 0 to 4095 loop
+         if hyperram.get(C_HR_BASE + 16#3040# + i) = 65535 then
+            n := n + 1;
+         end if;
+      end loop;
+      check(n < 4096, "UCI erase: ROMH's bank 1 was erased too");
 
       -- With the REU on, EasyFlash still owns $DF00-$DF1F: the REU stays off for it
       reu_on <= '1';
@@ -973,6 +1025,10 @@ begin
       check(s = "Unsupported type", "crttest-badtype: error string '" & s & "'");
       wait for 100 us;
       check(crt_loaded = '0', "crttest-badtype: main sees a cartridge");
+
+      -- No EasyFlash: UCI's erase is answered at once
+      uci_erase(x"0040", took);
+      check(took < 20 us, "UCI erase with no EasyFlash took " & time'image(took));
 
       -- crttest-16k and crttest-ef write under ROML in 16 kB mode, crttest-ef also in Ultimax
       check(n_rom_wr = 0, "/ROML-/ROMH went low for " & integer'image(n_rom_wr) &

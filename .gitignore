@@ -2,6 +2,9 @@ CORE/*.cache
 CORE/CORE-R6R3-vivado2022.xpr
 CORE/rv_soc_nvc
 CORE/config_nvc
+CORE/uci_nvc
+CORE/reu_sd_nvc
+CORE/avm_cache_nvc
 M2M/firmware/build
 M2M/firmware/host/build
 CORE/*.hw
@@ -22,4 +25,5 @@ CORE/sim/boot_paths_pkg.vhd
 CORE/sim/sim_boot1_path_pkg.sv
 CORE/sim/boot_sim_console.log
 test/vice-testprogs/*
-CORE/modem-fw/build/
+CORE/c128_dma_nvc
+CORE/net_nvc

@@ -3,7 +3,8 @@
 #   make            boot.rom, the boot ROM that rv_soc.vhd reads at synthesis;
 #                   build/firmware.bin, the firmware, for /c128/firmware.bin on the SD card;
 #                   test/selftest.rom and test/fwboot.rom, boot ROMs of CORE/sim/tb_rv_soc.vhd
-#   make host-test  the boot ROM's loader, run on this Mac against FAT32 images (host/)
+#   make host-test  the host tests (host/): the boot ROM's loader, the Shell, the monitor,
+#                   UCI, REST and the modem, run on this Mac against FAT images
 # The .rom files are committed, so a core builds without the toolchain.
 
 CROSS   ?= riscv-none-elf-
@@ -16,7 +17,8 @@ ROM_WORDS  := 2048
 FW_BASE    := 0x40400000
 HW_VERSION := $(shell sed -n 's/^\#define M2M_RV_HW_VERSION *\([0-9]*\)u.*/\1/p' include/m2m_rv.h)
 FW_VERSION ?= $(shell git describe --always --dirty --match=NONE 2>/dev/null || echo unknown)
-# The core's part of the firmware (the callbacks of QNICE's m2m-rom.asm) and its config.vhd
+# The core's part of the firmware (the callbacks of QNICE's m2m-rom.asm, its own modules)
+# and its config.vhd
 CORE_DIR   ?= ../../CORE/firmware
 CONFIG_VHD ?= ../../CORE/vhdl/config.vhd
 FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.asm
@@ -24,10 +26,10 @@ FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.a
 ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -Os -g -std=gnu11 -ffunction-sections -fdata-sections -MMD -MP \
            -Wall -Wextra -Iinclude -Ilib -Ifatfs
-# Data and stack in the 16 KB data RAM; code and constants in the boot ROM, or for the
+# Data and stack in the 64 KB data RAM; code and constants in the boot ROM, or for the
 # firmware in its HyperRAM region
 LD      := $(ARCH) -nostartfiles -Wl,--gc-sections -T neorv32/neorv32.ld --specs=nano.specs \
-           -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=16K
+           -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=64K
 ROM_LD  := $(LD) -Wl,--defsym,__neorv32_rom_base=0x0 -Wl,--defsym,__neorv32_rom_size=8K
 FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv32_rom_size=4088K
 
@@ -35,7 +37,11 @@ COMMON  := build/common/lib/console.o build/common/lib/trap.o build/common/lib/c
            build/common/lib/sd.o build/crt0.o
 # FatFs and its disk layer are built twice, once with each ffconf.h
 BOOT    := build/rom/boot/boot.o build/rom/boot/load.o build/rom/fatfs/ff.o build/rom/lib/diskio.o
-FW      := $(patsubst %.c,build/fw/%.o,$(wildcard fw/*.c)) build/fw/core.o build/fw/lib/fmt.o \
+# The core's other sources (CORE_SRC, paths in CORE_DIR) and their flags (CORE_CFLAGS)
+-include $(CORE_DIR)/core.mk
+CORE_OBJ := $(patsubst $(CORE_DIR)/%.c,build/fw/core/%.o,$(wildcard $(CORE_DIR)/*.c) \
+            $(addprefix $(CORE_DIR)/,$(CORE_SRC)))
+FW      := $(patsubst %.c,build/fw/%.o,$(wildcard fw/*.c)) $(CORE_OBJ) build/fw/lib/fmt.o \
            build/fw/fatfs/ff.o build/fw/fatfs/ffunicode.o build/fw/lib/diskio.o
 
 all: boot.rom build/firmware.bin test/selftest.rom test/fwboot.rom
@@ -54,18 +60,20 @@ build/fw/%.o: %.c | $(FW_GEN)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Ifw -Ibuild/fw -c $< -o $@
 
-build/fw/core.o: $(CORE_DIR)/core.c | $(FW_GEN)
+build/fw/core/%.o: $(CORE_DIR)/%.c | $(FW_GEN)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Ifw -Ibuild/fw -c $< -o $@
+	$(CC) $(CFLAGS) -Ifw -Ibuild/fw $(CORE_CFLAGS) -c $< -o $@
 
 build/fw/filters.h: $(FILTERS) tools/asm_dw.py
 	@mkdir -p $(dir $@)
 	python3 -I tools/asm_dw.py $@ $(FILTERS)
 
-# config.vhd's menu groups, OPTM_G_<name> = <number>, for the core's callbacks
+# config.vhd's menu groups, OPTM_G_<name> = <number>, for the core's callbacks, and its
+# CORE_VERSION
 build/fw/config_ids.h: $(CONFIG_VHD)
 	@mkdir -p $(dir $@)
-	sed -n 's/^constant \(OPTM_G_[A-Z0-9_]*\) *: *integer *:= *\([0-9][0-9]*\);.*/#define \1 \2/p' $< > $@
+	sed -n -e 's/^constant \(OPTM_G_[A-Z0-9_]*\) *: *integer *:= *\([0-9][0-9]*\);.*/#define \1 \2/p' \
+	       -e 's/^constant CORE_VERSION *: *string *:= *\("[^"]*"\);.*/#define CORE_VERSION \1/p' $< > $@
 
 # Rewritten only when the version changes, so only then the files that show it rebuild
 build/fw/version.h: FORCE

@@ -1,17 +1,17 @@
 ----------------------------------------------------------------------------------
 -- MiSTer2MEGA65 Framework
 --
--- HyperRAM for the RISC-V system CPU (rv_soc.vhd). CPU byte address A is HyperRAM
--- word A/2, low byte first, so one CPU word is two HyperRAM words.
+-- HyperRAM for the RISC-V system CPU (rv_soc.vhd), or SDRAM (G_ADDR_BITS 26, G_BURST 2).
+-- CPU byte address A is memory word A/2, low byte first, so one CPU word is two memory words.
 --
 -- CPU side: NEORV32 XBUS (pipelined Wishbone). A cache line fill (cti "010" on its
--- first request) is read in bursts of 16 HyperRAM words, one after the other, so the
+-- first request) is read in bursts of G_BURST words, one after the other, so the
 -- HDMI scaler gets its turns (doc/swiftlink-modem.md, "Short HyperRAM bursts"). The
 -- cache's further requests, each for the next word, are answered in order. Other
 -- reads fetch their CPU word; writes write the halves their byte enables select. The
 -- CPU has no d-cache, so writes come one at a time.
--- HyperRAM side: Avalon master on the same clock; the framework's avm_fifo crosses to
--- the HyperRAM clock.
+-- Memory side: an Avalon master on the same clock, the HyperRAM clock, so no FIFO: straight
+-- to the framework's HyperRAM arbiter, or to sdram_arbit.vhd.
 -- The HyperRAM side is reset with the core (a short press of the reset button), which
 -- loses what it was doing: a read goes on from its next word and a write starts again
 -- once that reset is over. The CPU waits meanwhile (rv_soc.vhd's XBUS timeout is longer).
@@ -25,7 +25,9 @@ use ieee.numeric_std.all;
 
 entity rv_hr_bridge is
    generic (
-      G_LINE_BYTES : natural                                -- NEORV32 cache line size
+      G_LINE_BYTES : natural;                               -- NEORV32 cache line size
+      G_ADDR_BITS  : natural := 24;                         -- the CPU's byte address
+      G_BURST      : natural := 16                          -- words per read burst at most
    );
    port (
       clk_i                 : in  std_logic;
@@ -34,7 +36,7 @@ entity rv_hr_bridge is
 
       -- XBUS: this bridge's requests only
       stb_i                 : in  std_logic;
-      adr_i                 : in  std_logic_vector(23 downto 0);    -- byte address in HyperRAM
+      adr_i                 : in  std_logic_vector(G_ADDR_BITS - 1 downto 0);  -- byte address
       we_i                  : in  std_logic;
       sel_i                 : in  std_logic_vector(3 downto 0);
       dat_i                 : in  std_logic_vector(31 downto 0);
@@ -59,7 +61,6 @@ end entity rv_hr_bridge;
 architecture synthesis of rv_hr_bridge is
 
    constant C_LINE_WORDS : natural := G_LINE_BYTES / 4;      -- CPU words per line
-   constant C_BURST      : natural := 16;                    -- HyperRAM words per burst
 
    type t_state is (S_IDLE, S_READ, S_WRITE);
    type t_words is array (0 to C_LINE_WORDS - 1) of std_logic_vector(31 downto 0);
@@ -68,7 +69,7 @@ architecture synthesis of rv_hr_bridge is
 
    -- Read: HyperRAM words still to come, in all and in this burst
    signal rd_left     : natural range 0 to 2 * C_LINE_WORDS := 0;
-   signal burst_left  : natural range 0 to C_BURST := 0;
+   signal burst_left  : natural range 0 to G_BURST := 0;
    signal half        : std_logic := '0';                    -- the low half is in lo_word
    signal lo_word     : std_logic_vector(15 downto 0);
 
@@ -82,7 +83,7 @@ architecture synthesis of rv_hr_bridge is
    signal requested   : natural range 0 to C_LINE_WORDS := 0; -- asked for, not yet answered
    signal expect      : natural range 0 to C_LINE_WORDS := 0; -- still to answer
    signal beats_left  : natural range 0 to C_LINE_WORDS := 0; -- line requests still to come
-   signal next_adr    : unsigned(23 downto 0);
+   signal next_adr    : unsigned(G_ADDR_BITS - 1 downto 0);
 
    -- Write: the high half is still to go
    signal wr_hi       : std_logic := '0';
@@ -102,11 +103,17 @@ architecture synthesis of rv_hr_bridge is
    -- meanwhile waits for it (XBUS has no stall); the CPU sends no other until it's answered.
    signal settle      : natural range 0 to 63 := 63;
    signal held        : std_logic := '0';
-   signal held_adr    : std_logic_vector(23 downto 0);
+   signal held_adr    : std_logic_vector(G_ADDR_BITS - 1 downto 0);
    signal held_we     : std_logic;
    signal held_sel    : std_logic_vector(3 downto 0);
    signal held_dat    : std_logic_vector(31 downto 0);
    signal held_cti    : std_logic_vector(2 downto 0);
+
+   -- The memory word of a CPU word's low (hi = '0') or high half
+   function word_adr(a : std_logic_vector; hi : std_logic) return std_logic_vector is
+   begin
+      return std_logic_vector(resize(unsigned(a(a'high downto 2) & hi), 32));
+   end function word_adr;
 
 begin
 
@@ -116,7 +123,7 @@ begin
       variable v_expect    : natural range 0 to C_LINE_WORDS;
       variable v_words     : natural range 0 to 2 * C_LINE_WORDS;
       variable v_stb       : std_logic;
-      variable v_adr       : std_logic_vector(23 downto 0);
+      variable v_adr       : std_logic_vector(G_ADDR_BITS - 1 downto 0);
       variable v_we        : std_logic;
       variable v_sel       : std_logic_vector(3 downto 0);
       variable v_dat       : std_logic_vector(31 downto 0);
@@ -161,8 +168,8 @@ begin
                -- The next burst of the line, once this one is in
                avm_read_o       <= '1';
                avm_address_o    <= std_logic_vector(rd_adr + 1);
-               avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(C_BURST, rd_left - 1), 8));
-               burst_left       <= minimum(C_BURST, rd_left - 1);
+               avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(G_BURST, rd_left - 1), 8));
+               burst_left       <= minimum(G_BURST, rd_left - 1);
             else
                burst_left <= burst_left - 1;
             end if;
@@ -187,8 +194,8 @@ begin
             if state = S_READ and rd_left > 0 then
                avm_read_o       <= '1';
                avm_address_o    <= std_logic_vector(rd_adr);
-               avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(C_BURST, rd_left), 8));
-               burst_left       <= minimum(C_BURST, rd_left);
+               avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(G_BURST, rd_left), 8));
+               burst_left       <= minimum(G_BURST, rd_left);
             elsif state = S_WRITE then
                avm_write_o      <= '1';
                avm_address_o    <= w_adr;
@@ -231,7 +238,7 @@ begin
                held_dat <= v_dat;
                held_cti <= v_cti;
             elsif state = S_IDLE and v_we = '0' and
-                  (v_cti /= "010" or (unsigned(v_adr) and to_unsigned(G_LINE_BYTES - 1, 24)) = 0) then
+                  (v_cti /= "010" or (unsigned(v_adr) and to_unsigned(G_LINE_BYTES - 1, G_ADDR_BITS)) = 0) then
                -- A line fill starts at the line's start: a stray word from the middle of
                -- one gets an error below, so it can't leave the bridge waiting for the rest
                if v_cti = "010" then
@@ -244,14 +251,14 @@ begin
                   beats_left <= 0;
                end if;
                v_requested      := 1;
-               next_adr         <= (unsigned(v_adr(23 downto 2)) & "00") + 4;
+               next_adr         <= (unsigned(v_adr(G_ADDR_BITS - 1 downto 2)) & "00") + 4;
                rd_left          <= v_words;
-               rd_adr           <= unsigned(x"00" & '0' & v_adr(23 downto 2) & '0');
-               burst_left       <= minimum(C_BURST, v_words);
+               rd_adr           <= unsigned(word_adr(v_adr, '0'));
+               burst_left       <= minimum(G_BURST, v_words);
                half             <= '0';
                avm_read_o       <= '1';
-               avm_address_o    <= x"00" & '0' & v_adr(23 downto 2) & '0';
-               avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(C_BURST, v_words), 8));
+               avm_address_o    <= word_adr(v_adr, '0');
+               avm_burstcount_o <= std_logic_vector(to_unsigned(minimum(G_BURST, v_words), 8));
                state            <= S_READ;
             elsif state = S_IDLE and v_we = '1' and v_sel /= "0000" then
                -- One word or two, depending on the byte enables
@@ -260,13 +267,13 @@ begin
                wr_data_hi  <= v_dat(31 downto 16);
                wr_be_hi    <= v_sel(3 downto 2);
                if v_sel(1 downto 0) = "00" then
-                  v_wadr := x"00" & '0' & v_adr(23 downto 2) & '1';
+                  v_wadr := word_adr(v_adr, '1');
                   v_wdat := v_dat(31 downto 16);
                   v_wbe  := v_sel(3 downto 2);
                   v_wbc  := x"01";
                   v_whi  := '0';
                else
-                  v_wadr := x"00" & '0' & v_adr(23 downto 2) & '0';
+                  v_wadr := word_adr(v_adr, '0');
                   v_wdat := v_dat(15 downto 0);
                   v_wbe  := v_sel(1 downto 0);
                   if v_sel(3 downto 2) = "00" then

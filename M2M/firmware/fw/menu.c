@@ -23,7 +23,7 @@ static int selectable(int i)
    return menu_visible(i) && (menu.group[i] & (MENU_SUBMENU | MENU_ID));
 }
 
-static int screen_y(int idx)
+int menu_line_y(int idx)
 {
    int y = menu.y + 1;
    for (int i = 0; i < idx; i++)
@@ -35,12 +35,12 @@ static void mark(int idx)
 {
    static const char multi[] = { SCR_SEL_MULTI, 0 }, single[] = { SCR_SEL_SINGLE, 0 };
    const char *s = !menu.sel[idx] ? " " : menu.group[idx] & MENU_SINGLESEL ? single : multi;
-   scr_print(menu.x + 1, screen_y(idx), menu.x + 1, s);
+   scr_print(menu.x + 1, menu_line_y(idx), menu.x + 1, s);
 }
 
 static void highlight(int idx, uint8_t attr)
 {
-   scr_attr(menu.x + 1, screen_y(idx), menu.dx - 2, attr);
+   scr_attr(menu.x + 1, menu_line_y(idx), menu.dx - 2, attr);
 }
 
 int menu_init(void)

@@ -48,7 +48,9 @@ entity m2m_keyb is
       drive_led_col_i      : in std_logic_vector(23 downto 0); -- RGB color of drive led
             
       -- interface to QNICE: used by the firmware and the Shell (see M2M/firmware/include/m2m_rv.h)
-      qnice_keys_n_o       : out std_logic_vector(15 downto 0)
+      qnice_keys_n_o       : out std_logic_vector(15 downto 0);
+      -- every key, bit n = key_num n, low active: the firmware's text entry
+      qnice_matrix_n_o     : out std_logic_vector(79 downto 0)
    );
 end m2m_keyb;
 
@@ -59,6 +61,7 @@ signal matrix_col_idx      : integer range 0 to 9 := 0;
 signal key_num             : integer range 0 to 79;
 signal key_status_n        : std_logic;
 signal keys_n              : std_logic_vector(15 downto 0) := x"FFFF"; -- low active, "no key pressed"
+signal matrix_n            : std_logic_vector(79 downto 0) := (others => '1');
 
 begin
    -- output the keyboard interface for the core
@@ -67,6 +70,7 @@ begin
    
    -- output the keyboard interface for QNICE
    qnice_keys_n_o    <= keys_n;
+   qnice_matrix_n_o  <= matrix_n;
    
    m65driver : entity work.mega65kbd_to_matrix
    port map
@@ -146,6 +150,7 @@ begin
             when 70        => keys_n(10) <= key_status_n;    -- F13
             when others    => null;
          end case;
+         matrix_n(key_num) <= key_status_n;
       end if;
    end process;   
 end beh;

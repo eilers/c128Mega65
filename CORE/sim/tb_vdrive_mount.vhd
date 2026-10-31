@@ -80,6 +80,8 @@ architecture sim of tb_vdrive_mount is
    -- drive control / status
    signal drives_reset : std_logic_vector(C_VDNUM - 1 downto 0);
    signal drv_mode     : vd_vec_array(C_VDNUM - 1 downto 0)(1 downto 0);
+   signal drv_id       : vd_vec_array(C_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");   -- drive 8
+   signal drv_1581     : std_logic_vector(C_VDNUM - 1 downto 0) := (others => '0');          -- by its image
    signal drive_led    : std_logic_vector(C_VDNUM - 1 downto 0);
    signal out_track    : vd_vec_array(C_VDNUM - 1 downto 0)(7 downto 0);
    signal out_we       : std_logic_vector(C_VDNUM - 1 downto 0);
@@ -243,6 +245,8 @@ begin
          pause        => '0',
 
          drv_mode     => drv_mode,
+         drv_id       => drv_id,
+         drv_1581     => drv_1581,
 
          iec_atn_i    => '1',
          iec_clk_i    => '1',
@@ -280,6 +284,7 @@ begin
          sd_buff_wr   => sd_buf_wr,
 
          rom_loading  => '0',
+         rom_reload   => (others => '0'),
          rom_req      => rom_req,
          rom_addr     => rom_addr,
          rom_data     => x"00",

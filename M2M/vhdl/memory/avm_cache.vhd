@@ -1,6 +1,9 @@
 -- This module implements a very simple read cache with just one cache line.
 --
 -- Created by Michael Jørgensen in 2022 (mjoergen.github.io/HyperRAM).
+--
+-- C128 MEGA65: inval_i drops the line, for memory that another master wrote. A fill under
+-- way then may hold older data: it is dropped when it ends.
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -16,6 +19,7 @@ entity avm_cache is
    port (
       clk_i                 : in  std_logic;
       rst_i                 : in  std_logic;
+      inval_i               : in  std_logic := '0';
       s_avm_waitrequest_o   : out std_logic;
       s_avm_write_i         : in  std_logic;
       s_avm_read_i          : in  std_logic;
@@ -48,20 +52,25 @@ architecture synthesis of avm_cache is
    signal cache_count   : natural range 0 to G_CACHE_SIZE;
    signal rd_burstcount : std_logic_vector(7 downto 0);
    signal state         : t_state := IDLE_ST;
+   signal inval_pend    : std_logic := '0';
 
    -- Combinatorial
    signal cache_offset_s : std_logic_vector(G_ADDRESS_SIZE-1 downto 0);
    signal cache_rd_hit_s : std_logic;
    signal cache_wr_hit_s : std_logic;
    signal cache_filled_s : std_logic;
+   signal inval_s        : std_logic;
 
 begin
 
    cache_filled_s <= '1' when state = READING_ST and m_avm_readdatavalid_i = '1' and cache_count = G_CACHE_SIZE-1 else '0';
-   cache_rd_hit_s <= '1' when s_avm_read_i = '1' and s_avm_burstcount_i = X"01" and cache_offset_s < cache_count else
+   inval_s        <= inval_i or inval_pend;
+   cache_rd_hit_s <= '0' when inval_s = '1' else
+                     '1' when s_avm_read_i = '1' and s_avm_burstcount_i = X"01" and cache_offset_s < cache_count else
                      '1' when s_avm_read_i = '1' and s_avm_burstcount_i = X"01" and cache_offset_s = cache_count and cache_count < G_CACHE_SIZE and m_avm_readdatavalid_i = '1' else
                      '0';
-   cache_wr_hit_s <= '1' when s_avm_write_i = '1' and s_avm_burstcount_i = X"01" and cache_offset_s < cache_count else
+   cache_wr_hit_s <= '0' when inval_s = '1' else
+                     '1' when s_avm_write_i = '1' and s_avm_burstcount_i = X"01" and cache_offset_s < cache_count else
                      '0';
 
    s_avm_waitrequest_o <= '0' when cache_filled_s = '1' and s_avm_write_i = '0' and rd_burstcount = X"00" else
@@ -134,6 +143,9 @@ begin
                      state              <= READING_ST;
                   end if;
                end if;
+               if inval_i = '1' then
+                  cache_count <= 0;                -- a miss above starts its fill at 0 too
+               end if;
 
             -- Reading data into cache
             when READING_ST =>
@@ -147,6 +159,10 @@ begin
 
                   if cache_count >= G_CACHE_SIZE-1 then
                      cache_count <= G_CACHE_SIZE;
+                     if inval_s = '1' then
+                        cache_count <= 0;
+                     end if;
+                     inval_pend  <= '0';
                      state       <= IDLE_ST;
 
                      if s_avm_write_i = '1' and s_avm_waitrequest_o = '0' then
@@ -210,6 +226,10 @@ begin
 
          end case;
 
+         if state = READING_ST and inval_i = '1' and cache_filled_s = '0' then
+            inval_pend <= '1';
+         end if;
+
          if rst_i = '1' then
             s_avm_readdatavalid_o <= '0';
             m_avm_write_o         <= '0';
@@ -218,6 +238,7 @@ begin
             cache_addr            <= (others => '0');
             rd_burstcount         <= (others => '0');
             state                 <= IDLE_ST;
+            inval_pend            <= '0';
          end if;
       end if;
    end process p_fsm;

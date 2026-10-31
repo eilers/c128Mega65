@@ -22,6 +22,7 @@
 
 #define TYPE_DEVICE      0
 #define TYPE_HYPERRAM    1
+#define TYPE_CORE        5         // core.c loads it (C_CRTROMTYPE_CORE)
 #define MODE_OPTIONAL    4
 
 static uint8_t buf[512];           // a block of the file being loaded
@@ -103,8 +104,11 @@ void roms_autoload(void)
    // The manually loaded ones' devices start idle. QNICE could also load them into a
    // HyperRAM window; no core here does.
    for (int i = 0; i < crtrom_count(); i++) {
-      if (sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * i) != TYPE_DEVICE)
-         shell_fatal("globals.vhd: C_CRTROMS_MAN: this firmware\nloads manual CRTs/ROMs only into\ndevices.\n", i);
+      int type = sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * i);
+      if (type == TYPE_CORE)
+         continue;
+      if (type != TYPE_DEVICE)
+         shell_fatal("globals.vhd: C_CRTROMS_MAN: this firmware\nloads manual CRTs/ROMs only into\ndevices or the core.\n", i);
       crtrom_csr_set(crtrom_dev(i), 0, CSR_ST_IDLE);
    }
 
@@ -158,17 +162,27 @@ uint16_t crtrom_dev(int k)
    return sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * k + 1);
 }
 
+int crtrom_core(int k)
+{
+   return sysinfo_get(SYS_CRTSANDROMS, CRTROM_MAN_BUF + 2 * k) == TYPE_CORE;
+}
+
 int crtrom_loaded(int k)
 {
+   if (crtrom_core(k))
+      return core_crtrom_loaded(crtrom_dev(k));
    return crtrom_csr_get(crtrom_dev(k), CSR_STATUS) == CSR_ST_OK;
 }
 
-// The progress bar on the frame's bottom line, a character per 39th of the file
+// The progress bar on the frame's bottom line, a character per 39th of the file; none
+// for a quiet load (REST's)
 static uint32_t prog_step, prog_left;
-static int      prog_x;
+static int      prog_x, quiet;
 
 static void progress_start(uint32_t size)
 {
+   if (quiet)
+      return;
    char bar[OSM_DX];
    int w = OSM_DX - 6;
    bar[0] = (char)185;
@@ -181,9 +195,11 @@ static void progress_start(uint32_t size)
    prog_x    = 3;
 }
 
-static void progress(uint32_t bytes)
+void crtrom_progress(uint32_t bytes)
 {
    static const char c[] = { (char)254, 0 };
+   if (quiet)
+      return;
    while (bytes >= prog_left) {
       bytes    -= prog_left;
       prog_left = prog_step;
@@ -234,7 +250,7 @@ static int dma_load(uint16_t dev, FIL *f)
          lba += n;
          dest += n * 512;
          left -= n;
-         progress(n * 512);
+         crtrom_progress(n * 512);
       }
    }
    return 0;
@@ -252,23 +268,24 @@ static int copy_load(uint16_t dev, FIL *f)
       M2M_RAMROM_DEV = dev;
       for (UINT i = 0; i < got; i++)
          M2M_DEV16[at++] = buf[i];
-      progress(got);
+      crtrom_progress(got);
    } while (got == sizeof buf);
    return 0;
 }
 
 int crtrom_load(int k, const char *path, int group, const char **msg)
 {
-   static char parse_msg[128];
    uint16_t dev = crtrom_dev(k);
    int type, err;
    FIL f;
 
    *msg = 0;
-   crtrom_csr_set(dev, CSR_STATUS, CSR_ST_LOADING);
+   if (!crtrom_core(k))
+      crtrom_csr_set(dev, CSR_STATUS, CSR_ST_LOADING);
    FRESULT r = f_open(&f, path, FA_READ);
    if (r != FR_OK) {
-      crtrom_csr_set(dev, CSR_STATUS, CSR_ST_ERR);
+      if (!crtrom_core(k))
+         crtrom_csr_set(dev, CSR_STATUS, CSR_ST_ERR);
       shell_fatal("File selected in the browser not found.\n", r);
    }
    uint32_t size = f_size(&f);
@@ -277,11 +294,35 @@ int crtrom_load(int k, const char *path, int group, const char **msg)
       return err;
    }
    progress_start(size);
+   if (crtrom_core(k)) {
+      f_close(&f);
+      return core_crtrom_load(dev, path, msg);
+   }
    if ((err = dma_load(dev, &f)) == 1)
       err = copy_load(dev, &f);
    f_close(&f);
    if (err)
       shell_fatal("SD Card:\nUnkown error while loading disk image\n", err);
+   return crtrom_parse(k, size, msg);
+}
+
+int crtrom_load_quiet(int k, const char *path, int group, const char **msg)
+{
+   quiet = 1;
+   int err = crtrom_load(k, path, group, msg);
+   quiet = 0;
+   return err;
+}
+
+void crtrom_begin(int k)
+{
+   crtrom_csr_set(crtrom_dev(k), CSR_STATUS, CSR_ST_LOADING);
+}
+
+int crtrom_parse(int k, uint32_t size, const char **msg)
+{
+   static char parse_msg[128];
+   uint16_t dev = crtrom_dev(k);
 
    // The device parses it
    crtrom_csr_set(dev, CSR_FS_LO, size & 0xFFFF);

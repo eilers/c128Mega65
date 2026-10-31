@@ -103,3 +103,26 @@ bool mon_access(uint32_t addr, int width, bool write, uint32_t *v)
    guard = false;
    return !fault;
 }
+
+bool mon_time(uint32_t addr, int width, bool write, uint32_t v, uint32_t n, uint32_t *clocks)
+{
+   fault = false;
+   guard = true;
+   uint32_t start = MTIME_LO;
+   for (; n && !fault; n--, addr += width) {
+      if (write) {
+         if (width == 2)
+            *(volatile uint16_t *)addr = v;
+         else
+            *(volatile uint32_t *)addr = v;
+      } else {
+         if (width == 2)
+            (void)*(volatile uint16_t *)addr;
+         else
+            (void)*(volatile uint32_t *)addr;
+      }
+   }
+   *clocks = MTIME_LO - start;
+   guard = false;
+   return !fault;
+}

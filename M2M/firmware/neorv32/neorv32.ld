@@ -132,7 +132,7 @@ SECTIONS
   } > ram
 
 /* ************************************************************************************************* */
-/* Section ".noinit" - kept across a restart: crt0 doesn't clear it (modem firmware, trap.c)         */
+/* Section ".noinit" - kept across a restart: crt0 doesn't clear it                                  */
 /* ************************************************************************************************* */
   .noinit (NOLOAD): ALIGN(4)
   {

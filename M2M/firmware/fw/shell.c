@@ -29,10 +29,10 @@ static uint8_t is_mount[MENU_MAX];   // drive number + 1, or 0
 static uint8_t is_crtrom[MENU_MAX];  // CRT/ROM number + 1, or 0
 static uint8_t is_help[MENU_MAX];    // help screen (WHS record) number, or 0
 
-#define CRTROM_MAX   4               // CRT/ROM items in the menu
+#define CRTROM_MAX   16              // CRT/ROM items in the menu (C_CRTROMS_MAN's most)
 #define NAME_MAX     32              // a file's name as the menu shows it, cut
 
-static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_CLOSING } ui;
+static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_CLOSING } ui;
 static uint32_t closing_at;
 static int      help_idx, help_set, help_page, help_pages;
 
@@ -44,6 +44,13 @@ static struct {
    int      item;
    enum { L_MOUNT, L_MOUNT_ERR, L_BROWSE, L_ERROR } step;
 } load;
+// Typing a menu item's text in place, on its line (the core's text items)
+static struct {
+   int         idx, group, max;
+   char        text[64];
+   const char *msg;                  // what was wrong with the last one, until the next key
+} edit;
+
 static uint8_t crt_loaded[CRTROM_MAX];           // CRTROM_MAN_LDF
 static char    crt_name[CRTROM_MAX][NAME_MAX];   // shown on its line
 static char    drv_name[DRIVES_MAX][NAME_MAX];   // the image in a drive
@@ -171,14 +178,14 @@ static void load_settings(void)
    }
 }
 
-static void save_settings(void)
+static int save_settings(int force)
 {
    uint8_t b[MENU_MAX];
-   int changed = 0;
+   int changed = force;
    UINT put;
 
    if (!cfgf.on)
-      return;
+      return -1;
    // After a card change the file is opened again, but only in the same slot: a card in
    // the other one is likely another card (ROSM_INTEGRITY)
    if (sdcard_changes() != cfgf.card) {
@@ -187,13 +194,13 @@ static void save_settings(void)
       if ((M2M_CSR & M2M_CSR_SD_ACTIVE) != cfgf.slot || sdcard_state() != SDCARD_OK ||
           f_open(&cfgf.f, name, FA_READ | FA_WRITE) != FR_OK) {
          cfgf.on = 0;
-         return;
+         return -1;
       }
       cfgf.card = sdcard_changes();
       if (f_size(&cfgf.f) != (FSIZE_t)menu.n) {
          f_close(&cfgf.f);
          cfgf.on = 0;
-         return;
+         return -1;
       }
    }
    for (int i = 0; i < menu.n; i++) {
@@ -201,10 +208,33 @@ static void save_settings(void)
       changed |= saved_item(i) && b[i] != cfgf.old[i];
    }
    if (!changed)
-      return;
+      return 0;
    if (f_lseek(&cfgf.f, 0) != FR_OK || f_write(&cfgf.f, b, menu.n, &put) != FR_OK ||
-       put != (UINT)menu.n || f_sync(&cfgf.f) != FR_OK)
+       put != (UINT)menu.n || f_sync(&cfgf.f) != FR_OK) {
       cfgf.on = 0;
+      return -1;
+   }
+   return 0;
+}
+
+int shell_save_settings(void)
+{
+   return save_settings(1);
+}
+
+// An item's bit as the settings file has it: the default without a good file, or in a new
+// one (0xFF)
+int shell_saved_setting(int group, int pos)
+{
+   uint8_t b[MENU_MAX];
+   UINT got;
+   int i = shell_item(group, pos);
+   if (i < 0)
+      return 0;
+   if (!cfgf.on || f_lseek(&cfgf.f, 0) != FR_OK || f_read(&cfgf.f, b, menu.n, &got) != FR_OK ||
+       got != (UINT)menu.n || b[0] == 0xFF)
+      return cfg_get(CFG_OPTM_STDSEL, i);
+   return b[i] == 1;
 }
 
 // -------------------------------------------------------------------------------------
@@ -293,25 +323,32 @@ static void show(int idx, const char *line, char *out)
    }
    if (is_mount[idx]) {
       int d = is_mount[idx] - 1;
-      if (!(custom = core_mount_label(d))) {
-         if (drive_mounted(d))
-            custom = drv_name[d];
-         else {
-            cfg_str(CFG_OPTM_MSTR, with, sizeof with);
-            custom = with;
-         }
+      const char *text;
+      if (drive_mounted(d))
+         custom = drv_name[d];
+      else {
+         cfg_str(CFG_OPTM_MSTR, with, sizeof with);
+         custom = with;
       }
+      if ((text = core_mount_text(d, custom)))
+         custom = text;
       replace_s(line, custom, out, max);
       return;
    }
    if (is_crtrom[idx]) {
       int k = is_crtrom[idx] - 1;
-      if (crt_loaded[k])
+      if (crtrom_core(k) && (custom = core_crtrom_text(crtrom_dev(k))))
+         replace_s(line, custom, out, max);
+      else if (crt_loaded[k])
          replace_s(line, crt_name[k], out, max);
       else {
          cfg_str(CFG_OPTM_CRSTR, with, sizeof with);
          replace_s(line, with, out, max);
       }
+      return;
+   }
+   if (strstr(line, "%s") && (custom = core_item_text(menu.group[idx] & MENU_ID))) {
+      replace_s(line, custom, out, max);
       return;
    }
    strcpy(out, line);
@@ -336,6 +373,65 @@ static void show_help_page(void)
 
 static void load_start(int idx, uint16_t group, int item);
 
+// -------------------------------------------------------------------------------------
+// Typing a text item's value on its line: its label, then the text's end and a cursor,
+// inverted. Return keeps it (the core may refuse it, and says why), Run/Stop or Esc
+// leaves it as it was, Del takes a character back, Clr empties it.
+// -------------------------------------------------------------------------------------
+
+static void edit_draw(void)
+{
+   const char *line = menu.line[edit.idx], *s = strstr(line, "%s");
+   int pre = s ? s - line : 0, width = menu.dx - 2 - pre, n = strlen(edit.text);
+   char out[64];
+
+   memcpy(out, line, pre);
+   if (edit.msg)
+      fmt_snprintf(out + pre, sizeof out - pre, "%s", edit.msg);
+   else
+      fmt_snprintf(out + pre, sizeof out - pre, "%s_", n >= width ? edit.text + n - width + 1 : edit.text);
+   osm_printn(menu.x + 1, menu_line_y(edit.idx), SCR_COL_STD_INV, out, menu.dx - 2);
+}
+
+static void edit_start(int idx, int group)
+{
+   edit.idx   = idx;
+   edit.group = group;
+   edit.msg   = NULL;
+   edit.text[edit.max] = 0;
+   keys_text();
+   edit_draw();
+   ui = UI_TEXT;
+}
+
+// Return and Run/Stop as the menu has them (k), so a press counts once either way
+static void edit_poll(uint32_t k)
+{
+   int c = keys_char(), n = strlen(edit.text);
+   if (k == M2M_KEY_RUNSTOP)
+      c = KEY_ESC;
+   if (!c && k != M2M_KEY_RETURN)
+      return;
+   edit.msg = NULL;
+   if (k == M2M_KEY_RETURN && !(edit.msg = core_text_done(edit.group, edit.text)))
+      c = KEY_ESC;                    // kept: the menu shows it
+   if (c == KEY_ESC) {
+      menu_show();
+      menu_cursor_on();
+      ui = UI_MENU;
+      return;
+   }
+   if (c == KEY_DEL && n)
+      edit.text[n - 1] = 0;
+   else if (c == KEY_CLR)
+      edit.text[0] = 0;
+   else if (c >= ' ' && n < edit.max) {
+      edit.text[n] = c;
+      edit.text[n + 1] = 0;
+   }
+   edit_draw();
+}
+
 // The settings as the menu has them, and the core's last word (the end of OPTM_CB_SEL)
 static void selected(uint16_t group, int item)
 {
@@ -343,6 +439,19 @@ static void selected(uint16_t group, int item)
       for (int i = 0; i < menu.n; i++)
          setting_set(i, menu.sel[i]);
    core_sel_post(group & MENU_ID, item);
+}
+
+// Lines whose text the core gives can change with a selection, or by themselves
+// (core_menu_stale): the menu is drawn again then. A drive's line too (core_mount_text).
+static void redraw_core_lines(void)
+{
+   for (int i = 0; i < menu.n; i++)
+      if (menu_visible(i) && strstr(menu.line[i], "%s") &&
+          (is_mount[i] || core_item_text(menu.group[i] & MENU_ID))) {
+         menu_show();
+         menu_cursor_on();
+         return;
+      }
 }
 
 static void select(uint16_t group, int item, enum menu_key key)
@@ -359,8 +468,23 @@ static void select(uint16_t group, int item, enum menu_key key)
       menu_show();
       return;
    }
+   // Space on a CRT/ROM item of the core's may empty it instead
+   if (is_crtrom[idx] && key == MENU_KEY_SELALT && crtrom_core(is_crtrom[idx] - 1) &&
+       core_crtrom_clear(crtrom_dev(is_crtrom[idx] - 1))) {
+      int k = is_crtrom[idx] - 1;
+      crt_loaded[k] = crtrom_loaded(k);
+      menu_set(idx, crt_loaded[k]);
+      selected(group, item);
+      menu_show();
+      return;
+   }
    if (is_mount[idx] || is_crtrom[idx]) {
       load_start(idx, group, item);   // finished by load_done()
+      return;
+   }
+   if (core_text_item(group & MENU_ID, edit.text, &edit.max)) {
+      menu_set(idx, 0);               // a text item is never selected
+      edit_start(idx, group & MENU_ID);
       return;
    }
    if (is_help[idx]) {
@@ -375,6 +499,8 @@ static void select(uint16_t group, int item, enum menu_key key)
       ui = UI_HELP;
    }
    selected(group, item);
+   if (ui == UI_MENU)
+      redraw_core_lines();
 }
 
 // -------------------------------------------------------------------------------------
@@ -572,10 +698,86 @@ void shell_force(int group, int pos, int on)
    int i = shell_item(group, pos);
    if (i < 0)
       return;
+   // The group's other items off in the settings too: the menu's own copy (menu.sel) is only
+   // what it showed when it was last open, all off before it ever was (a boot cartridge)
+   if (on && !(menu.group[i] & MENU_SINGLESEL))
+      for (int k = 0; k < menu.n; k++)
+         if (k != i && (int)(menu.group[k] & MENU_ID) == group)
+            setting_set(k, 0);
    setting_set(i, on);
    int old = menu_set(i, on);
    if (old >= 0)
       setting_set(old, 0);
+}
+
+// The menu item of drive d, or -1
+static int mount_item(int d)
+{
+   for (int i = 0; i < menu.n; i++)
+      if (is_mount[i] == d + 1)
+         return i;
+   return -1;
+}
+
+// What the menu shows and saves follows, at once if it is open
+static void mount_shown(int i, int on)
+{
+   setting_set(i, on);
+   if (ui == UI_MENU) {
+      menu_set(i, on);
+      menu_show();
+      menu_cursor_on();
+   }
+}
+
+int shell_mount(int d, const char *path, const char **msg)
+{
+   return shell_mount_ro(d, path, 0, msg);
+}
+
+int shell_mount_ro(int d, const char *path, int ro, const char **msg)
+{
+   int i = mount_item(d), err;
+   *msg = 0;
+   if (i < 0)
+      return -1;
+   uint16_t group = menu.group[i] & MENU_ID;
+   core_sel_pre(group, 0);
+   if ((err = drive_mount_ro(d, path, group, ro, msg)))
+      return err;
+   const char *name = strrchr(path, '/');
+   strncpy(drv_name[d], name ? name + 1 : path, menu.dx - 1);
+   drv_name[d][menu.dx - 1] = 0;
+   mount_shown(i, 1);
+   core_sel_post(group, 0);
+   return 0;
+}
+
+void shell_unmount(int d)
+{
+   int i = mount_item(d);
+   if (i < 0)
+      return;
+   if (drive_mounted(d))
+      drive_unmount(d);
+   mount_shown(i, 0);
+}
+
+void shell_crtrom_named(int group, const char *path)
+{
+   for (int i = 0; i < menu.n; i++) {
+      int k = is_crtrom[i] - 1;
+      if (k < 0 || (int)(menu.group[i] & MENU_ID) != group)
+         continue;
+      if (path) {
+         const char *name = strrchr(path, '/');
+         strncpy(crt_name[k], name ? name + 1 : path, menu.dx - 1);
+         crt_name[k][menu.dx - 1] = 0;
+      }
+      crt_loaded[k] = path != NULL;
+      mount_shown(i, crt_loaded[k]);
+      return;
+   }
 }
 
 // -------------------------------------------------------------------------------------
@@ -602,12 +804,89 @@ static void close_menu(void)
 {
    scr_off();
    menu.shown = 0;
-   save_settings();
+   save_settings(0);
    // Closed with the Close Menu item: start at the start item next time
    if (menu.group[menu.cursor] == MENU_CLOSE)
       menu.cursor = start_idx;
    closing_at = MTIME_LO;
    ui = UI_CLOSING;
+}
+
+void shell_open_menu(void)
+{
+   if (ui == UI_CORE)
+      open_menu();
+}
+
+// Gideon's menu button: the menu opens, or closes (but not while a file is being picked)
+void shell_menu_button(void)
+{
+   switch (ui) {
+   case UI_CORE:
+      open_menu();
+      break;
+   case UI_HELP:
+      menu.sel[help_idx] = 0;
+      // fall through
+   case UI_MENU:
+   case UI_TEXT:
+      close_menu();
+      break;
+   default:
+      break;
+   }
+}
+
+// The menu font as C64 screen codes, in the lower-case set
+static uint8_t screen_code(uint8_t c)
+{
+   switch (c) {
+   case 201: return 112;                // the frame's corners, lines and joints
+   case 187: return 110;
+   case 200: return 109;
+   case 188: return 125;
+   case 205:
+   case 196: return 64;
+   case 186: return 93;
+   case 199: return 107;
+   case 182: return 115;
+   case SCR_SEL_MULTI: return '*';
+   case SCR_DIR_L: return '<';
+   case SCR_DIR_R: return '>';
+   }
+   if (c >= 'a' && c <= 'z')
+      return c - 'a' + 1;
+   if (c == '@')
+      return 0;
+   if (c >= '[' && c <= '_')
+      return c - '[' + 27;
+   return c >= ' ' && c <= 'Z' ? c : ' ';
+}
+
+// What the menu shows, as his menu_screen gives it: 1000 screen codes of a 40 x 25 screen
+// (the OSM window from its top left; the rest spaces), then their 1000 colours. 0 while it
+// is closed.
+int shell_menu_screen(uint8_t *out)
+{
+   static const uint8_t colour[8] = { 0, 6, 5, 3, 2, 4, 7, 1 };   // the attribute's RGB
+   if (ui == UI_CORE || ui == UI_CLOSING || !(M2M_CSR & M2M_CSR_OSM))
+      return 0;
+   int x0 = M2M_OSM_XY >> 8 & 0xFF, y0 = M2M_OSM_XY & 0xFF;
+   int dx = M2M_OSM_DXDY >> 8 & 0xFF, dy = M2M_OSM_DXDY & 0xFF;
+   for (int y = 0; y < 25; y++)
+      for (int x = 0; x < 40; x++) {
+         int i = y * 40 + x;
+         uint8_t c = ' ', a = SCR_COL_STD;
+         if (x < dx && y < dy) {
+            M2M_RAMROM_DEV = M2M_DEV_VRAM_DATA;
+            c = M2M_DEV16[(y0 + y) * OSM_DX + x0 + x];
+            M2M_RAMROM_DEV = M2M_DEV_VRAM_ATTR;
+            a = M2M_DEV16[(y0 + y) * OSM_DX + x0 + x];
+         }
+         out[i] = screen_code(c) | (a & M2M_SA_INVERSE);
+         out[1000 + i] = colour[a & 7];
+      }
+   return 1;
 }
 
 static enum menu_key menu_key_of(uint32_t k)
@@ -667,11 +946,18 @@ void shell_poll(void)
       break;
    case UI_MENU:
       follow_loads();
+      if (core_menu_stale()) {
+         menu_show();
+         menu_cursor_on();
+      }
       if (k && menu_key(menu_key_of(k)))
          close_menu();
       break;
    case UI_LOAD:
       load_poll(k);
+      break;
+   case UI_TEXT:
+      edit_poll(k);
       break;
    case UI_HELP:
       if (k == M2M_KEY_SPACE || k == M2M_KEY_RUNSTOP) {

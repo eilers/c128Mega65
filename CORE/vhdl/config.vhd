@@ -296,22 +296,21 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 118; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 177; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
-                                             -- More items or submenus also need more MENU_HEAP_SIZE in m2m-rom.asm. If it is too
-                                             -- small, opening the menu stops the core with "Heap corruption: Hint: OPTM_HEAP_SIZE".
+                                             -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 28 rows. The Video submenu is
+-- tallest page. The main menu is the tallest at 31 rows. The Video submenu is
 -- 20 rows and the HDMI submenu 14 (headline through Back to main menu; the "%s"
 -- opener is hidden inside the submenu); both leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 28;
+constant OPTM_DY           : natural := 31;
 
 -- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
@@ -321,23 +320,50 @@ constant OPTM_ITEMS_ALL    : string :=
 
    " Drives\n"              &
    "\n"                     &
-   " 8:%s\n"                &    -- %s becomes OPTM_S_MOUNT or the mounted filename
-   " 9:%s\n"                &
-   " Model: %s\n"           &    -- 5.25" drive model submenu; %s shows the current selection
-   " 5.25 inch drive\n"     &
+   " %s\n"                  &    -- drive A: its ID:model and image (core.c); its submenu has the disk,
+   " Drive A\n"            &    -- bus ID, model and ROMs, as Gideon's Drive A Settings
    "\n"                     &
-   " 1541\n"                &    -- ignored while a .D71 is mounted (always 1571)
+   " Disk:%s\n"             &    -- OPTM_S_MOUNT or the image; Enter picks one, Space takes it out
+   "\n"                     &
+   " Bus ID\n"              &    -- its ID jumpers: a change resets the drive
+   " 8\n"                   &
+   " 9\n"                   &
+   " 10\n"                  &
+   " 11\n"                  &
+   "\n"                     &
+   " Model\n"               &    -- a D71 or D81, or a D64 in a 1581, runs as fits (core.c)
+   " 1541\n"                &
    " 1571\n"                &
+   " 1581\n"                &
+   " Internal 1581\n"       &    -- the MEGA65's floppy drive, a 1581 (one drive at a time)
+   "\n"                     &
+   " 1541 ROM:%s\n"         &    -- 16 or 32 KB, Gideon's "ROM for 1541 mode"
+   " 1571 ROM:%s\n"         &
+   " 1581 ROM:%s\n"         &    -- also the internal floppy's
+   " Space: back to stock\n" &
    "\n"                     &
    " Back to main menu\n"   &
-   " Internal 1581: %s\n"   &    -- internal floppy submenu; longest summary " Internal 1581: Drive 8" is exactly OPTM_DX
-   " Internal 1581\n"       &
+   " %s\n"                  &    -- drive B: its ID:model and image (core.c); its submenu has the disk,
+   " Drive B\n"            &    -- bus ID, model and ROMs, as Gideon's Drive B Settings
    "\n"                     &
-   " Off\n"                 &    -- default
-   " Drive 8\n"             &
-   " Drive 9\n"             &
+   " Disk:%s\n"             &    -- OPTM_S_MOUNT or the image; Enter picks one, Space takes it out
    "\n"                     &
-   " MEGA65 floppy as 1581\n" &
+   " Bus ID\n"              &    -- its ID jumpers: a change resets the drive
+   " 8\n"                   &
+   " 9\n"                   &
+   " 10\n"                  &
+   " 11\n"                  &
+   "\n"                     &
+   " Model\n"               &    -- a D71 or D81, or a D64 in a 1581, runs as fits (core.c)
+   " 1541\n"                &
+   " 1571\n"                &
+   " 1581\n"                &
+   " Internal 1581\n"       &    -- the MEGA65's floppy drive, a 1581 (one drive at a time)
+   "\n"                     &
+   " 1541 ROM:%s\n"         &    -- 16 or 32 KB, Gideon's "ROM for 1541 mode"
+   " 1571 ROM:%s\n"         &
+   " 1581 ROM:%s\n"         &    -- also the internal floppy's
+   " Space: back to stock\n" &
    "\n"                     &
    " Back to main menu\n"   &
    "\n"                     &
@@ -425,6 +451,8 @@ constant OPTM_ITEMS_ALL    : string :=
    " 2 MB\n"                &
    " 16 MB\n"               &    -- R4 and later: in SDRAM
    "\n"                     &
+   " File:%s\n"             &    -- the REU's image file: picking one loads it (LOAD_REU, SAVE_REU)
+   "\n"                     &
    " Back to main menu\n"   &
    " Cartridge: %s\n"       &    -- Cartridge submenu; %s is the selected source
    " Cartridge\n"           &
@@ -432,6 +460,8 @@ constant OPTM_ITEMS_ALL    : string :=
    " Hardware\n"            &    -- default: the physical cartridge slot
    " CRT file\n"            &    -- virtual cartridge
    " CRT:%s\n"              &    -- the .crt file; loading one selects CRT file
+   " Boot:%s\n"             &    -- a .crt from /c128/carts loaded at every start (Gideon's "Cartridge")
+   " Space clears Boot\n"   &    -- Space on the Boot line: no boot cartridge (core.c)
    "\n"                     &
    " Back to main menu\n"   &
    " Modem: %s\n"           &    -- Modem submenu; %s is the SwiftLink's address or Off
@@ -443,7 +473,36 @@ constant OPTM_ITEMS_ALL    : string :=
    " $D700\n"               &    -- the C128's internal I/O slot
    "\n"                     &
    " Back to main menu\n"   &
+   " UCI at $DF1C\n"        &    -- default off: Ultimate Command Interface
+   " Net: %s\n"             &    -- Network submenu; %s is the IP address (core.c)
+   " Network\n"             &
    "\n"                     &
+   " REST API\n"            &    -- default on: Gideon's REST API on port 80
+   " Host:%s\n"             &    -- typed in the menu, as Password and IP to DNS are (core.c)
+   " Password:%s\n"         &    -- REST's X-Password, <none> without one
+   "\n"                     &
+   " DHCP\n"                &    -- default on
+   " IP:%s\n"               &    -- what DHCP gave while it is on; typing one turns it off
+   " Mask:%s\n"             &
+   " GW:%s\n"               &
+   " DNS:%s\n"              &
+   "\n"                     &
+   " Back to main menu\n"   &
+   "\n"                     &
+
+   " System ROMs: %s\n"     &    -- System ROMs submenu; %s is Stock or Custom (core.c). Each line
+   " System ROMs\n"         &    -- picks a file in /c128/roms of the right size, kept on the card
+   "\n"                     &
+   " C128 KERNAL:%s\n"      &    -- 16 KB: editor, Z80 BIOS and KERNAL (U35)
+   " C128 BASIC:%s\n"       &    -- 32 KB (U33 + U34)
+   " C64 KERNAL:%s\n"       &    -- 8 KB, or 16 KB with C64 BASIC (U32): Gideon's "Alternate Kernal"
+   " C64 BASIC:%s\n"        &    -- 8 KB
+   " Characters:%s\n"       &    -- 8 KB, both sets
+   " Function ROM:%s\n"     &    -- 16 or 32 KB, the internal function ROM socket (U36)
+   "\n"                     &
+   " Space: back to stock\n" &
+   "\n"                     &
+   " Back to main menu\n"   &
 
    " Credits\n"             &
    " Close Menu\n";
@@ -462,7 +521,7 @@ constant OPTM_G_CREDITS    : integer := 6;
 constant OPTM_G_CART       : integer := 7;    -- Cartridge source: hardware slot or virtual cartridge
 constant OPTM_G_MOUNT_D8   : integer := 8;
 constant OPTM_G_MOUNT_D9   : integer := 9;
-constant OPTM_G_DRV_MODEL  : integer := 10;
+constant OPTM_G_DRVA_MODEL : integer := 10;   -- Drive A's model: 1541, 1571, 1581, Internal 1581
 constant OPTM_G_IEC        : integer := 11;
 constant OPTM_G_HELP_F13   : integer := 12;   -- OSM on F13 so C128 can use Help
 constant OPTM_G_HDMI_AUDIO : integer := 13;   -- HDMI audio; off selects DVI output
@@ -470,8 +529,33 @@ constant OPTM_G_KEYS       : integer := 14;   -- Which physical key is 40/80, an
 constant OPTM_G_VGA_MODES  : integer := 15;   -- VGA: Standard, 15 kHz with HS/VS, 15 kHz with CSYNC
 constant OPTM_G_REU        : integer := 16;   -- REU: Off, 512 KB, 2 MB, 16 MB
 constant OPTM_G_MOUNT_CRT  : integer := 17;   -- CRT:%s, loads the virtual cartridge's .crt file
-constant OPTM_G_INT1581    : integer := 18;   -- Internal 1581: Off, Drive 8, Drive 9
+constant OPTM_G_DRVB_MODEL : integer := 18;   -- Drive B's
 constant OPTM_G_MODEM      : integer := 19;   -- Modem: Off, $DE00, $DF00, $D700
+constant OPTM_G_UCI        : integer := 20;   -- Ultimate Command Interface at $DF1C
+constant OPTM_G_REU_FILE   : integer := 21;   -- File:%s, loads the REU's image file
+constant OPTM_G_NET_REST   : integer := 22;   -- REST API on port 80
+constant OPTM_G_NET_HOST   : integer := 23;   -- Host:%s; it, Password and IP to DNS are text, typed in the menu
+constant OPTM_G_NET_PASS   : integer := 24;   -- Password:%s
+constant OPTM_G_NET_DHCP   : integer := 25;   -- DHCP, else the static address below
+constant OPTM_G_NET_IP     : integer := 26;   -- IP:%s
+constant OPTM_G_NET_MASK   : integer := 27;   -- Mask:%s
+constant OPTM_G_NET_GW     : integer := 28;   -- GW:%s
+constant OPTM_G_NET_DNS    : integer := 29;   -- DNS:%s
+constant OPTM_G_CRT_BOOT   : integer := 30;   -- Boot:%s, the .crt loaded at every start
+constant OPTM_G_ROM_K128   : integer := 31;   -- the System ROMs submenu's file lines, in its order
+constant OPTM_G_ROM_B128   : integer := 32;
+constant OPTM_G_ROM_K64    : integer := 33;
+constant OPTM_G_ROM_B64    : integer := 34;
+constant OPTM_G_ROM_CHAR   : integer := 35;
+constant OPTM_G_ROM_FUNC   : integer := 36;
+constant OPTM_G_ROM_D8_41  : integer := 37;   -- drive A's: 1541, 1571, 1581
+constant OPTM_G_ROM_D8_71  : integer := 38;
+constant OPTM_G_ROM_D8_81  : integer := 39;
+constant OPTM_G_ROM_D9_41  : integer := 40;   -- drive B's
+constant OPTM_G_ROM_D9_71  : integer := 41;
+constant OPTM_G_ROM_D9_81  : integer := 42;
+constant OPTM_G_DRVA_ID    : integer := 43;   -- Drive A's bus ID: 8, 9, 10, 11
+constant OPTM_G_DRVB_ID    : integer := 44;   -- Drive B's
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -481,25 +565,51 @@ type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1
 -- make sure that you have exactly the same amount of entries here than in OPTM_ITEMS_ALL and defined by OPTM_SIZE_ALL
 constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drives
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_MOUNT_D8 + OPTM_G_MOUNT_DRV + OPTM_G_START,   -- 8:%s  (virtual drive 0)
-                                             OPTM_G_MOUNT_D9 + OPTM_G_MOUNT_DRV,                  -- 9:%s  (virtual drive 1)
-
-                                             OPTM_G_SUBMENU,                                      -- Drive model submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- 5.25 inch drive
+                                             OPTM_G_SUBMENU + OPTM_G_START,                       -- Drive A submenu START, its line
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drive A
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_DRV_MODEL,                                    -- 1541
-                                             OPTM_G_DRV_MODEL + OPTM_G_STDSEL,                    -- 1571
+                                             OPTM_G_MOUNT_D8 + OPTM_G_MOUNT_DRV,                  -- Disk:%s (virtual drive 0)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Bus ID
+                                             OPTM_G_DRVA_ID + OPTM_G_STDSEL,                      -- 8
+                                             OPTM_G_DRVA_ID,                                      -- 9
+                                             OPTM_G_DRVA_ID,                                      -- 10
+                                             OPTM_G_DRVA_ID,                                      -- 11
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Model
+                                             OPTM_G_DRVA_MODEL,                                   -- 1541
+                                             OPTM_G_DRVA_MODEL + OPTM_G_STDSEL,                   -- 1571
+                                             OPTM_G_DRVA_MODEL,                                   -- 1581
+                                             OPTM_G_DRVA_MODEL,                                   -- Internal 1581
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_ROM_D8_41 + OPTM_G_LOAD_ROM,                  -- 1541 ROM:%s
+                                             OPTM_G_ROM_D8_71 + OPTM_G_LOAD_ROM,                  -- 1571 ROM:%s
+                                             OPTM_G_ROM_D8_81 + OPTM_G_LOAD_ROM,                  -- 1581 ROM:%s
+                                             OPTM_G_TEXT,                                         -- Space: back to stock
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
-                                             OPTM_G_SUBMENU,                                      -- Internal 1581 submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Internal 1581
+                                             OPTM_G_SUBMENU,                                      -- Drive B submenu START, its line
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drive B
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_INT1581 + OPTM_G_STDSEL,                      -- Off
-                                             OPTM_G_INT1581,                                      -- Drive 8
-                                             OPTM_G_INT1581,                                      -- Drive 9
+                                             OPTM_G_MOUNT_D9 + OPTM_G_MOUNT_DRV,                  -- Disk:%s (virtual drive 1)
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_TEXT,                                         -- MEGA65 floppy as 1581
+                                             OPTM_G_TEXT,                                         -- Bus ID
+                                             OPTM_G_DRVB_ID,                                      -- 8
+                                             OPTM_G_DRVB_ID + OPTM_G_STDSEL,                      -- 9
+                                             OPTM_G_DRVB_ID,                                      -- 10
+                                             OPTM_G_DRVB_ID,                                      -- 11
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Model
+                                             OPTM_G_DRVB_MODEL,                                   -- 1541
+                                             OPTM_G_DRVB_MODEL + OPTM_G_STDSEL,                   -- 1571
+                                             OPTM_G_DRVB_MODEL,                                   -- 1581
+                                             OPTM_G_DRVB_MODEL,                                   -- Internal 1581
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_ROM_D9_41 + OPTM_G_LOAD_ROM,                  -- 1541 ROM:%s
+                                             OPTM_G_ROM_D9_71 + OPTM_G_LOAD_ROM,                  -- 1571 ROM:%s
+                                             OPTM_G_ROM_D9_81 + OPTM_G_LOAD_ROM,                  -- 1581 ROM:%s
+                                             OPTM_G_TEXT,                                         -- Space: back to stock
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
@@ -587,6 +697,8 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_REU,                                          -- 2 MB
                                              OPTM_G_REU,                                          -- 16 MB
                                              OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_REU_FILE + OPTM_G_LOAD_ROM,                   -- File:%s
+                                             OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- Cartridge submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Cartridge
@@ -594,6 +706,8 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_CART + OPTM_G_STDSEL,                         -- Hardware
                                              OPTM_G_CART,                                         -- CRT file
                                              OPTM_G_MOUNT_CRT + OPTM_G_LOAD_ROM,                  -- CRT:%s
+                                             OPTM_G_CRT_BOOT + OPTM_G_LOAD_ROM,                   -- Boot:%s
+                                             OPTM_G_TEXT,                                         -- Space clears Boot
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- Modem submenu START
@@ -605,7 +719,36 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_MODEM,                                        -- $D700
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_UCI + OPTM_G_SINGLESEL,                       -- UCI at $DF1C (default off)
+                                             OPTM_G_SUBMENU,                                      -- Network submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Network
                                              OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_NET_REST + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- REST API (default on)
+                                             OPTM_G_NET_HOST + OPTM_G_SINGLESEL,                  -- Host:%s
+                                             OPTM_G_NET_PASS + OPTM_G_SINGLESEL,                  -- Password:%s
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_NET_DHCP + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- DHCP (default on)
+                                             OPTM_G_NET_IP + OPTM_G_SINGLESEL,                    -- IP:%s
+                                             OPTM_G_NET_MASK + OPTM_G_SINGLESEL,                  -- Mask:%s
+                                             OPTM_G_NET_GW + OPTM_G_SINGLESEL,                    -- GW:%s
+                                             OPTM_G_NET_DNS + OPTM_G_SINGLESEL,                   -- DNS:%s
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_LINE,                                         -- Line
+
+                                             OPTM_G_SUBMENU,                                      -- System ROMs submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- System ROMs
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_ROM_K128 + OPTM_G_LOAD_ROM,                   -- C128 KERNAL:%s
+                                             OPTM_G_ROM_B128 + OPTM_G_LOAD_ROM,                   -- C128 BASIC:%s
+                                             OPTM_G_ROM_K64 + OPTM_G_LOAD_ROM,                    -- C64 KERNAL:%s
+                                             OPTM_G_ROM_B64 + OPTM_G_LOAD_ROM,                    -- C64 BASIC:%s
+                                             OPTM_G_ROM_CHAR + OPTM_G_LOAD_ROM,                   -- Characters:%s
+                                             OPTM_G_ROM_FUNC + OPTM_G_LOAD_ROM,                   -- Function ROM:%s
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Space: back to stock
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
                                              OPTM_G_CLOSE                                         -- Close Menu

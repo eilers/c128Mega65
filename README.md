@@ -31,14 +31,12 @@ Place the following files on the active SD card:
 
 - `/c128/firmware.bin` (firmware of the system CPU, from `sdcard/c128/` or the release zip)
 - `/c128/boot0.rom` (system ROM bundle, 72 KiB)
-- `/c128/boot1.rom` (drive ROM bundle, 512 KiB)
+- `/c128/boot1.rom` (drive ROM bundle, 192 KiB)
 
 Without these files, the core cannot boot correctly. Without `firmware.bin`, or with one that
 does not fit the core, the core says so on the screen.
 
-Optional:
-
-- `/c128/modem.bin` (firmware of the SwiftLink modem, see [doc/swiftlink-modem.md](doc/swiftlink-modem.md))
+The SwiftLink modem is part of the system firmware (see [doc/swiftlink-modem.md](doc/swiftlink-modem.md)).
 
 Contributing
 ------------

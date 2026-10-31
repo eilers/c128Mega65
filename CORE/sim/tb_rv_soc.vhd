@@ -4,8 +4,8 @@
 -- Testbench for the RISC-V system CPU (M2M/vhdl/rv/rv_soc.vhd). It boots
 -- M2M/firmware/test/selftest.rom, which checks the registers, the device bus (the
 -- On-Screen-Menu RAM and a RAM with wait states, both modelled here with QNICE's
--- falling-edge timing), the SD card registers and HyperRAM, including code run from
--- it. The firmware writes PASS or FAIL into row 1 of the On-Screen-Menu.
+-- falling-edge timing), the SD card registers, HyperRAM and SDRAM, including code run
+-- from each. The firmware writes PASS or FAIL into row 1 of the On-Screen-Menu.
 --
 -- With G_HR_IMAGE it runs the real firmware instead (M2M/firmware/build/fw_hr.txt, put
 -- into HyperRAM here as the boot ROM would load it; boot ROM test/fwboot.rom jumps to
@@ -72,6 +72,16 @@ architecture sim of tb_rv_soc is
    signal hr_readdatavalid  : std_logic := '0';
    signal hr_waitrequest    : std_logic := '1';
 
+   signal sr_write, sr_read : std_logic;
+   signal sr_address        : std_logic_vector(31 downto 0);
+   signal sr_writedata      : std_logic_vector(15 downto 0);
+   signal sr_byteenable     : std_logic_vector(1 downto 0);
+   signal sr_burstcount     : std_logic_vector(7 downto 0);
+   signal sr_readdata       : std_logic_vector(15 downto 0) := (others => '0');
+   signal sr_readdatavalid  : std_logic := '0';
+   signal sr_waitrequest    : std_logic := '1';
+   signal sr_top_seen       : boolean := false;   -- a write reached the last word of 64 MB
+
    -- On-Screen-Menu RAM and the test device
    type t_words is array (natural range <>) of std_logic_vector(15 downto 0);
    signal vram_data : t_words(0 to 2047) := (others => x"0020");
@@ -106,7 +116,8 @@ begin
          G_VGA_DX   => 720,
          G_VGA_DY   => 540,
          G_FONT_DX  => 16,
-         G_FONT_DY  => 16
+         G_FONT_DY  => 16,
+         G_SDRAM    => true
       )
       port map (
          clk50_i            => clk50,
@@ -162,7 +173,16 @@ begin
          hr_burstcount_o    => hr_burstcount,
          hr_readdata_i      => hr_readdata,
          hr_readdatavalid_i => hr_readdatavalid,
-         hr_waitrequest_i   => hr_waitrequest
+         hr_waitrequest_i   => hr_waitrequest,
+         sr_write_o         => sr_write,
+         sr_read_o          => sr_read,
+         sr_address_o       => sr_address,
+         sr_writedata_o     => sr_writedata,
+         sr_byteenable_o    => sr_byteenable,
+         sr_burstcount_o    => sr_burstcount,
+         sr_readdata_i      => sr_readdata,
+         sr_readdatavalid_i => sr_readdatavalid,
+         sr_waitrequest_i   => sr_waitrequest
       ); -- i_dut
 
    -----------------------------------------------------------------------------
@@ -341,6 +361,66 @@ begin
    end process p_hr;
 
    -----------------------------------------------------------------------------
+   -- SDRAM, as sdram_arbit passes it on: busy now and then (another master's turn). Each
+   -- burst must be at most 2 words from an even word, so it never crosses a row, and be
+   -- inside the 32 Mi words.
+   -----------------------------------------------------------------------------
+
+   p_sr : process
+      type t_mem is array (0 to C_HR_WORDS - 1) of std_logic_vector(15 downto 0);
+      variable mem   : t_mem := (others => x"0000");
+      variable lfsr  : std_logic_vector(7 downto 0) := x"A5";
+      variable a     : natural := 0;
+      variable beats : natural := 0;
+      variable count : natural;
+   begin
+      wait until rising_edge(clk100);
+      sr_readdatavalid <= '0';
+      lfsr := lfsr(6 downto 0) & (lfsr(7) xor lfsr(5) xor lfsr(4) xor lfsr(3));
+
+      if sr_waitrequest = '0' and (sr_write = '1' or sr_read = '1') and beats = 0 then
+         count := to_integer(unsigned(sr_burstcount));
+         assert count = 1 or (count = 2 and sr_address(0) = '0')
+            report "SDRAM burst of " & integer'image(count) & " at word " & to_hstring(sr_address) severity failure;
+         assert unsigned(sr_address) < 2 ** 25
+            report "SDRAM word " & to_hstring(sr_address) & " past 64 MB" severity failure;
+      end if;
+      if sr_waitrequest = '0' and sr_write = '1' then
+         if beats = 0 then
+            a     := to_integer(unsigned(sr_address)) mod C_HR_WORDS;
+            beats := to_integer(unsigned(sr_burstcount));
+            if unsigned(sr_address) = 16#1FFFFFE# then
+               sr_top_seen <= true;
+            end if;
+         end if;
+         if sr_byteenable(0) = '1' then
+            mem(a)(7 downto 0) := sr_writedata(7 downto 0);
+         end if;
+         if sr_byteenable(1) = '1' then
+            mem(a)(15 downto 8) := sr_writedata(15 downto 8);
+         end if;
+         a     := (a + 1) mod C_HR_WORDS;
+         beats := beats - 1;
+      elsif sr_waitrequest = '0' and sr_read = '1' then
+         assert beats = 0 report "SDRAM read inside a write burst" severity failure;
+         a     := to_integer(unsigned(sr_address)) mod C_HR_WORDS;
+         count := to_integer(unsigned(sr_burstcount));
+         sr_waitrequest <= '1';
+         for i in 1 to 8 loop
+            wait until rising_edge(clk100);
+         end loop;
+         for i in 0 to count - 1 loop
+            sr_readdata      <= mem((a + i) mod C_HR_WORDS);
+            sr_readdatavalid <= '1';
+            wait until rising_edge(clk100);
+         end loop;
+         sr_readdatavalid <= '0';
+      end if;
+
+      sr_waitrequest <= lfsr(1) and lfsr(4);    -- busy a quarter of the time
+   end process p_sr;
+
+   -----------------------------------------------------------------------------
    -- Checks
    -----------------------------------------------------------------------------
 
@@ -387,9 +467,10 @@ begin
       assert control_d(127 downto 96) = x"DEADBEEF" report "control_d" severity error;
       assert control_m(255 downto 224) = x"12345678" report "control_m" severity error;
       assert csr_reset = '1' report "core left reset" severity error;
+      assert sr_top_seen report "no SDRAM write reached word 1FFFFFE: the address was cut" severity error;
 
       if str_at(vram_data, 45, "PASS") and control_d(127 downto 96) = x"DEADBEEF" and
-         control_m(255 downto 224) = x"12345678" and csr_reset = '1' then
+         control_m(255 downto 224) = x"12345678" and csr_reset = '1' and sr_top_seen then
          report "ALL CHECKS PASSED";
       end if;
       done <= true;

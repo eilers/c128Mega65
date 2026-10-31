@@ -192,7 +192,7 @@ port (
    main_rtc_o              : out   std_logic_vector(64 downto 0);
 
 
-   -- C128 core: the modem's 50 MHz clock (CPU and Ethernet)
+   -- C128 core: the network device's 50 MHz clock (Ethernet, the 6551's FIFOs)
    modem_clk_o             : out   std_logic;
    modem_rst_o             : out   std_logic;
 
@@ -228,6 +228,16 @@ port (
    sr_core_readdata_o      : out   std_logic_vector(15 downto 0);
    sr_core_readdatavalid_o : out   std_logic;
    sr_core_waitrequest_o   : out   std_logic;
+   -- The system CPU's SDRAM master (rv_soc.vhd, 0x50000000), for the core to share out with its own
+   sr_cpu_write_o          : out   std_logic;
+   sr_cpu_read_o           : out   std_logic;
+   sr_cpu_address_o        : out   std_logic_vector(31 downto 0);
+   sr_cpu_writedata_o      : out   std_logic_vector(15 downto 0);
+   sr_cpu_byteenable_o     : out   std_logic_vector(1 downto 0);
+   sr_cpu_burstcount_o     : out   std_logic_vector(7 downto 0);
+   sr_cpu_readdata_i       : in    std_logic_vector(15 downto 0) := (others => '0');
+   sr_cpu_readdatavalid_i  : in    std_logic := '0';
+   sr_cpu_waitrequest_i    : in    std_logic := '1';
 
    -- QNICE control signals
    qnice_dvi_i             : in    std_logic;
@@ -343,6 +353,7 @@ signal main_csr_joy2_on       : std_logic;
 
 -- keyboard handling
 signal main_qnice_keys_n      : std_logic_vector(15 downto 0);
+signal main_qnice_matrix_n    : std_logic_vector(79 downto 0);
 
 --- control signals from QNICE in main's clock domain
 signal main_flip_joyports     : std_logic;
@@ -394,6 +405,7 @@ signal qnice_h_freq           : std_logic_vector(15 downto 0); -- horizontal syn
 
 -- m2m_keyb output for the firmware and the Shell; see also M2M/firmware/include/m2m_rv.h
 signal qnice_qnice_keys_n     : std_logic_vector(15 downto 0);
+signal qnice_qnice_matrix_n   : std_logic_vector(79 downto 0);
 
 -- Paddles in 50 MHz clock domain which happens to be QNICE's
 signal qnice_pot1_x_n         : unsigned(7 downto 0);
@@ -636,7 +648,8 @@ begin
          drive_led_col_i      => main_drive_led_col_i,
 
          -- interface to QNICE: used by the firmware and the Shell
-         qnice_keys_n_o       => main_qnice_keys_n
+         qnice_keys_n_o       => main_qnice_keys_n,
+         qnice_matrix_n_o     => main_qnice_matrix_n
       ); -- i_m2m_keyb
 
    ---------------------------------------------------------------------------------------------------------------
@@ -705,6 +718,7 @@ begin
       qnice_vram_we_o           => qnice_vram_we,
       qnice_vram_attr_we_o      => qnice_vram_attr_we,
       qnice_qnice_keys_n_i      => qnice_qnice_keys_n,
+      qnice_qnice_matrix_n_i    => qnice_qnice_matrix_n,
       qnice_pot1_x_n_o          => qnice_pot1_x_n,
       qnice_pot1_y_n_o          => qnice_pot1_y_n,
       qnice_pot2_x_n_o          => qnice_pot2_x_n,
@@ -719,6 +733,15 @@ begin
       qnice_avm_readdatavalid_i => qnice_avm_readdatavalid,
       qnice_avm_waitrequest_i   => qnice_avm_waitrequest,
       hr_rst_i                  => hr_rst,
+      qnice_sr_write_o          => sr_cpu_write_o,
+      qnice_sr_read_o           => sr_cpu_read_o,
+      qnice_sr_address_o        => sr_cpu_address_o,
+      qnice_sr_writedata_o      => sr_cpu_writedata_o,
+      qnice_sr_byteenable_o     => sr_cpu_byteenable_o,
+      qnice_sr_burstcount_o     => sr_cpu_burstcount_o,
+      qnice_sr_readdata_i       => sr_cpu_readdata_i,
+      qnice_sr_readdatavalid_i  => sr_cpu_readdatavalid_i,
+      qnice_sr_waitrequest_i    => sr_cpu_waitrequest_i,
       qnice_pps_i               => qnice_pps,
       qnice_hdmi_clk_freq_i     => qnice_hdmi_clk_freq,
       qnice_hr_count_long_i     => qnice_hr_count_long,
@@ -828,6 +851,18 @@ begin
          dest_clk               => qnice_clk,
          dest_out(15 downto  0) => qnice_qnice_keys_n
       ); -- i_main2qnice
+
+   -- Every key, for the firmware's text entry: each bit on its own, as the keys above
+   i_main2qnice_matrix: xpm_cdc_array_single
+      generic map (
+         WIDTH => 80
+      )
+      port map (
+         src_clk                => main_clk_i,
+         src_in                 => main_qnice_matrix_n,
+         dest_clk               => qnice_clk,
+         dest_out               => qnice_qnice_matrix_n
+      ); -- i_main2qnice_matrix
 
    -- Clock domain crossing: CORE to AUDIO
    i_main2audio: entity work.cdc_stable
@@ -1068,7 +1103,8 @@ begin
 
 
    ---------------------------------------------------------------------------------------------------------------
-   -- SDRAM controller (R4 and later), for the core alone, on the HyperRAM clock as in C64MEGA65
+   -- SDRAM controller (R4 and later), on the HyperRAM clock as in C64MEGA65. The core shares it
+   -- out between its own masters and the system CPU's (sr_cpu_*)
    ---------------------------------------------------------------------------------------------------------------
 
    sdram_gen : if G_BOARD /= "MEGA65_R3" and G_SDRAM generate

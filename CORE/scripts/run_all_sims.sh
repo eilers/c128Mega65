@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Run every existing simulation testbench against the given Vivado project.
+# Run every testbench of the release gate: the Vivado ones against the given project, and
+# the nvc ones (apt or brew install nvc). Not here: tb_rv_soc (run_rv_soc_nvc.sh), which
+# needs the firmware built with the RISC-V toolchain.
 # Fail-fast: the first failing gate stops the suite with a non-zero exit.
 set -euo pipefail
 
@@ -30,7 +32,17 @@ echo "Simulation testbench suite"
 echo "Project: $PROJECT"
 echo "Repository: $ROOT_DIR"
 
+command -v nvc >/dev/null ||
+  { echo "nvc is missing (apt install nvc): the network, UCI and DMA testbenches need it"; exit 1; }
+
 run_step "GCR fixture self-test" python3 CORE/scripts/gen_gcr_fixtures.py --self-test
+
+# nvc: seconds each
+run_step "Network device (tb_net)" CORE/scripts/run_net_nvc.sh
+run_step "Ultimate Command Interface (tb_uci)" CORE/scripts/run_uci_nvc.sh
+run_step "Bus DMA (tb_c128_dma)" CORE/scripts/run_c128_dma_nvc.sh
+run_step "REU SD card DMA (tb_reu_sd)" CORE/scripts/run_reu_sd_nvc.sh
+run_step "REU cache drop (tb_avm_cache)" CORE/scripts/run_avm_cache_nvc.sh
 
 # Fast, isolated unit gates first.
 run_tcl "Drive index bridge (tb_vdrive_index)" CORE/scripts/run_vdrive_index_sim.tcl
@@ -43,6 +55,7 @@ run_tcl "HyperRAM sector fill (tb_vd_hr_pump)" CORE/scripts/run_vd_hr_pump_sim.t
 run_tcl "SD card DMA (tb_sd_dma)" CORE/scripts/run_sd_dma_sim.tcl
 run_tcl "Disk images from the SD card (tb_vd_sd)" CORE/scripts/run_vd_sd_sim.tcl
 run_tcl "REU in HyperRAM (tb_reu)" CORE/scripts/run_reu_sim.tcl
+run_tcl "REU in SDRAM (tb_reu_sdram)" CORE/scripts/run_reu_sdram_sim.tcl
 run_tcl "VIA Timer 1 (tb_via_timer)" CORE/scripts/run_via_timer_sim.tcl
 run_tcl "VGA scandoubler (tb_vga_scandoubler)" CORE/scripts/run_vga_scandoubler_sim.tcl
 run_tcl "HDMI CRT emulation fit (tb_scanline_fit)" CORE/scripts/run_scanline_fit_sim.tcl
@@ -58,11 +71,11 @@ run_tcl "157x DOS job queue (tb_c157x_job)" CORE/scripts/run_c157x_job_sim.tcl
 
 # Long-running bring-up gates last.
 run_step "C128 boot path (tb_c128_boot)" CORE/scripts/run_boot_sim.sh "$PROJECT"
+run_step "Internal function ROM (tb_func_rom)" CORE/scripts/run_boot_sim.sh "$PROJECT" tb_func_rom
 run_tcl "Cartridge DMA (tb_cart_dma)" CORE/scripts/run_cart_dma_sim.tcl
 run_tcl "REU and SwiftLink in FAST mode (tb_fast_io)" CORE/scripts/run_fast_io_sim.tcl
 run_tcl "Virtual cartridges (tb_crt)" CORE/scripts/run_crt_sim.tcl
 run_tcl "Virtual cartridges in SDRAM (tb_crt_sdram)" CORE/scripts/run_crt_sim.tcl tb_crt_sdram
-run_tcl "SwiftLink modem (tb_modem)" CORE/scripts/run_modem_sim.tcl
 run_tcl "1541/1571 bring-up on D64 (tb_c157x_boot)" CORE/scripts/run_c157x_boot_sim.tcl "" d64
 if [[ -f "$ROOT_DIR/test/157x-rw/157x-rw-test.d71" ]]; then
   run_tcl "1571 bring-up on D71 (tb_c157x_boot)" CORE/scripts/run_c157x_boot_sim.tcl "" d71

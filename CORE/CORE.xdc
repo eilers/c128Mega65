@@ -132,6 +132,27 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##                   (physical_1581_rdfifo/_wfifo). The FIFO resets and the diag
 ##                   device's event toggles go through async_reg 2-FF pairs.
 ##
+##   vd_sd ready     iec_drive's disk_ready, a level, through an ASYNC_REG 2-FF pair; the
+##                   drives' power bits (main.vhd iec_power) and running state the same way.
+##
+##   UCI             uci.vhd: register accesses cross as toggles whose address, data and
+##                   answer are stable before the toggle flips, through ASYNC_REG pairs; the
+##                   C128-reset flag and the firmware's reset request the same way; the
+##                   buffer is a dual-clock RAM.
+##
+##   bus DMA         c128_dma.vhd: a job's address, length and direction are stable before
+##                   its toggle flips; the toggles, hold, done and status bits through ASYNC_REG
+##                   pairs; the buffer is a dual-clock RAM.
+##
+##   every key       m2m_keyb's 80-key matrix to the CPU through xpm_cdc_array_single, a bit
+##                   each, as the menu keys.
+##
+##   REU SD DMA      reu_sd.vhd: the REU cache's drop request, a toggle there and back through
+##                   ASYNC_REG pairs.
+##
+##   function ROM    its size (mega65.vhd) through cdc_stable, written while the 8502 is held,
+##                   and the C128 is reset after.
+##
 ## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
 ## logic of all of the above is still fully analysed.
 ##
@@ -161,18 +182,17 @@ set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {N
 set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/*fl_pre_reg*" || NAME =~ "*i_sw_cartridge_wrapper/*pre_req_reg*"}] -to [get_clocks main_clk]
 
 ## ---------------------------------------------------------------------------
-## SwiftLink modem (CORE/vhdl/modem): its own 50 MHz clock for the NEORV32 and Ethernet
+## Network (CORE/vhdl/net): the 6551's FIFOs, the Ethernet MAC, on its own 50 MHz clock
 ## ---------------------------------------------------------------------------
-## It meets the C128 (main_clk) and HyperRAM (hr_clk) only through axis_fifo_async FIFOs
-## (Gray pointers, LUTRAM read data) and two-flip-flop synchronizers. A datapath-only limit
-## of one destination period keeps the Gray bits within a clock of each other.
+## It meets the C128 (main_clk) only through axis_fifo_async FIFOs (Gray pointers, LUTRAM
+## read data) and two-flip-flop synchronizers. A datapath-only limit of one destination
+## period keeps the Gray bits within a clock of each other. Its device bus comes from
+## qnice_clk, the same MMCM's 50 MHz with phase 0, and is timed as one clock.
 create_generated_clock -name modem_clk [get_pins i_framework/i_clk_m2m/i_clk_qnice/CLKOUT4]
 set_max_delay -datapath_only 15 -from [get_clocks main_clk]  -to [get_clocks modem_clk]
 set_max_delay -datapath_only 15 -from [get_clocks modem_clk] -to [get_clocks main_clk]
-set_max_delay -datapath_only 10 -from [get_clocks hr_clk]    -to [get_clocks modem_clk]
-set_max_delay -datapath_only 10 -from [get_clocks modem_clk] -to [get_clocks hr_clk]
 
 ## RMII receive inputs in the IOBs, as in C64MEGA65
-set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxd_reg[*]]
-set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxdv_reg]
-set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxer_reg]
+set_property IOB TRUE [get_cells CORE/i_net/i_eth/eth_rxd_reg[*]]
+set_property IOB TRUE [get_cells CORE/i_net/i_eth/eth_rxdv_reg]
+set_property IOB TRUE [get_cells CORE/i_net/i_eth/eth_rxer_reg]

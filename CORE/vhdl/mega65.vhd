@@ -105,6 +105,16 @@ port (
    sr_core_readdata_i      : in  std_logic_vector(15 downto 0);
    sr_core_readdatavalid_i : in  std_logic;
    sr_core_waitrequest_i   : in  std_logic;
+   -- The system CPU's SDRAM master (rv_soc.vhd), shared out with the core's own
+   sr_cpu_write_i          : in  std_logic;
+   sr_cpu_read_i           : in  std_logic;
+   sr_cpu_address_i        : in  std_logic_vector(31 downto 0);
+   sr_cpu_writedata_i      : in  std_logic_vector(15 downto 0);
+   sr_cpu_byteenable_i     : in  std_logic_vector( 1 downto 0);
+   sr_cpu_burstcount_i     : in  std_logic_vector( 7 downto 0);
+   sr_cpu_readdata_o       : out std_logic_vector(15 downto 0);
+   sr_cpu_readdatavalid_o  : out std_logic;
+   sr_cpu_waitrequest_o    : out std_logic;
 
    --------------------------------------------------------------------------------------------------------
    -- Video Clock Domain
@@ -270,7 +280,7 @@ port (
    cart_d_i                : in  unsigned( 7 downto 0);
    cart_d_o                : out unsigned( 7 downto 0);
 
-   -- SwiftLink modem: its 50 MHz clock (CPU and Ethernet) and the Ethernet PHY
+   -- Network (SwiftLink modem, Ethernet): its 50 MHz clock and the Ethernet PHY
    modem_clk_i             : in    std_logic;
    modem_rst_i             : in    std_logic;
    eth_clock_o             : out   std_logic;
@@ -310,6 +320,25 @@ begin
    end if;
    return "0000000" & C_SMAP_REU(12 downto 0) & x"000";
 end function reu_base;
+
+-- The REU's memory: 2^n bytes (16 MiB in SDRAM, 512 KiB in HyperRAM)
+function reu_room_bits return natural is
+begin
+   if C_R3_MEMORY then
+      return 19;
+   end if;
+   return 24;
+end function reu_room_bits;
+
+-- Where the REU's memory starts, for the firmware (uci.vhd's word 0x011): bit 15 SDRAM, then
+-- its 8 KiB window
+function reu_mem_word return std_logic_vector is
+begin
+   if C_R3_MEMORY then
+      return "000" & C_HMAP_REU(12 downto 0);
+   end if;
+   return "100" & C_SMAP_REU(12 downto 0);
+end function reu_mem_word;
 
 -- Word address of the .crt file
 function crt_base return std_logic_vector is
@@ -365,6 +394,9 @@ signal main_ram_data_from    : unsigned(7 downto 0);
 signal main_ram_q            : std_logic_vector(7 downto 0);
 signal main_sysrom_addr      : std_logic_vector(16 downto 0);
 signal main_sysrom_data      : std_logic_vector(7 downto 0);
+-- The internal function ROM, in boot0.rom's device from 0x18000: 0 none, 1 16 KB, 2 32 KB
+signal qnice_funcrom_size    : std_logic_vector(1 downto 0) := "00";
+signal main_funcrom_size     : std_logic_vector(1 downto 0);
 
 -- Virtual drives: vdrives.vhd lives inside main.vhd but is addressed from here
 signal qnice_vd_ce           : std_logic;
@@ -477,7 +509,7 @@ signal crt_sr_readdata        : std_logic_vector(15 downto 0);
 signal crt_sr_readdatavalid   : std_logic;
 signal crt_sr_waitrequest     : std_logic;
 
--- SwiftLink modem: the 6551's bus on main_clk, its firmware reads on hr_clk
+-- SwiftLink modem: the 6551's bus on main_clk; the network device on the device bus
 signal main_modem_en          : std_logic;
 signal main_modem_rst         : std_logic;
 signal main_modem_cs          : std_logic;
@@ -486,16 +518,74 @@ signal main_modem_addr        : std_logic_vector(2 downto 0);
 signal main_modem_wdata       : std_logic_vector(7 downto 0);
 signal main_modem_rdata       : std_logic_vector(7 downto 0);
 signal main_modem_irq         : std_logic;
+signal qnice_net_ce           : std_logic;
+signal qnice_net_we           : std_logic;
+signal qnice_net_data         : std_logic_vector(15 downto 0);
 
-signal modem_hr_write         : std_logic;
-signal modem_hr_read          : std_logic;
-signal modem_hr_address       : std_logic_vector(31 downto 0);
-signal modem_hr_writedata     : std_logic_vector(15 downto 0);
-signal modem_hr_byteenable    : std_logic_vector( 1 downto 0);
-signal modem_hr_burstcount    : std_logic_vector( 7 downto 0);
-signal modem_hr_readdata      : std_logic_vector(15 downto 0);
-signal modem_hr_readdatavalid : std_logic;
-signal modem_hr_waitrequest   : std_logic;
+-- Ultimate Command Interface: the C128's side on main_clk, the firmware's on the device bus
+signal main_uci_rst           : std_logic;
+signal main_uci_cs            : std_logic;
+signal main_uci_we            : std_logic;
+signal main_uci_addr          : std_logic_vector(15 downto 0);
+signal main_uci_wdata         : std_logic_vector(7 downto 0);
+signal main_uci_rdata         : std_logic_vector(7 downto 0);
+signal main_uci_irq           : std_logic;
+signal main_uci_dma           : std_logic;
+signal main_uci_reboot        : std_logic;
+signal main_uci_reu_keep      : std_logic;
+signal main_reu_menu          : std_logic_vector(1 downto 0);
+signal qnice_uci_ce           : std_logic;
+signal qnice_uci_we           : std_logic;
+signal qnice_uci_data         : std_logic_vector(15 downto 0);
+signal qnice_uci_wait         : std_logic;
+
+-- The system CPU's bus DMA (c128_dma.vhd)
+signal main_fwdma_req         : std_logic;
+signal main_fwdma_cycle       : std_logic;
+signal main_fwdma_addr        : unsigned(15 downto 0);
+signal main_fwdma_dout        : unsigned(7 downto 0);
+signal main_fwdma_we          : std_logic;
+signal main_fwdma_din         : unsigned(7 downto 0);
+signal main_fwdma_z80         : std_logic;
+signal qnice_dma_ce           : std_logic;
+signal qnice_dma_we           : std_logic;
+signal qnice_dma_data         : std_logic_vector(15 downto 0);
+
+-- The REU's SD card DMA (reu_sd.vhd): device, engine port, memory on the QNICE clock (dma_q_*)
+-- and on hr_clk (dma_hr_*: SDRAM, dma_hm_*: HyperRAM on R3 memory)
+signal qnice_reusd_ce         : std_logic;
+signal qnice_reusd_we         : std_logic;
+signal qnice_reusd_data       : std_logic_vector(15 downto 0);
+signal qnice_reusd_eng_c2q    : t_sd_c2q;
+signal qnice_reusd_eng_q2c    : t_sd_q2c;
+signal qnice_reusd_eng_want   : std_logic;
+signal qnice_dma_eng_c2q      : t_sd_c2q;      -- the .crt load and the REU, after their arbiter
+signal qnice_dma_eng_q2c      : t_sd_q2c;
+signal qnice_dma_eng_want     : std_logic;
+signal main_reu_drop          : std_logic;
+signal dma_q_write            : std_logic;
+signal dma_q_read             : std_logic;
+signal dma_q_address          : std_logic_vector(31 downto 0);
+signal dma_q_writedata        : std_logic_vector(15 downto 0);
+signal dma_q_byteenable       : std_logic_vector( 1 downto 0);
+signal dma_q_burstcount       : std_logic_vector( 7 downto 0);
+signal dma_q_readdata         : std_logic_vector(15 downto 0);
+signal dma_q_readdatavalid    : std_logic;
+signal dma_q_waitrequest      : std_logic;
+signal dma_hr_write           : std_logic;
+signal dma_hr_read            : std_logic;
+signal dma_hr_address         : std_logic_vector(31 downto 0);
+signal dma_hr_writedata       : std_logic_vector(15 downto 0);
+signal dma_hr_byteenable      : std_logic_vector( 1 downto 0);
+signal dma_hr_burstcount      : std_logic_vector( 7 downto 0);
+signal dma_hr_readdata        : std_logic_vector(15 downto 0);
+signal dma_hr_readdatavalid   : std_logic;
+signal dma_hr_waitrequest     : std_logic;
+signal dma_hm_write           : std_logic;
+signal dma_hm_read            : std_logic;
+signal dma_hm_readdata        : std_logic_vector(15 downto 0);
+signal dma_hm_readdatavalid   : std_logic;
+signal dma_hm_waitrequest     : std_logic;
 
 -- REU and cartridge, after their arbiter
 signal exp_hr_write           : std_logic;
@@ -515,6 +605,9 @@ signal qnice_drv_rom_loading : std_logic;
 signal qnice_drv_rom_req     : std_logic;
 signal qnice_drv_rom_addr    : std_logic_vector(18 downto 0);
 signal qnice_drv_rom_wr      : std_logic := '0';
+signal qnice_drv_reload_f    : std_logic_vector(1 downto 0) := "00";   -- CSR write, falling edge
+signal qnice_drv_reload      : std_logic_vector(1 downto 0) := "00";   -- a pulse per drive
+signal qnice_drv_rom_ready   : std_logic_vector(1 downto 0);
 signal qnice_core_rst        : std_logic;
 -- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
 signal f9_latched            : std_logic;
@@ -731,6 +824,7 @@ begin
          ram_data_i           => main_ram_data_from,
          sys_rom_addr_o       => main_sysrom_addr,
          sys_rom_data_i       => main_sysrom_data,
+         func_rom_size_i      => main_funcrom_size,
 
          -- Expansion Port (aka Cartridge Port)
          cart_en_o            => cart_en_o,
@@ -795,6 +889,8 @@ begin
          qnice_vd_we_i        => qnice_vd_we,
 
          drv_rom_loading_i    => qnice_drv_rom_loading,
+         drv_rom_reload_i     => qnice_drv_reload,
+         drv_rom_ready_o      => qnice_drv_rom_ready,
          drv_rom_req_o        => qnice_drv_rom_req,
          drv_rom_addr_o       => qnice_drv_rom_addr,
          drv_rom_data_i       => qnice_drvrom_b_data,
@@ -849,6 +945,27 @@ begin
          modem_data_o         => main_modem_wdata,
          modem_data_i         => main_modem_rdata,
          modem_irq_i          => main_modem_irq,
+
+         uci_rst_o            => main_uci_rst,
+         uci_cs_o             => main_uci_cs,
+         uci_we_o             => main_uci_we,
+         uci_addr_o           => main_uci_addr,
+         uci_data_o           => main_uci_wdata,
+         uci_data_i           => main_uci_rdata,
+         uci_irq_i            => main_uci_irq,
+         uci_dma_i            => main_uci_dma,
+         uci_reboot_i         => main_uci_reboot,
+         uci_reu_keep_i       => main_uci_reu_keep,
+         reu_menu_o           => main_reu_menu,
+         reu_drop_i           => main_reu_drop,
+
+         fwdma_req_i          => main_fwdma_req,
+         fwdma_cycle_o        => main_fwdma_cycle,
+         fwdma_addr_i         => main_fwdma_addr,
+         fwdma_dout_i         => main_fwdma_dout,
+         fwdma_we_i           => main_fwdma_we,
+         fwdma_din_o          => main_fwdma_din,
+         fwdma_z80_o          => main_fwdma_z80,
 
          crt_loaded_i         => main_crt_loaded,
          crt_loading_i        => main_crt_loading,
@@ -978,6 +1095,14 @@ begin
       qnice_crt_we         <= '0';
       qnice_p1581_ce       <= '0';
       qnice_p1581_we       <= '0';
+      qnice_uci_ce         <= '0';
+      qnice_uci_we         <= '0';
+      qnice_reusd_ce       <= '0';
+      qnice_reusd_we       <= '0';
+      qnice_net_ce         <= '0';
+      qnice_net_we         <= '0';
+      qnice_dma_ce         <= '0';
+      qnice_dma_we         <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -986,16 +1111,28 @@ begin
             qnice_c64_ramx_we   <= qnice_dev_we_i;
             qnice_c64_ramx_d_to <= qnice_dev_data_i(7 downto 0);
             qnice_dev_data_o    <= x"00" & qnice_c64_ramx_d_from;
+        -- boot0.rom, and the internal function ROM from 0x18000; its CSR window: register 0
+        -- the function ROM's size, 0 none, 1 16 KB, 2 32 KB
         when C_DEV_SYSTEM_ROM =>
             qnice_sysrom_addr <= qnice_dev_addr_i(16 downto 0);
-            qnice_sysrom_we   <= qnice_dev_we_i;
             qnice_sysrom_d_to <= qnice_dev_data_i(7 downto 0);
-            qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
+            if qnice_dev_addr_i(27 downto 12) = x"FFFF" then
+               qnice_dev_data_o  <= x"000" & "00" & qnice_funcrom_size;
+            else
+               qnice_sysrom_we   <= qnice_dev_we_i;
+               qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
+            end if;
+        -- boot1.rom; its CSR window: register 0 R: bit i drive i has its ROM, W: bit i
+        -- reloads drive i's bank, holding the drive in reset meanwhile (REST's load_rom)
         when C_DEV_DRIVE_ROM =>
             qnice_drvrom_addr <= qnice_dev_addr_i(17 downto 0);
-            qnice_drvrom_we   <= qnice_dev_we_i;
             qnice_drvrom_d_to <= qnice_dev_data_i(7 downto 0);
-            qnice_dev_data_o  <= x"00" & qnice_drvrom_d_from;
+            if qnice_dev_addr_i(27 downto 12) = x"FFFF" then
+               qnice_dev_data_o  <= x"000" & "00" & qnice_drv_rom_ready;
+            else
+               qnice_drvrom_we   <= qnice_dev_we_i;
+               qnice_dev_data_o  <= x"00" & qnice_drvrom_d_from;
+            end if;
 
         -- Virtual drive control and data registers (vdrives.vhd inside main.vhd)
         when C_DEV_VDRIVES =>
@@ -1023,13 +1160,39 @@ begin
             qnice_p1581_we    <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_p1581_data;
 
+        -- Ultimate Command Interface: its registers wait while they cross to the core's clock
+        when C_DEV_UCI =>
+            qnice_uci_ce      <= qnice_dev_ce_i;
+            qnice_uci_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_uci_data;
+            qnice_dev_wait_o  <= qnice_uci_wait;
+
+        -- The REU's SD card DMA
+        when C_DEV_REU_SD =>
+            qnice_reusd_ce    <= qnice_dev_ce_i;
+            qnice_reusd_we    <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_reusd_data;
+
+        -- Network: the 6551's FIFOs, the Ethernet MAC, the device DNA (net.vhd)
+        when C_DEV_NET =>
+            qnice_net_ce      <= qnice_dev_ce_i;
+            qnice_net_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_net_data;
+
+        -- The system CPU's bus DMA into C128 memory (c128_dma.vhd)
+        when C_DEV_DMA =>
+            qnice_dma_ce      <= qnice_dev_ce_i;
+            qnice_dma_we      <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_dma_data;
+
          when others => null;
       end case;
    end process core_specific_devices;
 
    qnice_vdsd_drive <= 1 when qnice_dev_id_i = C_DEV_MOUNT_D9 else 0;
 
-   -- The drives get the SD controller first; a .crt load waits between its DMAs
+   -- The drives get the SD controller first; a .crt load or the REU's DMA waits between its
+   -- transfers
    i_sd_eng_arb : entity work.sd_eng_arb
       port map (
          clk_i    => qnice_clk_i,
@@ -1037,12 +1200,92 @@ begin
          a_want_i => qnice_drv_eng_want,
          a_c2q_i  => qnice_drv_eng_c2q,
          a_q2c_o  => qnice_drv_eng_q2c,
-         b_want_i => qnice_crt_eng_want,
-         b_c2q_i  => qnice_crt_eng_c2q,
-         b_q2c_o  => qnice_crt_eng_q2c,
+         b_want_i => qnice_dma_eng_want,
+         b_c2q_i  => qnice_dma_eng_c2q,
+         b_q2c_o  => qnice_dma_eng_q2c,
          c2q_o    => qnice_sd_eng_o,
-         q2c_i    => qnice_sd_eng_i
+         q2c_i    => qnice_sd_eng_i,
+         want_o   => open
       ); -- i_sd_eng_arb
+
+   i_sd_eng_arb_dma : entity work.sd_eng_arb
+      port map (
+         clk_i    => qnice_clk_i,
+         rst_i    => qnice_rst_i,
+         a_want_i => qnice_crt_eng_want,
+         a_c2q_i  => qnice_crt_eng_c2q,
+         a_q2c_o  => qnice_crt_eng_q2c,
+         b_want_i => qnice_reusd_eng_want,
+         b_c2q_i  => qnice_reusd_eng_c2q,
+         b_q2c_o  => qnice_reusd_eng_q2c,
+         c2q_o    => qnice_dma_eng_c2q,
+         q2c_i    => qnice_dma_eng_q2c,
+         want_o   => qnice_dma_eng_want
+      ); -- i_sd_eng_arb_dma
+
+   -- The REU's image files straight between the SD card and its memory; also tells the REU's
+   -- cache when the system CPU wrote that memory
+   i_reu_sd : entity work.reu_sd
+      generic map (
+         G_BASE      => reu_base,
+         G_ROOM_BITS => reu_room_bits
+      )
+      port map (
+         clk_i               => qnice_clk_i,
+         rst_i               => qnice_rst_i,
+         qnice_addr_i        => qnice_dev_addr_i(11 downto 0),
+         qnice_data_i        => qnice_dev_data_i,
+         qnice_ce_i          => qnice_reusd_ce,
+         qnice_we_i          => qnice_reusd_we,
+         qnice_data_o        => qnice_reusd_data,
+         eng_want_o          => qnice_reusd_eng_want,
+         eng_o               => qnice_reusd_eng_c2q,
+         eng_i               => qnice_reusd_eng_q2c,
+         avm_write_o         => dma_q_write,
+         avm_read_o          => dma_q_read,
+         avm_address_o       => dma_q_address,
+         avm_writedata_o     => dma_q_writedata,
+         avm_byteenable_o    => dma_q_byteenable,
+         avm_burstcount_o    => dma_q_burstcount,
+         avm_readdata_i      => dma_q_readdata,
+         avm_readdatavalid_i => dma_q_readdatavalid,
+         avm_waitrequest_i   => dma_q_waitrequest,
+         main_clk_i          => main_clk_o,
+         main_drop_o         => main_reu_drop
+      ); -- i_reu_sd
+
+   i_reu_sd_avm_fifo : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => qnice_clk_i,
+         s_rst_i               => qnice_rst_i,
+         s_avm_waitrequest_o   => dma_q_waitrequest,
+         s_avm_write_i         => dma_q_write,
+         s_avm_read_i          => dma_q_read,
+         s_avm_address_i       => dma_q_address,
+         s_avm_writedata_i     => dma_q_writedata,
+         s_avm_byteenable_i    => dma_q_byteenable,
+         s_avm_burstcount_i    => dma_q_burstcount,
+         s_avm_readdata_o      => dma_q_readdata,
+         s_avm_readdatavalid_o => dma_q_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => dma_hr_waitrequest,
+         m_avm_write_o         => dma_hr_write,
+         m_avm_read_o          => dma_hr_read,
+         m_avm_address_o       => dma_hr_address,
+         m_avm_writedata_o     => dma_hr_writedata,
+         m_avm_byteenable_o    => dma_hr_byteenable,
+         m_avm_burstcount_o    => dma_hr_burstcount,
+         m_avm_readdata_i      => dma_hr_readdata,
+         m_avm_readdatavalid_i => dma_hr_readdatavalid
+      ); -- i_reu_sd_avm_fifo
 
    -- REU: cross its memory port from main_clk to hr_clk
    i_reu_avm_fifo : entity work.avm_fifo
@@ -1155,8 +1398,9 @@ begin
          sr_waitrequest_i   => crt_sr_waitrequest
       ); -- i_sw_cartridge_wrapper
 
-   -- With SDRAM, the REU shares it with the virtual cartridge. The cartridge goes first, and the
-   -- REU starts an access only in the window main.vhd opens, so it never makes a cartridge read late.
+   -- With SDRAM, the virtual cartridge goes first, then the REU, the system CPU and the REU's SD
+   -- DMA; those three start an access only in the window main.vhd opens, so none makes a
+   -- cartridge read late.
    reu_sdram_gen : if not C_R3_MEMORY generate
       i_sdram_arbit : entity work.sdram_arbit
          port map (
@@ -1181,6 +1425,24 @@ begin
             s1_avm_readdata_o      => reu_hr_readdata,
             s1_avm_readdatavalid_o => reu_hr_readdatavalid,
             s1_avm_waitrequest_o   => reu_hr_waitrequest,
+            s2_avm_write_i         => sr_cpu_write_i,
+            s2_avm_read_i          => sr_cpu_read_i,
+            s2_avm_address_i       => sr_cpu_address_i,
+            s2_avm_writedata_i     => sr_cpu_writedata_i,
+            s2_avm_byteenable_i    => sr_cpu_byteenable_i,
+            s2_avm_burstcount_i    => sr_cpu_burstcount_i,
+            s2_avm_readdata_o      => sr_cpu_readdata_o,
+            s2_avm_readdatavalid_o => sr_cpu_readdatavalid_o,
+            s2_avm_waitrequest_o   => sr_cpu_waitrequest_o,
+            s3_avm_write_i         => dma_hr_write,
+            s3_avm_read_i          => dma_hr_read,
+            s3_avm_address_i       => dma_hr_address,
+            s3_avm_writedata_i     => dma_hr_writedata,
+            s3_avm_byteenable_i    => dma_hr_byteenable,
+            s3_avm_burstcount_i    => dma_hr_burstcount,
+            s3_avm_readdata_o      => dma_hr_readdata,
+            s3_avm_readdatavalid_o => dma_hr_readdatavalid,
+            s3_avm_waitrequest_o   => dma_hr_waitrequest,
             m_avm_write_o          => sr_core_write_o,
             m_avm_read_o           => sr_core_read_o,
             m_avm_address_o        => sr_core_address_o,
@@ -1194,12 +1456,19 @@ begin
 
       reu_hm_write <= '0';
       reu_hm_read  <= '0';
+      dma_hm_write <= '0';
+      dma_hm_read  <= '0';
    else generate
       reu_hm_write         <= reu_hr_write;
       reu_hm_read          <= reu_hr_read;
       reu_hr_readdata      <= reu_hm_readdata;
       reu_hr_readdatavalid <= reu_hm_readdatavalid;
       reu_hr_waitrequest   <= reu_hm_waitrequest;
+      dma_hm_write         <= dma_hr_write;
+      dma_hm_read          <= dma_hr_read;
+      dma_hr_readdata      <= dma_hm_readdata;
+      dma_hr_readdatavalid <= dma_hm_readdatavalid;
+      dma_hr_waitrequest   <= dma_hm_waitrequest;
 
       sr_core_write_o      <= crt_sr_write;
       sr_core_read_o       <= crt_sr_read;
@@ -1210,6 +1479,11 @@ begin
       crt_sr_readdata      <= sr_core_readdata_i;
       crt_sr_readdatavalid <= sr_core_readdatavalid_i;
       crt_sr_waitrequest   <= sr_core_waitrequest_i;
+
+      -- No SDRAM: rv_soc doesn't decode its window, so nothing comes
+      sr_cpu_readdata_o      <= (others => '0');
+      sr_cpu_readdatavalid_o <= '0';
+      sr_cpu_waitrequest_o   <= '1';
    end generate reu_sdram_gen;
 
    -- s0 = REU, s1 = virtual cartridge, taking turns (R3-memory builds; else both are idle)
@@ -1252,8 +1526,8 @@ begin
          m_avm_waitrequest_i    => exp_hr_waitrequest
       ); -- i_core_hr_arbit
 
-   -- s0 = REU and cartridge, s1 = the modem's firmware reads (16 words at a time)
-   i_modem_hr_arbit : entity work.avm_arbit
+   -- s0 = REU and cartridge, s1 = the REU's DMA on R3 memory (else idle)
+   i_dma_hr_arbit : entity work.avm_arbit
       generic map (
          G_PREFER_SWAP  => true,
          G_FREQ_HZ      => 100_000_000,
@@ -1272,15 +1546,15 @@ begin
          s0_avm_readdata_o      => exp_hr_readdata,
          s0_avm_readdatavalid_o => exp_hr_readdatavalid,
          s0_avm_waitrequest_o   => exp_hr_waitrequest,
-         s1_avm_write_i         => modem_hr_write,
-         s1_avm_read_i          => modem_hr_read,
-         s1_avm_address_i       => modem_hr_address,
-         s1_avm_writedata_i     => modem_hr_writedata,
-         s1_avm_byteenable_i    => modem_hr_byteenable,
-         s1_avm_burstcount_i    => modem_hr_burstcount,
-         s1_avm_readdata_o      => modem_hr_readdata,
-         s1_avm_readdatavalid_o => modem_hr_readdatavalid,
-         s1_avm_waitrequest_o   => modem_hr_waitrequest,
+         s1_avm_write_i         => dma_hm_write,
+         s1_avm_read_i          => dma_hm_read,
+         s1_avm_address_i       => dma_hr_address,
+         s1_avm_writedata_i     => dma_hr_writedata,
+         s1_avm_byteenable_i    => dma_hr_byteenable,
+         s1_avm_burstcount_i    => dma_hr_burstcount,
+         s1_avm_readdata_o      => dma_hm_readdata,
+         s1_avm_readdatavalid_o => dma_hm_readdatavalid,
+         s1_avm_waitrequest_o   => dma_hm_waitrequest,
          m_avm_write_o          => hr_core_write_o,
          m_avm_read_o           => hr_core_read_o,
          m_avm_address_o        => hr_core_address_o,
@@ -1290,50 +1564,102 @@ begin
          m_avm_readdata_i       => hr_core_readdata_i,
          m_avm_readdatavalid_i  => hr_core_readdatavalid_i,
          m_avm_waitrequest_i    => hr_core_waitrequest_i
-      ); -- i_modem_hr_arbit
+      ); -- i_dma_hr_arbit
 
    ---------------------------------------------------------------------------------------------
-   -- SwiftLink modem: a 6551 on the C128's bus, a NEORV32 with lwIP on the Ethernet port
+   -- Network: the SwiftLink's 6551 on the C128's bus, the Ethernet MAC and the device DNA on
+   -- the device bus; lwIP and the modem run in the system firmware
    ---------------------------------------------------------------------------------------------
 
-   i_modem : entity work.modem
+   i_net : entity work.net
       generic map (
-         G_MAIN_CLK_HZ => CORE_CLK_SPEED,
-         G_HR_BASE     => to_integer(unsigned(C_HMAP_MODEM)) * 4096   -- 4 KW windows
+         G_MAIN_CLK_HZ => CORE_CLK_SPEED
       )
       port map (
-         clk_i              => modem_clk_i,
-         rst_i              => modem_rst_i,
-         main_clk_i         => main_clk_o,
-         main_rst_i         => main_modem_rst,
-         enable_i           => main_modem_en,
-         cs_i               => main_modem_cs,
-         we_i               => main_modem_we,
-         addr_i             => main_modem_addr,
-         data_i             => main_modem_wdata,
-         data_o             => main_modem_rdata,
-         irq_o              => main_modem_irq,
-         hr_clk_i           => hr_clk_i,
-         hr_rst_i           => hr_rst_i,
-         hr_write_o         => modem_hr_write,
-         hr_read_o          => modem_hr_read,
-         hr_address_o       => modem_hr_address,
-         hr_writedata_o     => modem_hr_writedata,
-         hr_byteenable_o    => modem_hr_byteenable,
-         hr_burstcount_o    => modem_hr_burstcount,
-         hr_readdata_i      => modem_hr_readdata,
-         hr_readdatavalid_i => modem_hr_readdatavalid,
-         hr_waitrequest_i   => modem_hr_waitrequest,
-         eth_clock_o        => eth_clock_o,
-         eth_reset_o        => eth_reset_o,
-         eth_mdc_o          => eth_mdc_o,
-         eth_mdio_io        => eth_mdio_io,
-         eth_rxd_i          => eth_rxd_i,
-         eth_rxdv_i         => eth_rxdv_i,
-         eth_rxer_i         => eth_rxer_i,
-         eth_txd_o          => eth_txd_o,
-         eth_txen_o         => eth_txen_o
-      ); -- i_modem
+         clk_i          => modem_clk_i,
+         rst_i          => modem_rst_i,
+         main_clk_i     => main_clk_o,
+         main_rst_i     => main_modem_rst,
+         enable_i       => main_modem_en,
+         cs_i           => main_modem_cs,
+         we_i           => main_modem_we,
+         addr_i         => main_modem_addr,
+         data_i         => main_modem_wdata,
+         data_o         => main_modem_rdata,
+         irq_o          => main_modem_irq,
+         dev_ce_i       => qnice_net_ce,
+         dev_we_i       => qnice_net_we,
+         dev_addr_i     => qnice_dev_addr_i(11 downto 0),
+         dev_data_i     => qnice_dev_data_i,
+         dev_data_o     => qnice_net_data,
+         eth_clock_o    => eth_clock_o,
+         eth_reset_o    => eth_reset_o,
+         eth_mdc_o      => eth_mdc_o,
+         eth_mdio_io    => eth_mdio_io,
+         eth_rxd_i      => eth_rxd_i,
+         eth_rxdv_i     => eth_rxdv_i,
+         eth_rxer_i     => eth_rxer_i,
+         eth_txd_o      => eth_txd_o,
+         eth_txen_o     => eth_txen_o
+      ); -- i_net
+
+   ---------------------------------------------------------------------------------------------
+   -- Ultimate Command Interface at $DF1C: the protocol on the core's clock, the firmware's side
+   -- on the device bus (CORE/vhdl/uci)
+   ---------------------------------------------------------------------------------------------
+
+   i_uci : entity work.uci
+      generic map (
+         G_REU_MEM       => reu_mem_word
+      )
+      port map (
+         main_clk_i      => main_clk_o,
+         main_rst_i      => main_rst_o or main_reset_m2m_i,
+         main_c128_rst_i => main_uci_rst,
+         main_cs_i       => main_uci_cs,
+         main_we_i       => main_uci_we,
+         main_addr_i     => main_uci_addr,
+         main_data_i     => main_uci_wdata,
+         main_data_o     => main_uci_rdata,
+         main_irq_o      => main_uci_irq,
+         main_dma_o      => main_uci_dma,
+         main_reboot_o   => main_uci_reboot,
+         main_reu_i      => main_reu_menu,
+         main_reu_keep_o => main_uci_reu_keep,
+         qnice_clk_i     => qnice_clk_i,
+         qnice_rst_i     => qnice_rst_i,
+         qnice_addr_i    => qnice_dev_addr_i(11 downto 0),
+         qnice_data_i    => qnice_dev_data_i,
+         qnice_ce_i      => qnice_uci_ce,
+         qnice_we_i      => qnice_uci_we,
+         qnice_data_o    => qnice_uci_data,
+         qnice_wait_o    => qnice_uci_wait
+      ); -- i_uci
+
+   ---------------------------------------------------------------------------------------------
+   -- The system CPU's bus DMA: REST's readmem, writemem, pause and resume (CORE/vhdl/c128_dma.vhd)
+   ---------------------------------------------------------------------------------------------
+
+   i_c128_dma : entity work.c128_dma
+      port map (
+         main_clk_i      => main_clk_o,
+         main_rst_i      => main_rst_o or main_reset_m2m_i,
+         main_c128_rst_i => main_uci_rst,
+         main_req_o      => main_fwdma_req,
+         main_cycle_i    => main_fwdma_cycle,
+         main_addr_o     => main_fwdma_addr,
+         main_dout_o     => main_fwdma_dout,
+         main_we_o       => main_fwdma_we,
+         main_din_i      => main_fwdma_din,
+         main_z80_i      => main_fwdma_z80,
+         qnice_clk_i     => qnice_clk_i,
+         qnice_rst_i     => qnice_rst_i,
+         qnice_addr_i    => qnice_dev_addr_i(11 downto 0),
+         qnice_data_i    => qnice_dev_data_i,
+         qnice_ce_i      => qnice_dma_ce,
+         qnice_we_i      => qnice_dma_we,
+         qnice_data_o    => qnice_dma_data
+      ); -- i_c128_dma
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)
@@ -1359,13 +1685,33 @@ begin
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
 
+   -- A drive's bank again: its iecdrv_rom starts over, and the server drops a byte it was
+   -- fetching, which would land at the restarted address
+   p_drv_reload_f : process (qnice_clk_i)
+   begin
+      if falling_edge(qnice_clk_i) then
+         qnice_drv_reload_f <= "00";
+         if qnice_dev_id_i = C_DEV_DRIVE_ROM and qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
+            qnice_dev_addr_i(27 downto 0) = x"FFFF000" then
+            qnice_drv_reload_f <= qnice_dev_data_i(1 downto 0);
+         end if;
+      end if;
+   end process p_drv_reload_f;
+
+   p_drv_reload : process (qnice_clk_i)
+   begin
+      if rising_edge(qnice_clk_i) then
+         qnice_drv_reload <= qnice_drv_reload_f;
+      end if;
+   end process p_drv_reload;
+
    i_drive_rom_server : entity work.drive_rom_server
       generic map (
          G_ROM_ADDR_WIDTH => 18
       )
       port map (
          clk_i          => qnice_clk_i,
-         rom_loading_i  => qnice_drv_rom_loading,
+         rom_loading_i  => qnice_drv_rom_loading or qnice_drv_reload(0) or qnice_drv_reload(1),
          rom_req_i      => qnice_drv_rom_req,
          rom_addr_i     => qnice_drv_rom_addr,
          rom_wr_o       => qnice_drv_rom_wr,
@@ -1424,6 +1770,30 @@ begin
          wren_b          => '0',
          q_b             => main_sysrom_data
       );
+
+   p_funcrom_size : process (qnice_clk_i)
+   begin
+      if falling_edge(qnice_clk_i) then
+         if qnice_rst_i = '1' then
+            qnice_funcrom_size <= "00";
+         elsif qnice_dev_id_i = C_DEV_SYSTEM_ROM and qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
+               qnice_dev_addr_i(27 downto 0) = x"FFFF000" then
+            qnice_funcrom_size <= qnice_dev_data_i(1 downto 0);
+         end if;
+      end if;
+   end process p_funcrom_size;
+
+   -- Written while the 8502 is held (in reset, or by the bus DMA), and the C128 is reset after
+   i_cdc_funcrom_size : entity work.cdc_stable
+      generic map (
+         G_DATA_SIZE => 2
+      )
+      port map (
+         src_clk_i  => qnice_clk_i,
+         src_data_i => qnice_funcrom_size,
+         dst_clk_i  => main_clk_o,
+         dst_data_o => main_funcrom_size
+      ); -- i_cdc_funcrom_size
 
    -- boot1.rom holds the six 32 kB drive DOS banks that iec_drive can ask for with DRIVES = 2
    -- (1541 x2, 1571 x2, 1581 x2), so the highest address it ever generates is 5 * 32768 + 32767

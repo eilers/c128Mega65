@@ -56,6 +56,13 @@ set required_source_files [list \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
     [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/reu_sd.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/io_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/slot_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_if_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_protocol.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/uci.vhd"] \
+    [file join $repo_dir "CORE/vhdl/c128_dma.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \
@@ -85,9 +92,9 @@ foreach required_file $required_source_files {
     }
 }
 
-# The SwiftLink modem: NEORV32 goes in its own library
-source [file join [file dirname [info script]] add_modem_sources.tcl]
-add_modem_sources $repo_dir
+# The network device; NEORV32 goes in its own library with the system CPU
+source [file join [file dirname [info script]] add_net_sources.tcl]
+add_net_sources $repo_dir
 source [file join [file dirname [info script]] add_rv_sources.tcl]
 add_rv_sources $repo_dir
 
@@ -120,6 +127,10 @@ puts "TOP: [get_property top [current_fileset]] [get_property generic [current_f
 # lost its seek target (data_in), and how the SID lost its combined waveforms. None of
 # it shows up in simulation, because xsim resolves names across the whole scope.
 set_msg_config -id {Synth 8-8895} -new_severity ERROR
+
+# Order the sources again: the first pass ran before the files above were added, and in a
+# fresh export it leaves out what only they use (sdmux, under rv_soc)
+update_compile_order -fileset sources_1
 
 puts "=== Elaborating RTL ==="
 if {[catch {synth_design -rtl -name rtl_elab_check -no_iobuf} err]} {

@@ -1,8 +1,9 @@
 // The hardware as test_shell's firmware sees it: registers in an array, each device of
-// the device bus a lazily mapped 2^28-word area, HyperRAM another, and the CLINT timer
+// the device bus a lazily mapped 2^28-word area, HyperRAM and SDRAM others, and the CLINT timer
 // running on a little with every read.
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include "host_m2m.h"
 #include "m2m_rv.h"
@@ -10,6 +11,7 @@
 #define DEV_WORDS (1u << 28)
 
 volatile uint16_t *host_hr;
+volatile uint16_t *host_sr;
 uint32_t           host_regs[0x80];      // 0xE0000000 to 0xE00001FF
 uint64_t           host_time;
 static uint32_t    other;
@@ -40,6 +42,7 @@ volatile uint32_t *host_reg32(uint32_t a)
 }
 
 void (*host_dev_hook)(void);
+void (*host_dev_hw)(void);
 
 volatile uint16_t *host_dev_at(uint32_t d)
 {
@@ -52,12 +55,17 @@ volatile uint16_t *host_dev(void)
 {
    if (host_dev_hook)
       host_dev_hook();
+   if (host_dev_hw)
+      host_dev_hw();
    return host_dev_at(host_regs[7] & 0x1FF);
 }
 
 void host_init(void)
 {
    host_hr = area((1u << 23) * 2);
+   // The firmware's heap holds what was there before, as HyperRAM does after a reset
+   memset((void *)FW_HEAP, 0xA5, FW_HEAP_END - FW_HEAP);
+   host_sr = area((1u << 25) * 2);
    host_regs[0] = 0x0839;                // C_CSR_DEFAULT: in reset, keyboard and joysticks on
    host_regs[6] = 0xFFFF;                // no key held
 }

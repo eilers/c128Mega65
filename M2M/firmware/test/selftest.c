@@ -6,6 +6,8 @@
 
 #define TB_DEV_RAM     0x0100u          // testbench: RAM with wait states
 #define HR_TEST        (M2M_HYPERRAM + 0x700000u)
+#define SR_TEST        (M2M_SDRAM + 0x1000000u)   // the REU's memory
+#define SR_TOP         (M2M_SDRAM + 0x3FFFFF8u)   // the last 8 bytes of 64 MB
 
 typedef int (*add_fn)(int);
 
@@ -77,6 +79,27 @@ int main(void)
    asm volatile ("fence.i" ::: "memory");
    if (!failed)
       check(11, ((add_fn)(HR_TEST + 0x1000))(7) == 107);
+
+   // 12-14: SDRAM the same way, and its last bytes, and code from it (line fills of 2-word bursts)
+   volatile uint32_t *sw = (volatile uint32_t *)SR_TEST;
+   volatile uint16_t *sh = (volatile uint16_t *)SR_TEST;
+   volatile uint8_t  *sb = (volatile uint8_t *)SR_TEST;
+   volatile uint32_t *st = (volatile uint32_t *)SR_TOP;
+   sw[0] = 0x11223344;
+   sw[1] = 0x55667788;
+   sh[1] = 0xBEEF;
+   sb[1] = 0x5A;
+   sb[6] = 0xC3;
+   st[1] = 0xCAFEF00D;
+   check(12, sw[0] == 0xBEEF5A44 && sw[1] == 0x55C37788 && sh[0] == 0x5A44 && sb[3] == 0xBE);
+   check(13, st[1] == 0xCAFEF00D && sw[1] == 0x55C37788);
+   code = (volatile uint32_t *)(SR_TEST + 0x1000);
+   for (int i = 0; i < 100; i++)
+      code[i] = 0x00150513;
+   code[100] = 0x00008067;
+   asm volatile ("fence.i" ::: "memory");
+   if (!failed)
+      check(14, ((add_fn)(SR_TEST + 0x1000))(5) == 105);
 
    if (failed) {
       osm_print(0, 1, M2M_SA_COL_SEL, "FAIL");

@@ -1,15 +1,21 @@
-# Run the C128 boot behavioural simulation (tb_c128_boot).
+# Run the C128 boot behavioural simulation (tb_c128_boot), or another testbench built on it
+# (tb_func_rom) that logs the same summary line.
 # Usage:
-#   vivado -mode batch -source CORE/scripts/run_boot_sim.tcl -tclargs CORE/CORE-R6-vivado2022.xpr
+#   vivado -mode batch -source CORE/scripts/run_boot_sim.tcl -tclargs CORE/CORE-R6-vivado2022.xpr [tb_func_rom]
 
 set project_file [lindex $argv 0]
 if {$project_file eq ""} {
     set project_file [file normalize [file join [file dirname [info script]] .. CORE-R6-vivado2022.xpr]]
 }
 
+set top [lindex $argv 1]
+if {$top eq ""} {
+    set top tb_c128_boot
+}
+
 set core_dir  [file normalize [file join [file dirname [info script]] ..]]
 set repo_dir  [file normalize [file join $core_dir ..]]
-set tb_file   [file join $core_dir sim tb_c128_boot.vhd]
+set tb_file   [file join $core_dir sim $top.vhd]
 set pkg_file  [file join $core_dir sim sim_support_pkg.vhd]
 set boot_rom  [file join $repo_dir sdcard c128 boot0.rom]
 set log_file  [file join $repo_dir .cursor debug-boot.log]
@@ -37,6 +43,7 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/vd_hr_pump.vhd"] \
     [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/reu_sd.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_eng_arb.vhd"] \
     [file join $repo_dir "CORE/vhdl/vd_sd.vhd"] \
     [file join $repo_dir "CORE/vhdl/physical_1581/physical_1581_pkg.vhd"] \
@@ -123,8 +130,8 @@ puts "Log path: $log_file"
 update_compile_order -fileset sim_1
 set_property -name {xsim.simulate.runtime} -value {25ms} -objects [get_filesets sim_1]
 
-puts "Launching boot simulation (top=tb_c128_boot)..."
-sim_launch tb_c128_boot
+puts "Launching boot simulation (top=$top)..."
+sim_launch $top
 
 set sim_log [file join $core_dir sim boot_sim_console.log]
 set sim_out [open $sim_log w]

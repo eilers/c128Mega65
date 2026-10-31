@@ -17,6 +17,10 @@
 -- as main.vhd counts it), which ends before PHI2 high's cartridge reads and the refresh window.
 -- The defaults are main.vhd's C_REU_FROM and C_REU_TO. Sizes 512 KB, 2 MB and 16 MB.
 --
+-- At the end the system CPU (sdram_arbit's s2, as rv_soc's bridge makes them: 2-word bursts)
+-- writes words of the REU's memory and reads them back as fast as it can, beside a cartridge
+-- and REU transfers: every check above still holds, and the CPU gets its own words back.
+--
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
 
@@ -44,6 +48,7 @@ architecture sim of tb_reu_sdram is
    constant C_REU_W       : natural := to_integer(unsigned(C_SMAP_REU(12 downto 0))) * 4096;
    constant C_CRT_RADDR   : natural := to_integer(unsigned(C_SMAP_CRT(12 downto 0))) * 8192 + 16#40#;   -- ROML's image
    constant C_CRT_W       : natural := C_CRT_RADDR / 2;
+   constant C_RV_W        : natural := C_REU_W + 16#700000#;   -- the system CPU's words: REU $E00000
 
    signal clk       : std_logic := '0';
    signal hr_clk    : std_logic := '0';
@@ -271,6 +276,17 @@ architecture sim of tb_reu_sdram is
    signal sr_burstcount    : std_logic_vector(7 downto 0);
    signal sr_readdata      : std_logic_vector(15 downto 0);
 
+   -- The system CPU -> sdram_arbit s2 (rv_*), while rv_on
+   signal rv_on            : boolean := false;
+   signal rv_busy          : boolean := false;
+   signal rv_write         : std_logic := '0';
+   signal rv_read          : std_logic := '0';
+   signal rv_address       : std_logic_vector(31 downto 0) := (others => '0');
+   signal rv_writedata     : std_logic_vector(15 downto 0) := (others => '0');
+   signal rv_readdata      : std_logic_vector(15 downto 0);
+   signal rv_readdatavalid : std_logic;
+   signal rv_waitrequest   : std_logic;
+
    -- SDRAM pins and the chip's side of the board's delays
    constant C_TO_CHIP   : time := 4 ns;
    constant C_FROM_CHIP : time := 1.5 ns;
@@ -308,6 +324,9 @@ architecture sim of tb_reu_sdram is
    signal n_cart_cmd     : natural := 0;
    signal cart_hold_max  : natural := 0;   -- hr clocks a cartridge read waited for the SDRAM
    signal n_refresh      : natural := 0;
+   signal n_rv_cmd       : natural := 0;   -- the system CPU's accesses
+   signal n_rv_outside   : natural := 0;   -- started outside the REU's window
+   signal n_rv_wrong     : natural := 0;   -- words it read that it hadn't written
 
 begin
 
@@ -681,6 +700,15 @@ begin
          s1_avm_readdata_o      => h_readdata,
          s1_avm_readdatavalid_o => h_readdatavalid,
          s1_avm_waitrequest_o   => h_waitrequest,
+         s2_avm_write_i         => rv_write,
+         s2_avm_read_i          => rv_read,
+         s2_avm_address_i       => rv_address,
+         s2_avm_writedata_i     => rv_writedata,
+         s2_avm_byteenable_i    => "11",
+         s2_avm_burstcount_i    => x"02",
+         s2_avm_readdata_o      => rv_readdata,
+         s2_avm_readdatavalid_o => rv_readdatavalid,
+         s2_avm_waitrequest_o   => rv_waitrequest,
          m_avm_write_o          => sr_write,
          m_avm_read_o           => sr_read,
          m_avm_address_o        => sr_address,
@@ -856,6 +884,64 @@ begin
          end if;
       end if;
    end process p_hr_mon;
+
+   --------------------------------------------------------------------------------
+   -- The system CPU: a 2-word write, then reading it back, again and again while rv_on. Each
+   -- access must start in the REU's window, as the arbiter lets it.
+   --------------------------------------------------------------------------------
+
+   p_rv : process
+      variable k    : natural := 0;
+      variable pass : natural := 0;
+      variable addr : natural;
+
+      function pat(k : natural; pass : natural; half : natural) return std_logic_vector is
+      begin
+         return std_logic_vector(to_unsigned((2 * k + half + 7919 * pass) mod 65536, 16));
+      end function pat;
+
+      procedure started is
+      begin
+         n_rv_cmd <= n_rv_cmd + 1;
+         if hr_reu_ok = '0' then
+            n_rv_outside <= n_rv_outside + 1;
+         end if;
+      end procedure started;
+   begin
+      wait until rising_edge(hr_clk);
+      if not rv_on then
+         rv_busy <= false;
+         k       := 0;
+         pass    := pass + 1;
+      else
+         rv_busy <= true;
+         addr := C_RV_W + 2 * k;
+         rv_address   <= std_logic_vector(to_unsigned(addr, 32));
+         rv_writedata <= pat(k, pass, 0);
+         rv_write     <= '1';
+         wait until rising_edge(hr_clk) and rv_waitrequest = '0';
+         started;
+         rv_writedata <= pat(k, pass, 1);
+         wait until rising_edge(hr_clk) and rv_waitrequest = '0';
+         rv_write <= '0';
+         rv_read  <= '1';
+         wait until rising_edge(hr_clk) and rv_waitrequest = '0';
+         started;
+         rv_read <= '0';
+         for half in 0 to 1 loop
+            wait until rising_edge(hr_clk) and rv_readdatavalid = '1';
+            if rv_readdata /= pat(k, pass, half) then
+               if n_rv_wrong < 4 then
+                  report "system CPU read $" & to_hstring(rv_readdata) & " at word $" &
+                         to_hstring(to_unsigned(addr + half, 25)) & ", wrote $" &
+                         to_hstring(pat(k, pass, half)) severity error;
+               end if;
+               n_rv_wrong <= n_rv_wrong + 1;
+            end if;
+         end loop;
+         k := (k + 1) mod 4096;
+      end if;
+   end process p_rv;
 
    --------------------------------------------------------------------------------
    -- Test sequence
@@ -1176,6 +1262,34 @@ begin
       compare(16#1400#, 16#3400#, 64, "512 KB across the top");
       check(std_logic_vector(to_unsigned(sdram_mem.get(C_REU_W) mod 256, 8)) = c128_ram(16#1420#),
             "512 KB: REU $000000 is not where the transfer wrapped to");
+
+      ------------------------------------------------------------------------
+      -- The system CPU's SDRAM accesses (LOAD_REU, SAVE_REU) beside a cartridge and the REU
+      ------------------------------------------------------------------------
+      mode('0', '0', '0', "16 MB REU and the system CPU");
+      reset_reu("11");
+      rv_on <= true;
+      setup(16#1000#, 16#123456#, 256);
+      transfer(x"90", "with the CPU STASH", 256);
+      setup(16#3000#, 16#123456#, 256);
+      transfer(x"91", "with the CPU FETCH", 256);
+      compare(16#1000#, 16#3000#, 256, "with the CPU, no cartridge");
+
+      mode('1', '0', '1', "FAST cartridge, REU and the system CPU");
+      reu_traffic("CPU FAST", 16#050000#);
+
+      mode('1', '1', '0', "Ultimax, REU and the system CPU");
+      reu_traffic("CPU Ultimax", 16#060000#);
+
+      rv_on <= false;
+      wait until not rv_busy;
+      write(l, string'("system CPU: ") & integer'image(n_rv_cmd) & " SDRAM accesses, " &
+               integer'image(n_rv_outside) & " outside the window, " & integer'image(n_rv_wrong) &
+               " words read wrong");
+      writeline(output, l);
+      check(n_rv_cmd > 1000, "the system CPU got too few SDRAM accesses");
+      check(n_rv_outside = 0, "the system CPU started an access outside the REU's window");
+      check(n_rv_wrong = 0, "the system CPU read words it hadn't written");
 
       chk_armed <= false;
       wait until rising_edge(clk);

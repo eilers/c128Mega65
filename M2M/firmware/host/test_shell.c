@@ -7,13 +7,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cfg.h"
+#include "config_ids.h"
+#include "core.h"
 #include "ff.h"
+#include "heap.h"
 #include "keys.h"
 #include "m2m_rv.h"
 #include "menu.h"
+#include "reu.h"
+#include "rompick.h"
 #include "roms.h"
 #include "sdcard.h"
 #include "shell.h"
+#include "stores.h"
 
 void host_init(void);
 int  disk_file_open(const char *path);
@@ -26,6 +32,8 @@ static int cluster;                      // bytes
 
 // The cartridge device (C_DEV_CRT) and its CSR (sw_cartridge_csr.vhd, sd_dma.vhd)
 #define CRT_DEV      0x0106
+#define UCI_DEV      0x0109
+#define UCI_REU_MEM  0x011         // where the REU's memory is: bit 15 SDRAM, then its 8 KiB window
 #define CSR_STATUS   0x000
 #define CSR_FS_LO    0x001
 #define CSR_FS_HI    0x002
@@ -109,6 +117,25 @@ static int find_row(const char *s)
    return -1;
 }
 
+// The one Model line marked in a drive's submenu
+static int model_marked(const char *m)
+{
+   static const char *const models[] = { "1541", "1571", "1581", "Internal 1581" };
+   char r[48], line[32];
+   int marked = 0, want = 0;
+   for (int y = 0; y < 33; y++) {
+      row(y, 0, 45, r);
+      for (int i = 0; i < 4; i++) {
+         snprintf(line, sizeof line, "*%s ", models[i]);
+         if (strstr(r, line) && !strstr(r, "ROM")) {
+            marked++;
+            want |= !strcmp(models[i], m);
+         }
+      }
+   }
+   return marked == 1 && want;
+}
+
 static int cursor_row(void)
 {
    for (int y = 0; y < 33; y++)
@@ -153,6 +180,35 @@ static void idle(void)   // past the third of a second after a menu closes
    poll(40000);
 }
 
+// A key of the whole keyboard (MEGA65 key number), with Shift or not
+static void type_key(int k, int shift)
+{
+   uint32_t m[3] = { ~0u, ~0u, ~0u };
+   m[k / 32] &= ~(1u << (k % 32));
+   if (shift)
+      m[0] &= ~(1u << 15);
+   for (int i = 0; i < 3; i++)
+      M2M_MATRIX(i) = m[i];
+   poll(3);
+   for (int i = 0; i < 3; i++)
+      M2M_MATRIX(i) = ~0u;
+   poll(3);
+}
+
+#define K_DEL    0
+#define K_RETURN 1
+
+static void type(const char *s)
+{
+   static const struct { char c; int k; } keys[] = {
+      { '1', 56 }, { '2', 59 }, { '3', 8 }, { '4', 11 }, { '9', 32 }, { '.', 44 }, { 'y', 25 }, { 'x', 23 },
+   };
+   for (; *s; s++)
+      for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++)
+         if (keys[i].c == *s)
+            type_key(keys[i].k, 0);
+}
+
 static int go_to(const char *s)
 {
    for (int i = 0; i < 40; i++) {
@@ -161,6 +217,33 @@ static int go_to(const char *s)
       press(M2M_KEY_DOWN);
    }
    printf("no item \"%s\"\n", s);
+   return 0;
+}
+
+// The cursor onto the line whose text (after its mark) is s, exactly
+static int go_to_line(const char *s)
+{
+   char r[48];
+   for (int i = 0; i < 60; i++) {
+      int y = cursor_row();
+      if (y >= 0) {
+         row(y, 22, 45, r);
+         for (int n = strlen(r); n > 0 && (r[n - 1] == ' ' || r[n - 1] == '|'); )
+            r[--n] = 0;
+         if (!strcmp(r, s))
+            return 1;
+      }
+      press(M2M_KEY_DOWN);
+   }
+   printf("no line \"%s\"\n", s);
+   return 0;
+}
+
+static int mount_item(int d)   // drive d's line, by its group
+{
+   for (int i = 0; i < menu.n; i++)
+      if ((menu.group[i] & MENU_ID) == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8))
+         return i;
    return 0;
 }
 
@@ -252,15 +335,15 @@ static void make_card(uint8_t *file)
    UINT got = 0;
    f_mount(&fs, "", 1);
    f_mkdir("/c128");
-   put_file("/c128/boot0.rom", 0, 4100);
+   put_file("/c128/boot0.rom", 0, 73728);
    put_file("/c128/boot1.rom", 1, 600);
-   put_file("/c128/modem.bin", 2, 1000);
    put_file("/c128/game.crt", 3, 70000);
    put_file("/c128/big.crt", 4, 140000);
    f_mkdir("/c128/Sub");
    put_file("/c128/Sub/x.crt", 5, 3000);
    put_file("/c128/Sub/notes.txt", 6, 10);
    put_file("/c128/Sub/A cartridge with a name far too long for one line.crt", 7, 100);
+   put_file("/c128/ram.reu", 13, 70000);
    put_disk("/c128/game.d64", 8, 174848, NULL, 0);
    put_file("/c128/bad.d64", 9, 1000);
    put_disk("/c128/frag.d71", 10, 349696, "/c128/filler1.bin", 4096);
@@ -285,6 +368,45 @@ static int device_holds(int dev, int file, int size)
       if (M2M_DEV16[i] != pattern(file, i))
          return 0;
    return 1;
+}
+
+// ROMs of 16, 8 and 32 KB, and none, and a boot cartridge. Away from /c128 while other
+// browsers are tested there.
+static void make_roms(void)
+{
+   f_rename("/roms-away", "/c128/roms");
+   f_rename("/carts-away", "/c128/carts");
+   f_mkdir("/c128/roms");
+   put_file("/c128/roms/k16.bin", 20, 16384);
+   put_file("/c128/roms/k8.bin", 21, 8192);
+   put_file("/c128/roms/f32.bin", 22, 32768);
+   put_file("/c128/roms/odd.bin", 23, 1000);
+   f_mkdir("/c128/carts");
+   put_file("/c128/carts/boot.crt", 24, 5000);
+}
+
+// A device from at holds size bytes of a file, from its offset off
+static int dev_at(int dev, int at, int file, int off, int size)
+{
+   M2M_RAMROM_DEV = dev;
+   for (int i = 0; i < size; i++)
+      if (M2M_DEV16[at + i] != pattern(file, off + i))
+         return 0;
+   return 1;
+}
+
+// The settings file holds a line
+static int setting_line(const char *line)
+{
+   static char text[2048];
+   FIL f;
+   UINT got = 0;
+   if (f_open(&f, SETTINGS_FILE, FA_READ) == FR_OK) {
+      f_read(&f, text, sizeof text - 1, &got);
+      f_close(&f);
+   }
+   text[got] = 0;
+   return strstr(text, line) != NULL;
 }
 
 static uint16_t vd_reg(int reg)
@@ -365,23 +487,47 @@ int main(int argc, char **argv)
    uint8_t file[MENU_MAX];
    make_card(file);
    M2M_CSR |= M2M_CSR_SD_DET_EXT | M2M_CSR_SD_ACTIVE;
+   crtrom_csr_set(CRT_DEV, CSR_MAX_HI, 2);            // the cartridge takes up to 128 KB, parses OK
+   crtrom_csr_set(CRT_DEV, CSR_PARSEST, 2);
+   int second = file[0] != 0xFF;                      // the first run left its settings
 
    // Start: ROMs loaded, defaults set, the core out of reset with keyboard and joysticks
    shell_start();
+   uint8_t *fresh = heap_alloc(100);
+   int zero = 1;
+   for (int i = 0; i < 100; i++)
+      zero &= fresh[i] == 0;
+   check(zero, "heap_alloc: zeroed, on HyperRAM that held something");
    check(!(M2M_CSR & M2M_CSR_RESET), "core left reset");
    check((M2M_CSR & (M2M_CSR_KBD | M2M_CSR_JOY1 | M2M_CSR_JOY2)) == 0x38, "keyboard and joysticks on");
    check(device_holds(0x101, 0, 4100), "boot0.rom in its device");
-   check(device_holds(0x102, 1, 600), "boot1.rom in its device");
-   int modem = 1;
-   for (int i = 0; i < 1000; i++)
-      modem &= host_hr[0x1C0 * 4096 + i] == pattern(2, i);
-   check(modem, "modem.bin in HyperRAM, a byte per word");
+   check(second ? dev_at(0x102, 0, 22, 0, 32768) : device_holds(0x102, 1, 600),
+         second ? "drive 8's 1541 ROM picked over boot1.rom" : "boot1.rom in its device");
    M2M_RAMROM_DEV = M2M_DEV_ASCAL_PPHASE;
    check(M2M_DEV16[0] == 0x03E8 && M2M_DEV16[0x100] != 0, "ascal filters loaded");
    check(M2M_CSR & M2M_CSR_ASCAL_AUTO, "ascal follows the core");
+   // The first run left ROMs picked and a boot cartridge in the settings file; the cartridge
+   // loads from the main loop, once the C128 runs
+   if (second) {
+      check(crtrom_csr_get(CRT_DEV, CSR_STATUS) != 3, "start: the boot cartridge not loaded while the core is in reset");
+      core_poll();
+      check(dev_at(0x101, 0x4000, 20, 0, 16384) && dev_at(0x101, 0x18000, 22, 0, 32768) &&
+            crtrom_csr_get(0x101, 0) == 2 && dev_at(0x101, 0x8000, 0, 0x8000, 0x8000),
+            "start: the C128 KERNAL and the function ROM picked, the rest stock");
+      check(dev_at(0x102, 2 * 32768, 20, 0, 16384) && dev_at(0x102, 2 * 32768 + 16384, 20, 0, 16384),
+            "start: drive 8's 1571 ROM picked, twice");
+      check(dev_at(0x102, 32768, 1, 32768, 0) && dev_at(0x101, 0x10000, 0, 0x10000, 8192),
+            "start: drive 9's bank and the characters stock");
+      check(device_holds(CRT_DEV, 24, 5000) && setting_get(item(" CRT file")) && setting_get(item(" CRT:%s")),
+            "start: the boot cartridge loaded, the virtual cartridge the source");
+      check(!setting_get(item(" Hardware")), "start: Hardware not still set beside CRT file");
+      f_rename("/c128/roms", "/roms-away");
+      f_rename("/c128/carts", "/carts-away");
+   }
    int want = 1;
    for (int i = 0; i < menu.n; i++)
-      want &= setting_get(i) == (file[0] == 0xFF ? cfg_get(CFG_OPTM_STDSEL, i) : file[i]);
+      want &= cfg_get(CFG_OPTM_CRTROM, i) || (second && (i == item(" Hardware") || i == item(" CRT file"))) ||
+              setting_get(i) == (file[0] == 0xFF ? cfg_get(CFG_OPTM_STDSEL, i) : file[i]);
    check(want, file[0] == 0xFF ? "settings are config.vhd's defaults (new settings file)" :
                                  "settings from the settings file");
    if (file[0] != 0xFF)
@@ -395,27 +541,52 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 30), "menu window 25x30 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 33), "menu window 25x33 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
-   check(find_row(" 8:<Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive 8 (the start item)");
-   check(find_row(" Model: 1571") > 0, "drive model summary");
+   check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
+   check(find_row(" 9:1571 <Mount Drive>") == 4 && find_row("Drive A") < 0, "drive B's line; no lines of their own for the submenus");
    check(find_row(" Video: Follow 40/80") > 0, "video summary");
    check(find_row(" Cartridge: Hardware") > 0, "cartridge summary");
    check(find_row(" REU: Off") > 0, "REU summary");
 
-   // Into a submenu, pick, and back
-   go_to("Model");
+   // A drive's line is its submenu: its disk, ID, model and ROMs; pick, and back
    press(M2M_KEY_RETURN);
-   dump("drive model submenu");
-   check(find_row("5.25 inch drive") == 1, "submenu headline");
-   check(cursor_on(" 1541"), "cursor on the submenu's first item");
-   check(find_row("*1571") > 0 && find_row("*1541") < 0, "1571 marked");
+   dump("drive A submenu");
+   check(find_row(" Drive A") == 1 && find_row(" Bus ID") > 0 && find_row(" Model") > 0 &&
+         find_row(" 1571 ROM:") > 0, "submenu: its headline, disk, ID, model, ROMs");
+   check(cursor_on(" Disk:<Mount Drive>"), "cursor on its Disk line");
+   check(find_row("*8") > 0 && find_row("*1571") > 0 && find_row("*1541") < 0, "8 and 1571 marked");
+   go_to_line("1541");
    press(M2M_KEY_RETURN);
    check(find_row("*1541") > 0 && find_row("*1571") < 0, "1541 marked, 1571 not");
    check(setting_get(item(" 1541")) && !setting_get(item(" 1571")), "1541 set at once");
    press(M2M_KEY_RUNSTOP);
-   check(find_row(" Model: 1541") > 0 && cursor_on("Model"), "back in the main menu");
+   check(find_row(" 8:1541 <Mount Drive>") > 0 && cursor_on("8:1541"), "back in the main menu: drive A a 1541");
+   // Drive B at 10, then at drive A's 8: they swap, never on one ID
+   go_to("9:");
+   press(M2M_KEY_RETURN);
+   go_to_line("10");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 10:1571 <Mount Drive>") == 4, "drive B at 10");
+   press(M2M_KEY_RETURN);
+   go_to_line("8");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 10:1541 <Mount Drive>") == 3 && find_row(" 8:1571 <Mount Drive>") == 4,
+         "drive B at 8: drive A takes its 10");
+   press(M2M_KEY_RETURN);
+   go_to_line("9");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   go_to("10:");
+   press(M2M_KEY_RETURN);
+   go_to_line("8");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1541 <Mount Drive>") == 3 && find_row(" 9:1571 <Mount Drive>") == 4 && cursor_on("8:1541"),
+         "drives at 8 and 9 again");
 
    // Close: saved, keyboard back after a moment
    press(M2M_KEY_HELP);
@@ -424,7 +595,7 @@ int main(int argc, char **argv)
    check(M2M_CSR & M2M_CSR_KBD, "keyboard back after closing");
    check(saved(item(" 1541")) == 1 && saved(item(" 1571")) == 0 && saved(0) == 0, "settings file saved");
    press(M2M_KEY_HELP);
-   check(cursor_on("Model"), "cursor remembered");
+   check(cursor_on("8:1541"), "cursor remembered");
 
    // Help screen
    go_to("Credits");
@@ -566,9 +737,11 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
 
-   // A disk image for drive 8. Its drive reads it from the card: its table has the SD
-   // block of each 4 KB piece, vdrives the size and type.
+   // A disk image for drive A: its line, then Disk. Its drive reads it from the card: its
+   // table has the SD block of each 4 KB piece, vdrives the size and type.
    go_to("8:");
+   press(M2M_KEY_RETURN);
+   check(cursor_on(" Disk:<Mount Drive>"), "drive A's submenu, on Disk");
    press(M2M_KEY_RETURN);
    dump("disk browser");
    check(find_row("<..>") == 1 && find_row("<Sub>") == 2 && find_row("bad.d64") == 3 &&
@@ -578,14 +751,17 @@ int main(int argc, char **argv)
       press(M2M_KEY_DOWN);
    press(M2M_KEY_RETURN);
    dump("drive 8 mounted");
-   check(find_row("=8:game.d64") > 0 && setting_get(item(" 8:%s")), "menu: 8:game.d64");
+   check(find_row("=Disk:game.d64") > 0 && setting_get(mount_item(0)), "drive A's Disk: game.d64");
    check(vd_reg(VD_DRV_MOUNT) == 1 && vd_reg(VD_SIZE_L) == (174848 & 0xFFFF) && vd_reg(VD_SIZE_H) == 2 &&
          vd_reg(VD_TYPE) == 0, "vdrives: drive 8 mounted, D64 size and type");
    check(crtrom_csr_get(D8_DEV, MAP_CTRL) == 1 && crtrom_csr_get(D8_DEV, MAP_NBLK) == 342 &&
          table_right(D8_DEV, 8, 174848), "drive 8 on: 342 blocks, every one where the table says");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1541 game.d64") == 3, "drive A's line: 8:1541 game.d64");
 
-   // Drive 9: the same image is refused. frag.d71 lies in 4 KB runs.
+   // Drive B: the same image is refused. frag.d71 lies in 4 KB runs.
    go_to("9:");
+   press(M2M_KEY_RETURN);
    press(M2M_KEY_RETURN);
    check(vram(M2M_DEV_VRAM_ATTR, 1, 1) == 0x8B, "drive 9: browsing from the top");
    for (int i = 0; i < 4; i++)
@@ -597,7 +773,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_SPACE);
    press(M2M_KEY_UP);
    press(M2M_KEY_RETURN);
-   check(find_row("=9:frag.d71") > 0 && vd_reg(VD_DRV_MOUNT) == 3 && vd_reg(VD_SIZE_L) == 0x5600 &&
+   check(find_row("=Disk:frag.d71") > 0 && vd_reg(VD_DRV_MOUNT) == 3 && vd_reg(VD_SIZE_L) == 0x5600 &&
          vd_reg(VD_SIZE_H) == 5 && vd_reg(VD_TYPE) == 1, "drive 9: frag.d71, D71 size and type");
    check(crtrom_csr_get(D9_DEV, MAP_NBLK) == 683 && in_pieces(D9_DEV, 349696) &&
          table_right(D9_DEV, 10, 349696), "drive 9: an image in pieces, every block found");
@@ -620,47 +796,300 @@ int main(int argc, char **argv)
    } else
       printf("(%d-byte clusters: no split image)\n", cluster);
    press(M2M_KEY_RUNSTOP);
-   check(find_row("=9:frag.d71") > 0 && crtrom_csr_get(D9_DEV, MAP_CTRL) == 1 &&
+   check(find_row("=Disk:frag.d71") > 0 && crtrom_csr_get(D9_DEV, MAP_CTRL) == 1 &&
          table_right(D9_DEV, 10, 349696), "drive 9 still has frag.d71");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 9:1571 frag.d71") == 4, "drive B's line: 9:1571 frag.d71");
 
-   // Space unmounts; a D81 from a folder; the internal floppy's label
+   // Space on Disk unmounts; a D81 from a folder; the internal floppy
    go_to("8:");
+   press(M2M_KEY_RETURN);
    press(M2M_KEY_SPACE);
-   check(find_row(" 8:<Mount Drive>") > 0 && !setting_get(item(" 8:%s")) && vd_reg(VD_DRV_MOUNT) == 2 &&
+   check(find_row(" Disk:<Mount Drive>") > 0 && !setting_get(mount_item(0)) && vd_reg(VD_DRV_MOUNT) == 2 &&
          crtrom_csr_get(D8_DEV, MAP_CTRL) == 0, "Space unmounts drive 8");
    press(M2M_KEY_RETURN);                              // drive 9 browsed last: from the top
    press(M2M_KEY_DOWN);
    press(M2M_KEY_RETURN);
    press(M2M_KEY_DOWN);
    press(M2M_KEY_RETURN);
-   check(find_row("=8:disk.d81") > 0 && vd_reg(VD_TYPE) == 2 && crtrom_csr_get(D8_DEV, MAP_NBLK) == 1600 &&
+   check(find_row("=Disk:disk.d81") > 0 && vd_reg(VD_TYPE) == 2 && crtrom_csr_get(D8_DEV, MAP_NBLK) == 1600 &&
          table_right(D8_DEV, 12, 819200), "drive 8: disk.d81 from Sub, a 1581");
-   go_to("Internal 1581");
+   go_to_line("Internal 1581");
    press(M2M_KEY_RETURN);
-   go_to("Drive 8");
+   check(find_row("=Disk:Internal 1581") > 0, "drive A is the internal floppy");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1581 Internal") == 3, "its line");
+   go_to("9:");
+   press(M2M_KEY_RETURN);
+   go_to_line("Internal 1581");
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
-   check(find_row("=8:Internal 1581") > 0, "drive 8 is the internal floppy");
+   check(find_row(" 9:1581 Internal") == 4 && find_row(" 8:1581 disk.d81") == 3 && stores_drive_model(0) == DM_1581,
+         "then drive B: drive A a 1581 of images again");
+   press(M2M_KEY_RETURN);
+   go_to("Disk:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   dump("drive B, frag.d71 again");
+   check(find_row("=Disk:frag.d71") > 0 && stores_drive_model(1) == DM_1571 && model_marked("1571"),
+         "choosing an image gives drive B back to images: a 1571 for its D71");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1581 disk.d81") == 3 && find_row(" 9:1571 frag.d71") == 4, "drive A a 1581, drive B a 1571");
+
+   // A D64 into a 1581: the drive becomes a 1571, its line and its submenu
    go_to("8:");
    press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   for (int i = 0; i < 4; i++)
+      press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   dump("a D64 into the 1581");
+   check(find_row("=Disk:game.d64") > 0 && stores_drive_model(0) == DM_1571 && model_marked("1571"),
+         "a D64 into drive A's 1581: a 1571 in its submenu");
    press(M2M_KEY_RUNSTOP);
-   check(find_row("=8:disk.d81") > 0 && find_row(" Internal 1581: Off") > 0,
-         "choosing an image gives drive 8 back to images");
+   check(find_row(" 8:1571 game.d64") == 3, "and on its line");
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   go_to_line("1541");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1541 game.d64") == 3 && stores_drive_model(0) == DM_1541, "a 1541 for its D64: yes");
+
+   // A model its image can't run ejects the image
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   go_to_line("1581");
+   press(M2M_KEY_RETURN);
+   dump("a 1581 for the D64");
+   check(stores_drive_model(0) == DM_1581 && model_marked("1581") && find_row(" Disk:<Mount Drive>") > 0 &&
+         !(vd_reg(VD_DRV_MOUNT) & 1) && crtrom_csr_get(D8_DEV, MAP_CTRL) == 0, "a 1581 for its D64: the D64 ejected");
+   go_to_line("1541");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1541 <Mount Drive>") == 3 && stores_drive_model(0) == DM_1541, "drive A a 1541, no disk");
 
    // A drive unmounted behind the menu's back (a reset)
    M2M_RAMROM_DEV = VD_DEV;
    M2M_DEV16[VD_DRV_MOUNT] &= ~2;
    poll(2);
-   check(find_row(" 9:<Mount Drive>") > 0 && !setting_get(item(" 9:%s")), "unmount by a reset followed");
-   go_to("8:");
-   press(M2M_KEY_SPACE);
+   check(find_row(" 9:1571 <Mount Drive>") == 4 && !setting_get(mount_item(1)), "unmount by a reset followed");
+
+   // A mount from a C128 program (the UCI's DOS target) while the menu is open: the
+   // drive's line and setting follow at once
+   const char *msg;
+   check(shell_mount(1, "/c128/game.d64", &msg) == 0 && (vd_reg(VD_DRV_MOUNT) & 2) &&
+         find_row(" 9:1571 game.d64") == 4 && setting_get(mount_item(1)), "shell_mount: drive 9, shown");
+   shell_unmount(1);
+   check(!(vd_reg(VD_DRV_MOUNT) & 2) && find_row(" 9:1571 <Mount Drive>") == 4 && !setting_get(mount_item(1)),
+         "shell_unmount: drive 9, shown");
 
    // R3-memory builds have no 2 MB and 16 MB REU
    go_to("REU");
    press(M2M_KEY_RETURN);
-   int r3 = menu.n < 118;
+   int r3 = strstr(argv[1], "_r3") != NULL;
    check(find_row(" 512 KB") > 0 && (find_row(" 2 MB") > 0) != r3 && (find_row(" 16 MB") > 0) != r3,
          r3 ? "REU: Off and 512 KB" : "REU: Off, 512 KB, 2 MB, 16 MB");
+
+   // The REU's file: only .reu files; with the REU off, a message
+   M2M_RAMROM_DEV = UCI_DEV;
+   M2M_DEV16[UCI_REU_MEM] = r3 ? 0x0080 : 0x8800;      // HyperRAM at 1 MB, or SDRAM at 16 MB
+   uint8_t *reu = r3 ? (uint8_t *)host_hr + 0x0080 * 8192 : (uint8_t *)host_sr + 0x0800 * 8192;
+   go_to("File:");
+   check(find_row(" File:<Load>") > 0, "REU file: none yet");
+   press(M2M_KEY_RETURN);
+   check(find_row("ram.reu") > 0 && find_row("game.crt") < 0, "browser: only .reu files");
+   go_to("ram.reu");
+   press(M2M_KEY_RETURN);
+   dump("REU off");
+   check(find_row("The REU is off") > 0, "REU file with the REU off: its message");
+   press(M2M_KEY_SPACE);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" File:<Load>") > 0 && !reu_file_picked(), "nothing picked");
+
+   // 512 KB: the file goes into the REU's memory at once, and LOAD_REU/SAVE_REU use it
+   go_to("512 KB");
+   press(M2M_KEY_RETURN);
+   memset(reu, 0xEE, 80000);
+   go_to("File:");
+   press(M2M_KEY_RETURN);
+   go_to("ram.reu");
+   press(M2M_KEY_RETURN);
+   dump("REU file loaded");
+   int same = 1;
+   for (int i = 0; i < 70000; i++)
+      same &= reu[i] == pattern(13, i);
+   check(same && reu[70000] == 0xEE, "ram.reu in the REU's memory, nothing past it");
+   check(find_row("=File:ram.reu") > 0 && !strcmp(reu_file(), "/c128/ram.reu"), "menu: File:ram.reu");
+   // LOAD_CONFIG's REU Preload Image names one without the browser (uci_ctrl.c), or none
+   reu_file_set("/c128/other.reu");
+   shell_crtrom_named(OPTM_G_REU_FILE, "/c128/other.reu");
+   check(find_row("=File:other.reu") > 0, "a file named without the browser: on its line at once");
+   reu_file_set(NULL);
+   shell_crtrom_named(OPTM_G_REU_FILE, NULL);
+   check(find_row(" File:<Load>") > 0, "and none");
+   go_to("Off");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+
+   // The Network submenu: no address yet (no network turn here); a host name typed in its
+   // line, an address refused, then one that turns DHCP off; Run/Stop keeps the old text.
+   // Typed settings go into the settings file at once.
+   for (int i = 0; i < 3; i++)
+      M2M_MATRIX(i) = ~0u;
+   check(find_row(" Net: no address") > 0, "network summary");
+   go_to("Net:");
+   press(M2M_KEY_RETURN);
+   dump("network");
+   check(find_row("=REST API") > 0 && find_row("=DHCP") > 0 && find_row(" Host:c128-mega65") > 0 &&
+         find_row(" Password:<none>") > 0 && find_row(" IP:<none>") > 0, "network submenu");
+   go_to("Host:");
+   press(M2M_KEY_RETURN);
+   int y = find_row(" Host:c128-mega65_");
+   check(y > 0 && vram(M2M_DEV_VRAM_ATTR, 21, y) == 0x8B, "host name: its field, inverted");
+   for (int i = 0; i < 5; i++)
+      type_key(K_DEL, 0);
+   type("y");
+   type_key(23, 1);                                    // Shift X
+   check(find_row(" Host:c128-myX_") > 0, "host name: typed");
+   type_key(K_RETURN, 0);
+   check(find_row(" Host:c128-myX_") > 0, "host name: Return on the matrix alone does nothing");
+   press(M2M_KEY_RETURN);
+   check(find_row(" Host:c128-myX") > 0 && find_row("_") < 0 && cursor_on("Host:"), "host name: kept");
+   go_to("IP:");
+   press(M2M_KEY_RETURN);
+   check(find_row(" IP:_") > 0, "address: empty while DHCP has none");
+   type("1.2");
+   press(M2M_KEY_RETURN);
+   check(find_row(" IP:not an address") > 0, "address: 1.2 refused");
+   type(".3.4");
+   check(find_row(" IP:1.2.3.4_") > 0, "address: typing goes on");
+   // One Return as the hardware gave it: the whole keyboard's copy a round before the menu
+   // keys'. It ends the field once; the menu doesn't open it again.
+   M2M_MATRIX(0) = ~(1u << K_RETURN);
+   poll(1);
+   M2M_KEYS = ~M2M_KEY_RETURN & 0xFFFF;
+   poll(3);
+   M2M_MATRIX(0) = ~0u;
+   M2M_KEYS = 0xFFFF;
+   poll(3);
+   check(find_row(" IP:1.2.3.4") > 0 && find_row("_") < 0 && find_row("=DHCP") < 0 &&
+         !shell_setting(OPTM_G_NET_DHCP, 0), "address: kept once, DHCP off");
+   check(find_row(" Mask:255.255.255.0") > 0, "mask: the static one now");
+   go_to("Mask:");
+   press(M2M_KEY_RETURN);
+   type("9");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" Mask:255.255.255.0") > 0 && cursor_on("Mask:"), "Run/Stop: the old text");
+   check(setting_line("[Ethernet Settings]\nStatic IP=1.2.3.4\nStatic Netmask=255.255.255.0\n"
+                      "Static Gateway=192.168.2.1\nStatic DNS=8.8.8.8\n[Network Settings]\n"
+                      "Host Name=c128-myX\nNetwork Password=\n"), "settings file: the network");
+   go_to("DHCP");
+   press(M2M_KEY_RETURN);
+   check(find_row("=DHCP") > 0 && find_row(" IP:<none>") > 0, "DHCP on again: its address");
+   press(M2M_KEY_RUNSTOP);
+   f_unlink(SETTINGS_FILE);
+   stores_net_defaults();
+
+   // The System ROMs submenu: all stock, whatever the start picked
+   make_roms();
+   for (int p = 0; p < RP_COUNT; p++)
+      rompick_set(p, rompick_default(p));
+   rompick_apply((1u << RP_COUNT) - 1);
+   check(find_row(" System ROMs: Stock") > 0, "System ROMs summary: stock");
+   go_to("System ROMs:");
+   press(M2M_KEY_RETURN);
+   dump("System ROMs");
+   check(find_row(" C128 KERNAL:Stock") > 0 && find_row(" Function ROM:None") > 0 && find_row("1571 ROM:") < 0 &&
+         find_row(" Space: back to stock") > 0, "System ROMs submenu: no drive ROMs");
+   // A line browses /c128/roms, never above it, and shows only files of its size
+   go_to("C128 KERNAL:");
+   press(M2M_KEY_RETURN);
+   dump("C128 KERNAL browser");
+   check(find_row("<..>") < 0 && find_row("k16.bin") == 1 && find_row("k8.bin") < 0 && find_row("f32.bin") < 0 &&
+         find_row("odd.bin") < 0, "C128 KERNAL browser: /c128/roms, 16 KB files only");
+   M2M_RAMROM_DEV = 0x010C;                           // the bus DMA's hold, the UCI's reboot
+   M2M_DEV16[0] = 0;
+   M2M_RAMROM_DEV = 0x0109;
+   M2M_DEV16[0x010] = 0;
+   press(M2M_KEY_RETURN);
+   dump("C128 KERNAL picked");
+   M2M_RAMROM_DEV = 0x010C;
+   int held = M2M_DEV16[0] == 1;
+   M2M_RAMROM_DEV = 0x0109;
+   check(held && M2M_DEV16[0x010] == 2, "C128 KERNAL picked: the CPU held by DMA, then the reset button");
+   check(find_row("=C128 KERNAL:k16.bin") > 0 && dev_at(0x101, 0x4000, 20, 0, 16384) &&
+         dev_at(0x101, 0, 0, 0, 0x4000) && !(M2M_CSR & M2M_CSR_RESET), "C128 KERNAL picked: in ROM4, the C128 started again");
+   check(setting_line("[C128 ROM Settings]\nC128 Kernal ROM=k16.bin\n") &&
+         setting_line("Host Name=c128-mega65\n"), "C128 KERNAL picked: kept at once");
+   press(M2M_KEY_SPACE);
+   check(find_row(" C128 KERNAL:Stock") > 0 && dev_at(0x101, 0x4000, 0, 0x4000, 16384) &&
+         setting_line("C128 Kernal ROM=\n"), "Space: stock again, kept");
+   // The function ROM: 16 or 32 KB, its size to the hardware
+   go_to("Function ROM:");
+   press(M2M_KEY_RETURN);
+   check(find_row("f32.bin") == 1 && find_row("k16.bin") == 2 && find_row("k8.bin") < 0, "function ROM browser: 16 and 32 KB");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Function ROM:f32.bin") > 0 && dev_at(0x101, 0x18000, 22, 0, 32768) && crtrom_csr_get(0x101, 0) == 2,
+         "function ROM: at 0x18000, 32 KB");
+   // Drive A's 1571 ROM, in its submenu: its bank twice; no reload, the drive runs a 1541 now
+   press(M2M_KEY_RUNSTOP);
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   crtrom_csr_set(0x102, 0, 0);
+   go_to("1571 ROM:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_DOWN);
+   press(M2M_KEY_RETURN);
+   dump("drive ROM picked");
+   check(find_row("=1571 ROM:k16.bin") > 0 && dev_at(0x102, 2 * 32768, 20, 0, 16384) &&
+         dev_at(0x102, 2 * 32768 + 16384, 20, 0, 16384) && crtrom_csr_get(0x102, 0) == 0,
+         "drive A's 1571 ROM: its bank, twice, no reload");
+   // Its 1541 ROM, which it runs: a reload
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   check(find_row("=1541 ROM:f32.bin") > 0 && dev_at(0x102, 0, 22, 0, 32768) && crtrom_csr_get(0x102, 0) == 1,
+         "drive A's 1541 ROM: its bank, reloaded");
+   press(M2M_KEY_RUNSTOP);
+   go_to("System ROMs:");
+   press(M2M_KEY_RETURN);
+   // No /c128/roms: a message, then the menu
+   f_rename("/c128/roms", "/c128/roms-gone");
+   go_to("C128 BASIC:");
+   press(M2M_KEY_RETURN);
+   dump("no ROMs folder");
+   check(find_row("No ROM files of 32 KB in /c128/roms.") > 0, "no ROMs folder: its message");
+   press(M2M_KEY_SPACE);
+   check(find_row(" C128 BASIC:Stock") > 0 && cursor_on("C128 BASIC:"), "no ROMs folder: back in the menu");
+   f_rename("/c128/roms-gone", "/c128/roms");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" System ROMs: Custom") > 0, "System ROMs summary: custom");
+   // The boot cartridge: a .crt from /c128/carts, kept; loaded at the next start
+   go_to("Cartridge");
+   press(M2M_KEY_RETURN);
+   go_to("Boot:");
+   check(find_row(" Boot:<None>") > 0, "boot cartridge: none");
+   press(M2M_KEY_RETURN);
+   check(find_row("<..>") < 0 && find_row("boot.crt") == 1, "boot cartridge browser: /c128/carts");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Boot:boot.crt") > 0 && setting_line("Cartridge=boot.crt\n"), "boot cartridge: picked, kept");
+   check(find_row(" Space clears Boot") == find_row("=Boot:boot.crt") + 1, "boot cartridge: the Space hint below it");
+   press(M2M_KEY_SPACE);
+   check(find_row(" Boot:<None>") > 0 && setting_line("[C64 and Cartridge Settings]\nCartridge=\n"),
+         "boot cartridge: Space clears it, kept");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   check(find_row("=Boot:boot.crt") > 0, "boot cartridge: picked again");
+   press(M2M_KEY_RUNSTOP);
+   // Picked again for the next run, which checks them at its start
+   go_to("System ROMs:");
+   press(M2M_KEY_RETURN);
+   go_to("C128 KERNAL:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   check(setting_line("C128 Kernal ROM=k16.bin\n") && setting_line("Internal Function ROM=f32.bin\n") &&
+         setting_line("[Drive A Settings]\nROM for 1541 mode=f32.bin\nROM for 1571 mode=k16.bin\n"),
+         "the settings file for the next run");
    press(M2M_KEY_RUNSTOP);
 
    // Close Menu: next time from the start item
@@ -671,10 +1100,10 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    check(cursor_on("8:"), "cursor back on the start item");
 
-   // Leave the drive model as it was and the IEC port off, for the next run
-   go_to("Model");
+   // Leave drive A's model as it was and the IEC port off, for the next run
+   go_to("8:");
    press(M2M_KEY_RETURN);
-   go_to("1571");
+   go_to_line("1571");
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
    go_to("Use IEC port");

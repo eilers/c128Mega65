@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Makes FAT images with macOS's own formatter (hdiutil, no root needed), with an MBR as
-# on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw and
-# test_mon; then test_shell against config.vhd as CORE/scripts/run_config_nvc.sh dumps it
-# (nvc).
-# usage: run.sh build-dir   (holds test_boot and test_fw; ../build/firmware.bin must exist)
+# on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw, test_mon,
+# test_http, test_modem, test_uci and test/uci's programs (test_prg); then test_shell
+# against config.vhd as CORE/scripts/run_config_nvc.sh dumps it (nvc).
+# usage: run.sh build-dir   (holds the tests; ../build/firmware.bin must exist)
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -38,6 +38,56 @@ head -c 1048576 /dev/zero > "$files/blank.img"
 "$out/test_boot" "$files"
 "$out/test_fw" "$files/fat32.img"
 "$out/test_mon"
+cp "$files/fat32.img" "$files/http.img"
+"$out/test_http" "$files/http.img"
+for c in at http bulk telnet download download-pause bulk-stall download-stall trickle; do
+   "$out/test_modem" $c > "$out/modem-$c.log" || { cat "$out/modem-$c.log"; exit 1; }
+   tail -n 1 "$out/modem-$c.log"
+done
+cp "$files/fat32.img" "$files/uci.img"
+"$out/test_uci" "$files/uci.img"
+for prg in ucitest ucitest64 ucidos ucidos64 ucictrl ucictrl64; do   # test/uci's programs, on a 6502
+   cp "$files/fat32.img" "$files/prg.img"
+   "$out/test_prg" "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg.log" ||
+      { cat "$out/$prg.log"; exit 1; }
+   t=$(tail -n 1 "$out/$prg.log")
+   echo "test_prg $prg: ALL PASSED, ${t#test_prg: }"
+done
+for reu in -reu -reu16; do   # a 512 KB or 16 MB REU, its files by the CPU, then by reu_sd.vhd's DMA
+   for dma in "" -dma; do
+      for prg in ucireu ucireu64; do
+         cp "$files/fat32.img" "$files/prg.img"
+         "$out/test_prg" $reu $dma "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg$reu$dma.log" ||
+            { cat "$out/$prg$reu$dma.log"; exit 1; }
+         t=$(tail -n 1 "$out/$prg$reu$dma.log")
+         echo "test_prg $prg $reu $dma: ALL PASSED, ${t#test_prg: }"
+      done
+   done
+done
+for opt in "" -reu -reu16 "-reu -r3" -blink; do   # REU off, 512 KB, 16 MB; R3's menu; an Ultimate's gap
+   for prg in ucicfg ucicfg64; do
+      log="$out/$prg${opt// /}.log"
+      cp "$files/fat32.img" "$files/prg.img"
+      "$out/test_prg" $opt "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$log" || { cat "$log"; exit 1; }
+      t=$(tail -n 1 "$log")
+      echo "test_prg $prg $opt: ALL PASSED, ${t#test_prg: }"
+   done
+done
+for prg in ucinet ucinet64; do   # host_net.c's peer, twice with a reset of the C128 between; no peer
+   cp "$files/fat32.img" "$files/prg.img"
+   "$out/test_prg" -keys 10.0.0.1 -twice "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg.log" &&
+      "$out/test_prg" "$files/prg.img" "$here/../../../test/uci/$prg.prg" > "$out/$prg-alone.log" ||
+      { cat "$out/$prg.log" "$out/$prg-alone.log"; exit 1; }
+   t=$(tail -n 1 "$out/$prg.log")
+   echo "test_prg $prg, with a reset, and without a peer: ALL PASSED, ${t#test_prg: }"
+done
+for prg in ucidos ucidos64; do   # a run cut short after the D64, as by a reset, then a whole one
+   cp "$files/fat32.img" "$files/prg.img"
+   "$out/test_prg" "$files/prg.img" "$here/../../../test/uci/$prg.prg" "WRITE UCITEST.D64 PASS" \
+      > "$out/$prg-cut.log" && "$out/test_prg" "$files/prg.img" \
+      "$here/../../../test/uci/$prg.prg" >> "$out/$prg-cut.log" || { cat "$out/$prg-cut.log"; exit 1; }
+   echo "test_prg $prg after a run cut short: ALL PASSED"
+done
 "$here/../../../CORE/scripts/run_config_nvc.sh" "$out/config_nvc" > "$out/config_nvc.log" 2>&1 ||
    { cat "$out/config_nvc.log"; exit 1; }
 for dump in config_dump.txt config_dump_r3.txt; do
