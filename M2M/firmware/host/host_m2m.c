@@ -68,4 +68,6 @@ void host_init(void)
    host_sr = area((1u << 25) * 2);
    host_regs[0] = 0x0839;                // C_CSR_DEFAULT: in reset, keyboard and joysticks on
    host_regs[6] = 0xFFFF;                // no key held
+   for (int i = 8; i < 11; i++)
+      host_regs[i] = ~0u;                // nor in the matrix (M2M_MATRIX, low active)
 }

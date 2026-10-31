@@ -196,11 +196,14 @@ static void type_key(int k, int shift)
 
 #define K_DEL    0
 #define K_RETURN 1
+#define K_F5     6
 
 static void type(const char *s)
 {
    static const struct { char c; int k; } keys[] = {
       { '1', 56 }, { '2', 59 }, { '3', 8 }, { '4', 11 }, { '9', 32 }, { '.', 44 }, { 'y', 25 }, { 'x', 23 },
+      { '0', 35 }, { '6', 19 }, { '8', 27 }, { 'a', 10 }, { 'b', 28 }, { 'd', 18 }, { 'k', 37 }, { 'l', 42 },
+      { 'n', 39 }, { ',', 47 },
    };
    for (; *s; s++)
       for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++)
@@ -384,6 +387,27 @@ static int make_card(uint8_t *bits)
    }
    f_unmount("");
    return got != 0;
+}
+
+// A new disk image: its size, zeros before its header block (the DOS version at 2, the name
+// at name and the id 18 bytes on), and the first directory block at dir
+static int empty_disk(const char *path, int size, int header, int dos, int name, int dir,
+                      const char *title, const char *id)
+{
+   static uint8_t b[819200 + 1];
+   FIL f;
+   UINT got = 0;
+   int n = strlen(title);
+   if (f_open(&f, path, FA_READ) != FR_OK)
+      return 0;
+   f_read(&f, b, sizeof b, &got);
+   f_close(&f);
+   for (int i = 0; i < header; i++)
+      if (b[i])
+         return 0;
+   const uint8_t *h = b + header;
+   return (int)got == size && h[2] == dos && !memcmp(h + name, title, n) && h[name + n] == 0xA0 &&
+          !memcmp(h + name + 18, id, 2) && h[dir + 1] == 0xFF;
 }
 
 static int device_holds(int dev, int file, int size)
@@ -976,6 +1000,68 @@ int main(int argc, char **argv)
    check(!(vd_reg(VD_DRV_MOUNT) & 2) && find_row(" 9:1571 <Mount Drive>") == 4 && !setting_get(mount_item(1)),
          "shell_unmount: drive 9, shown");
 
+   // F5 in a drive's browser: a new, empty disk of the type the drive runs, made in the
+   // folder and mounted. A name's extension picks another type; a taken name is refused.
+   go_to("9:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   check(find_row("F5: New D71 disk") == 32, "drive B's browser: F5 for a new D71 (a 1571)");
+   press(M2M_KEY_RUNSTOP);
+   press(M2M_KEY_RUNSTOP);
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   dump("drive A's browser, F5's hint");
+   check(find_row("F5: New D64 disk") == 32, "drive A's browser: F5 for a new D64 (a 1541)");
+   type_key(K_F5, 0);
+   check(find_row("New D64 disk: _") == 31 && find_row(".d64, .d71 or .d81 picks the type") == 32,
+         "F5: the name's line, and the tip");
+   type("blank,01");
+   press(M2M_KEY_RETURN);
+   dump("blank_01.d64 made");
+   check(find_row("=Disk:blank_01.d64") > 0 && (vd_reg(VD_DRV_MOUNT) & 1) &&
+         vd_reg(VD_SIZE_L) == (174848 & 0xFFFF) && vd_reg(VD_TYPE) == 0, "blank_01.d64 made, in drive A");
+   check(empty_disk("/c128/blank_01.d64", 174848, 357 * 256, 0x41, 0x90, 256, "BLANK", "01"),
+         "blank_01.d64: an empty D64, BLANK with id 01");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1541 blank_01.d64") == 3, "drive A's line: 8:1541 blank_01.d64");
+
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   int made = find_row("blank_01.d64");
+   check(made > 0 && vram(M2M_DEV_VRAM_ATTR, 1, made) == 0x8B, "the browser again: the cursor on blank_01.d64");
+   type_key(K_F5, 0);
+   type("blank,01");
+   press(M2M_KEY_RETURN);
+   check(find_row("There is a file of that name here already.") == 31, "a taken name refused");
+   for (int i = 0; i < 3; i++)
+      type_key(K_DEL, 0);
+   type(".d81");
+   check(find_row("New D81 disk: blank.d81_") == 31, "a name ending in .d81: a D81");
+   press(M2M_KEY_RETURN);
+   dump("blank.d81 made");
+   check(find_row("=Disk:blank.d81") > 0 && vd_reg(VD_TYPE) == 2 && stores_drive_model(0) == DM_1581 &&
+         model_marked("1581"), "blank.d81 made, in drive A, a 1581 now");
+   check(empty_disk("/c128/blank.d81", 819200, 1560 * 256, 0x44, 4, 3 * 256, "BLANK", "\xA0\xA0"),
+         "blank.d81: an empty D81, BLANK without an id");
+
+   // Run/Stop, and Return without a name, go back to the list
+   press(M2M_KEY_RETURN);
+   type_key(K_F5, 0);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row("F5: New D81 disk") == 32 && find_row("New D81 disk:") < 0, "Run/Stop: the list again");
+   type_key(K_F5, 0);
+   press(M2M_KEY_RETURN);
+   check(find_row("F5: New D81 disk") == 32 && find_row("New D81 disk:") < 0, "Return without a name: the list again");
+   press(M2M_KEY_RUNSTOP);
+   shell_unmount(0);                                    // as the first run found it, for the second
+   go_to_line("1541");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1541 <Mount Drive>") == 3 && f_unlink("/c128/blank_01.d64") == FR_OK &&
+         f_unlink("/c128/blank.d81") == FR_OK, "drive A a 1541 without a disk again, the new disks gone");
+
    // R3-memory builds have no 2 MB and 16 MB REU
    go_to("REU");
    press(M2M_KEY_RETURN);
@@ -991,6 +1077,7 @@ int main(int argc, char **argv)
    check(find_row(" File:<Load>") > 0, "REU file: none yet");
    press(M2M_KEY_RETURN);
    check(find_row("ram.reu") > 0 && find_row("game.crt") < 0, "browser: only .reu files");
+   check(find_row("F5:") < 0, "browser: no F5 for the REU's file");
    go_to("ram.reu");
    press(M2M_KEY_RETURN);
    dump("REU off");

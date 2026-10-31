@@ -9,6 +9,7 @@
 #define CTX_MOUNT_DISKIMG  0x0100
 #define CTX_LOAD_ROM       0x0200
 #define CMSG_BROWSENOTHING 1
+#define CMSG_NEWFILE       2      // the tip on the frame while a new file is named
 
 // The submenu headline at menu index idx: a whole new line, or NULL for the standard one
 const char *core_submenu_summary(int idx);
@@ -26,6 +27,11 @@ const char *core_browse_root(int ctx, int group);
 int         core_prep_load(uint32_t size, int ctx, int group, int *type, const char **msg);
 // A message for a situation (CMSG_*) of the browser for a menu group, or NULL for the standard one
 const char *core_custom_msg(int situation, int ctx, int group);
+// File browser, F5: a new file for the item of group. Its kind as the browser shows it ("New
+// D71 disk") for the name typed so far, or NULL if the item has no new files.
+const char *core_new_file_label(int ctx, int group, const char *typed);
+// Make it in folder ("" the root): NULL and its name on the card in name, or why not (a line)
+const char *core_new_file(int ctx, int group, const char *folder, const char *typed, char *name, int size);
 // A menu item of the core's own type (C_CRTROMTYPE_CORE; dev is its second word in
 // C_CRTROMS_MAN): load the file picked for it, after core_prep_load, with roms.h's
 // crtrom_progress for the bar: 0, or an error code and *msg. And whether it holds a file.

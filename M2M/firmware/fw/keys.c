@@ -46,7 +46,7 @@ uint32_t keys_get(void)
 // shifted, as the keycaps show them; 0 for none. Not Return and Run/Stop: they are menu keys
 // (keys_get), and the two paths can see one press a round apart.
 static const char plain[KEYS] = {
-   [0] = KEY_DEL, [51] = KEY_CLR, [71] = KEY_ESC,
+   [0] = KEY_DEL, [6] = KEY_F5, [51] = KEY_CLR, [71] = KEY_ESC,
    [8] = '3', [9] = 'w', [10] = 'a', [11] = '4', [12] = 'z', [13] = 's', [14] = 'e',
    [16] = '5', [17] = 'r', [18] = 'd', [19] = '6', [20] = 'c', [21] = 'f', [22] = 't', [23] = 'x',
    [24] = '7', [25] = 'y', [26] = 'g', [27] = '8', [28] = 'b', [29] = 'h', [30] = 'u', [31] = 'v',
