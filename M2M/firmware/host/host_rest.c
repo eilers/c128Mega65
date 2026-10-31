@@ -190,7 +190,7 @@ int shell_item(int group, int pos) { return pos < 4 ? pos : -1; }
 
 void shell_force(int group, int pos, int on)
 {
-   if (on && group != OPTM_G_UCI && group != OPTM_G_NET_DHCP && group != OPTM_G_NET_REST)
+   if (on && group != OPTM_G_UCI && group != OPTM_G_NET_DHCP && group != OPTM_G_NET_REST && group != OPTM_G_NET_FTP)
       memset(settings[group], 0, sizeof settings[group]);
    settings[group][pos] = on;
 }
@@ -430,7 +430,7 @@ void host_rest_init(void)
       crt_mem = calloc(4 << 20, sizeof *crt_mem);
    }
    memset(settings, 0, sizeof settings);
-   settings[OPTM_G_NET_REST][0] = settings[OPTM_G_NET_DHCP][0] = 1;
+   settings[OPTM_G_NET_REST][0] = settings[OPTM_G_NET_FTP][0] = settings[OPTM_G_NET_DHCP][0] = 1;
    settings[OPTM_G_DRVA_MODEL][1] = settings[OPTM_G_DRVB_MODEL][1] = 1;   // 1571
    settings[OPTM_G_DRVA_ID][0] = settings[OPTM_G_DRVB_ID][1] = 1;         // 8, 9
    memcpy(saved, settings, sizeof saved);

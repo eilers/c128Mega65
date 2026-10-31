@@ -39,9 +39,16 @@ uint16_t uci_reu_mem(void);       // where the REU's memory is (uci.vhd word 0x0
 // never had it
 int      uci_reu_set(int pos);
 
-// A whole path from a command (from the root, as Gideon's fopen takes it) as the card's
-// FatFs path, in out (UCI_PATH_MAX); NULL outside the card (uci_dos.c)
+// Paths as Gideon's Path has them (dos_path.c). uci_resolve: name, from the folder cwd (ending
+// in '/'), as a whole path in out (UCI_PATH_MAX) without a '/' at the end, the root ""; 0 if
+// too long. uci_on_card: a whole path's part on the card, for FatFs ("/" for SD itself), or
+// NULL outside SD. uci_card_path: a whole path from a command (from the root, as Gideon's
+// fopen takes it) as the card's FatFs path, in out; NULL outside the card.
+int         uci_resolve(const char *cwd, const char *name, char *out);
+const char *uci_on_card(const char *p);
 const char *uci_card_path(const char *name, char *out);
+// The clock's year, for the FTP server's listings (uci_dos.c)
+int         uci_year(void);
 // Gideon's FileSystem::get_error_string for a FatFs result, as a status without a number
 const char *uci_fr_text(int fresult);
 

@@ -1,9 +1,14 @@
-// FatFs's disk layer on the host: a disk image file.
+// FatFs's disk layer on the host: a disk image file. disk_idle after every sector, as
+// lib/diskio.c has it, where the firmware's network takes a turn (test_ftp's does too).
 #include <stdio.h>
 #include "ff.h"
 #include "diskio.h"
 
 static FILE *img;
+
+__attribute__((weak)) void disk_idle(void)
+{
+}
 
 int disk_file_open(const char *path)
 {
@@ -27,8 +32,11 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
    if (pdrv || !img)
       return RES_NOTRDY;
-   if (fseek(img, (long)sector * 512, SEEK_SET) || fread(buff, 512, count, img) != count)
-      return RES_ERROR;
+   for (; count; count--, sector++, buff += 512) {
+      if (fseek(img, (long)sector * 512, SEEK_SET) || fread(buff, 512, 1, img) != 1)
+         return RES_ERROR;
+      disk_idle();
+   }
    return RES_OK;
 }
 
@@ -37,8 +45,11 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
    if (pdrv || !img)
       return RES_NOTRDY;
-   if (fseek(img, (long)sector * 512, SEEK_SET) || fwrite(buff, 512, count, img) != count)
-      return RES_ERROR;
+   for (; count; count--, sector++, buff += 512) {
+      if (fseek(img, (long)sector * 512, SEEK_SET) || fwrite(buff, 512, 1, img) != 1)
+         return RES_ERROR;
+      disk_idle();
+   }
    return RES_OK;
 }
 #endif

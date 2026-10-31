@@ -444,6 +444,7 @@ void http_listen(int on)
       struct tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
       if (!pcb)
          return;
+      ip_set_option(pcb, SOF_REUSEADDR);  // the menu's REST API back on while old connections wait
       if (tcp_bind(pcb, IP_ANY_TYPE, PORT) != ERR_OK) {
          tcp_close(pcb);
          return;

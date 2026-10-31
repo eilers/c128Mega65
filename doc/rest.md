@@ -23,7 +23,7 @@ firmware does, byte for byte, because tools parse his answers.
 | Route | Answer |
 |---|---|
 | `GET /v1/version` | `0.1`, as his |
-| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`106`), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. No `core_version`, so his tests take it for a U2 (a cartridge) and check it against his U2 document; no `wifi_mac` |
+| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`108`), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. No `core_version`, so his tests take it for a U2 (a cartridge) and check it against his U2 document; no `wifi_mac` |
 | `GET /v1/help?command=` | his fixed page |
 | `PUT /v1/machine:reset`, `:reboot` | the reset button, as UCI's REBOOT; a pause ends with it |
 | `PUT /v1/machine:pause`, `:resume` | the C128's CPU held by bus DMA, as his `stop()`; answered at once |
@@ -65,7 +65,7 @@ choices are the core's, under his names where he has the same.
 | Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581: its model, not one its image can't run; 1581 for the internal floppy's drive), Drive Bus ID (8-11; the other drive's swaps them), ROM for 1541 mode, 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
-| Network Settings | Host Name, Network Password, Web Remote Control Service |
+| Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
@@ -107,12 +107,12 @@ as VICE and a 16 KB EPROM in the C128's 32 KB socket have it, so it uses 0 and 2
 
 ## Settings
 
-The menu's Network submenu: REST API and DHCP are menu items, saved with the menu; host
-name, password and the static address are typed in their lines (Return keeps, Run/Stop
-leaves, Del, Clr), kept in `/c128/settings.cfg` (his settings format) at once. While DHCP is
-on the address lines show what it gave; typing one turns DHCP off, the others then as DHCP
-gave them. The main menu's line shows the address. Defaults: REST on, no password, host
-`c128-mega65`, DHCP.
+The menu's Network submenu: REST API, FTP Server and DHCP are menu items, saved with the
+menu; host name, password and the static address are typed in their lines (Return keeps,
+Run/Stop leaves, Del, Clr), kept in `/c128/settings.cfg` (his settings format) at once. While
+DHCP is on the address lines show what it gave; typing one turns DHCP off, the others then as
+DHCP gave them. The main menu's line shows the address. Defaults: REST and FTP on, no
+password, host `c128-mega65`, DHCP.
 
 ## Not his
 

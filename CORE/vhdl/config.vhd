@@ -296,7 +296,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 177; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 178; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- IMPORTANT: If SAVE_SETTINGS is true and OPTM_SIZE changes: Make sure to re-generate and
                                              -- and re-distribute the config file. You can make a new one using M2M/tools/make_config.sh
@@ -478,6 +478,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " Network\n"             &
    "\n"                     &
    " REST API\n"            &    -- default on: Gideon's REST API on port 80
+   " FTP Server\n"          &    -- default on: his FTP server on port 21
    " Host:%s\n"             &    -- typed in the menu, as Password and IP to DNS are (core.c)
    " Password:%s\n"         &    -- REST's X-Password, <none> without one
    "\n"                     &
@@ -556,6 +557,7 @@ constant OPTM_G_ROM_D9_71  : integer := 41;
 constant OPTM_G_ROM_D9_81  : integer := 42;
 constant OPTM_G_DRVA_ID    : integer := 43;   -- Drive A's bus ID: 8, 9, 10, 11
 constant OPTM_G_DRVB_ID    : integer := 44;   -- Drive B's
+constant OPTM_G_NET_FTP    : integer := 45;   -- FTP server on port 21
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -724,6 +726,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Network
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_NET_REST + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- REST API (default on)
+                                             OPTM_G_NET_FTP + OPTM_G_SINGLESEL + OPTM_G_STDSEL,   -- FTP Server (default on)
                                              OPTM_G_NET_HOST + OPTM_G_SINGLESEL,                  -- Host:%s
                                              OPTM_G_NET_PASS + OPTM_G_SINGLESEL,                  -- Password:%s
                                              OPTM_G_LINE,                                         -- Line

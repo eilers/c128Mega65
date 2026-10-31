@@ -13,7 +13,8 @@
 // 5: the internal function ROM (C_DEV_SYSTEM_ROM from 0x18000, its CSR), 15 CRT/ROM items
 // 6: drives A and B: a bus ID and a model each, the drive ROM items in their submenus
 // 7: 128 KB data RAM (was 64 KB)
-#define M2M_RV_HW_VERSION    7u
+// 8: the FTP Server menu item
+#define M2M_RV_HW_VERSION    8u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

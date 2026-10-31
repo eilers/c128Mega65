@@ -10,11 +10,11 @@ NET      := ../../../CORE/firmware/net
 LWIP     := $(wildcard $(NET)/lwip/core/*.c) $(wildcard $(NET)/lwip/core/ipv4/*.c) $(NET)/lwip/netif/ethernet.c
 REST_SRC := $(NET)/rest.c $(NET)/rest_machine.c $(NET)/rest_configs.c $(NET)/rest_drives.c \
             $(NET)/rest_files.c $(NET)/rest_runners.c $(NET)/multipart.c
-NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(REST_SRC) $(NET)/netcfg.c $(NET)/log.c $(LWIP)
+NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(NET)/ftp.c $(REST_SRC) $(NET)/netcfg.c $(NET)/log.c $(LWIP)
 NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
 
 TESTS := build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon \
-         build/test_modem build/test_http
+         build/test_modem build/test_http build/test_ftp
 
 all: $(TESTS)
 	./run.sh build
@@ -43,7 +43,7 @@ build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/conf
 
 # The Ultimate Command Interface, its registers modelled in test_uci.c
 UCI_SRC := test_uci.c host_uci_model.c host_m2m.c host_reu_sd.c diskio_file.c ../../../CORE/firmware/uci.c \
-           ../../../CORE/firmware/uci_dos.c ../../../CORE/firmware/fr_text.c ../../../CORE/firmware/uci_ctrl.c ../../../CORE/firmware/reu.c \
+           ../../../CORE/firmware/uci_dos.c ../../../CORE/firmware/dos_path.c ../../../CORE/firmware/fr_text.c ../../../CORE/firmware/uci_ctrl.c ../../../CORE/firmware/reu.c \
            ../../../CORE/firmware/stores.c ../../../CORE/firmware/rompick.c ../../../CORE/firmware/c128dma.c \
            ../fw/heap.c ../lib/fmt.c \
            ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
@@ -79,6 +79,13 @@ build/test_http: test_http.c host_rest.c diskio_file.c $(NET)/http.c $(REST_SRC)
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../include -I../fatfs -I../../../CORE/firmware $(NET_FLAGS) \
 	          -include host_rest_regs.h -DMEMP_NUM_TCP_PCB=32 $(filter %.c,$^) -o $@
+
+# The FTP server with lwIP, against clients on a loopback, on a card image
+build/test_ftp: test_ftp.c diskio_file.c $(NET)/ftp.c $(NET)/log.c ../../../CORE/firmware/dos_path.c ../lib/fmt.c \
+                ../fatfs/ff.c ../fatfs/ffunicode.c $(LWIP) $(wildcard $(NET)/*.h) ../fw/ffconf.h
+	@mkdir -p build
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -DMEMP_NUM_TCP_PCB=48 \
+	          $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build

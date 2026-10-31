@@ -72,8 +72,8 @@ Other than that and our own work, c128Mega65 uses:
     https://github.com/johansmolinski/Megamiga
 
   * The 1541 Ultimate firmware by Gideon Zweijtzer and contributors (GPL v3):
-    the system firmware's Ultimate Command Interface, REST API, configuration
-    stores and SwiftLink modem commands are ports of its code
+    the system firmware's Ultimate Command Interface, REST API, FTP server,
+    configuration stores and SwiftLink modem commands are ports of its code
     https://github.com/GideonZ/1541ultimate
 
   * CCGMS Future terminal by Craig Smith, alwyz and Michael Steil, used to

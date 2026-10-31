@@ -40,6 +40,8 @@ head -c 1048576 /dev/zero > "$files/blank.img"
 "$out/test_mon"
 cp "$files/fat32.img" "$files/http.img"
 "$out/test_http" "$files/http.img"
+cp "$files/fat32.img" "$files/ftp.img"
+"$out/test_ftp" "$files/ftp.img"
 for c in at http bulk telnet download download-pause bulk-stall download-stall trickle; do
    "$out/test_modem" $c > "$out/modem-$c.log" || { cat "$out/modem-$c.log"; exit 1; }
    tail -n 1 "$out/modem-$c.log"
