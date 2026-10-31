@@ -19,7 +19,7 @@
 #include "stores.h"
 #include "uci.h"
 
-// I_GROUP: a menu group (item_t's group), an en_dis item its single-select line
+// I_GROUP: a menu group (item_t's group); an on_off item is its single-select line
 enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_MODEM_IF,
        I_MODEM_HW, I_GROUP, I_NET };                        // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
@@ -44,6 +44,13 @@ static const char *const hdmi_modes[]  = { "720p 50 Hz 16:9", "720p 60 Hz 16:9",
                                            "640x480 60 Hz", "720x480 59.94 Hz", "800x600 60 Hz", NULL };
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
+static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };   // his U64's Joystick Swapper
+
+// An I_GROUP item on a single-select line: off, then on
+static int on_off(const item_t *it)
+{
+   return it->choices == en_dis || it->choices == joy_swaps;
+}
 
 // In his stores' order; a string's max is his longest (the REU image's is a card path), a
 // file's what the menu can pick
@@ -96,6 +103,7 @@ const item_t stores_items[] = {
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Use IEC Port",               en_dis,      0, 0, 1, NULL, OPTM_G_IEC },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Joystick Swapper",           joy_swaps,   0, 0, 0, NULL, OPTM_G_JOY_SWAP },
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
@@ -276,7 +284,7 @@ int item_get(const item_t *it)
    case I_DRIVE_TYPE: return stores_drive_model(d);
    case I_DRIVE_ID:   return stores_drive_id(d);
    case I_GROUP:
-      return it->choices == en_dis ? shell_setting(it->group, 0) : group_pos(it->group, item_choices(it));
+      return on_off(it) ? shell_setting(it->group, 0) : group_pos(it->group, item_choices(it));
    default:           return 0;
    }
 }
@@ -498,7 +506,7 @@ static int apply(void)
       int c = want.group[i];
       if (it->id != I_GROUP || c < 0)
          continue;
-      if (it->choices == en_dis)
+      if (on_off(it))
          shell_force(it->group, 0, c);
       else
          shell_force(it->group, c, 1);

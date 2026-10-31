@@ -50,9 +50,11 @@ const char *rompick_default(int p) { return p >= RP_DRIVE && p < RP_BOOT ? drive
 int         rompick_state(int p)   { return state[p]; }
 const char *rompick_dir(int p)     { return p == RP_BOOT ? CARTS_DIR : ROMS_DIR; }
 
+// A 1541 also takes 8 KB: its $E000 half, as JiffyDOS for the original 1541
 int rompick_fits(int p, uint32_t size)
 {
-   int sizes = p == RP_BOOT ? 0 : p < RP_DRIVE ? sys_part[p].sizes : K16 | K32;
+   int sizes = p == RP_BOOT ? 0 : p < RP_DRIVE ? sys_part[p].sizes :
+               (p - RP_DRIVE) % 3 == 0 ? K8 | K16 | K32 : K16 | K32;
    return p == RP_BOOT ? size > 0 :
           (size == 8192 && (sizes & K8)) || (size == 16384 && (sizes & K16)) || (size == 32768 && (sizes & K32));
 }
@@ -144,11 +146,16 @@ static uint32_t put_file(int p)
    uint16_t dev = p >= RP_DRIVE ? DRIVE_ROM : SYS_ROM;
    if (p == RP_K64 && size == 16384)
       at = 0;
-   int ok = rompick_fits(p, size) && !put(&f, dev, at, size);
-   // A 16 KB drive ROM twice, as his; a 16 KB function ROM too, as VICE and a 16 KB EPROM in
-   // the C128's 32 KB socket have it (MiSTer leaves $C000 open instead)
-   if (ok && (p >= RP_DRIVE || p == RP_FUNC) && size == 16384)
-      ok = f_lseek(&f, 0) == FR_OK && !put(&f, dev, at + size, size);
+   int ok = rompick_fits(p, size);
+   if (ok && p >= RP_DRIVE && size == 8192) {   // a 1541's $E000 half over the stock $C000 half
+      put_stock(p);
+      at += 0x2000;
+   }
+   ok = ok && !put(&f, dev, at, size);
+   // A 16 KB drive ROM twice, as his, and so the 8 KB half; a 16 KB function ROM too, as VICE
+   // and a 16 KB EPROM in the C128's 32 KB socket have it (MiSTer leaves $C000 open instead)
+   if (ok && ((p >= RP_DRIVE && size <= 16384) || (p == RP_FUNC && size == 16384)))
+      ok = f_lseek(&f, 0) == FR_OK && !put(&f, dev, at + 16384, size);
    f_close(&f);
    return ok ? size : 0;
 }

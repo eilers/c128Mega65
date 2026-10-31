@@ -228,7 +228,7 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"109\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10a\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -832,7 +832,7 @@ static void configs(void)
          "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"
          "HDMI Flicker-free=Disabled\nHDMI Audio=Enabled\nHDMI CRT Emulation=Disabled\nVGA Display Mode=Standard\n"
-         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\nUse IEC Port=Enabled\n"), cfg);
+         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\nUse IEC Port=Enabled\nJoystick Swapper=Normal\n"), cfg);
    check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
    expect("save again: nothing", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
@@ -1350,9 +1350,9 @@ static void roms(void)
    expect("ROMs: an item in full, its presets of its size", "GET /v1/configs/c128*/c128%20kernal* HTTP/1.1\r\n\r\n",
           ok("{ \n  \"C128 ROM Settings\" : { \n  \"C128 Kernal ROM\" : { \n  \"current\" : \"\",\n"
              "  \"presets\" : [ \"\", \"k16.bin\" ],\n  \"default\" : \"\"\n}\n},\n  \"errors\" : [  ]\n}"));
-   expect("ROMs: a drive's, 16 and 32 KB, no empty one", "GET /v1/configs/drive%20a*/rom%20for%201541* HTTP/1.1\r\n\r\n",
+   expect("ROMs: a 1541's, 8, 16 and 32 KB, no empty one", "GET /v1/configs/drive%20a*/rom%20for%201541* HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Drive A Settings\" : { \n  \"ROM for 1541 mode\" : { \n  \"current\" : \"1541.rom\",\n"
-             "  \"presets\" : [ \"k16.bin\", \"f32.bin\" ],\n  \"default\" : \"1541.rom\"\n}\n},\n  \"errors\" : [  ]\n}"));
+             "  \"presets\" : [ \"k16.bin\", \"k8.bin\", \"f32.bin\" ],\n  \"default\" : \"1541.rom\"\n}\n},\n  \"errors\" : [  ]\n}"));
    expect("ROMs: the cartridges", "GET /v1/configs/c64*/cartridge HTTP/1.1\r\n\r\n",
           ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : { \n  \"current\" : \"\",\n"
              "  \"presets\" : [ \"\", \"boot.crt\" ],\n  \"default\" : \"\"\n}\n},\n  \"errors\" : [  ]\n}"));

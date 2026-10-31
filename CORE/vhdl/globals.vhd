@@ -78,21 +78,22 @@ constant C_MENU_CRT_EMULATION    : natural := 87;
 constant C_MENU_VGA_STD          : natural := 91;  -- VGA: Standard, scandoubled ~31 kHz (default)
 constant C_MENU_VGA_15KHZHSVS    : natural := 95;  -- VGA: native 15 kHz, separate HS/VS
 constant C_MENU_VGA_15KHZCS      : natural := 96;  -- VGA: native 15 kHz, composite sync on pin 13
-constant C_MENU_KEYS_4080        : natural := 105; -- real Caps Lock is the 40/80 key (default)
-constant C_MENU_KEYS_ASCII       : natural := 106; -- real Caps Lock is ASCII/DIN; F9 latches 40/80
-constant C_MENU_HELP_F13         : natural := 111; -- OSM trigger on F13 (Help stays C128 Help)
-constant C_MENU_IEC              : natural := 115; -- IEC: Use hardware port
-constant C_MENU_REU_OFF          : natural := 119; -- REU: off (default)
-constant C_MENU_REU_512K         : natural := 120; -- REU: 512 KB
-constant C_MENU_REU_2M           : natural := 121; -- REU: 2 MB, not on R3-memory builds
-constant C_MENU_REU_16M          : natural := 122; -- REU: 16 MB, not on R3-memory builds
+constant C_MENU_IEC              : natural := 102; -- IEC: Use hardware port
+constant C_MENU_JOY_SWAP         : natural := 103; -- Swap joystick ports (default off)
+constant C_MENU_REU_OFF          : natural := 107; -- REU: off (default)
+constant C_MENU_REU_512K         : natural := 108; -- REU: 512 KB
+constant C_MENU_REU_2M           : natural := 109; -- REU: 2 MB, not on R3-memory builds
+constant C_MENU_REU_16M          : natural := 110; -- REU: 16 MB, not on R3-memory builds
 constant C_MENU_R3_DROP          : natural := 2;   -- R3-memory builds have neither
-constant C_MENU_CART_HW          : natural := 130; -- Cartridge: hardware slot (default)
-constant C_MENU_CART_CRT         : natural := 131; -- Cartridge: virtual cartridge (.crt)
-constant C_MENU_MODEM_DE00       : natural := 141; -- Modem: SwiftLink at $DE00 (Off at 140 is the default)
-constant C_MENU_MODEM_DF00       : natural := 142; -- Modem: SwiftLink at $DF00, REU off
-constant C_MENU_MODEM_D700       : natural := 143; -- Modem: SwiftLink at $D700
-constant C_MENU_UCI              : natural := 146; -- UCI at $DF1C: Ultimate Command Interface (default off)
+constant C_MENU_CART_HW          : natural := 118; -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 119; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 129; -- Modem: SwiftLink at $DE00 (Off at 128 is the default)
+constant C_MENU_MODEM_DF00       : natural := 130; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 131; -- Modem: SwiftLink at $D700
+constant C_MENU_UCI              : natural := 134; -- UCI at $DF1C: Ultimate Command Interface (default off)
+constant C_MENU_KEYS_4080        : natural := 168; -- Keyboard: real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 169; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
+constant C_MENU_HELP_F13         : natural := 172; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode

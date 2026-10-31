@@ -2,11 +2,12 @@
 
 * Sound
 * Mega65 Keyboard
-* Joystick Port
+* Joystick ports, paddles and 1351 mice. **Swap joystick ports** in the Help menu
+  (default off) swaps the two ports, paddles too.
 * IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
   defaults to on; turn it off to isolate the physical DIN from the virtual drives.
 * The Help menu occupies the MEGA65 Help key, which is also the C128 Help key.
-  Enable **Help menu on F13** (default off) to open the menu with F13 instead,
+  Enable **Keyboard > Help menu on F13** (default off) to open the menu with F13 instead,
   so C128 software can use Help. Close the menu with F13, Help, or Close Menu.
 * Settings are kept in `/c128/settings.cfg` on the SD card, in the Ultimate's text format
   (`[store]`, then `item=value` lines), and survive core updates. **Load settings** in

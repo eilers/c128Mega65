@@ -15,7 +15,8 @@
 // 7: 128 KB data RAM (was 64 KB)
 // 8: the FTP Server menu item
 // 9: the Load settings menu item, 16 CRT/ROM items
-#define M2M_RV_HW_VERSION    9u
+// 10: the Swap joystick ports menu item, the Keyboard submenu
+#define M2M_RV_HW_VERSION    10u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32
