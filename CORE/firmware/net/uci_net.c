@@ -3,6 +3,8 @@
 // OPEN resolves and connects, READ waits up to 40 ms (his SO_RCVTIMEO) and WRITE waits for
 // room, all from work(), so the main loop goes on meanwhile. The numbers in his texts are
 // errno values, which his firmware takes from newlib.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>

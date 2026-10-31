@@ -4,6 +4,8 @@
 // renders it (no escaping, "{ \n", "[  ]"), his status texts (any code but 200, 203, 400,
 // 403 and 404 goes out as "Unknown"), and a bare 404 for anything that isn't a route (no
 // web pages here).
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdlib.h>

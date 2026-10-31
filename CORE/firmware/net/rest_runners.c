@@ -15,6 +15,8 @@
 // run_crt: the .crt into the virtual cartridge, as the menu's CRT: line (the cartridge's
 // source becomes the .crt, main.vhd resets the C128 into it); an upload goes straight into
 // the cartridge's memory. sidplay: no player here (501); modplay: his U2 without a sampler.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
 #include <strings.h>
 #include "c128dma.h"

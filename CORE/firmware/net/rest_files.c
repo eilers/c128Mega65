@@ -3,6 +3,8 @@
 // for the new images: zeros, then the BAM and the first directory block. The zeros go out
 // a few KB a main-loop round. create_dnp answers 501: nothing on the core reads a CMD native
 // partition.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <ctype.h>
 #include <string.h>
 #include "ff.h"

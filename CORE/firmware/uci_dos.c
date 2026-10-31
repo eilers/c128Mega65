@@ -3,6 +3,8 @@
 // on the SD card, disk images in drives 8 and 9, the clock. Paths look like an Ultimate's:
 // '/' holds one folder, SD, which is the active card. Each target has its own folder, open
 // file and open folder.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stddef.h>
 #include <string.h>
 #include <strings.h>

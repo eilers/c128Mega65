@@ -1,5 +1,7 @@
 // Gideon's FileSystem::get_error_string for a FatFs result (uci.h): UCI's DOS targets and
 // the REST API answer with it.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include "ff.h"
 #include "uci.h"
 
