@@ -16,6 +16,8 @@ char mounted_path[300];
 
 enum sdcard_state sdcard_state(void) { return SDCARD_OK; }
 int drives_count(void) { return 2; }
+// The FTP server's: no menu settings file
+int cfg_str(uint32_t sel, char *buf, int size) { buf[0] = 0; return 0; }
 
 // iec_drive's disk_ready after a mount: still high for a few reads, low for drive_low reads
 // (0: the drive never takes the disk), then high

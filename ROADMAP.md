@@ -28,3 +28,9 @@ A physical 1541, 1571, or 1581 on the Commodore serial port, tested on its own a
 ### Larger REUs
 
 REUs larger than 2 MB, up to 16 MB, in the SDRAM of R4, R5 and R6 boards. They don't fit in HyperRAM beside a virtual cartridge.
+
+To explore:
+
+### Faster FTP transfers
+
+FTP moves about 135 KB/s up and 218 KB/s down. Uploads look bound by the SD card's single-block writes, which is how the firmware's FatFs writes; multi-block writes (CMD25) through the SD controller's engine port, which the core's hardware already uses, are the likely fix. Downloads look bound by lwIP's small send buffer. [doc/ftp.md](doc/ftp.md#speed) has the measurements and what to try.

@@ -1,6 +1,5 @@
 // lwIP for the system firmware: raw API, no OS, IPv4 only. Sized for the modem's call,
-// UCI's network target (4 sockets) and the REST server, in the 128 KB data RAM; the TCP
-// window only has to cover modem speed x RTT.
+// UCI's network target (4 sockets), the REST and the FTP server, in the 128 KB data RAM.
 #pragma once
 
 #define NO_SYS                      1
@@ -10,16 +9,17 @@
 #define LWIP_TIMERS                 1
 
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    (12 * 1024)
+#define MEM_SIZE                    (24 * 1024)   // what TCP sends: HTTP's and FTP's at once
 #define MEMP_NUM_PBUF               8
 #define MEMP_NUM_RAW_PCB            0
 #define MEMP_NUM_UDP_PCB            6      // DHCP, DNS, UCI's sockets
 #ifndef MEMP_NUM_TCP_PCB                   // test_http adds its clients' share
-#define MEMP_NUM_TCP_PCB            12     // the call, UCI's sockets, HTTP clients, closing ones
+#define MEMP_NUM_TCP_PCB            24     // the call, UCI's sockets, HTTP clients, FTP's control
+                                           // and data connections, closing ones
 #endif
-#define MEMP_NUM_TCP_PCB_LISTEN     3      // the modem, HTTP, one spare
-#define TCP_LISTEN_BACKLOG          1      // HTTP queues 2, as his listen()
-#define MEMP_NUM_TCP_SEG            32
+#define MEMP_NUM_TCP_PCB_LISTEN     8      // the modem, HTTP, FTP and its 4 PASVs, one spare
+#define TCP_LISTEN_BACKLOG          1      // HTTP and FTP queue 2, as his listen()
+#define MEMP_NUM_TCP_SEG            64
 #define MEMP_NUM_ARP_QUEUE          4
 #define PBUF_POOL_SIZE              8      // one pool pbuf holds a whole frame
 

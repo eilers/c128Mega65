@@ -120,65 +120,18 @@ static uint32_t le32(const uint8_t *p)
 }
 
 // -----------------------------------------------------------------------------------------
-// Paths (Gideon's Path): '/' or '\' between names, '.' and '..', a name from '/' or from
-// the folder
+// Paths (dos_path.c)
 // -----------------------------------------------------------------------------------------
-
-// name as a whole path in out, without a '/' at the end (the root is ""); 0 if too long
-static int resolve(const char *cwd, const char *name, char *out)
-{
-   int n = 0;
-   if (*name == '/' || *name == '\\')
-      name++;
-   else {
-      n = strlen(cwd) - 1;
-      memcpy(out, cwd, n);
-   }
-   out[n] = 0;
-   while (*name) {
-      const char *e = name;
-      while (*e && *e != '/' && *e != '\\')
-         e++;
-      int k = e - name;
-      if (k == 2 && name[0] == '.' && name[1] == '.') {
-         while (n > 0 && out[--n] != '/')
-            ;
-         out[n] = 0;
-      } else if (k && !(k == 1 && name[0] == '.')) {
-         if (n + 1 + k >= PATH_MAX - 1)
-            return 0;
-         out[n++] = '/';
-         memcpy(out + n, name, k);
-         n += k;
-         out[n] = 0;
-      }
-      name = *e ? e + 1 : e;
-   }
-   return 1;
-}
-
-// The card's part of a whole path, for FatFs ("/" for SD itself), or NULL outside SD
-static const char *on_card(const char *p)
-{
-   if (p[0] != '/' || (p[1] | 0x20) != 's' || (p[2] | 0x20) != 'd' || (p[3] && p[3] != '/'))
-      return NULL;
-   return p[3] ? p + 3 : "/";
-}
-
-const char *uci_card_path(const char *name, char *out)
-{
-   return resolve("/", name, out) ? on_card(out) : NULL;
-}
 
 // A name from a command, on the card: its FatFs path, or NULL
 static const char *card_name(struct dos *t, const char *name, char *out)
 {
-   return resolve(t->cwd, name, out) ? on_card(out) : NULL;
+   return uci_resolve(t->cwd, name, out) ? uci_on_card(out) : NULL;
 }
 
 static int is_folder(const char *p)
 {
-   const char *c = on_card(p);
+   const char *c = uci_on_card(p);
    if (!*p)
       return 1;                                        // the root
    if (!c)
@@ -229,7 +182,7 @@ static void info(uint32_t size, uci_reply_t *r)
 
 static void cd(struct dos *t, const char *name, uci_reply_t *r)
 {
-   if (!resolve(t->cwd, name, path) || !is_folder(path)) {
+   if (!uci_resolve(t->cwd, name, path) || !is_folder(path)) {
       r->status = no_such_dir;
       return;
    }
@@ -247,8 +200,8 @@ static void open_dir(struct dos *t, uci_reply_t *r)
       f_closedir(&t->d);
    t->dopen = 0;
    t->entries = 0;
-   resolve(t->cwd, "", path);
-   const char *c = on_card(path);
+   uci_resolve(t->cwd, "", path);
+   const char *c = uci_on_card(path);
    if (!*path) {
       t->dopen = 2;
       t->entries = sdcard_state() == SDCARD_OK;
@@ -312,7 +265,7 @@ static void copy_start(struct dos *t, const char *name, const char *dest, uci_re
 {
    const char *src = card_name(t, name, path);
    const char *base = src ? strrchr(path, '/') : NULL;
-   if (!src || !base[1] || !resolve("/", dest, path2) || !on_card(path2) ||
+   if (!src || !base[1] || !uci_resolve("/", dest, path2) || !uci_on_card(path2) ||
        strlen(path2) + strlen(base) >= PATH_MAX) {
       r->status = uci_fr_text(FR_NO_PATH);
       return;
@@ -321,7 +274,7 @@ static void copy_start(struct dos *t, const char *name, const char *dest, uci_re
    if (!strcasecmp(path, path2))
       return;                                          // onto itself (names ignore case): done
    FRESULT res = f_open(&copy.src, src, FA_READ);
-   if (res == FR_OK && (res = f_open(&copy.dst, on_card(path2), FA_WRITE | FA_CREATE_NEW)) != FR_OK)
+   if (res == FR_OK && (res = f_open(&copy.dst, uci_on_card(path2), FA_WRITE | FA_CREATE_NEW)) != FR_OK)
       f_close(&copy.src);
    if (res != FR_OK) {
       r->status = uci_fr_text(res);
@@ -337,7 +290,7 @@ static void copy_end(int keep)
    f_close(&copy.src);
    f_close(&copy.dst);
    if (!keep)
-      f_unlink(on_card(path2));
+      f_unlink(uci_on_card(path2));
    copy.on = 0;
 }
 
@@ -496,6 +449,12 @@ static void time_text(int ext, uci_reply_t *r)
                      2000 + bcd(t[6]), bcd(t[5]), bcd(t[4]), bcd(t[3]), bcd(t[2]), bcd(t[1]));
    r->data = uci_data;
    r->len  = n;
+}
+
+int uci_year(void)
+{
+   M2M_RAMROM_DEV = M2M_DEV_RTC;
+   return 2000 + bcd(M2M_DEV16[6] & 0xFF);
 }
 
 static int rtc_wait(void)

@@ -18,7 +18,7 @@
 #include "uci.h"
 
 enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_MODEM_IF,
-       I_MODEM_MAP, I_MODEM_HW, I_DHCP, I_REST, I_NET };   // I_NET + NC_*: netcfg's strings
+       I_MODEM_MAP, I_MODEM_HW, I_DHCP, I_FTP, I_REST, I_NET };   // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
 static const char *const names[ST_COUNT] = {
@@ -64,6 +64,7 @@ const item_t stores_items[] = {
    { ST_ETH,     I_NET + NC_DNS, IT_STRING, "Static DNS",                 NULL, 0, 16, 0, "8.8.8.8" },
    { ST_NET,     I_NET + NC_HOST,IT_STRING, "Host Name",                  NULL, 0, 31, 0, "c128-mega65" },
    { ST_NET,     I_NET + NC_PASS,IT_PASS,   "Network Password",           NULL, 0, 31, 0, "" },
+   { ST_NET,     I_FTP,          IT_ENUM,   "FTP File Service",           en_dis,      0, 0, 1, NULL },
    { ST_NET,     I_REST,         IT_ENUM,   "Web Remote Control Service", en_dis,      0, 0, 1, NULL },
    // Ours: empty is the stock ROM (rompick.h)
    { ST_ROMS,    I_ROM + RP_K128,IT_FILE,   "C128 Kernal ROM",            NULL, 0, PICK_MAX - 1, 0, "" },
@@ -76,7 +77,7 @@ const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
 // What a change asks for, -1 where it says nothing; strings in their own buffers
 static struct {
-   int8_t reu, size, image, uci, power[2], model[2], id[2], modem, dhcp, rest, net[NC_COUNT], rom[RP_COUNT];
+   int8_t reu, size, image, uci, power[2], model[2], id[2], modem, dhcp, ftp, rest, net[NC_COUNT], rom[RP_COUNT];
 } want;
 static char    want_str[NC_COUNT][32];
 static char    want_rom[RP_COUNT][PICK_MAX];
@@ -235,6 +236,7 @@ int item_get(const item_t *it)
    case I_DRIVE_ID:   return stores_drive_id(d);
    case I_MODEM_MAP:  return group_pos(OPTM_G_MODEM, 4);
    case I_DHCP:       return shell_setting(OPTM_G_NET_DHCP, 0);
+   case I_FTP:        return shell_setting(OPTM_G_NET_FTP, 0);
    case I_REST:       return shell_setting(OPTM_G_NET_REST, 0);
    default:           return 0;
    }
@@ -318,6 +320,7 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
    case I_UCI:      want.uci = c;      return WANT_OK;
    case I_DRIVE:    want.power[d] = c; return WANT_OK;
    case I_DHCP:     want.dhcp = c;     return WANT_OK;
+   case I_FTP:      want.ftp = c;      return WANT_OK;
    case I_REST:     want.rest = c;     return WANT_OK;
    case I_MODEM_IF:
    case I_MODEM_HW:                    return WANT_OK;
@@ -419,6 +422,7 @@ void stores_want_saved(int s)
          break;
       case I_MODEM_MAP:  stores_want(it, acia_maps[saved_pos(OPTM_G_MODEM, 4)], 0, &n); break;
       case I_DHCP:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_DHCP, 0)], 0, &n); break;
+      case I_FTP:        stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_FTP, 0)], 0, &n); break;
       case I_REST:       stores_want(it, en_dis[shell_saved_setting(OPTM_G_NET_REST, 0)], 0, &n); break;
       default:
          if (in_file(it) && it->type != IT_ENUM)
@@ -488,6 +492,10 @@ int stores_apply(void)
    }
    if (want.dhcp >= 0) {
       shell_force(OPTM_G_NET_DHCP, 0, want.dhcp);
+      net = 1;
+   }
+   if (want.ftp >= 0) {
+      shell_force(OPTM_G_NET_FTP, 0, want.ftp);
       net = 1;
    }
    if (want.rest >= 0) {

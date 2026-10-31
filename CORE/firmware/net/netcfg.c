@@ -3,6 +3,7 @@
 #include "config_ids.h"
 #include "core.h"
 #include "eth.h"
+#include "ftp.h"
 #include "http.h"
 #include "net.h"
 #include "netcfg.h"
@@ -13,9 +14,9 @@
 char netcfg[NC_COUNT][32];
 
 static struct {
-   int  dhcp, rest;                  // what the interface has now; -1 before the first
+   int  dhcp, rest, ftp;             // what the interface has now; -1 before the first
    char host[32];
-} done = { -1, -1, "" };
+} done = { -1, -1, -1, "" };
 
 static void addr(int k, ip4_addr_t *a)
 {
@@ -27,11 +28,14 @@ static void addr(int k, ip4_addr_t *a)
 static void apply_now(void)
 {
    int dhcp = shell_setting(OPTM_G_NET_DHCP, 0), rest = shell_setting(OPTM_G_NET_REST, 0);
+   int ftp = shell_setting(OPTM_G_NET_FTP, 0);
    struct netif *nif = &eth_netif;
 
    rest_set_password(netcfg[NC_PASS]);
    if (rest != done.rest)
       http_listen(rest);
+   if (ftp != done.ftp)
+      ftp_listen(ftp);
    if (strcmp(netcfg[NC_HOST], done.host)) {
       strcpy(done.host, netcfg[NC_HOST]);
       netif_set_hostname(nif, done.host);
@@ -56,6 +60,7 @@ static void apply_now(void)
    }
    done.dhcp = dhcp;
    done.rest = rest;
+   done.ftp = ftp;
 }
 
 void netcfg_apply(void)

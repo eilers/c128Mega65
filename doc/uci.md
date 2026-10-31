@@ -187,7 +187,7 @@ items and choices than an Ultimate:
 | `Modem Settings` | `ACIA (6551) Mapping` | `Off`, `DE00/NMI`, `DF00/NMI`, `D700/NMI` (a SwiftLink: no IRQ choices) |
 | | `Modem Interface`, `Hardware Mode` | `ACIA / SwiftLink`, `SwiftLink`: nothing to change |
 | `Ethernet Settings` | `Use DHCP`, `Static IP`, `Static Netmask`, `Static Gateway`, `Static DNS` | as REST's configs routes take them (`doc/rest.md`); the network takes them at once |
-| `Network Settings` | `Host Name`, `Network Password`, `Web Remote Control Service` | the same |
+| `Network Settings` | `Host Name`, `Network Password`, `FTP File Service`, `Web Remote Control Service` | the same |
 
 As in his firmware: a store the machine doesn't have is skipped with `Line n: Store name '...'
 not found; section ignored.`, an item with `Line n: Item '...' not found in this store [...];

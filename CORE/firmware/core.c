@@ -7,6 +7,7 @@
 #include "core.h"
 #include "drives.h"
 #include "fmt.h"
+#include "ftp.h"
 #include "http.h"
 #include "m2m_rv.h"
 #include "net/netcfg.h"
@@ -144,7 +145,7 @@ void core_sel_post(int group, int item)
    for (int d = 0; d < 2; d++)
       if (group == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8))
          stores_drive_set_model(d, stores_drive_fit(d, stores_drive_model(d)));
-   if (group == OPTM_G_NET_DHCP || group == OPTM_G_NET_REST)
+   if (group == OPTM_G_NET_DHCP || group == OPTM_G_NET_REST || group == OPTM_G_NET_FTP)
       netcfg_apply();
 }
 
@@ -492,11 +493,12 @@ uint32_t core_menu_key(void)
    return shell_setting(OPTM_G_HELP_F13, 0) ? M2M_KEY_F13 : M2M_KEY_HELP;
 }
 
-// The boot cartridge's load (rompick.c), the Ultimate Command Interface (uci.c) and the REST
-// API (net/http.c)
+// The boot cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST
+// API (net/http.c) and the FTP server (net/ftp.c)
 void core_poll(void)
 {
    rompick_poll();
    uci_poll();
    http_poll();
+   ftp_poll();
 }

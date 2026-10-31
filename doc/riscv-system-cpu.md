@@ -1,9 +1,9 @@
 # RISC-V system CPU
 
 A NEORV32 has replaced QNICE, the M2M framework's menu CPU, on every board. The goal is an
-Ultimate-style firmware: the menu, then Gideon's command interface (UCI) and REST API,
-protocol compatible. The QNICE Shell's sources were removed in `a626c1c`; its parent has
-them, for reference.
+Ultimate-style firmware: the menu, then Gideon's command interface (UCI), REST API and FTP
+server, protocol compatible. The QNICE Shell's sources were removed in `a626c1c`; its parent
+has them, for reference.
 
 ## Plan
 

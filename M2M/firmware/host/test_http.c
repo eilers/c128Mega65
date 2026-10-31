@@ -228,7 +228,7 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"107\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"108\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -743,7 +743,8 @@ static void configs(void)
           ok("{ \n  \"Ethernet Settings\" : { \n  \"Use DHCP\" : \"Enabled\",\n  \"Static IP\" : \"192.168.2.64\",\n"
              "  \"Static Netmask\" : \"255.255.255.0\",\n  \"Static Gateway\" : \"192.168.2.1\",\n"
              "  \"Static DNS\" : \"8.8.8.8\"\n},\n  \"Network Settings\" : { \n  \"Host Name\" : \"c128-mega65\",\n"
-             "  \"Network Password\" : \"\",\n  \"Web Remote Control Service\" : \"Enabled\"\n},\n"
+             "  \"Network Password\" : \"\",\n  \"FTP File Service\" : \"Enabled\",\n"
+             "  \"Web Remote Control Service\" : \"Enabled\"\n},\n"
              "  \"errors\" : [  ]\n}"));
    expect("an item in full", "GET /v1/configs/drive*/*bus* HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Drive A Settings\" : { \n  \"Drive Bus ID\" : { \n  \"current\" : 8,\n  \"min\" : 8,\n"
