@@ -10,6 +10,8 @@
 // load_rom writes the drive's bank of boot1.rom for its current model and reloads it into the
 // drive (C_DEV_DRIVE_ROM's CSR), which resets it; it lasts until boot1.rom is loaded again
 // (a long reset). Uploads to mount go to /c128/temp, as his to /Temp.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
 #include <strings.h>
 #include "config_ids.h"

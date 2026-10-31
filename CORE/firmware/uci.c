@@ -1,6 +1,8 @@
 // Ultimate Command Interface, the transport and the dispatcher: Gideon's command_intf.cc
 // (run_task, copy_result), polled. Replies and status texts match his firmware's, which
 // his tests/e2e/io/command_interface/uci_targets_test.py checks against real hardware.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stddef.h>
 #include <string.h>
 #include "config_ids.h"

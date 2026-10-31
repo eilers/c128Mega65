@@ -2,6 +2,8 @@
 // fewer stores, items and choices than an Ultimate. Where it has one of his items, the item
 // has his name and type; its choices are the core's, under his names where he has the same.
 // The C128's own ROMs are in a store of ours, C128 ROM Settings.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>

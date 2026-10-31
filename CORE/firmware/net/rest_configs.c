@@ -3,6 +3,8 @@
 // same here) on the core's stores (stores.c), with his texts and his JSON layout. A change
 // is in effect at once and lives in memory until save_to_flash, as his: the menu's items
 // then go into the menu's settings file, the rest into the settings file.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stdlib.h>
 #include <string.h>
 #include "core.h"

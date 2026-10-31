@@ -2,6 +2,8 @@
 // arrive on MODEM_LISTEN_PORT. The command set follows the Ultimate's modem
 // (1541ultimate software/io/acia/modem.cc); telnet negotiation is added, so
 // binary transfers survive BBSes that speak the telnet protocol.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
 #include "acia.h"
 #include "eth.h"

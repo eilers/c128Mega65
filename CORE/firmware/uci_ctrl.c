@@ -3,6 +3,8 @@
 // his drives A and B, REBOOT resets the C128 as the reset button does, FREEZE opens the menu.
 // What only an Ultimate has (tape capture, RAM disks, extra SIDs, GCR in its memory) answers
 // as an Ultimate without it does, and the Ultimate 64's commands as an Ultimate II's do.
+// Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
+// Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <ctype.h>
 #include <string.h>
 #include <strings.h>
