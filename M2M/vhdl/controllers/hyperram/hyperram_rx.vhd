@@ -51,18 +51,17 @@ begin
          rdy    => open
       ); -- delay_ctrl_inst
 
-   -- Delay the input RWDS signal by approx 2.5 ns (90 degrees).
-   -- Each tap is on average 1/32 of the period of delay_refclk_i (here 5 ns),
-   -- but the taps are not evenly spaced. Therefore a value of 20 (rather than 16)
-   -- is used. The actual amount of delay can be read from the timing report.
+   -- Delay the input RWDS signal so the IDDRs sample mid-eye. The fabric route to the
+   -- IDDRs adds another 0.4-1.8 ns, so 13 taps, not 20, centers the capture window.
+   -- Check the hr_rwds setup and hold slack in the timing report.
    delay_rwds_inst : component idelaye2
       generic map (
          IDELAY_TYPE           => "FIXED",
          DELAY_SRC             => "IDATAIN",
-         IDELAY_VALUE          => 20,
+         IDELAY_VALUE          => 13,
          HIGH_PERFORMANCE_MODE => "TRUE",
          SIGNAL_PATTERN        => "CLOCK",
-         REFCLK_FREQUENCY      => 200.0, -- Each tap on average 5/32 ns.
+         REFCLK_FREQUENCY      => 200.0, -- 78 ps per tap
          CINVCTRL_SEL          => "FALSE",
          PIPE_SEL              => "FALSE"
       )
