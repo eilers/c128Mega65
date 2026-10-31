@@ -26,8 +26,7 @@
   Cartridge III, Super Games, Mikro Assembler and EasyFlash use the REU's registers at
   $DF00-$DF1F, so the REU is off while one of them runs, as on an Ultimate.
 * REU (RAM Expansion Unit) of 512 KB, 2 MB or 16 MB, set in the menu (off by default). R3
-  boards offer 512 KB only, and keep their settings in their own file
-  (`c128mega65-<version>-r3.cfg`)
+  boards offer 512 KB only
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
   (default), 40 columns and 80 columns put the same picture on both ports. HDMI 40, VGA 80

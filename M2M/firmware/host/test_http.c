@@ -716,11 +716,13 @@ static void machine(void)
 // --- the configs routes ---
 
 #define CATEGORIES "\"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", \"Modem Settings\", " \
-                   "\"Ethernet Settings\", \"Network Settings\", \"C128 ROM Settings\""
+                   "\"Ethernet Settings\", \"Network Settings\", \"C128 ROM Settings\", \"MEGA65 Settings\""
 #define DRIVE_ROMS ",\n  \"ROM for 1541 mode\" : \"1541.rom\",\n  \"ROM for 1571 mode\" : \"1571.rom\",\n" \
                    "  \"ROM for 1581 mode\" : \"1581.rom\""
+#define DRIVE_ROMS_FILE "ROM for 1541 mode=1541.rom\nROM for 1571 mode=1571.rom\nROM for 1581 mode=1581.rom\n"
 
 static int get_file(const char *path, uint8_t *d, int n);
+static void put_file(const char *path, const void *d, int n);
 
 static const char *ok(const char *body)
 {
@@ -735,7 +737,8 @@ static void configs(void)
           ok("{ \n  \"Drive A Settings\" : { \n  \"Drive\" : \"Enabled\",\n  \"Drive Type\" : \"1571\",\n"
              "  \"Drive Bus ID\" : 8" DRIVE_ROMS "\n},\n  \"errors\" : [  ]\n}"));
    expect("C64 and Cartridge", "GET /v1/configs/c64* HTTP/1.1\r\n\r\n",
-          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : \"\",\n  \"Alternate Kernal\" : \"\",\n"
+          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : \"\",\n  \"Cartridge Preference\" : \"External\",\n"
+             "  \"Alternate Kernal\" : \"\",\n"
              "  \"RAM Expansion Unit\" : \"Disabled\",\n"
              "  \"REU Size\" : \"2 MB\",\n  \"REU Preload Image\" : \"\",\n  \"Command Interface\" : \"Disabled\"\n},\n"
              "  \"errors\" : [  ]\n}"));
@@ -802,29 +805,39 @@ static void configs(void)
           "abcdefghijklmnopqrstuvwxyz0123456789 HTTP/1.1\r\n\r\n", OK);
    check("host name, too long: cut", !strcmp(netcfg[NC_HOST], "abcdefghijklmnopqrstuvwxyz0123*"), netcfg[NC_HOST]);
    expect("GET it", "GET /v1/configs/c64* HTTP/1.1\r\n\r\n",
-          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : \"\",\n  \"Alternate Kernal\" : \"\",\n"
+          ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : \"\",\n  \"Cartridge Preference\" : \"External\",\n"
+             "  \"Alternate Kernal\" : \"\",\n"
              "  \"RAM Expansion Unit\" : \"Enabled\",\n"
              "  \"REU Size\" : \"16 MB\",\n  \"REU Preload Image\" : \"/SD/c128/x.reu\",\n"
              "  \"Command Interface\" : \"Disabled\"\n},\n  \"errors\" : [  ]\n}"));
 
    // save_to_flash: only what changed
-   int s0 = saves;
-   char cfg[1024] = "";
+   char cfg[4096] = "";
    f_unlink(SETTINGS_FILE);
    expect("save", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
           ok("{ \n  \"written\" : [ \"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", "
              "\"Modem Settings\", \"Network Settings\" ],\n  \"errors\" : [  ]\n}"));
    int got = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
    cfg[got > 0 ? got : 0] = 0;
-   check("save: the menu's file and the settings file", saves == s0 + 1 &&
-         strstr(cfg, "[C64 and Cartridge Settings]\nCartridge=\nAlternate Kernal=\nREU Preload Image=/SD/c128/x.reu\n"
-                     "[Drive A Settings]\nDrive=Disabled\nROM for 1541 mode=1541.rom\n") &&
-         strstr(cfg, "[Network Settings]\nHost Name=abcdefghijklmnopqrstuvwxyz0123*\nNetwork Password=\n"
-                     "[C128 ROM Settings]\nC128 Kernal ROM=\n") && !strstr(cfg, "[Drive B Settings]\nDrive="), cfg);
+   check("save: the settings file, every item", !strcmp(cfg,
+         "[C64 and Cartridge Settings]\nCartridge=\nCartridge Preference=External\nAlternate Kernal=\n"
+         "RAM Expansion Unit=Enabled\nREU Size=16 MB\nREU Preload Image=/SD/c128/x.reu\nCommand Interface=Disabled\n"
+         "[Drive A Settings]\nDrive=Disabled\nDrive Type=1571\nDrive Bus ID=8\n" DRIVE_ROMS_FILE
+         "[Drive B Settings]\nDrive Type=1571\nDrive Bus ID=9\n" DRIVE_ROMS_FILE
+         "[Modem Settings]\nModem Interface=ACIA / SwiftLink\nACIA (6551) Mapping=D700/NMI\nHardware Mode=SwiftLink\n"
+         "[Ethernet Settings]\nUse DHCP=Enabled\nStatic IP=192.168.2.64\nStatic Netmask=255.255.255.0\n"
+         "Static Gateway=192.168.2.1\nStatic DNS=8.8.8.8\n"
+         "[Network Settings]\nHost Name=abcdefghijklmnopqrstuvwxyz0123*\nNetwork Password=\nFTP File Service=Enabled\n"
+         "Web Remote Control Service=Enabled\n"
+         "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
+         "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"
+         "HDMI Flicker-free=Disabled\nHDMI Audio=Enabled\nHDMI CRT Emulation=Disabled\nVGA Display Mode=Standard\n"
+         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\nUse IEC Port=Enabled\n"), cfg);
+   check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
    expect("save again: nothing", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
           ok("{ \n  \"written\" : [  ],\n  \"errors\" : [  ]\n}"));
-   check("save again: no files", saves == s0 + 1 && get_file(SETTINGS_FILE, (uint8_t *)cfg, 1) < 0, NULL);
+   check("save again: no file", get_file(SETTINGS_FILE, (uint8_t *)cfg, 1) < 0, NULL);
    expect("save, a path too deep", "PUT /v1/configs/a/b:save_to_flash HTTP/1.1\r\n\r\n", bad("\"Path depth exceeds 1.\""));
 
    // reset_to_default and load_from_flash
@@ -835,13 +848,16 @@ static void configs(void)
    check("reset all: REU off, $D700 off, the default host", !settings[OPTM_G_REU][3] && settings[OPTM_G_REU][0] &&
          settings[OPTM_G_MODEM][0] && !strcmp(netcfg[NC_HOST], "c128-mega65") && !reu_path[0], NULL);
    expect("host name again", "PUT /v1/configs/network%20settings/host%20name/c128-den HTTP/1.1\r\n\r\n", OK);
-   saved[OPTM_G_MODEM][0] = 0;
-   saved[OPTM_G_MODEM][2] = 1;
    expect("load one", "PUT /v1/configs/network*:load_from_flash HTTP/1.1\r\n\r\n",
           ok("{ \n  \"loaded\" : [ \"Network Settings\" ],\n  \"errors\" : [  ]\n}"));
    check("load one: no file, the default host", !strcmp(netcfg[NC_HOST], "c128-mega65"), netcfg[NC_HOST]);
+   static const char modem_cfg[] = "[Modem Settings]\nACIA (6551) Mapping=DF00/NMI\n";
+   put_file(SETTINGS_FILE, modem_cfg, sizeof modem_cfg - 1);
+   settings[OPTM_G_HDMI][0] = 0;
+   settings[OPTM_G_HDMI][3] = 1;
    expect("load all", "PUT /v1/configs:load_from_flash HTTP/1.1\r\n\r\n", OK);
-   check("load all: the file's $DF00", settings[OPTM_G_MODEM][2], NULL);
+   check("load all: the file's $DF00, the default HDMI mode", settings[OPTM_G_MODEM][2] && settings[OPTM_G_HDMI][0], NULL);
+   f_unlink(SETTINGS_FILE);
 
    // POST: every item tried
    expect("POST, not JSON", "POST /v1/configs HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
@@ -1128,6 +1144,16 @@ static void drives(void)
    expect("Drive Type 1541 for b's D71", "PUT /v1/configs/drive%20b%20settings/drive%20type?value=1541 HTTP/1.1\r\n\r\n",
           bad("\"Value '1541' is not a valid choice for item Drive Type\""));
    check("b stays a 1571", settings[OPTM_G_DRVB_MODEL][1] && stores_drive_type(1) == 1, NULL);
+   // The internal floppy: one drive at a time; leaving it, the image under it takes its model
+   expect("Drive Type Internal 1581 for b", "PUT /v1/configs/drive%20b%20settings/drive%20type?value=Internal%201581 "
+          "HTTP/1.1\r\n\r\n", OK);
+   check("b the internal floppy", settings[OPTM_G_DRVB_MODEL][3] && stores_drive_internal(1), NULL);
+   expect("Drive Type Internal 1581 for a", "PUT /v1/configs/drive%20a%20settings/drive%20type?value=internal%201581 "
+          "HTTP/1.1\r\n\r\n", OK);
+   check("a the internal floppy, b's D71 a 1571 again", settings[OPTM_G_DRVA_MODEL][3] && settings[OPTM_G_DRVB_MODEL][1],
+         NULL);
+   expect("Drive Type 1571 for a", "PUT /v1/configs/drive%20a%20settings/drive%20type?value=1571 HTTP/1.1\r\n\r\n", OK);
+   check("a back to images", settings[OPTM_G_DRVA_MODEL][1] && !stores_drive_internal(0), NULL);
    expect("set_mode, no such model", "PUT /v1/drives/a:set_mode?mode=1234 HTTP/1.1\r\n\r\n",
           bad("\"Invalid Drive Type '1234'\""));
    expect("set_mode 1571, a", "PUT /v1/drives/a:set_mode?mode=1571 HTTP/1.1\r\n\r\n",
@@ -1394,11 +1420,12 @@ static void roms(void)
    check("boot cartridge: kept, not loaded now", rompick_state(RP_BOOT) == RS_FILE && crt_loads == loads, NULL);
 
    // Kept, and back from the file at the start
-   char cfg[1024];
+   char cfg[4096];
    expect_200("ROMs saved", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n");
    int n = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
    cfg[n > 0 ? n : 0] = 0;
-   check("ROMs saved: in the settings file", strstr(cfg, "[C64 and Cartridge Settings]\nCartridge=boot.crt\nAlternate Kernal=\n") &&
+   check("ROMs saved: in the settings file", strstr(cfg, "[C64 and Cartridge Settings]\nCartridge=boot.crt\n"
+                                                         "Cartridge Preference=External\nAlternate Kernal=\n") &&
          strstr(cfg, "ROM for 1571 mode=none.bin\nROM for 1581 mode=f32.bin\n[Drive B Settings]") &&
          strstr(cfg, "[C128 ROM Settings]\nC128 Kernal ROM=k16.bin\nC128 Basic ROM=\nC64 Basic ROM=k8.bin\n"
                      "Char ROM=odd.bin\nInternal Function ROM=\n"), cfg);
@@ -1406,6 +1433,20 @@ static void roms(void)
    check("C128 KERNAL changed: stock", dev_holds(sys_rom, 0x4000, rom_stock + 0x4000, 16384), NULL);
    check("the settings file at the start", stores_load() == 0 && !strcmp(rompick_name(RP_K128), "k16.bin") &&
          dev_holds(sys_rom, 0x4000, rom_k16, 16384) && !strcmp(rompick_name(RP_BOOT), "boot.crt"), NULL);
+   // One written by hand: the menu's settings by their names, drive B the internal floppy
+   static const char hand[] = "[MEGA65 Settings]\nHDMI Display Mode=576p 50 Hz 4:3\nUse IEC Port=Disabled\n"
+                              "[Drive B Settings]\nDrive Type=Internal 1581\n";
+   put_file(SETTINGS_FILE, hand, sizeof hand - 1);
+   check("by hand, at the start", stores_load() == 0 && settings[OPTM_G_HDMI][2] && !settings[OPTM_G_HDMI][0] &&
+         !settings[OPTM_G_IEC][0] && settings[OPTM_G_DRVB_MODEL][3], NULL);
+   // The power gone between the old file's removal and the new one's rename: the new one
+   static const char cut[] = "[MEGA65 Settings]\nHDMI Display Mode=720p 50 Hz 16:9\nUse IEC Port=Enabled\n"
+                             "[Drive B Settings]\nDrive Type=1571\n";
+   f_unlink(SETTINGS_FILE);
+   put_file(SETTINGS_TMP, cut, sizeof cut - 1);
+   check("only the new file: read", stores_load() == 0 && settings[OPTM_G_HDMI][0] && settings[OPTM_G_IEC][0] &&
+         settings[OPTM_G_DRVB_MODEL][1], NULL);
+   f_unlink(SETTINGS_TMP);
 
    // Back to stock
    expect_200("ROMs reset", "PUT /v1/configs/c128*:reset_to_default HTTP/1.1\r\n\r\n");

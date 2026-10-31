@@ -1,6 +1,6 @@
-// The Shell: the start and main loop of QNICE's shell.asm, the menu glue and settings
-// file of options.asm, the reset and ascal handling of gencfg.asm and the help pages of
-// whs.asm. Nothing here waits for long: shell_poll handles one key at a time.
+// The Shell: the start and main loop of QNICE's shell.asm, the menu glue and settings of
+// options.asm, the reset and ascal handling of gencfg.asm and the help pages of whs.asm.
+// Nothing here waits for long: shell_poll handles one key at a time.
 #include <string.h>
 #include "shell.h"
 #include "browse.h"
@@ -8,7 +8,6 @@
 #include "console.h"
 #include "core.h"
 #include "drives.h"
-#include "ff.h"
 #include "filters.h"
 #include "fmt.h"
 #include "heap.h"
@@ -55,14 +54,7 @@ static uint8_t crt_loaded[CRTROM_MAX];           // CRTROM_MAN_LDF
 static char    crt_name[CRTROM_MAX][NAME_MAX];   // shown on its line
 static char    drv_name[DRIVES_MAX][NAME_MAX];   // the image in a drive
 
-// The settings file: one byte per menu item, 0 or 1
-static struct {
-   int      on;                      // good: saved to when settings change
-   FIL      f;
-   uint32_t card;                    // sdcard_changes() when it was opened
-   uint32_t slot;                    // M2M_CSR_SD_ACTIVE then
-   uint8_t  old[MENU_MAX];           // the settings when the menu opened
-} cfgf;
+static uint8_t opened[MENU_MAX];     // the settings when the menu opened
 
 static void wait(uint32_t t)
 {
@@ -136,7 +128,7 @@ static void load_menu(void)
 }
 
 // -------------------------------------------------------------------------------------
-// Settings: the settings file if config.vhd asks for it and it's good, else the defaults
+// Settings: config.vhd's defaults; the core keeps them in its settings file
 // -------------------------------------------------------------------------------------
 
 static int saved_item(int i)
@@ -144,97 +136,22 @@ static int saved_item(int i)
    return !is_mount[i] && !is_crtrom[i];   // drives and cartridges aren't saved
 }
 
-static void load_settings(void)
+static void default_settings(void)
 {
-   char name[64];
-   uint8_t b[MENU_MAX];
-   UINT got;
-
    for (int i = 0; i < 8; i++)
       M2M_CONTROL_M(i) = 0;
    for (int i = 0; i < menu.n; i++)
       setting_set(i, cfg_get(CFG_OPTM_STDSEL, i));
-
-   if (cfg_get(CFG_GENERAL, CFG_SAVEOSDCFG) != 1 || sdcard_state() != SDCARD_OK)
-      return;
-   cfg_str(CFG_CFG_FILE, name, sizeof name);
-   if (f_open(&cfgf.f, name, FA_READ | FA_WRITE) != FR_OK)
-      return;
-   // The right length, and not a new file (0xFF: keep the defaults, save later)
-   if (f_size(&cfgf.f) != (FSIZE_t)menu.n || f_read(&cfgf.f, b, menu.n, &got) != FR_OK ||
-       got != (UINT)menu.n) {
-      f_close(&cfgf.f);
-      return;
-   }
-   cfgf.on   = 1;
-   cfgf.card = sdcard_changes();
-   cfgf.slot = M2M_CSR & M2M_CSR_SD_ACTIVE;
-   if (b[0] == 0xFF)
-      return;
-   for (int i = 0; i < menu.n; i++) {
-      if (b[i] > 1)
-         shell_fatal("Corrupt config file.\n", i);
-      setting_set(i, b[i]);
-   }
 }
 
-static int save_settings(int force)
+// After the menu closes: the core saves them if they changed
+static void save_settings(void)
 {
-   uint8_t b[MENU_MAX];
-   int changed = force;
-   UINT put;
-
-   if (!cfgf.on)
-      return -1;
-   // After a card change the file is opened again, but only in the same slot: a card in
-   // the other one is likely another card (ROSM_INTEGRITY)
-   if (sdcard_changes() != cfgf.card) {
-      char name[64];
-      cfg_str(CFG_CFG_FILE, name, sizeof name);
-      if ((M2M_CSR & M2M_CSR_SD_ACTIVE) != cfgf.slot || sdcard_state() != SDCARD_OK ||
-          f_open(&cfgf.f, name, FA_READ | FA_WRITE) != FR_OK) {
-         cfgf.on = 0;
-         return -1;
+   for (int i = 0; i < menu.n; i++)
+      if (saved_item(i) && setting_get(i) != opened[i]) {
+         core_save_settings();
+         return;
       }
-      cfgf.card = sdcard_changes();
-      if (f_size(&cfgf.f) != (FSIZE_t)menu.n) {
-         f_close(&cfgf.f);
-         cfgf.on = 0;
-         return -1;
-      }
-   }
-   for (int i = 0; i < menu.n; i++) {
-      b[i] = saved_item(i) && setting_get(i);
-      changed |= saved_item(i) && b[i] != cfgf.old[i];
-   }
-   if (!changed)
-      return 0;
-   if (f_lseek(&cfgf.f, 0) != FR_OK || f_write(&cfgf.f, b, menu.n, &put) != FR_OK ||
-       put != (UINT)menu.n || f_sync(&cfgf.f) != FR_OK) {
-      cfgf.on = 0;
-      return -1;
-   }
-   return 0;
-}
-
-int shell_save_settings(void)
-{
-   return save_settings(1);
-}
-
-// An item's bit as the settings file has it: the default without a good file, or in a new
-// one (0xFF)
-int shell_saved_setting(int group, int pos)
-{
-   uint8_t b[MENU_MAX];
-   UINT got;
-   int i = shell_item(group, pos);
-   if (i < 0)
-      return 0;
-   if (!cfgf.on || f_lseek(&cfgf.f, 0) != FR_OK || f_read(&cfgf.f, b, menu.n, &got) != FR_OK ||
-       got != (UINT)menu.n || b[0] == 0xFF)
-      return cfg_get(CFG_OPTM_STDSEL, i);
-   return b[i] == 1;
 }
 
 // -------------------------------------------------------------------------------------
@@ -793,7 +710,7 @@ static void open_menu(void)
       M2M_CSR |= M2M_CSR_PAUSE;
 
    for (int i = 0; i < menu.n; i++)
-      menu.sel[i] = cfgf.old[i] = setting_get(i);
+      menu.sel[i] = opened[i] = setting_get(i);
    menu_show();
    scr_window_on(menu.x, menu.y, menu.dx, menu.dy);
    menu_cursor_on();
@@ -804,7 +721,7 @@ static void close_menu(void)
 {
    scr_off();
    menu.shown = 0;
-   save_settings(0);
+   save_settings();
    // Closed with the Close Menu item: start at the start item next time
    if (menu.group[menu.cursor] == MENU_CLOSE)
       menu.cursor = start_idx;
@@ -919,7 +836,7 @@ void shell_start(void)
       sdcard_poll();
    while (sdcard_state() == SDCARD_WAIT);
 
-   load_settings();
+   default_settings();
    roms_autoload();
 
    csr_flags(M2M_CSR, CFG_RP_KB_RST, CFG_RP_J1_RST, CFG_RP_J2_RST);

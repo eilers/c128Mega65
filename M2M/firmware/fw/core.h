@@ -35,8 +35,11 @@ int         core_crtrom_loaded(int dev);
 const char *core_crtrom_text(int dev);
 // Space on its line: 1 if the core emptied it, 0 to browse as Return does
 int         core_crtrom_clear(int dev);
-// Called right before the core leaves reset: NULL, or an error message
+// Called right before the core leaves reset: NULL, or an error message. The settings are
+// config.vhd's defaults until then: the core's settings file can change them.
 const char *core_prep_start(void);
+// The menu closed with settings changed: keep them
+void        core_save_settings(void);
 // The key that opens the menu: M2M_KEY_HELP, or another one for a core that uses Help
 uint32_t    core_menu_key(void);
 // A line with a "%s" that isn't a drive's, a CRT/ROM's or a submenu's: its text, or NULL
@@ -71,5 +74,3 @@ void shell_crtrom_named(int group, const char *path);
 void shell_open_menu(void);                   // as the Help key does, unless it is open
 void shell_menu_button(void);                 // opens or closes it (REST's menu_button)
 int  shell_menu_screen(uint8_t *out);         // REST's menu_screen: 2000 bytes, or 0 if closed
-int  shell_save_settings(void);               // the menu's settings into their file now: 0, or -1
-int  shell_saved_setting(int group, int pos); // an item's bit in the file (the default without one)

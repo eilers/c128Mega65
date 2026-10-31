@@ -1,20 +1,20 @@
 // Gideon's configuration stores as the core has them: the stores and items of his firmware
 // that the core has, with his names and types (the choices the core's, under his names where
-// he has the same), and what setting each one does, and a store of the core's own for the
-// C128's ROMs. LOAD_CONFIG (uci_ctrl.c) and the settings file read them from a file in his
-// format; REST's configs routes (net/rest_configs.c) read and set them. A change is a list
-// of wanted values (stores_begin, stores_want) that stores_apply puts into effect at once,
-// as his effectuate does.
+// he has the same), and what setting each one does, and stores of the core's own for the
+// C128's ROMs and the menu's other settings. LOAD_CONFIG (uci_ctrl.c) and the settings file
+// read them from a file in his format; REST's configs routes (net/rest_configs.c) read and
+// set them. A change is a list of wanted values (stores_begin, stores_want) that
+// stores_apply puts into effect at once, as his effectuate does.
 //
-// The settings file keeps what the menu's own settings file can't: the strings (network,
-// REU image, ROMs, boot cartridge) and drive power set by REST or LOAD_CONFIG.
+// The settings file, /c128/settings.cfg, keeps every setting: the menu's and the rest.
 #pragma once
 #include <stdint.h>
 #include "ff.h"
 
 #define SETTINGS_FILE "/c128/settings.cfg"
+#define SETTINGS_TMP  "/c128/settings.tmp"   // written first, then renamed over it
 
-enum { ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_ROMS, ST_COUNT };
+enum { ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_ROMS, ST_MEGA65, ST_COUNT };
 // His CFG_TYPE_ENUM, _VALUE, _STRING, _STRPASS, _STRFUNC (here a file of rompick.c's folder)
 enum { IT_ENUM, IT_VALUE, IT_STRING, IT_PASS, IT_FILE };
 
@@ -25,6 +25,7 @@ typedef struct {
    int16_t            min, max;  // IT_VALUE's range
    int16_t            def;       // IT_ENUM: the default's index; IT_VALUE: the number
    const char        *sdef;      // a string's default
+   uint8_t            group;     // a menu group it is (OPTM_G_*), its choices in the group's order
 } item_t;
 
 extern const item_t stores_items[];
@@ -50,8 +51,8 @@ int         stores_drive_internal(int d);
 // The model nearest m that the drive's image runs: a D64 a 1541 or 1571, a D71 a 1571, a D81
 // a 1581. Without an image, and for the internal floppy, m.
 int         stores_drive_fit(int d, int m);
-// A model REST or a config asks for: 0 if the drive's image can't run it. The internal
-// floppy's drive stays it for a 1581 (his names can't say it).
+// A model REST or a config asks for: 0 if the drive's image can't run it. Leaving the
+// internal floppy, an image under it takes the nearest model.
 int         stores_drive_ask_model(int d, int m);
 // What a drive runs as, as his get_drive_type() gives it: 0 1541, 1 1571, 2 1581
 int         stores_drive_type(int d);
@@ -71,13 +72,13 @@ void stores_saved(int s);
 
 // The default of every item of store s, wanted
 void stores_want_defaults(int s);
-// What the menu's settings file and the settings file hold for store s, wanted
+// What the settings file holds for store s, wanted: the defaults where it says nothing
 void stores_want_saved(int s);
 // netcfg's strings, their defaults
 void stores_net_defaults(void);
 
 // The settings file: at the start, its items in effect (the defaults without it): 0, or -1
-// without the file. And the items it keeps, written: 0, or -1.
+// without the file. And every item, written: 0, or -1.
 int  stores_load(void);
 int  stores_save(void);
 

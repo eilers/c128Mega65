@@ -1,8 +1,8 @@
 // The REST API's configs routes: Gideon's software/api/route_configs.cc at 4b00732 (the
 // II+L's 3.15a has the same, but for the order of an enumeration's values, which is the
 // same here) on the core's stores (stores.c), with his texts and his JSON layout. A change
-// is in effect at once and lives in memory until save_to_flash, as his: the menu's items
-// then go into the menu's settings file, the rest into the settings file.
+// is in effect at once and lives in memory until save_to_flash, as his: then into the
+// settings file.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stdlib.h>
@@ -336,8 +336,7 @@ static void put_load(rest_t *r)
    json_response(r, HTTP_OK);
 }
 
-// Only stores with changes, as his is_flash_stale; then the menu's settings file and the
-// settings file, both written whole
+// Only stores with changes, as his is_flash_stale; then the settings file, written whole
 static void put_save(rest_t *r)
 {
    if (!depth_ok(r))
@@ -350,10 +349,8 @@ static void put_save(rest_t *r)
          list_str(r, n++, store_name(s));
       }
    list_close(r, n);
-   if (n) {
-      shell_save_settings();
+   if (n)
       stores_save();
-   }
    json_response(r, HTTP_OK);
 }
 

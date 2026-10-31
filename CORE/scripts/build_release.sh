@@ -52,10 +52,9 @@ sanitize_version_slug() {
 CONFIG_VHD_PATH="$CORE_DIR/vhdl/config.vhd"
 CORE_VERSION_RE='constant[[:space:]]+CORE_VERSION[[:space:]]*:[[:space:]]*string[[:space:]]*:=[[:space:]]*"([^"]+)"[[:space:]]*;'
 
-# CORE_VERSION is baked into the bitstream at synthesis time: it names the saved-settings file
-# and appears on the credits screen. A mismatch between it and the release name would silently
-# ship a core whose settings file and about screen disagree with the zip, so check before the
-# build loop rather than after four synthesis runs.
+# CORE_VERSION is baked into the bitstream at synthesis time: it appears on the credits screen.
+# A mismatch between it and the release name would silently ship a core whose about screen
+# disagrees with the zip, so check before the build loop rather than after four synthesis runs.
 check_core_version() {
   [[ -f "$CONFIG_VHD_PATH" ]] || die "config.vhd not found: $CONFIG_VHD_PATH"
 
@@ -128,22 +127,6 @@ if ask_run_testbenches; then
     || die "A simulation testbench failed; core build aborted."
 else
   echo "Skipping simulation testbenches."
-fi
-
-# The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
-# on the SD card, so the release has to carry it next to the .cor files. R3's menu has no
-# 2 MB or 16 MB REU, so R3 has its own file, two bytes shorter.
-SETTINGS_FILE="$CORE_DIR/settings/c128mega65-${CORE_VERSION_VHDL}.cfg"
-[[ -f "$SETTINGS_FILE" ]] || die "Settings file missing: $SETTINGS_FILE
-     Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE\" auto"
-cp -f "$SETTINGS_FILE" "$STAGING_DIR/"
-echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE")"
-if [[ " ${BOARDS[*]} " == *" 3 "* ]]; then
-  SETTINGS_FILE_R3="$CORE_DIR/settings/c128mega65-${CORE_VERSION_VHDL}-r3.cfg"
-  [[ -f "$SETTINGS_FILE_R3" ]] || die "Settings file missing: $SETTINGS_FILE_R3
-     Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE_R3\" auto-r3"
-  cp -f "$SETTINGS_FILE_R3" "$STAGING_DIR/"
-  echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE_R3")"
 fi
 
 cp -f "$FIRMWARE" "$STAGING_DIR/"

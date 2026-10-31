@@ -487,6 +487,11 @@ const char *core_prep_start(void)
    return NULL;
 }
 
+void core_save_settings(void)
+{
+   stores_save();
+}
+
 // "Help menu on F13" lets the C128 have its Help key
 uint32_t core_menu_key(void)
 {

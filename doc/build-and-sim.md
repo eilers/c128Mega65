@@ -74,30 +74,17 @@ that it exists before starting xsim.
 Copy these files to the MEGA65 SD card before testing on hardware. Without them
 the core cannot boot correctly.
 
-### Saved settings file
+### Saved settings
 
-The on-screen menu only persists its settings if a file of exactly `OPTM_SIZE`
-bytes exists at the `CFG_FILE` path from `CORE/vhdl/config.vhd`. The filename
-carries `CORE_VERSION`, so it changes with every release:
+The firmware keeps every setting, the menu's and the rest, in `/c128/settings.cfg` on the
+SD card, in the Ultimate's settings format (`CORE/firmware/stores.c`): a `[store]` line,
+then `item=value` lines. It makes the file the first time a setting changes, so a release
+ships none. Settings are kept by name, not by menu line, so they survive a new menu layout
+or `CORE_VERSION`, and R3 builds share the file (a choice they lack, such as a 2 MB REU, is
+skipped). The file can be edited by hand; UCI's LOAD_CONFIG and REST's configs routes read
+the same names.
 
-| File                                        | Size                   | SD card path                        |
-|---------------------------------------------|------------------------|-------------------------------------|
-| `CORE/settings/c128mega65-<version>.cfg`    | one byte per menu line | `/c128/c128mega65-<version>.cfg`    |
-| `CORE/settings/c128mega65-<version>-r3.cfg` | two bytes fewer        | `/c128/c128mega65-<version>-r3.cfg` |
-
-R3 and `6r3` builds have no 2 MB or 16 MB REU, so their menu is two lines shorter
-and has its own file (`doc/hyperram-map.md`). Regenerate both whenever `OPTM_SIZE_ALL`
-or `CORE_VERSION` changes, and delete the files belonging to the previous
-version:
-
-```bash
-cd M2M/tools
-./make_config.sh ../../CORE/settings/c128mega65-<version>.cfg auto
-./make_config.sh ../../CORE/settings/c128mega65-<version>-r3.cfg auto-r3
-```
-
-`build_release.sh` ships them with the release zip, the R3 one when it builds R3, and
-`firmware.bin` too.
+`build_release.sh` ships `firmware.bin` with the cores.
 
 ### Disk images
 
