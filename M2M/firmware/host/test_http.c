@@ -1578,6 +1578,10 @@ int main(int argc, char **argv)
    files();
    roms();
    runners();
+   // The menu's REST API off and on, while the connections it closed wait out TIME_WAIT
+   http_listen(0);
+   http_listen(1);
+   expect("REST API off and on again", "GET /v1/version HTTP/1.1\r\n\r\n", json(200, "OK", VERSION));
    printf("test_http: %d checks, %d failed\n", checks, failures);
    return failures != 0;
 }

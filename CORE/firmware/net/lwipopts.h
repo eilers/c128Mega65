@@ -49,6 +49,7 @@
 #define TCP_SND_QUEUELEN            (4 * TCP_SND_BUF / TCP_MSS)
 #define TCP_QUEUE_OOSEQ             0      // out-of-order segments get resent; saves pbufs
 #define LWIP_TCP_KEEPALIVE          1
+#define SO_REUSE                    1      // a listener comes back while its old connections wait out TIME_WAIT
 #define LWIP_CALLBACK_API           1
 
 #define LWIP_NETIF_HOSTNAME         1
