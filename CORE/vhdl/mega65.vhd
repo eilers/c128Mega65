@@ -1066,8 +1066,8 @@ begin
    -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded
    qnice_ascal_triplebuf_o    <= '0';
 
-   -- Flip joystick ports (i.e. the joystick in port 2 is used as joystick 1 and vice versa)
-   qnice_flip_joyports_o      <= '0';
+   -- Swap joystick ports: the framework swaps the joystick lines and the paddles
+   qnice_flip_joyports_o      <= qnice_osm_control(C_MENU_JOY_SWAP);
 
    ---------------------------------------------------------------------------------------------
    -- Core specific device handling (QNICE clock domain)

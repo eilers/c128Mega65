@@ -276,19 +276,19 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 180; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 179; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 31 rows. The Video submenu is
--- 20 rows and the HDMI submenu 14 (headline through Back to main menu; the "%s"
--- opener is hidden inside the submenu); both leave empty space below.
+-- tallest page. The main menu is the tallest at 28 rows. The drive submenus are
+-- 22 rows and the Video submenu 20 (headline through Back to main menu; the "%s"
+-- opener is hidden inside the submenu); they leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 31;
+constant OPTM_DY           : natural := 28;
 
 -- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
@@ -404,24 +404,11 @@ constant OPTM_ITEMS_ALL    : string :=
    " Back to main menu\n"   &
    "\n"                     &
 
-   " Keyboard\n"            &
-   "\n"                     &
-   " Caps Lock: %s\n"       &    -- Caps Lock submenu; %s is 40/80 or ASCII/DIN
-   " Caps Lock Key\n"       &
-   "\n"                     &
-   " 40/80\n"               &    -- default: real Caps Lock is the 40/80 key, F9 latches Caps Lock
-   " ASCII/DIN\n"           &    -- real Caps Lock is ASCII/DIN, F9 latches 40/80
-   "\n"                     &
-   " F9 toggles the other\n" &
-   "\n"                     &
-   " Back to main menu\n"   &
-   " Help menu on F13\n"    &    -- default off: Help opens the menu
-
-   "\n"                     &
    " External Hardware\n"   &
    "\n"                     &
    " Use IEC port\n"        &
-   " REU: %s\n"             &    -- REU submenu; %s is the size or Off
+   " Swap joystick ports\n" &    -- default off: port 1's joystick is the C128's port 2 and back
+   " REU: %s\n"           &    -- REU submenu; %s is the size or Off
    " RAM Expansion Unit\n"  &
    "\n"                     &
    " Off\n"                 &    -- default
@@ -482,8 +469,19 @@ constant OPTM_ITEMS_ALL    : string :=
    " Space: back to stock\n" &
    "\n"                     &
    " Back to main menu\n"   &
+   " Keyboard: %s\n"        &    -- Keyboard submenu; %s is Stock or Custom (core.c)
+   " Keyboard\n"            &
    "\n"                     &
-   " Load settings\n"       &    -- a .cfg in Gideon's settings format, kept (core.c)
+   " Caps Lock Key\n"       &
+   " 40/80\n"               &    -- default: real Caps Lock is the 40/80 key, F9 latches Caps Lock
+   " ASCII/DIN\n"           &    -- real Caps Lock is ASCII/DIN, F9 latches 40/80
+   " F9 toggles the other\n" &
+   "\n"                     &
+   " Help menu on F13\n"    &    -- default off: Help opens the menu
+   "\n"                     &
+   " Back to main menu\n"   &
+   "\n"                     &
+   " Load settings\n"     &    -- a .cfg in Gideon's settings format, kept (core.c)
 
    " Credits\n"             &
    " Close Menu\n";
@@ -539,6 +537,7 @@ constant OPTM_G_DRVA_ID    : integer := 43;   -- Drive A's bus ID: 8, 9, 10, 11
 constant OPTM_G_DRVB_ID    : integer := 44;   -- Drive B's
 constant OPTM_G_NET_FTP    : integer := 45;   -- FTP server on port 21
 constant OPTM_G_LOAD_CFG   : integer := 46;   -- Load settings: a .cfg file of settings
+constant OPTM_G_JOY_SWAP   : integer := 47;   -- Swap joystick ports
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -655,23 +654,10 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
 
                                              OPTM_G_LINE,                                         -- Line
 
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Keyboard
-                                             OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_SUBMENU,                                      -- Caps Lock submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Caps Lock Key
-                                             OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_KEYS + OPTM_G_STDSEL,                         -- 40/80
-                                             OPTM_G_KEYS,                                         -- ASCII/DIN
-                                             OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_TEXT,                                         -- F9 toggles the other
-                                             OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
-                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
-
-                                             OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
+                                             OPTM_G_JOY_SWAP + OPTM_G_SINGLESEL,                  -- Swap joystick ports (default off)
                                              OPTM_G_SUBMENU,                                      -- REU submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- RAM Expansion Unit
                                              OPTM_G_LINE,                                         -- Line
@@ -731,6 +717,17 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_ROM_FUNC + OPTM_G_LOAD_ROM,                   -- Function ROM:%s
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT,                                         -- Space: back to stock
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_SUBMENU,                                      -- Keyboard submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Keyboard
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Caps Lock Key
+                                             OPTM_G_KEYS + OPTM_G_STDSEL,                         -- 40/80
+                                             OPTM_G_KEYS,                                         -- ASCII/DIN
+                                             OPTM_G_TEXT,                                         -- F9 toggles the other
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_HELP_F13 + OPTM_G_SINGLESEL,                  -- Help menu on F13 (default off)
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_LINE,                                         -- Line

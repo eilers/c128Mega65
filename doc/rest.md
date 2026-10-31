@@ -67,7 +67,7 @@ choices are the core's, under his names where he has the same.
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
-| MEGA65 Settings (ours) | the menu's other settings, its words for the choices: Video Output, VIC-II Jailbars, HDMI Display Mode, HDMI Flicker-free, HDMI Audio, HDMI CRT Emulation, VGA Display Mode, Caps Lock Key, Help Menu on F13, Use IEC Port |
+| MEGA65 Settings (ours) | the menu's other settings, its words for the choices: Video Output, VIC-II Jailbars, HDMI Display Mode, HDMI Flicker-free, HDMI Audio, HDMI CRT Emulation, VGA Display Mode, Caps Lock Key, Help Menu on F13, Use IEC Port; and his U64's Joystick Swapper (Normal, Swapped) |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
 GET with an item in full lists his `presets` (the files of the right size). Empty, or a

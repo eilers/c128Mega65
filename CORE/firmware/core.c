@@ -65,11 +65,15 @@ const char *core_submenu_summary(int idx)
    int g;
 
    // A submenu's first menu group: a drive's Disk line, the Cartridge submenu's source, the
-   // System ROMs submenu's C128 KERNAL line, the Network submenu's REST on or off
+   // System ROMs submenu's C128 KERNAL line, the Keyboard submenu's Caps Lock key, the
+   // Network submenu's REST on or off
    while ((g = shell_group(++idx)) == 0)
       ;
    if (g == OPTM_G_MOUNT_D8 || g == OPTM_G_MOUNT_D9)
       return drive_line(g == OPTM_G_MOUNT_D9);
+   if (g == OPTM_G_KEYS)   // Stock: Caps Lock is 40/80 and Help opens the menu
+      return shell_setting(OPTM_G_KEYS, 0) && !shell_setting(OPTM_G_HELP_F13, 0) ?
+             " Keyboard: Stock" : " Keyboard: Custom";
    if (g == OPTM_G_ROM_K128) {
       int custom = 0;
       for (int p = 0; p < RP_DRIVE; p++)

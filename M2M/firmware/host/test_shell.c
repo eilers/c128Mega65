@@ -360,11 +360,12 @@ static int make_card(uint8_t *bits)
    put_file("/c128/boot1.rom", 1, 600);
    put_file("/c128/game.crt", 3, 70000);
    put_text("/c128/game.cfg", "[MEGA65 Settings]\nVGA Display Mode=15 kHz with CSYNC\n");   // game.crt's own
-   put_text("/c128/mine.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n");
+   put_text("/c128/mine.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n"
+            "Joystick Swapper=Swapped\n");
    put_text("/c128/bad.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=Huge\nCaps Lock Key=ASCII/DIN\n"
             "[A_store_name_far_too_long_for_one_line_of_the_message]\nx=1\n");
    put_text("/c128/back.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"
-            "VGA Display Mode=Standard\nCaps Lock Key=40/80\n");
+            "VGA Display Mode=Standard\nCaps Lock Key=40/80\nJoystick Swapper=Normal\n");
    put_file("/c128/big.crt", 4, 140000);
    f_mkdir("/c128/Sub");
    put_file("/c128/Sub/x.crt", 5, 3000);
@@ -495,28 +496,32 @@ static int kept(int idx)
 }
 
 // The stores' menu groups: a name per line in its order (the menu's words in MEGA65
-// Settings), or Disabled/Enabled for a single-select line; config.vhd's default. And every
-// setting of the menu kept: all but drives, files, help and text lines.
+// Settings), or two words, off then on, for a single-select line; config.vhd's default. And
+// every setting of the menu kept: all but drives, files, help and text lines.
 static void check_stores(void)
 {
    for (int k = 0; k < stores_count; k++) {
       const item_t *it = &stores_items[k];
       if (!it->group)
          continue;
-      int n = 0, def = -1, words = 1, toggle = !strcmp(it->choices[0], "Disabled") && !it->choices[2];
+      int n = 0, def = -1, words = 1, line = -1;
       for (int i = 0; i < menu.n; i++) {
          if (shell_group(i) != it->group)
             continue;
          const char *l = menu.line[i];
          while (*l == ' ')
             l++;
-         if (!toggle && it->store == ST_MEGA65 && (n >= item_choices(it) || strcmp(l, it->choices[n])))
+         if (it->store == ST_MEGA65 && (n >= item_choices(it) || strcmp(l, it->choices[n])))
             words = 0;
          if (cfg_get(CFG_OPTM_STDSEL, i))
             def = n;
+         line = i;
          n++;
       }
-      check(toggle ? n == 1 && it->def == (def == 0) : n == item_choices(it) && it->def == def && words, it->name);
+      // A single-select line: the item's value is the line's
+      int toggle = n == 1 && cfg_get(CFG_OPTM_SINGLE, line) && item_choices(it) == 2;
+      check(toggle ? it->def == (def == 0) && item_get(it) == setting_get(line) :
+                     n == item_choices(it) && it->def == def && words, it->name);
    }
    int all = 1;
    for (int i = 0; i < menu.n; i++) {
@@ -602,7 +607,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 33), "menu window 25x33 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 30), "menu window 25x30 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
@@ -673,10 +678,18 @@ int main(int argc, char **argv)
          "back in the menu, Credits not selected");
    check(!setting_get(item(" Credits")), "Credits not set");
 
-   // F13 instead of Help
+   // The Keyboard line opens its submenu; F13 instead of Help makes it Custom
+   check(find_row(" Keyboard: Stock") > 0, "keyboard summary: Stock");
+   go_to("Keyboard:");
+   press(M2M_KEY_RETURN);
+   dump("keyboard submenu");
+   check(find_row(" Keyboard") == 1 && find_row(" Caps Lock Key") > 0 && find_row("*40/80") > 0 &&
+         find_row(" F9 toggles the other") > 0, "keyboard submenu: Caps Lock key 40/80, the F9 note");
    go_to("Help menu on F13");
    press(M2M_KEY_RETURN);
    check(find_row("=Help menu on F13") > 0 && setting_get(item(" Help menu on F13")), "F13 option on");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" Keyboard: Custom") > 0 && cursor_on("Keyboard:"), "back in the main menu: keyboard Custom");
    press(M2M_KEY_F13);
    idle();
    press(M2M_KEY_HELP);
@@ -684,7 +697,22 @@ int main(int argc, char **argv)
    press(M2M_KEY_F13);
    check(M2M_CSR & M2M_CSR_OSM, "F13 opens it");
    press(M2M_KEY_RETURN);
+   go_to("Help menu on F13");
+   press(M2M_KEY_RETURN);
    check(!setting_get(item(" Help menu on F13")), "F13 option off");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" Keyboard: Stock") > 0, "keyboard summary: Stock again");
+
+   // Swap joystick ports: kept as his Joystick Swapper
+   go_to("Swap joystick ports");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Swap joystick ports") > 0 && setting_get(item(" Swap joystick ports")), "joystick ports swapped");
+   press(M2M_KEY_HELP);
+   idle();
+   check(setting_line("Use IEC Port=Enabled\nJoystick Swapper=Swapped\n"), "kept: Joystick Swapper=Swapped");
+   press(M2M_KEY_HELP);
+   press(M2M_KEY_RETURN);
+   check(cursor_on("Swap joystick ports") && !setting_get(item(" Swap joystick ports")), "joystick ports back");
 
    // A .crt file: the browser, filtered and sorted, starts in /c128; the CPU copies it in
    // (the device says it has no DMA), the device parses it, the menu shows its name
@@ -1159,7 +1187,7 @@ int main(int argc, char **argv)
 
    // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
    // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
-   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 29, "Load settings: the main menu's last line but two");
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 26, "Load settings: the main menu's last line but two");
    go_to("Load settings");
    press(M2M_KEY_RETURN);
    dump("Load settings browser");
@@ -1168,8 +1196,9 @@ int main(int argc, char **argv)
    browse_to("mine.cfg");
    press(M2M_KEY_RETURN);
    check(cursor_on("Load settings") && find_row("=Load settings") < 0, "loaded: back in the menu, the line unmarked");
-   check(setting_get(item(" High")) && setting_get(item(" 640x480 60 Hz")) &&
-         setting_line("VIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n"), "mine.cfg in effect, kept");
+   check(setting_get(item(" High")) && setting_get(item(" 640x480 60 Hz")) && setting_get(item(" Swap joystick ports")) &&
+         setting_line("VIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n") &&
+         setting_line("Joystick Swapper=Swapped\n"), "mine.cfg in effect, kept");
    check(setting_get(item(" 15 kHz with CSYNC")) && setting_line("VGA Display Mode=Standard\n"),
          "game.cfg's VGA mode in effect, not kept");
    // The VGA mode picked in the menu is kept
@@ -1200,6 +1229,7 @@ int main(int argc, char **argv)
    browse_to("back.cfg");
    press(M2M_KEY_RETURN);
    check(setting_get(item(" Standard")) && setting_get(item(" 40/80")) && setting_get(item(" 720p 50 Hz 16:9")) &&
+         !setting_get(item(" Swap joystick ports")) &&
          setting_line("VIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"), "back.cfg: as before");
 
    // Close Menu: next time from the start item
