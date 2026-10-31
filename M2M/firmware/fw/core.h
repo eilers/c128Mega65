@@ -35,6 +35,8 @@ int         core_crtrom_loaded(int dev);
 const char *core_crtrom_text(int dev);
 // Space on its line: 1 if the core emptied it, 0 to browse as Return does
 int         core_crtrom_clear(int dev);
+// A file loaded from the browser for a drive or CRT/ROM item of the group, at path
+void        core_file_loaded(int group, const char *path);
 // Called right before the core leaves reset: NULL, or an error message. The settings are
 // config.vhd's defaults until then: the core's settings file can change them.
 const char *core_prep_start(void);

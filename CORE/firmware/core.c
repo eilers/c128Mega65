@@ -1,5 +1,6 @@
 // The C128 core's part of the RISC-V Shell: the callbacks of QNICE's m2m-rom.asm.
 // Menu items are found by their config.vhd group and their place in it.
+#include <stdarg.h>
 #include <stddef.h>
 #include <string.h>
 #include "cfg.h"
@@ -24,6 +25,7 @@
 // C_CRTROMS_MAN's core items (globals.vhd): the REU's file, the boot cartridge, the ROMs
 #define DEV_REU     0x0000
 #define DEV_BOOT    0x0001
+#define DEV_CFG     0x0002         // Load settings
 #define DEV_ROM     0x0010         // + the pick
 
 #define CRT_DEVICE        0x0106   // C_DEV_CRT (globals.vhd), its CSR (sw_cartridge_csr.vhd):
@@ -305,13 +307,14 @@ static const char *sizes(int p)
 }
 
 // Disk images for the drives, .crt files for the cartridge, .reu files for the REU, files of
-// the right size for a ROM; folders always
+// the right size for a ROM, settings files for Load settings; folders always
 int core_filter_file(const char *name, int dir, int ctx, int group, uint32_t size)
 {
    static const char *const disk[] = { ".D64", ".D71", ".D81", NULL }, *const crt[] = { ".CRT", NULL },
-                     *const reu[] = { ".REU", NULL };
+                     *const reu[] = { ".REU", NULL }, *const cfg[] = { ".CFG", NULL };
    const char *const *ext = ctx == CTX_MOUNT_DISKIMG ? disk :
-                            ctx == CTX_LOAD_ROM ? (group == OPTM_G_REU_FILE ? reu : crt) : NULL;
+                            ctx != CTX_LOAD_ROM ? NULL :
+                            group == OPTM_G_REU_FILE ? reu : group == OPTM_G_LOAD_CFG ? cfg : crt;
    int len = strlen(name), p = pick_of_group(group);
 
    if (dir || !ext)
@@ -341,6 +344,8 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
       { 819200, 2 },   // D81: 1581
    };
    *type = 0;
+   if (ctx == CTX_LOAD_ROM && group == OPTM_G_LOAD_CFG)
+      return 0;
    if (ctx == CTX_MOUNT_DISKIMG) {
       for (unsigned i = 0; i < sizeof disks / sizeof disks[0]; i++)
          if (size == disks[i].size) {
@@ -393,6 +398,9 @@ const char *core_custom_msg(int situation, int ctx, int group)
    if (ctx == CTX_LOAD_ROM && group == OPTM_G_REU_FILE)
       return "No .reu files here.\n\nCopy REU image files (.reu) to any\n"
              "folder of this SD card, for example\n/c128.\n\nPress Space to continue.";
+   if (ctx == CTX_LOAD_ROM && group == OPTM_G_LOAD_CFG)
+      return "No .cfg settings files here.\n\nA settings file has the format of\n"
+             "/c128/settings.cfg, an Ultimate's.\n\nPress Space to continue.";
    if (ctx == CTX_LOAD_ROM)
       return "No .crt cartridge files here.\n\nCopy C64 or C128 .crt files to any\n"
              "folder of this SD card, for example\n/c128.\n\nPress Space to continue.";
@@ -434,11 +442,92 @@ static int reu_load(const char *path, int bar, const char **msg)
    return 0;
 }
 
+// --- Load settings ------------------------------------------------------------------------
+
+#define MSG_W    42                  // the message screen's width, inside its frame
+#define MSG_ROWS 20                  // the log's lines there, at most
+
+static char cfg_log[640];
+static int  cfg_n;
+
+static void cfg_logf(const char *fmt, ...)
+{
+   va_list ap;
+   va_start(ap, fmt);
+   int n = fmt_vsnprintf(cfg_log + cfg_n, sizeof cfg_log - cfg_n, fmt, ap);
+   va_end(ap);
+   cfg_n += n < (int)sizeof cfg_log - cfg_n ? n : (int)sizeof cfg_log - 1 - cfg_n;
+}
+
+// s into out, its lines broken at a space (or in a word too long) to fit MSG_W; after rows
+// lines "..."
+static void wrap(const char *s, char *out, int size, int rows)
+{
+   int n = 0, start = 0, space = -1;           // out's line starts at start, its last space
+   for (; *s && rows > 0 && n < size - 5; s++) {
+      out[n++] = *s;
+      if (*s == '\n') {
+         start = n;
+         space = -1;
+         rows--;
+      } else if (*s == ' ')
+         space = n - 1;
+      else if (n - start > MSG_W) {
+         if (space < start) {                 // no space: the last character onto the next line
+            out[n] = out[n - 1];
+            space = n++ - 1;
+         }
+         out[space] = '\n';
+         start = space + 1;
+         space = -1;
+         rows--;
+      }
+   }
+   int more = *s || (rows == 0 && n > start);
+   if (rows == 0)
+      n = start;
+   strcpy(out + n, more ? "..." : "");
+}
+
+// As his Load Settings: the good lines take effect even if others have errors, whose log is
+// the message. Kept at once, as a pick is.
+static int settings_load(const char *path, const char **msg)
+{
+   static char text[sizeof cfg_log + MSG_ROWS + 64];
+   FIL f;
+   FRESULT res = f_open(&f, path, FA_READ);
+   if (res != FR_OK) {
+      *msg = uci_fr_text(res);
+      return 0x100 + res;
+   }
+   stores_begin();
+   cfg_n = 0;
+   int good = stores_read(&f, ~0u, cfg_logf);
+   f_close(&f);
+   stores_apply();
+   stores_save();
+   if (good)
+      return 0;
+   int n = fmt_snprintf(text, sizeof text, "\nThere were errors; the rest is in effect.\n\n");
+   wrap(cfg_log, text + n, sizeof text - n, MSG_ROWS);
+   *msg = text;
+   return 0x103;
+}
+
+// A .crt from the menu brings its own settings, as on an Ultimate (his FileTypeCRT)
+void core_file_loaded(int group, const char *path)
+{
+   if (group == OPTM_G_MOUNT_CRT)
+      stores_associated(path, 0);
+}
+
 // The core's own items (C_CRTROMS_MAN): the REU's File:%s, or a pick (the Boot line, the ROMs
-// submenu). Either is kept in the settings file at once.
+// submenu). Either is kept in the settings file at once. And Load settings.
 int core_crtrom_load(int dev, const char *path, const char **msg)
 {
    int p = pick_of_dev(dev), err = 0;
+   if (dev == DEV_CFG)
+      return settings_load(path, msg);
    if (p < 0)
       err = reu_load(path, 1, msg);
    else {
@@ -467,6 +556,8 @@ int core_crtrom_load(int dev, const char *path, const char **msg)
 int core_crtrom_loaded(int dev)
 {
    int p = pick_of_dev(dev);
+   if (dev == DEV_CFG)
+      return 0;
    return p < 0 ? reu_file_picked() : rompick_state(p) == RS_FILE;
 }
 

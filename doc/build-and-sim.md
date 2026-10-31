@@ -81,8 +81,8 @@ SD card, in the Ultimate's settings format (`CORE/firmware/stores.c`): a `[store
 then `item=value` lines. It makes the file the first time a setting changes, so a release
 ships none. Settings are kept by name, not by menu line, so they survive a new menu layout
 or `CORE_VERSION`, and R3 builds share the file (a choice they lack, such as a 2 MB REU, is
-skipped). The file can be edited by hand; UCI's LOAD_CONFIG and REST's configs routes read
-the same names.
+skipped). The file can be edited by hand; UCI's LOAD_CONFIG, REST's configs routes and the
+menu's **Load settings** read the same names.
 
 `build_release.sh` ships `firmware.bin` with the cores.
 

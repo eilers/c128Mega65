@@ -14,7 +14,8 @@
 // 6: drives A and B: a bus ID and a model each, the drive ROM items in their submenus
 // 7: 128 KB data RAM (was 64 KB)
 // 8: the FTP Server menu item
-#define M2M_RV_HW_VERSION    8u
+// 9: the Load settings menu item, 16 CRT/ROM items
+#define M2M_RV_HW_VERSION    9u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

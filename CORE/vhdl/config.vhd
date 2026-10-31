@@ -276,7 +276,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 178; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 180; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
@@ -482,6 +482,8 @@ constant OPTM_ITEMS_ALL    : string :=
    " Space: back to stock\n" &
    "\n"                     &
    " Back to main menu\n"   &
+   "\n"                     &
+   " Load settings\n"       &    -- a .cfg in Gideon's settings format, kept (core.c)
 
    " Credits\n"             &
    " Close Menu\n";
@@ -536,6 +538,7 @@ constant OPTM_G_ROM_D9_81  : integer := 42;
 constant OPTM_G_DRVA_ID    : integer := 43;   -- Drive A's bus ID: 8, 9, 10, 11
 constant OPTM_G_DRVB_ID    : integer := 44;   -- Drive B's
 constant OPTM_G_NET_FTP    : integer := 45;   -- FTP server on port 21
+constant OPTM_G_LOAD_CFG   : integer := 46;   -- Load settings: a .cfg file of settings
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -730,6 +733,8 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_TEXT,                                         -- Space: back to stock
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_LOAD_CFG + OPTM_G_LOAD_ROM,                   -- Load settings
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
                                              OPTM_G_CLOSE                                         -- Close Menu
