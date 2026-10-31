@@ -13,8 +13,14 @@ REST_SRC := $(NET)/rest.c $(NET)/rest_machine.c $(NET)/rest_configs.c $(NET)/res
 NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(REST_SRC) $(NET)/netcfg.c $(NET)/log.c $(LWIP)
 NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
 
-all: build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon build/test_modem build/test_http
+TESTS := build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon \
+         build/test_modem build/test_http
+
+all: $(TESTS)
 	./run.sh build
+
+# include/ reaches every test, the hardware version in m2m_rv.h among it
+$(TESTS): $(wildcard ../include/*.h)
 
 build/test_boot: test_boot.c diskio_file.c ../boot/load.c ../lib/crc32.c ../fatfs/ff.c \
                  ../boot/ffconf.h hostmem.h

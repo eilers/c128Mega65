@@ -31,8 +31,8 @@ loop of small modules that never wait, as in the QNICE Shell, written in C
 
 ## Hardware
 
-NEORV32 v1.13.6 (`CORE/vhdl/neorv32`): rv32imc, 8 KB i-cache, 64 KB data RAM (16 KB until
-step 8, hardware interface 2), no d-cache yet.
+NEORV32 v1.13.6 (`CORE/vhdl/neorv32`): rv32imc, 8 KB i-cache, 128 KB data RAM (16 KB until
+step 8, hardware interface 2; 64 KB until hardware interface 7), no d-cache yet.
 
 Clocks: the CPU, the boot ROM and the HyperRAM and SDRAM bridges run at 100 MHz, on the
 HyperRAM clock, so the bridges talk to their arbiters directly; the framework leaves out the
@@ -82,7 +82,7 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   firmware with its own `M2M_RV_HW_VERSION` (`include/m2m_rv.h`): bump it when a change
   there would break an older firmware.
 - **The firmware** (`fw/`): code and constants in HyperRAM at `0x40400000`; data and stack
-  in the 64 KB data RAM. `main.c` polls each module in turn: the keys (Up and Down repeat,
+  in the 128 KB data RAM. `main.c` polls each module in turn: the keys (Up and Down repeat,
   as in QNICE's `keyboard.asm`), the SD card (mounted when a card is in, dropped when the
   cards change) and the screen. FatFs R0.16 with its two patches, long names in code page
   437, the menu font's. Everything a user needs to see goes on the screen: the serial

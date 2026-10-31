@@ -95,7 +95,7 @@ stuck at). The core needs a reset then (a long press). `AT*T` and `AT*W` test th
 ### Resources
 
 lwIP, sized for the modem, UCI's network target and the REST server, takes about 28 KB of
-the system CPU's 64 KB data RAM. The MAC's frame buffers (4 + 2 KB) and the 6551's FIFOs
+the system CPU's 128 KB data RAM. The MAC's frame buffers (4 + 2 KB) and the 6551's FIFOs
 are LUTRAM.
 
 **Short HyperRAM bursts.** HDMI's scaler keeps its frame buffer in HyperRAM and takes
