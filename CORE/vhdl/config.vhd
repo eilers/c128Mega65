@@ -315,7 +315,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " 1581\n"                &
    " Internal 1581\n"       &    -- the MEGA65's floppy drive, a 1581 (one drive at a time)
    "\n"                     &
-   " 1541 ROM:%s\n"         &    -- 16 or 32 KB, Gideon's "ROM for 1541 mode"
+   " 1541 ROM:%s\n"         &    -- 8 (its $E000 half), 16 or 32 KB, Gideon's "ROM for 1541 mode"
    " 1571 ROM:%s\n"         &
    " 1581 ROM:%s\n"         &    -- also the internal floppy's
    " Space: back to stock\n" &
@@ -338,7 +338,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " 1581\n"                &
    " Internal 1581\n"       &    -- the MEGA65's floppy drive, a 1581 (one drive at a time)
    "\n"                     &
-   " 1541 ROM:%s\n"         &    -- 16 or 32 KB, Gideon's "ROM for 1541 mode"
+   " 1541 ROM:%s\n"         &    -- 8 (its $E000 half), 16 or 32 KB, Gideon's "ROM for 1541 mode"
    " 1571 ROM:%s\n"         &
    " 1581 ROM:%s\n"         &    -- also the internal floppy's
    " Space: back to stock\n" &

@@ -1131,6 +1131,7 @@ int main(int argc, char **argv)
    crtrom_csr_set(0x102, 0, 0);
    go_to("1571 ROM:");
    press(M2M_KEY_RETURN);
+   check(find_row("k16.bin") > 0 && find_row("k8.bin") < 0, "1571 ROM browser: no 8 KB files");
    press(M2M_KEY_DOWN);
    press(M2M_KEY_RETURN);
    dump("drive ROM picked");
@@ -1143,6 +1144,17 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    check(find_row("=1541 ROM:f32.bin") > 0 && dev_at(0x102, 0, 22, 0, 32768) && crtrom_csr_get(0x102, 0) == 1,
          "drive A's 1541 ROM: its bank, reloaded");
+   // An 8 KB 1541 ROM is its $E000 half: the stock ROM under it (boot1.rom is 600 bytes here)
+   press(M2M_KEY_RETURN);
+   check(find_row("k8.bin") > 0, "1541 ROM browser: 8 KB files too");
+   browse_to("k8.bin");
+   press(M2M_KEY_RETURN);
+   check(find_row("=1541 ROM:k8.bin") > 0 && dev_at(0x102, 0, 1, 0, 512) && dev_at(0x102, 0x2000, 21, 0, 8192) &&
+         dev_at(0x102, 0x6000, 21, 0, 8192), "drive A's 1541 ROM 8 KB: stock, then it at $E000 twice");
+   press(M2M_KEY_RETURN);
+   browse_to("f32.bin");
+   press(M2M_KEY_RETURN);
+   check(find_row("=1541 ROM:f32.bin") > 0 && dev_at(0x102, 0, 22, 0, 32768), "drive A's 1541 ROM: f32.bin again");
    press(M2M_KEY_RUNSTOP);
    go_to("System ROMs:");
    press(M2M_KEY_RETURN);

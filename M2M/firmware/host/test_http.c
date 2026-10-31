@@ -1350,9 +1350,9 @@ static void roms(void)
    expect("ROMs: an item in full, its presets of its size", "GET /v1/configs/c128*/c128%20kernal* HTTP/1.1\r\n\r\n",
           ok("{ \n  \"C128 ROM Settings\" : { \n  \"C128 Kernal ROM\" : { \n  \"current\" : \"\",\n"
              "  \"presets\" : [ \"\", \"k16.bin\" ],\n  \"default\" : \"\"\n}\n},\n  \"errors\" : [  ]\n}"));
-   expect("ROMs: a drive's, 16 and 32 KB, no empty one", "GET /v1/configs/drive%20a*/rom%20for%201541* HTTP/1.1\r\n\r\n",
+   expect("ROMs: a 1541's, 8, 16 and 32 KB, no empty one", "GET /v1/configs/drive%20a*/rom%20for%201541* HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Drive A Settings\" : { \n  \"ROM for 1541 mode\" : { \n  \"current\" : \"1541.rom\",\n"
-             "  \"presets\" : [ \"k16.bin\", \"f32.bin\" ],\n  \"default\" : \"1541.rom\"\n}\n},\n  \"errors\" : [  ]\n}"));
+             "  \"presets\" : [ \"k16.bin\", \"k8.bin\", \"f32.bin\" ],\n  \"default\" : \"1541.rom\"\n}\n},\n  \"errors\" : [  ]\n}"));
    expect("ROMs: the cartridges", "GET /v1/configs/c64*/cartridge HTTP/1.1\r\n\r\n",
           ok("{ \n  \"C64 and Cartridge Settings\" : { \n  \"Cartridge\" : { \n  \"current\" : \"\",\n"
              "  \"presets\" : [ \"\", \"boot.crt\" ],\n  \"default\" : \"\"\n}\n},\n  \"errors\" : [  ]\n}"));

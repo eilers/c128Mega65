@@ -62,7 +62,7 @@ choices are the core's, under his names where he has the same.
 | Category | Items |
 |---|---|
 | C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
-| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, not one its image can't run; the internal floppy one drive at a time), Drive Bus ID (8-11; the other drive's swaps them), ROM for 1541 mode, 1571 mode, 1581 mode (16 or 32 KB) |
+| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, not one its image can't run; the internal floppy one drive at a time), Drive Bus ID (8-11; the other drive's swaps them), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
