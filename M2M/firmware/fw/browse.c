@@ -2,7 +2,8 @@
 // folder's entries sorted (folders first, as "<name>", case does not matter, numbers by
 // their length), filtered by the core, 31 to a screen. Up and Down move, Left and Right
 // page, Return opens a folder or picks a file, Run/Stop cancels, F1 and F3 choose the
-// bottom tray's or the back slot's card.
+// bottom tray's or the back slot's card. F5 names a new file for an item that has them (a
+// drive's disk): the core makes it in the folder, and it is the file picked.
 //
 // The entries are records in HyperRAM (fw/heap.c); the sorted order, a number per entry,
 // is kept in the data RAM. QNICE kept the whole folder in its RAM.
@@ -14,6 +15,7 @@
 #include "ff.h"
 #include "fmt.h"
 #include "heap.h"
+#include "keys.h"
 #include "m2m_rv.h"
 #include "screen.h"
 #include "sdcard.h"
@@ -22,6 +24,7 @@
 #define WIDTH       (OSM_DX - 2)
 #define MAX_ENTRIES 1024
 #define DEPTH       32
+#define NAME_MAX    28                // a new file's name as typed: its line shows it all
 
 struct rec {
    uint16_t len;
@@ -48,10 +51,12 @@ static char        root[64];          // the core's for the item: the browser ca
 static int         stack[DEPTH], depth;
 static int         started, caller_was = -1, ctx_now, group_now;
 static uint32_t    card_changes;
-static enum { SHOW, WARN, NOTHING } state;
+static enum { SHOW, WARN, NOTHING, NAME } state;
 static struct rec  new_rec;
 static FILINFO     fi;
 static char        chosen[sizeof path + FF_MAX_LFN + 2];
+static char        typed[NAME_MAX + 1];
+static const char *name_msg;          // the core's word on the name, until the next key
 
 // -------------------------------------------------------------------------------------
 // The sorted folder
@@ -175,6 +180,19 @@ static void highlight(uint8_t attr)
    scr_attr(1, 1 + cur - top, WIDTH, attr);
 }
 
+// The frame's bottom line: F5's hint for an item with new files, the core's tip while naming one
+static void footer(void)
+{
+   const char *label = core_new_file_label(ctx_now, group_now, "");
+   const char *tip = core_custom_msg(CMSG_NEWFILE, ctx_now, group_now);
+   char s[WIDTH + 1] = "";
+   if (label && state == NAME && tip)
+      fmt_snprintf(s, sizeof s, " %s ", tip);
+   else if (label && state == SHOW)
+      fmt_snprintf(s, sizeof s, " F5: %s ", label);
+   scr_bottom(s);
+}
+
 static void draw(void)
 {
    char s[sizeof new_rec.name];
@@ -187,6 +205,7 @@ static void draw(void)
       scr_print(1, 1 + r, 1, s);
    }
    highlight(SCR_COL_STD_INV);
+   footer();
 }
 
 // The cursor at absolute index i, on the screen it falls on (the last one full)
@@ -204,6 +223,7 @@ static void message(const char *s)
 {
    scr_inner();
    scr_print(1, 1, 1, s);
+   scr_bottom(NULL);
 }
 
 // Read the folder and show it, or what's wrong with it
@@ -255,6 +275,7 @@ void browse_open(int ctx, int group, int caller)
    ctx_now      = ctx;
    group_now    = group;
    card_changes = sdcard_changes();
+   keys_text();                       // F5 from here on
    if (!started) {
       const char *r = core_browse_root(ctx, group);
       started = 1;
@@ -311,6 +332,81 @@ static void move_to(int c, int t)
    highlight(SCR_COL_STD_INV);
 }
 
+// -------------------------------------------------------------------------------------
+// A new file: its name typed on the list's last line, as the menu's text items are typed
+// -------------------------------------------------------------------------------------
+
+// Inverted: its kind (the core's label, which the name may change) and the name so far
+static void name_draw(void)
+{
+   char s[WIDTH + 1];
+   if (name_msg)
+      fmt_snprintf(s, sizeof s, "%s", name_msg);
+   else
+      fmt_snprintf(s, sizeof s, "%s: %s_", core_new_file_label(ctx_now, group_now, typed), typed);
+   osm_printn(1, ROWS, SCR_COL_STD_INV, s, WIDTH);
+}
+
+static void name_start(void)
+{
+   typed[0] = 0;
+   name_msg = NULL;
+   state = NAME;
+   footer();
+   name_draw();
+}
+
+// The core makes it; then it is the file picked, and the cursor will be on it
+static enum browse_result name_done(void)
+{
+   char made[FF_MAX_LFN + 1];
+   name_msg = "Please wait...";
+   name_draw();
+   if ((name_msg = core_new_file(ctx_now, group_now, path, typed, made, sizeof made))) {
+      name_draw();
+      return BROWSE_BUSY;
+   }
+   int len = strlen(path);
+   memcpy(chosen, path, len);
+   chosen[len] = '/';
+   strcpy(chosen + len + 1, made);
+   state = SHOW;
+   read_folder();
+   for (int i = 0; i < n; i++)
+      if (!strcmp(recs[order[i]].name, made))
+         place(i);
+   return BROWSE_FILE;
+}
+
+// Return makes it (an empty name goes back), Run/Stop or Esc goes back, Del takes a
+// character back, Clr empties it
+static enum browse_result name_key(uint32_t k)
+{
+   int c = keys_char(), len = strlen(typed);
+   if (k == M2M_KEY_RUNSTOP)
+      c = KEY_ESC;
+   if (!c && k != M2M_KEY_RETURN)
+      return BROWSE_BUSY;
+   name_msg = NULL;
+   if (c == KEY_ESC || (k == M2M_KEY_RETURN && !len)) {
+      state = SHOW;
+      draw();
+      return BROWSE_BUSY;
+   }
+   if (k == M2M_KEY_RETURN)
+      return name_done();
+   if (c == KEY_DEL && len)
+      typed[len - 1] = 0;
+   else if (c == KEY_CLR)
+      typed[0] = 0;
+   else if (c >= ' ' && len < NAME_MAX) {
+      typed[len] = c;
+      typed[len + 1] = 0;
+   }
+   name_draw();
+   return BROWSE_BUSY;
+}
+
 enum browse_result browse_key(uint32_t k)
 {
    int shown = n - top < ROWS ? n - top : ROWS;
@@ -325,6 +421,12 @@ enum browse_result browse_key(uint32_t k)
          state = SHOW;
          draw();
       }
+      return BROWSE_BUSY;
+   }
+   if (state == NAME)
+      return name_key(k);
+   if (keys_char() == KEY_F5 && core_new_file_label(ctx_now, group_now, "")) {
+      name_start();
       return BROWSE_BUSY;
    }
 

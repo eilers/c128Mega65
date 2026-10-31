@@ -6,6 +6,7 @@
 #include "cfg.h"
 #include "config_ids.h"
 #include "core.h"
+#include "diskimg.h"
 #include "drives.h"
 #include "fmt.h"
 #include "ftp.h"
@@ -388,6 +389,8 @@ const char *core_custom_msg(int situation, int ctx, int group)
 {
    static char m[200];
    int p = pick_of_group(group);
+   if (situation == CMSG_NEWFILE)
+      return ".d64, .d71 or .d81 picks the type";
    if (situation != CMSG_BROWSENOTHING)
       return NULL;
    if (ctx == CTX_LOAD_ROM && p == RP_BOOT)
@@ -416,6 +419,64 @@ const char *core_custom_msg(int situation, int ctx, int group)
              "also use nested sub-directories to nicely\norder your collection of disk images.\n\n"
              "Nothing to browse.\n\nPress Space to continue.";
    return NULL;
+}
+
+// --- F5 in a drive's browser: a new, empty disk, as Gideon's Create D64/D71/D81 Image ------
+
+static const char *const disk_ext[] = { ".d64", ".d71", ".d81" };
+
+// The drive of a Disk line, or -1
+static int disk_drive(int ctx, int group)
+{
+   if (ctx != CTX_MOUNT_DISKIMG)
+      return -1;
+   return group == OPTM_G_MOUNT_D8 ? 0 : group == OPTM_G_MOUNT_D9 ? 1 : -1;
+}
+
+// What the name's extension asks for, else what the drive runs as (its line's 1541/1571/1581)
+static int disk_kind(int d, const char *typed)
+{
+   int n = strlen(typed);
+   for (int k = DISK_D64; k <= DISK_D81; k++)
+      if (n > 4 && !strcasecmp(typed + n - 4, disk_ext[k]))
+         return k;
+   return stores_drive_type(d);
+}
+
+const char *core_new_file_label(int ctx, int group, const char *typed)
+{
+   static const char *const label[] = { "New D64 disk", "New D71 disk", "New D81 disk" };
+   int d = disk_drive(ctx, group);
+   return d < 0 ? NULL : label[disk_kind(d, typed)];
+}
+
+// The file is the name with its type's extension, characters FAT can't have made '_' (his
+// fix_filename); the disk's header has the name without the extension ("NAME,ID")
+const char *core_new_file(int ctx, int group, const char *folder, const char *typed, char *name, int size)
+{
+   static char m[64];
+   char header[32], path[UCI_PATH_MAX + 40];
+   int kind = disk_kind(disk_drive(ctx, group), typed), n = strlen(typed);
+   if (n > 4 && !strcasecmp(typed + n - 4, disk_ext[kind]))
+      n -= 4;
+   fmt_snprintf(header, sizeof header, "%s", typed);
+   header[n < (int)sizeof header ? n : (int)sizeof header - 1] = 0;
+   fmt_snprintf(name, size, "%s%s", header, disk_ext[kind]);
+   for (char *c = name; *c; c++)
+      if (strchr("\"*:/<>\\?|,", *c))
+         *c = '_';
+   fmt_snprintf(path, sizeof path, "%s/%s", folder, name);
+   FRESULT r = diskimg_create(path, kind, header);
+   if (r == FR_OK)
+      return NULL;
+   if (r == FR_EXIST)
+      return "There is a file of that name here already.";
+   if (r == FR_DENIED)
+      return "There is no room for it on the SD card.";
+   if (r == FR_WRITE_PROTECTED)
+      return "The SD card is write protected.";
+   fmt_snprintf(m, sizeof m, "It could not be made: %s", uci_fr_text(r));
+   return m;
 }
 
 // The REU's file: into the REU, as much as it holds, and LOAD_REU and SAVE_REU use it from then

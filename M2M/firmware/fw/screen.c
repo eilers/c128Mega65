@@ -31,6 +31,15 @@ void scr_frame(int x, int y, int dx, int dy)
    osm_frame(x, y, dx, dy, SCR_COL_STD);
 }
 
+// s from its third column (NULL: none); 200, 205 and 188 are osm_frame's corners and line
+void scr_bottom(const char *s)
+{
+   char row[OSM_DX + 1] = { [0] = (char)200, [1 ... OSM_DX - 2] = (char)205, [OSM_DX - 1] = (char)188 };
+   for (int i = 0; s && s[i] && i < OSM_DX - 4; i++)
+      row[2 + i] = s[i];
+   osm_print(0, OSM_DY - 1, SCR_COL_STD, row);
+}
+
 void scr_line(int x, int y, int dx)
 {
    osm_hline(x, y, dx, SCR_COL_STD);

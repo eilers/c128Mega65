@@ -45,7 +45,7 @@ build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/conf
 UCI_SRC := test_uci.c host_uci_model.c host_m2m.c host_reu_sd.c diskio_file.c ../../../CORE/firmware/uci.c \
            ../../../CORE/firmware/uci_dos.c ../../../CORE/firmware/dos_path.c ../../../CORE/firmware/fr_text.c ../../../CORE/firmware/uci_ctrl.c ../../../CORE/firmware/reu.c \
            ../../../CORE/firmware/stores.c ../../../CORE/firmware/rompick.c ../../../CORE/firmware/c128dma.c \
-           ../fw/heap.c ../lib/fmt.c \
+           ../../../CORE/firmware/diskimg.c ../fw/heap.c ../lib/fmt.c \
            ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
 build/test_uci: $(UCI_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h host_net.h ../../../CORE/firmware/uci.h \
                 ../../../CORE/firmware/reu.h ../fw/ffconf.h \
@@ -72,7 +72,7 @@ build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) 
 # The REST server with lwIP, against clients on a loopback (-serve: on a port of this Mac)
 # The routes on host_rest.c's fakes, with the real stores.c and FatFs on a card image
 build/test_http: test_http.c host_rest.c diskio_file.c $(NET)/http.c $(REST_SRC) ../../../CORE/firmware/stores.c \
-                 ../../../CORE/firmware/rompick.c \
+                 ../../../CORE/firmware/rompick.c ../../../CORE/firmware/diskimg.c \
                  ../../../CORE/firmware/fr_text.c ../fatfs/ff.c ../fatfs/ffunicode.c \
                  $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h) host_rest.h host_rest_regs.h \
                  ../build/fw/config_ids.h ../build/fw/version.h ../fw/ffconf.h
