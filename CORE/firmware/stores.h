@@ -66,6 +66,9 @@ void stores_begin(void);
 // number as strtol takes it). WANT_RANGE: *n is the number.
 int  stores_want(const item_t *it, const char *v, int loadcfg, int *n);
 int  stores_apply(void);       // 0 if main.vhd never took the REU's new setting
+// Ditto, until the next start: a program's or cartridge's own .cfg. The settings file keeps
+// what it had for them, unless they change again.
+int  stores_apply_session(void);
 // The items a store had changed by stores_apply since the last stores_saved(s)
 int  stores_stale(int s);
 void stores_saved(int s);
@@ -87,3 +90,7 @@ int  stores_save(void);
 // skipped without a word. Wants what it reads, logging as his does; 0 after an error, when
 // the caller should apply nothing.
 int  stores_read(FIL *f, unsigned mask, void (*log)(const char *fmt, ...));
+// His S_load_associated_config: NAME.cfg next to path (with usr, else NAME.usr), until the
+// next start. As his S_load_and_effectuate, its good lines take effect even if others have
+// errors. 0, or -1 without one.
+int  stores_associated(const char *path, int usr);

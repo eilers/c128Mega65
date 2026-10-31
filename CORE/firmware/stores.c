@@ -12,6 +12,7 @@
 #include "core.h"
 #include "drives.h"
 #include "fmt.h"
+#include "heap.h"
 #include "net/netcfg.h"
 #include "reu.h"
 #include "rompick.h"
@@ -101,7 +102,9 @@ const int stores_count = sizeof stores_items / sizeof stores_items[0];
 #define ITEMS_MAX 64
 _Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.group holds ITEMS_MAX items");
 
-// What a change asks for, -1 where it says nothing; strings in their own buffers
+// What a change asks for, -1 where it says nothing; strings in their own buffers. And the
+// items it names.
+static uint8_t wanted[ITEMS_MAX];
 static struct {
    int8_t reu, size, image, uci, power[2], model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
    int8_t group[ITEMS_MAX];          // an I_GROUP item's, by its index
@@ -115,6 +118,14 @@ static int8_t  reu_kept;                  // the REU's size while it is off, as 
 static uint8_t stale[ST_COUNT];
 static uint8_t want_store[ST_COUNT];
 static int     starting;                  // stores_load: the C128 held in reset
+
+// The items a program's or cartridge's .cfg changed (stores_apply_session): what the file
+// would have kept for them, and a hash of their value then, to see if they changed since
+#define KEPT_MAX   (UCI_PATH_MAX + 4)        // item_text's longest
+#define KEPT_NONE  "\x01"                    // nothing: drive power never set
+static uint8_t  session[ITEMS_MAX];
+static uint32_t session_hash[ITEMS_MAX];
+static char    *kept;                         // ITEMS_MAX of KEPT_MAX, in the heap
 
 const char *store_name(int s)
 {
@@ -296,6 +307,7 @@ void stores_begin(void)
 {
    memset(&want, -1, sizeof want);
    memset(want_store, 0, sizeof want_store);
+   memset(wanted, 0, sizeof wanted);
 }
 
 static int is_space(char ch)
@@ -395,8 +407,10 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
 int stores_want(const item_t *it, const char *v, int loadcfg, int *n)
 {
    int r = want_item(it, v, loadcfg, n);
-   if (r == WANT_OK)
+   if (r == WANT_OK) {
       want_store[it->store] = 1;
+      wanted[it - stores_items] = 1;
+   }
    return r;
 }
 
@@ -452,7 +466,7 @@ void stores_want_saved(int s)
    }
 }
 
-int stores_apply(void)
+static int apply(void)
 {
    int now = reu_now(), on, to, done = 1, net = 0;
    if (now)
@@ -512,6 +526,50 @@ int stores_apply(void)
       shell_force(OPTM_G_UCI, 0, want.uci);
    for (int s = 0; s < ST_COUNT; s++)
       stale[s] |= want_store[s];
+   return done;
+}
+
+static const char *value_text(const item_t *it);
+
+// What the settings file holds for an item: NULL for drive power never set
+static const char *saved_text(const item_t *it)
+{
+   if (it->id == I_DRIVE && power_kept[it->store == ST_DRIVE_B] < 0)
+      return NULL;
+   return value_text(it);
+}
+
+static uint32_t hash(const char *s)
+{
+   uint32_t h = 2166136261u;                  // FNV-1a
+   while (s && *s)
+      h = (h ^ (uint8_t)*s++) * 16777619u;
+   return h;
+}
+
+int stores_apply(void)
+{
+   int done = apply();
+   for (int i = 0; i < stores_count; i++)
+      if (wanted[i])
+         session[i] = 0;
+   return done;
+}
+
+int stores_apply_session(void)
+{
+   if (!kept)
+      kept = heap_alloc(ITEMS_MAX * KEPT_MAX);
+   for (int i = 0; i < stores_count; i++)
+      if (wanted[i] && !session[i]) {
+         const char *v = saved_text(&stores_items[i]);
+         strncpy(kept + i * KEPT_MAX, v ? v : KEPT_NONE, KEPT_MAX - 1);
+         session[i] = 1;
+      }
+   int done = apply();
+   for (int i = 0; i < stores_count; i++)
+      if (wanted[i])
+         session_hash[i] = hash(saved_text(&stores_items[i]));
    return done;
 }
 
@@ -621,6 +679,28 @@ int stores_read(FIL *f, unsigned mask, void (*log)(const char *fmt, ...))
    return good;
 }
 
+int stores_associated(const char *path, int usr)
+{
+   static const char *const ext[] = { ".cfg", ".usr" };
+   char cfg[UCI_PATH_MAX + 4];
+   FIL f;
+   for (int i = 0; i <= usr; i++) {
+      fmt_snprintf(cfg, sizeof cfg, "%s", path);
+      char *dot = strrchr(cfg, '.'), *slash = strrchr(cfg, '/');
+      if (dot && (!slash || dot > slash))
+         *dot = 0;
+      strcat(cfg, ext[i]);
+      if (f_open(&f, cfg, FA_READ) != FR_OK)
+         continue;
+      stores_begin();
+      stores_read(&f, ~0u, no_log);
+      f_close(&f);
+      stores_apply_session();
+      return 0;
+   }
+   return -1;
+}
+
 // --- the settings file --------------------------------------------------------------------
 
 // Every item it names, wanted and in effect; what it doesn't name keeps its default. Read at
@@ -668,13 +748,19 @@ int stores_save(void)
       return -1;
    for (int i = 0; i < stores_count && ok; i++) {
       const item_t *it = &stores_items[i];
+      const char *v = saved_text(it);
       int n = 0;
-      if (it->id == I_DRIVE && power_kept[it->store == ST_DRIVE_B] < 0)
+      // A program's or cartridge's value: what the file had, unless it changed since
+      if (session[i] && hash(v) != session_hash[i])
+         session[i] = 0;
+      if (session[i])
+         v = strcmp(kept + i * KEPT_MAX, KEPT_NONE) ? kept + i * KEPT_MAX : NULL;
+      if (!v)
          continue;
       if (it->store != last)
          n = fmt_snprintf(line, sizeof line, "[%s]\n", names[it->store]);
       last = it->store;
-      n += fmt_snprintf(line + n, sizeof line - n, "%s=%s\n", it->name, value_text(it));
+      n += fmt_snprintf(line + n, sizeof line - n, "%s=%s\n", it->name, v);
       ok = f_write(&f, line, n, &put) == FR_OK && put == (UINT)n;
    }
    ok &= f_close(&f) == FR_OK;

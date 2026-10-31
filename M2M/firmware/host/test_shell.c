@@ -219,6 +219,19 @@ static int go_to(const char *s)
    return 0;
 }
 
+// The browser's cursor onto a file, down and then up from where it is
+static int browse_to(const char *name)
+{
+   for (int i = 0; i < 60; i++) {
+      int y = find_row(name);
+      if (y > 0 && vram(M2M_DEV_VRAM_ATTR, 1, y) == 0x8B)
+         return 1;
+      press(i < 30 ? M2M_KEY_DOWN : M2M_KEY_UP);
+   }
+   printf("no file \"%s\"\n", name);
+   return 0;
+}
+
 // The cursor onto the line whose text (after its mark) is s, exactly
 static int go_to_line(const char *s)
 {
@@ -309,6 +322,15 @@ static void put_disk(const char *name, int file, int size, const char *filler, i
    f_close(&f);
 }
 
+static void put_text(const char *name, const char *text)
+{
+   FIL f;
+   UINT put;
+   check(f_open(&f, name, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK, name);
+   f_write(&f, text, strlen(text), &put);
+   f_close(&f);
+}
+
 static void put_file(const char *name, int file, int size)
 {
    uint8_t b[512];
@@ -337,6 +359,12 @@ static int make_card(uint8_t *bits)
    put_file("/c128/boot0.rom", 0, 73728);
    put_file("/c128/boot1.rom", 1, 600);
    put_file("/c128/game.crt", 3, 70000);
+   put_text("/c128/game.cfg", "[MEGA65 Settings]\nVGA Display Mode=15 kHz with CSYNC\n");   // game.crt's own
+   put_text("/c128/mine.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n");
+   put_text("/c128/bad.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=Huge\nCaps Lock Key=ASCII/DIN\n"
+            "[A_store_name_far_too_long_for_one_line_of_the_message]\nx=1\n");
+   put_text("/c128/back.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"
+            "VGA Display Mode=Standard\nCaps Lock Key=40/80\n");
    put_file("/c128/big.crt", 4, 140000);
    f_mkdir("/c128/Sub");
    put_file("/c128/Sub/x.crt", 5, 3000);
@@ -685,6 +713,7 @@ int main(int argc, char **argv)
    check(M2M_OSM_XY == (20u << 8) && find_row("=CRT:game.crt") > 0, "menu: CRT:game.crt selected");
    check(setting_get(item(" CRT file")) && !setting_get(item(" Hardware")) && setting_get(item(" CRT:%s")),
          "CRT file source and the CRT item set");
+   check(setting_get(item(" 15 kHz with CSYNC")) && !setting_get(item(" Standard")), "game.crt's game.cfg in effect");
 
    // A build that shows the cartridge cache's waits: the Cartridge line has them, and
    // drawing it clears them
@@ -1127,6 +1156,51 @@ int main(int argc, char **argv)
          setting_line("Drive Bus ID=8\nROM for 1541 mode=f32.bin\nROM for 1571 mode=k16.bin\n"),
          "the settings file for the next run");
    press(M2M_KEY_RUNSTOP);
+
+   // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
+   // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 29, "Load settings: the main menu's last line but two");
+   go_to("Load settings");
+   press(M2M_KEY_RETURN);
+   dump("Load settings browser");
+   check(find_row("back.cfg") > 0 && find_row("mine.cfg") > 0 && find_row("settings.cfg") > 0 &&
+         find_row("game.crt") < 0 && find_row("ram.reu") < 0, "Load settings browser: .cfg files only");
+   browse_to("mine.cfg");
+   press(M2M_KEY_RETURN);
+   check(cursor_on("Load settings") && find_row("=Load settings") < 0, "loaded: back in the menu, the line unmarked");
+   check(setting_get(item(" High")) && setting_get(item(" 640x480 60 Hz")) &&
+         setting_line("VIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n"), "mine.cfg in effect, kept");
+   check(setting_get(item(" 15 kHz with CSYNC")) && setting_line("VGA Display Mode=Standard\n"),
+         "game.cfg's VGA mode in effect, not kept");
+   // The VGA mode picked in the menu is kept
+   go_to("VGA:");
+   press(M2M_KEY_RETURN);
+   go_to_line("15 kHz with HS/VS");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   // A file with errors: the rest in effect, the log as the message, lines cut to fit
+   go_to("Load settings");
+   press(M2M_KEY_RETURN);
+   browse_to("bad.cfg");
+   press(M2M_KEY_RETURN);
+   dump("bad.cfg");
+   check(find_row("There were errors; the rest is in effect.") > 0 &&
+         find_row("Line 2: Value 'Huge' is not a valid choice") + 1 == find_row("for item VIC-II Jailbars") &&
+         find_row("Line 4: Store name") + 1 == find_row("'A_store_name_far_too_long_for_one_line_of") &&
+         find_row("'A_store_name_far_too_long_for_one_line_of") + 1 == find_row("_the_message' not found; section"),
+         "bad.cfg: its log, cut to the screen");
+   check(setting_get(item(" ASCII/DIN")) && setting_get(item(" High")) && setting_line("Caps Lock Key=ASCII/DIN\n") &&
+         setting_line("VGA Display Mode=15 kHz with HS/VS\n"), "bad.cfg: its good line kept; the menu's VGA mode kept");
+   press(M2M_KEY_SPACE);
+   check(find_row("bad.cfg") > 0, "Space: the browser again");
+   press(M2M_KEY_RUNSTOP);
+   check(cursor_on("Load settings"), "Run/Stop: the menu");
+   go_to("Load settings");
+   press(M2M_KEY_RETURN);
+   browse_to("back.cfg");
+   press(M2M_KEY_RETURN);
+   check(setting_get(item(" Standard")) && setting_get(item(" 40/80")) && setting_get(item(" 720p 50 Hz 16:9")) &&
+         setting_line("VIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"), "back.cfg: as before");
 
    // Close Menu: next time from the start item
    go_to("Close Menu");

@@ -232,7 +232,7 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- In the order of their menu items.
 -- The core's own (C_CRTROMTYPE_CORE): the firmware loads them (CORE/firmware/core.c), the second
 -- word says which.
-constant C_CRTROMS_MAN_NUM       : natural := 15;                                      -- amount of manually loadable ROMs and carts; maximum is 16
+constant C_CRTROMS_MAN_NUM       : natural := 16;                                      -- amount of manually loadable ROMs and carts; maximum is 16
 constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"0016",      -- the Drive A submenu: 1541 ROM:%s
                                                          C_CRTROMTYPE_CORE, x"0017",      -- 1571 ROM:%s
                                                          C_CRTROMTYPE_CORE, x"0018",      -- 1581 ROM:%s
@@ -248,6 +248,7 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"00
                                                          C_CRTROMTYPE_CORE, x"0013",      -- C64 BASIC:%s
                                                          C_CRTROMTYPE_CORE, x"0014",      -- Characters:%s
                                                          C_CRTROMTYPE_CORE, x"0015",      -- Function ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"0002",      -- Load settings, a .cfg file
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 -- Automatically loaded ROMs: These ROMs are loaded before the core starts

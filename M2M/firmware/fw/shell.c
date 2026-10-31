@@ -252,7 +252,7 @@ static void show(int idx, const char *line, char *out)
       replace_s(line, custom, out, max);
       return;
    }
-   if (is_crtrom[idx]) {
+   if (is_crtrom[idx] && strstr(line, "%s")) {    // else an action's line (Load settings)
       int k = is_crtrom[idx] - 1;
       if (crtrom_core(k) && (custom = core_crtrom_text(crtrom_dev(k))))
          replace_s(line, custom, out, max);
@@ -482,7 +482,7 @@ static void load_start(int idx, uint16_t group, int item)
 
 static void load_poll(uint32_t key)
 {
-   char text[400];
+   char text[1024];
    const char *msg;
    int err;
 
@@ -522,7 +522,8 @@ static void load_poll(uint32_t key)
             crt_loaded[load.k] = crtrom_loaded(load.k);   // as soon as the parser started
          }
          if (!err) {
-            load_done(1);
+            core_file_loaded(load.group & MENU_ID, browse_path());
+            load_done(load.drive || crt_loaded[load.k]);   // an action's line is never marked
             break;
          }
          frame_full();

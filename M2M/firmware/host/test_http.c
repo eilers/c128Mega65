@@ -228,7 +228,7 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"108\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"109\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -1506,6 +1506,20 @@ static void runners(void)
          !memcmp(c128_mem + 0x801, prg64 + 2, 12) && !memcmp(c128_mem + 0x2D, "\x0D\x08\x0D\x08\x0D\x08", 6) &&
          c128_mem[0x35] == 0 && c128_mem[0x36] == 0xA0 && !memcmp(c128_mem + 0x277, "RUN\r", 4), typed);
    check("run_prg: its .cfg loaded, but for its bad line (as his)", !drive_on[1], NULL);
+   // Until the next start: saved, the file has what it had (no drive B power)
+   char cfg[4096];
+   f_unlink(SETTINGS_FILE);
+   expect_200("run_prg's .cfg saved", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n");
+   int n = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
+   cfg[n > 0 ? n : 0] = 0;
+   check("run_prg's .cfg: in effect, not kept", strstr(cfg, "[Drive B Settings]\nDrive=Enabled\n") && !drive_on[1], cfg);
+   expect("drive B off here", "PUT /v1/configs/drive%20b%20settings/drive?value=Disabled HTTP/1.1\r\n\r\n", OK);
+   expect_200("saved again", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n");
+   n = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
+   cfg[n > 0 ? n : 0] = 0;
+   check("set here: kept", strstr(cfg, "[Drive B Settings]\nDrive=Disabled\n") != NULL, cfg);
+   expect("drive B on", "PUT /v1/configs/drive%20b%20settings/drive?value=Enabled HTTP/1.1\r\n\r\n", OK);
+   f_unlink(SETTINGS_FILE);
 
    typed[0] = 0;
    c64_cart = 1;

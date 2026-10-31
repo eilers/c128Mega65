@@ -322,34 +322,6 @@ static void start_prg(rest_t *r, const char *name, int n, int run)
    rest_pending(r, run_step, run_cancel);
 }
 
-static void no_log(const char *fmt, ...)
-{
-   (void)fmt;
-}
-
-// His S_load_associated_config(_usr): NAME.cfg, else NAME.usr, next to the program. As his
-// S_load_and_effectuate, its good lines take effect even if others have errors.
-static void associated_config(const char *card)
-{
-   static const char *const ext[] = { ".cfg", ".usr" };
-   char cfg[UCI_PATH_MAX + 4];
-   FIL f;
-   for (int i = 0; i < 2; i++) {
-      fmt_snprintf(cfg, sizeof cfg, "%s", card);
-      char *dot = strrchr(cfg, '.'), *slash = strrchr(cfg, '/');
-      if (dot && (!slash || dot > slash))
-         *dot = 0;
-      strcat(cfg, ext[i]);
-      if (f_open(&f, cfg, FA_READ) != FR_OK)
-         continue;
-      stores_begin();
-      stores_read(&f, ~0u, no_log);
-      f_close(&f);
-      stores_apply();
-      return;
-   }
-}
-
 static void put_prg(rest_t *r, int run)
 {
    char card[UCI_PATH_MAX];
@@ -368,7 +340,7 @@ static void put_prg(rest_t *r, int run)
       subsys_response(r, SS_CANNOT_OPEN_FILE);
       return;
    }
-   associated_config(c);
+   stores_associated(c, 1);
    start_prg(r, c, got, run);
 }
 
