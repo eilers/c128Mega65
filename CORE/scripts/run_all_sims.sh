@@ -43,6 +43,7 @@ run_step "Ultimate Command Interface (tb_uci)" CORE/scripts/run_uci_nvc.sh
 run_step "Bus DMA (tb_c128_dma)" CORE/scripts/run_c128_dma_nvc.sh
 run_step "REU SD card DMA (tb_reu_sd)" CORE/scripts/run_reu_sd_nvc.sh
 run_step "REU cache drop (tb_avm_cache)" CORE/scripts/run_avm_cache_nvc.sh
+run_step "CPU yields HyperRAM to the scaler (tb_avm_yield)" CORE/scripts/run_avm_yield_nvc.sh
 run_step "Keyboard arrows (tb_keyboard)" CORE/scripts/run_keyboard_nvc.sh
 
 # Fast, isolated unit gates first.
