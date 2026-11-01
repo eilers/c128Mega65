@@ -1,6 +1,7 @@
 // The serial monitor's hardware side: the serial port, whose interrupt keeps what arrives
 // while the main loop is busy, and memory accesses that survive a bus error.
 #include "console.h"
+#include "dmem.h"
 #include "m2m_rv.h"
 #include "monitor.h"
 
@@ -56,7 +57,7 @@ void monitor_init(void)
    mon_start();
 }
 
-void monitor_poll(void)
+DMEM_CODE void monitor_poll(void)
 {
    while (out_tail != out_head && (UART0_CTRL & UART_TX_NFULL))
       UART0_DATA = (uint8_t)out[out_tail++ % OUT_SIZE];

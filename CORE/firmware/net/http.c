@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "dmem.h"
 #include "heap.h"
 #include "http.h"
 #include "net.h"
@@ -561,10 +562,9 @@ static void close_conn(int i)
    net_unlock(dev);
 }
 
-void http_poll(void)
+// The connections' work, from HyperRAM
+static __attribute__((noinline)) void poll_conns(void)
 {
-   if (!active)
-      return;
    uint32_t now = net_millis();
    for (int i = 0; i < CLIENTS; i++) {
       if (!(active & 1u << i))
@@ -593,4 +593,11 @@ void http_poll(void)
       if (c->work == S_WRITE_END || c->work == S_CLOSE)
          close_conn(i);
    }
+}
+
+// From the main loop: with nothing open it costs no HyperRAM fetch
+DMEM_CODE void http_poll(void)
+{
+   if (active)
+      poll_conns();
 }

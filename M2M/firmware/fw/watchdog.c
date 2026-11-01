@@ -1,3 +1,4 @@
+#include "dmem.h"
 #include "m2m_rv.h"
 #include "watchdog.h"
 
@@ -7,7 +8,7 @@
 
 static uint32_t kicked;
 
-void watchdog_kick(void)
+DMEM_CODE void watchdog_kick(void)
 {
    if (MTIME_LO - kicked < RENEW)
       return;

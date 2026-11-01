@@ -7,6 +7,7 @@
 #include "cfg.h"
 #include "console.h"
 #include "core.h"
+#include "dmem.h"
 #include "drives.h"
 #include "filters.h"
 #include "fmt.h"
@@ -853,7 +854,7 @@ void shell_start(void)
    ui = UI_CORE;
 }
 
-void shell_poll(void)
+DMEM_CODE void shell_poll(void)
 {
    uint32_t k = keys_get();
 

@@ -1,6 +1,7 @@
 // lwIP netif for the RMII MAC (M2M/vhdl/controllers/ethernet). Frames go byte by
 // byte through the network device (net_hw.h); the hardware buffers whole frames both ways.
 #include <string.h>
+#include "dmem.h"
 #include "eth.h"
 #include "fmt.h"
 #include "net.h"
@@ -78,7 +79,7 @@ void eth_init(void)
    netif_set_up(&eth_netif);
 }
 
-void eth_poll(void)
+DMEM_CODE void eth_poll(void)
 {
    // A few frames per call, so the modem side keeps getting turns
    for (int frames = 0; frames < 4; frames++) {

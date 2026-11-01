@@ -89,6 +89,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   port needs a JTAG adapter. It gets a banner line, and a monitor (`fw/monitor.c`,
   `tools/mon.py`, see `M2M/firmware/README.md`) that reads and writes memory, devices and
   registers while the core runs.
+  The idle main loop's code (`DMEM_CODE`, `include/dmem.h`) runs from the data RAM: from
+  HyperRAM, its i-cache misses (the cache is direct-mapped) took HyperRAM turns from the
+  HDMI scaler, which then missed the start of a frame in 80 columns and showed noise.
 - **The Shell** (`fw/shell.c`, step 5): loads the menu from `config.vhd`, its default
   settings (the core's settings file changes them) and the auto-load ROMs from `globals.vhd`, sets up ascal and
   its filters, and lets the core out of reset; then Help (or F13) opens the options menu.
@@ -110,7 +113,7 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 
 - `tb_rv_soc` passes with the CPU at 100 MHz: registers, keys, the menu RAM, a device with
   wait states, the SD registers, HyperRAM bytes, halves and words, and code run from
-  HyperRAM. Its second run boots the firmware from its HyperRAM model: the firmware
+  HyperRAM, SDRAM and the data RAM. Its second run boots the firmware from its HyperRAM model: the firmware
   prints its banner and draws its screen.
 - The host tests pass: the boot ROM's loader against FAT32 and FAT16 images made by macOS,
   with an MBR (good files, a 1 MB one, and eight kinds of broken ones), and the

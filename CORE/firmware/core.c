@@ -7,6 +7,7 @@
 #include "config_ids.h"
 #include "core.h"
 #include "diskimg.h"
+#include "dmem.h"
 #include "drives.h"
 #include "fmt.h"
 #include "ftp.h"
@@ -656,7 +657,7 @@ uint32_t core_menu_key(void)
 
 // The boot cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST
 // API (net/http.c) and the FTP server (net/ftp.c)
-void core_poll(void)
+DMEM_CODE void core_poll(void)
 {
    rompick_poll();
    uci_poll();

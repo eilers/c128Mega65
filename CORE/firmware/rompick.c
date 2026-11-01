@@ -4,6 +4,7 @@
 #include "c128dma.h"
 #include "config_ids.h"
 #include "core.h"
+#include "dmem.h"
 #include "ff.h"
 #include "fmt.h"
 #include "m2m_rv.h"
@@ -306,7 +307,7 @@ void rompick_boot(void)
 // Loaded as the menu loads one, with the C128 running (main.vhd restarts it into the
 // cartridge): loaded while the whole core was held in the start's reset, a C64 cartridge
 // could leave the C128 frozen until the next reset
-void rompick_poll(void)
+DMEM_CODE void rompick_poll(void)
 {
    if (!cart_due)
       return;

@@ -7,6 +7,7 @@
 #include <string.h>
 #include "config_ids.h"
 #include "core.h"
+#include "dmem.h"
 #include "m2m_rv.h"
 #include "uci.h"
 
@@ -63,9 +64,9 @@ static void none_command(uint8_t *c, int len, uci_reply_t *r)
    r->status = r->len ? "00,OK" : "21,UNKNOWN COMMAND";
 }
 
-static const uci_target_t none = { none_command, NULL, NULL, NULL, NULL };
+static const uci_target_t none DMEM_CONST = { none_command, NULL, NULL, NULL, NULL };
 
-static const uci_target_t *targets[16] = {
+static const uci_target_t *const targets[16] DMEM_CONST = {
    [1] = &uci_dos1,
    [2] = &uci_dos2,
    [3] = &uci_net,
@@ -188,7 +189,7 @@ static void start(void)
    UCI_WR(W_FLAGS, 1);
 }
 
-void uci_poll(void)
+DMEM_CODE void uci_poll(void)
 {
    if (!ready) {
       start();

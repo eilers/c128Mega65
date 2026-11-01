@@ -3,6 +3,7 @@
 // And typing, from every key (M2M_MATRIX): characters as the keys show them, held ones
 // repeating the same way.
 #include "keys.h"
+#include "dmem.h"
 #include "m2m_rv.h"
 
 #define REPEAT_KEYS  (M2M_KEY_UP | M2M_KEY_DOWN)
@@ -13,7 +14,7 @@ static uint32_t held;          // high active
 static uint32_t pending;       // pressed and not taken yet
 static uint32_t repeat_at;
 
-void keys_poll(void)
+DMEM_CODE void keys_poll(void)
 {
    uint32_t now = ~M2M_KEYS & 0xFFFF;
    uint32_t t = MTIME_LO;
@@ -29,7 +30,7 @@ void keys_poll(void)
    held = now;
 }
 
-uint32_t keys_get(void)
+DMEM_CODE uint32_t keys_get(void)
 {
    uint32_t k = pending & -pending;
    pending &= ~k;

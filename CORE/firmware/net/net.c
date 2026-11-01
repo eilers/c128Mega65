@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include "acia.h"
 #include "core.h"
+#include "dmem.h"
 #include "eth.h"
 #include "ftp.h"
 #include "http.h"
@@ -21,17 +22,17 @@
 #define IDLE_TURN (CPU_HZ / 1000)   // a turn from core_idle at most every millisecond
 
 static bool     started, busy;
-static uint32_t last_turn, gap_max;
+static uint32_t last_turn, gap_max, timers_ms;
 static uint32_t seed;
 
-uint32_t net_millis(void)
+DMEM_CODE uint32_t net_millis(void)
 {
    uint32_t hi, lo;
    do {
       hi = MTIME_HI;
       lo = MTIME_LO;
    } while (hi != MTIME_HI);
-   return (uint32_t)((((uint64_t)hi << 32) | lo) / (CPU_HZ / 1000));
+   return mtime_ms(hi, lo);
 }
 
 uint32_t net_rand(void)
@@ -42,7 +43,7 @@ uint32_t net_rand(void)
    return seed;
 }
 
-uint32_t sys_now(void)
+DMEM_CODE uint32_t sys_now(void)
 {
    return net_millis();
 }
@@ -82,7 +83,7 @@ int net_started(void)
    return started;
 }
 
-void core_net(void)
+DMEM_CODE void core_net(void)
 {
    if (busy)
       return;
@@ -96,7 +97,12 @@ void core_net(void)
       gap_max = now - last_turn;
    last_turn = now;
    eth_poll();
-   sys_check_timeouts();
+   // lwIP's timers, from HyperRAM with the rest of lwIP: once a millisecond, their resolution
+   uint32_t ms = net_millis();
+   if (ms != timers_ms) {
+      timers_ms = ms;
+      sys_check_timeouts();
+   }
    modem_poll();
    M2M_RAMROM_DEV = dev;
    busy = false;

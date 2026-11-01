@@ -3,6 +3,7 @@
 // as in the QNICE Shell.
 #include "console.h"
 #include "core.h"
+#include "dmem.h"
 #include "fmt.h"
 #include "keys.h"
 #include "m2m_rv.h"
@@ -16,7 +17,7 @@ struct mon_loop mon_loop;
 const char *const mon_module[MON_MODULES] = { "keys", "sdcard", "shell", "core", "net", "monitor" };
 
 // The call that ended now, which started at *t
-static void timed(int m, uint32_t *t)
+DMEM_CODE static void timed(int m, uint32_t *t)
 {
    uint32_t now = MTIME_LO;
    if (now - *t > mon_loop.max[m])
@@ -32,7 +33,7 @@ void disk_idle(void)
    core_idle();
 }
 
-int main(void)
+DMEM_CODE int main(void)
 {
    uart_init(2000000);   // as the MEGA65's own tools use; the boot ROM sends at 115200
    trap_init();
