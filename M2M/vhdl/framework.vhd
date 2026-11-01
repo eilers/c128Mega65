@@ -915,16 +915,37 @@ begin
          dest_out(614 downto 550)   => main_rtc_o
       ); -- i_qnice2main
 
-   -- The system CPU's HyperRAM port is on hr_clk already
-   hr_qnice_write          <= qnice_avm_write;
-   hr_qnice_read           <= qnice_avm_read;
+   -- The system CPU's HyperRAM port is on hr_clk already. It yields to the HDMI scaler: in
+   -- 80 columns the scaler's reads at the top of a frame run late if the CPU's turns come
+   -- between them, and the scaler then shows memory below the picture.
+   i_avm_yield_qnice : entity work.avm_yield
+      generic map (
+         G_QUIET => 32,       -- 320 ns, longer than the scaler's gaps between its bursts
+         G_LIMIT => 16384     -- 164 us
+      )
+      port map (
+         clk_i                 => hr_clk,
+         rst_i                 => hr_rst,
+         p_avm_write_i         => hr_dig_write,
+         p_avm_read_i          => hr_dig_read,
+         p_avm_burstcount_i    => hr_dig_burstcount,
+         p_avm_waitrequest_i   => hr_dig_waitrequest,
+         p_avm_readdatavalid_i => hr_dig_readdatavalid,
+         s_avm_write_i         => qnice_avm_write,
+         s_avm_read_i          => qnice_avm_read,
+         s_avm_burstcount_i    => qnice_avm_burstcount,
+         s_avm_waitrequest_o   => qnice_avm_waitrequest,
+         m_avm_write_o         => hr_qnice_write,
+         m_avm_read_o          => hr_qnice_read,
+         m_avm_waitrequest_i   => hr_qnice_waitrequest
+      ); -- i_avm_yield_qnice
+
    hr_qnice_address        <= qnice_avm_address;
    hr_qnice_writedata      <= qnice_avm_writedata;
    hr_qnice_byteenable     <= qnice_avm_byteenable;
    hr_qnice_burstcount     <= qnice_avm_burstcount;
    qnice_avm_readdata      <= hr_qnice_readdata;
    qnice_avm_readdatavalid <= hr_qnice_readdatavalid;
-   qnice_avm_waitrequest   <= hr_qnice_waitrequest;
 
    -- Clock domain crossing: HR to QNICE
    i_hr2qnice: entity work.cdc_stable

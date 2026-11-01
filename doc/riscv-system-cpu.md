@@ -62,8 +62,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 - **HyperRAM.** The CPU has its own Avalon port in place of QNICE's `qnice2hyperram`
   device, which is gone from the device bus (the core's devices still use the entity). Cache lines are read
   in 16-word bursts, one after the other, so HDMI's scaler gets its turns
-  (`doc/swiftlink-modem.md`). From SDRAM they are read in 2-word bursts, never longer than
-  the REU's accesses (`doc/hyperram-map.md`).
+  (`doc/swiftlink-modem.md`). The port also yields to the scaler (`avm_yield.vhd` in
+  `framework.vhd`): a CPU access starts only once the scaler has been idle for 320 ns, or
+  after 164 us of waiting. In 80 columns the scaler's reads at the top of a frame otherwise
+  ran late with the CPU's turns between them, and HDMI showed noise. From SDRAM they are
+  read in 2-word bursts, never longer than the REU's accesses (`doc/hyperram-map.md`).
 - **Registers.** The same bits as QNICE's `0xFFE0` and up (QNICE's `sysdef.asm`). The
   256 control flags are eight 32-bit registers each, not address/data pairs.
 
