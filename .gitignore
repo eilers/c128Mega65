@@ -5,6 +5,7 @@ CORE/config_nvc
 CORE/uci_nvc
 CORE/reu_sd_nvc
 CORE/avm_cache_nvc
+CORE/keyboard_nvc
 M2M/firmware/build
 M2M/firmware/host/build
 CORE/*.hw
