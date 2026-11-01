@@ -7,6 +7,7 @@
 // ADDR is a CPU address, or DEV:WORD, word WORD of core device DEV (rb and wb: its low
 // byte). A command is echoed, then come its lines, "ok" or "? why", and the prompt.
 #include <string.h>
+#include "dmem.h"
 #include "monitor.h"
 
 #define LINE_MAX       128   // mon.py sends up to about 110
@@ -278,13 +279,13 @@ void mon_start(void)
    puts_("> ");
 }
 
-bool mon_busy(void)
+DMEM_CODE bool mon_busy(void)
 {
    return rd.n != 0;
 }
 
 // One line of a read, when there's room to send it
-void mon_step(void)
+DMEM_CODE void mon_step(void)
 {
    if (!rd.n || mon_room() < 80)
       return;

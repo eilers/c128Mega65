@@ -123,3 +123,17 @@
 #define MTIME_HI             REG32(0xFFF4BFFCu)
 #define MTIMECMP_LO          REG32(0xFFF44000u)
 #define MTIMECMP_HI          REG32(0xFFF44004u)
+
+// MTIME (hi, lo) in milliseconds, without libgcc's 64-bit division, which runs from HyperRAM:
+// long division a byte at a time, each step in 32 bits
+static inline uint32_t mtime_ms(uint32_t hi, uint32_t lo)
+{
+   _Static_assert(CPU_HZ / 1000 < 1u << 24, "a step must fit in 32 bits");
+   uint32_t q = 0, r = 0;
+   for (int i = 56; i >= 0; i -= 8) {
+      r = r << 8 | ((i >= 32 ? hi >> (i - 32) : lo >> i) & 0xFF);
+      q = q << 8 | r / (CPU_HZ / 1000);
+      r %= CPU_HZ / 1000;
+   }
+   return q;
+}

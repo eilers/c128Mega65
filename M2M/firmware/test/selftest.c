@@ -101,6 +101,15 @@ int main(void)
    if (!failed)
       check(14, ((add_fn)(SR_TEST + 0x1000))(5) == 105);
 
+   // 15: code in the data RAM, as the firmware's main loop runs (include/dmem.h)
+   static uint32_t dcode[101];
+   for (int i = 0; i < 100; i++)
+      dcode[i] = 0x00150513;
+   dcode[100] = 0x00008067;
+   asm volatile ("fence.i" ::: "memory");
+   if (!failed)
+      check(15, ((add_fn)dcode)(3) == 103);
+
    if (failed) {
       osm_print(0, 1, M2M_SA_COL_SEL, "FAIL");
       osm_hex(5, 1, M2M_SA_COL_SEL, failed, 2);

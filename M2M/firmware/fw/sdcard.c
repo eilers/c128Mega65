@@ -3,6 +3,7 @@
 // dropped, and made again once the new card has settled. A mount is tried even with no
 // card seen, because an R3 can't see a card in its bottom tray.
 #include "sdcard.h"
+#include "dmem.h"
 #include "m2m_rv.h"
 
 #define CARD_BITS (M2M_CSR_SD_ACTIVE | M2M_CSR_SD_DET_INT | M2M_CSR_SD_DET_EXT)
@@ -23,7 +24,7 @@ static void set_state(enum sdcard_state s)
    changes++;
 }
 
-void sdcard_poll(void)
+DMEM_CODE void sdcard_poll(void)
 {
    uint32_t now = M2M_CSR & CARD_BITS;
    if (!started) {

@@ -5,7 +5,7 @@
 -- M2M/firmware/test/selftest.rom, which checks the registers, the device bus (the
 -- On-Screen-Menu RAM and a RAM with wait states, both modelled here with QNICE's
 -- falling-edge timing), the SD card registers, HyperRAM and SDRAM, including code run
--- from each. The firmware writes PASS or FAIL into row 1 of the On-Screen-Menu.
+-- from each and from the data RAM. The firmware writes PASS or FAIL into row 1 of the On-Screen-Menu.
 --
 -- With G_HR_IMAGE it runs the real firmware instead (M2M/firmware/build/fw_hr.txt, put
 -- into HyperRAM here as the boot ROM would load it; boot ROM test/fwboot.rom jumps to

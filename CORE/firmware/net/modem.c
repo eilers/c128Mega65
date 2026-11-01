@@ -6,6 +6,7 @@
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
 #include "acia.h"
+#include "dmem.h"
 #include "eth.h"
 #include "fmt.h"
 #include "heap.h"
@@ -830,7 +831,7 @@ static void c128_reset(void)
       ;
 }
 
-void modem_poll(void)
+DMEM_CODE void modem_poll(void)
 {
    if (acia_events() & ACIA_EV_RESET)
       c128_reset();

@@ -99,6 +99,12 @@ SECTIONS
   .data : ALIGN(4)
   {
     PROVIDE(__data_start = .);
+
+    /* The firmware's idle main loop (include/dmem.h), so it never fetches from HyperRAM.
+       gp is set after it, so it still reaches the small data */
+    *(.dmem.text .dmem.rodata)
+    . = ALIGN(4);
+
     __global_pointer$ = . + 0x800;
 
     *(.data .data.* .gnu.linkonce.d.*)

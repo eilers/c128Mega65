@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+#include "dmem.h"
 #include "drives.h"
 #include "ff.h"
 #include "fmt.h"
@@ -1008,10 +1009,9 @@ void ftp_listen(int on)
    }
 }
 
-void ftp_poll(void)
+// The sessions' work, from HyperRAM
+static __attribute__((noinline)) void poll_sessions(void)
 {
-   if (!active)
-      return;
    uint32_t now = net_millis();
    for (int i = 0; i < SESSIONS; i++) {
       if (!(active & 1u << i))
@@ -1050,4 +1050,11 @@ void ftp_poll(void)
       if (!s->pcb || s->broken || (s->quit && !s->out_n) || (s->fin && !s->len && !s->xfer) || idle)
          end_session(i);
    }
+}
+
+// From the main loop: with nothing open it costs no HyperRAM fetch
+DMEM_CODE void ftp_poll(void)
+{
+   if (active)
+      poll_sessions();
 }

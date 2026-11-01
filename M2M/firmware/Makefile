@@ -26,12 +26,16 @@ FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.a
 ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -Os -g -std=gnu11 -ffunction-sections -fdata-sections -MMD -MP \
            -Wall -Wextra -Iinclude -Ilib -Ifatfs
+# The firmware's constants are in HyperRAM, uncached: compares beat a jump table there
+FW_CFLAGS := -fno-jump-tables
 # Data and stack in the 128 KB data RAM; code and constants in the boot ROM, or for the
 # firmware in its HyperRAM region
 LD      := $(ARCH) -nostartfiles -Wl,--gc-sections -T neorv32/neorv32.ld --specs=nano.specs \
            -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=128K
 ROM_LD  := $(LD) -Wl,--defsym,__neorv32_rom_base=0x0 -Wl,--defsym,__neorv32_rom_size=8K
-FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv32_rom_size=4088K
+# Its .data holds code too (include/dmem.h)
+FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv32_rom_size=4088K \
+           -Wl,--no-warn-rwx-segments
 
 COMMON  := build/common/lib/console.o build/common/lib/trap.o build/common/lib/crc32.o \
            build/common/lib/sd.o build/crt0.o
@@ -58,11 +62,11 @@ FW_GEN  := build/fw/version.h build/fw/filters.h build/fw/config_ids.h
 
 build/fw/%.o: %.c | $(FW_GEN)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Ifw -Ibuild/fw -c $< -o $@
+	$(CC) $(CFLAGS) $(FW_CFLAGS) -Ifw -Ibuild/fw -c $< -o $@
 
 build/fw/core/%.o: $(CORE_DIR)/%.c | $(FW_GEN)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Ifw -Ibuild/fw $(CORE_CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(FW_CFLAGS) -Ifw -Ibuild/fw $(CORE_CFLAGS) -c $< -o $@
 
 build/fw/filters.h: $(FILTERS) tools/asm_dw.py
 	@mkdir -p $(dir $@)

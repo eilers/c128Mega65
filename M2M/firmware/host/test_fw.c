@@ -5,6 +5,7 @@
 #include <string.h>
 #include "ff.h"
 #include "fmt.h"
+#include "m2m_rv.h"
 
 int disk_file_open(const char *path);
 
@@ -79,6 +80,18 @@ int main(int argc, char **argv)
    char small[4];
    int n = fmt_snprintf(small, sizeof small, "%s", "abcdef");
    check(n == 6 && !strcmp(small, "abc"), "fmt cuts to the buffer and counts it all");
+
+   // mtime_ms divides a byte at a time: the same as a 64-bit division
+   uint64_t x = 0x9E3779B97F4A7C15u;
+   int same = mtime_ms(0xFFFFFFFF, 0xFFFFFFFF) == (uint32_t)(UINT64_MAX / (CPU_HZ / 1000));
+   for (int i = 0; i < 100000; i++) {
+      x ^= x << 13;
+      x ^= x >> 7;
+      x ^= x << 17;
+      uint64_t t = x >> (i & 63);
+      same &= mtime_ms(t >> 32, (uint32_t)t) == (uint32_t)(t / (CPU_HZ / 1000));
+   }
+   check(same, "mtime_ms gives MTIME in milliseconds");
 
    printf("test_fw: %d of %d checks passed\n", runs - fails, runs);
    return fails != 0;
