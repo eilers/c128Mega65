@@ -1885,6 +1885,7 @@ keyboard_inst : entity work.keyboard
     reset_i              => not reset_core_n,
 
     trigger_run_i        => '0',
+    alt_crsr_i           => not core_z80_n,       -- CP/M: the arrows are the top-row keys
 
     key_num_i            => kb_key_num_i,
     key_pressed_n_i      => kb_key_pressed_n_i,

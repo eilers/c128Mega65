@@ -5,6 +5,8 @@
 -- European PC keyboard remapping inside fpga64_keyboard.
 --
 -- C128 extension keys (HELP, ESC, ALT, TAB, NO SCROLL) use the VIC keyboard matrix lines (vic_ko).
+-- While the Z80 runs, the arrows are the C128's top-row cursor keys, as MiSTer's alt_crsr:
+-- CP/M gives those WordStar's ^E ^X ^S ^D, but the C64 CRSR keys ^W ^F ^A (scroll, word jumps).
 --
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2022 and licensed under GPL v3
 ---------------------------------------------------------------------------------------------------------
@@ -19,8 +21,9 @@ entity keyboard is
       reset_i              : in std_logic;
 
       trigger_run_i        : in std_logic := '0';
+      alt_crsr_i           : in std_logic := '0';   -- '1': the arrows are the top-row cursor keys
 
-      key_num_i            : in integer range 0 to 79;
+      key_num_i           : in integer range 0 to 79;
       key_pressed_n_i      : in std_logic;
 
       joy_1_up_n_i         : in std_logic;
@@ -151,7 +154,19 @@ signal autokey_next  : t_autokey_state := IDLE_ST;
 signal autokey_key   : natural range 0 to 79;
 signal autokey_delay : natural range 0 to C_AK_DELAY;
 
+-- The MEGA65 arrows: the C64 CRSR keys (Right Shift for up and left) or the top-row ones
+signal crsr_lr_n, crsr_ud_n, crsr_shift_n : std_logic;
+signal top_up_n, top_down_n, top_left_n, top_right_n : std_logic;
+
 begin
+
+   crsr_lr_n    <= alt_crsr_i or (key_pressed_n(m65_horz_crsr) and key_pressed_n(m65_left_crsr));
+   crsr_ud_n    <= alt_crsr_i or (key_pressed_n(m65_vert_crsr) and key_pressed_n(m65_up_crsr));
+   crsr_shift_n <= alt_crsr_i or (key_pressed_n(m65_up_crsr)   and key_pressed_n(m65_left_crsr));
+   top_up_n     <= not alt_crsr_i or key_pressed_n(m65_up_crsr);
+   top_down_n   <= not alt_crsr_i or key_pressed_n(m65_vert_crsr);
+   top_left_n   <= not alt_crsr_i or key_pressed_n(m65_left_crsr);
+   top_right_n  <= not alt_crsr_i or key_pressed_n(m65_horz_crsr);
 
    joy_1_up_n_o    <= '1';
    joy_1_down_n_o  <= '1';
@@ -230,14 +245,12 @@ begin
    cia1_pai_o(0) <=  cia1_pao_i(0)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_ins_del))      and
                      (cia1_pbo_i(1) or key_pressed_n(m65_return))       and
-                     (cia1_pbo_i(2) or (key_pressed_n(m65_horz_crsr)
-                                    and key_pressed_n(m65_left_crsr)))  and
+                     (cia1_pbo_i(2) or crsr_lr_n)                       and
                      (cia1_pbo_i(3) or key_pressed_n(m65_f7))           and
                      (cia1_pbo_i(4) or key_pressed_n(m65_f1))           and
                      (cia1_pbo_i(5) or key_pressed_n(m65_f3))           and
                      (cia1_pbo_i(6) or key_pressed_n(m65_f5))           and
-                     (cia1_pbo_i(7) or (key_pressed_n(m65_vert_crsr)
-                                    and key_pressed_n(m65_up_crsr)))    and
+                     (cia1_pbo_i(7) or crsr_ud_n)                       and
                      joy_2_up_n_i;
 
    cia1_pai_o(1) <=  cia1_pao_i(1)                                      and
@@ -300,8 +313,7 @@ begin
                      (cia1_pbo_i(2) or key_pressed_n(m65_semicolon))    and
                      (cia1_pbo_i(3) or key_pressed_n(m65_clr_home))     and
                      (cia1_pbo_i(4) or (key_pressed_n(m65_right_shift)
-                                    and key_pressed_n(m65_up_crsr)
-                                    and key_pressed_n(m65_left_crsr)))  and
+                                    and crsr_shift_n))                  and
                      (cia1_pbo_i(5) or key_pressed_n(m65_equal))        and
                      (cia1_pbo_i(6) or key_pressed_n(m65_arrow_up))     and
                      (cia1_pbo_i(7) or key_pressed_n(m65_slash));
@@ -347,8 +359,7 @@ begin
                      joy_1_down_n_i;
 
    cia1_pbi_o(2) <=  cia1_pbo_i(2)                                      and
-                     (cia1_pao_i(0) or (key_pressed_n(m65_horz_crsr)
-                                    and key_pressed_n(m65_left_crsr)))  and
+                     (cia1_pao_i(0) or crsr_lr_n)                       and
                      (cia1_pao_i(1) or key_pressed_n(m65_a))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_d))            and
                      (cia1_pao_i(3) or key_pressed_n(m65_g))            and
@@ -368,7 +379,8 @@ begin
                      (cia1_pao_i(6) or key_pressed_n(m65_clr_home))     and
                      (cia1_pao_i(7) or key_pressed_n(m65_2))            and
                      joy_1_right_n_i                                    and
-                     (vic_ko_i(0) or key_pressed_n(m65_tab));
+                     (vic_ko_i(0) or key_pressed_n(m65_tab))            and
+                     (vic_ko_i(2) or top_up_n);
 
    cia1_pbi_o(4) <=  cia1_pbo_i(4)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_f1))           and
@@ -378,10 +390,10 @@ begin
                      (cia1_pao_i(4) or key_pressed_n(m65_m))            and
                      (cia1_pao_i(5) or key_pressed_n(m65_dot))          and
                      (cia1_pao_i(6) or (key_pressed_n(m65_right_shift)
-                                    and key_pressed_n(m65_up_crsr)
-                                    and key_pressed_n(m65_left_crsr)))  and
+                                    and crsr_shift_n))                  and
                      (cia1_pao_i(7) or key_pressed_n(m65_space))        and
-                     joy_1_fire_n_i;
+                     joy_1_fire_n_i                                     and
+                     (vic_ko_i(2) or top_down_n);
 
    cia1_pbi_o(5) <=  cia1_pbo_i(5)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_f3))           and
@@ -391,7 +403,8 @@ begin
                      (cia1_pao_i(4) or key_pressed_n(m65_k))            and
                      (cia1_pao_i(5) or key_pressed_n(m65_colon))        and
                      (cia1_pao_i(6) or key_pressed_n(m65_equal))        and
-                     (cia1_pao_i(7) or key_pressed_n(m65_mega));
+                     (cia1_pao_i(7) or key_pressed_n(m65_mega))         and
+                     (vic_ko_i(2) or top_left_n);
 
    cia1_pbi_o(6) <=  cia1_pbo_i(6)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_f5))           and
@@ -401,11 +414,11 @@ begin
                      (cia1_pao_i(4) or key_pressed_n(m65_o))            and
                      (cia1_pao_i(5) or key_pressed_n(m65_at))           and
                      (cia1_pao_i(6) or key_pressed_n(m65_arrow_up))     and
-                     (cia1_pao_i(7) or key_pressed_n(m65_q));
+                     (cia1_pao_i(7) or key_pressed_n(m65_q))            and
+                     (vic_ko_i(2) or top_right_n);
 
    cia1_pbi_o(7) <=  cia1_pbo_i(7)                                      and
-                     (cia1_pao_i(0) or (key_pressed_n(m65_vert_crsr)
-                                    and key_pressed_n(m65_up_crsr)))    and
+                     (cia1_pao_i(0) or crsr_ud_n)                       and
                      (cia1_pao_i(1) or key_pressed_n(m65_left_shift))   and
                      (cia1_pao_i(2) or key_pressed_n(m65_x))            and
                      (cia1_pao_i(3) or key_pressed_n(m65_v))            and
