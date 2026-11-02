@@ -401,15 +401,15 @@ static void paths(void)
    client_t *c = login();
    ask(c, "PWD", "257 \"/\" is current directory.\r\n");
    ask(c, "CWD SD", "250 Requested file action okay, completed.\r\n");
-   ask(c, "XPWD", "257 \"/SD/\" is current directory.\r\n");
+   ask(c, "XPWD", "257 \"/SD\" is current directory.\r\n");   // his vfs_getcwd: no last '/'
    ask(c, "MKD ftp", "257 \"/SD/ftp\" created.\r\n");
    ask(c, "MKD ftp", "553 Requested action not taken.\r\n");
    ask(c, "MKD", "501 Syntax error in parameters or arguments.\r\n");
-   ask(c, "XMKD /SD/ftp/sub", "257 \"/SD/ftp/sub\" created.\r\n");
+   ask(c, "XMKD /SD/ftp/sub", "257 \"/SD//SD/ftp/sub\" created.\r\n");   // his: folder, then the name as given
    ask(c, "CWD ftp/sub", "250 Requested file action okay, completed.\r\n");
-   ask(c, "PWD", "257 \"/SD/ftp/sub/\" is current directory.\r\n");
+   ask(c, "PWD", "257 \"/SD/ftp/sub\" is current directory.\r\n");
    ask(c, "CDUP", "250 Requested file action okay, completed.\r\n");
-   ask(c, "PWD", "257 \"/SD/ftp/\" is current directory.\r\n");
+   ask(c, "PWD", "257 \"/SD/ftp\" is current directory.\r\n");
    ask(c, "CWD nothing", "550 Requested action not taken.\r\n");
    ask(c, "CWD \\SD\\FTP", "250 Requested file action okay, completed.\r\n");   // either slash, any case
    ask(c, "CWD /", "250 Requested file action okay, completed.\r\n");
