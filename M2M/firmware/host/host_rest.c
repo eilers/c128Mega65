@@ -179,7 +179,8 @@ int shell_menu_screen(uint8_t *out)
 }
 
 void uci_reboot(void) { reboots++; reset_pend = 3; }
-uint32_t heap_free(void) { return 3000000; }
+uint32_t host_heap_free = 3000000;   // what heap_free says
+uint32_t heap_free(void) { return host_heap_free; }
 uint32_t heap_total(void) { return 3500000; }
 
 // The menu: REU 0 off, 1-3 a size; drive model 0 1541, 1 1571

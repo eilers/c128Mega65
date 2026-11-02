@@ -363,12 +363,13 @@ static int make_card(uint8_t *bits)
    put_file("/c128/boot1.rom", 1, 600);
    put_file("/c128/game.crt", 3, 70000);
    put_text("/c128/game.cfg", "[MEGA65 Settings]\nVGA Display Mode=15 kHz with CSYNC\n");   // game.crt's own
-   put_text("/c128/mine.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n"
-            "Joystick Swapper=Swapped\n");
+   put_text("/c128/mine.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=High\n[U64 Specific Settings]\n"
+            "HDMI Scan Resolution=640x480 60 Hz\nJoystick Swapper=Swapped\n");
    put_text("/c128/bad.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=Huge\nCaps Lock Key=ASCII/DIN\n"
             "[A_store_name_far_too_long_for_one_line_of_the_message]\nx=1\n");
-   put_text("/c128/back.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"
-            "VGA Display Mode=Standard\nCaps Lock Key=40/80\nJoystick Swapper=Normal\n");
+   put_text("/c128/back.cfg", "[MEGA65 Settings]\nVIC-II Jailbars=Off\nVGA Display Mode=Standard\n"
+            "Caps Lock Key=40/80\n[U64 Specific Settings]\nHDMI Scan Resolution=720p 50 Hz 16:9\n"
+            "Joystick Swapper=Normal\n");
    put_file("/c128/big.crt", 4, 140000);
    f_mkdir("/c128/Sub");
    put_file("/c128/Sub/x.crt", 5, 3000);
@@ -520,8 +521,16 @@ static int kept(int idx)
 }
 
 // The stores' menu groups: a name per line in its order (the menu's words in MEGA65
-// Settings), or two words, off then on, for a single-select line; config.vhd's default. And
+// Settings and HDMI Scan Resolution), or two words for a single-select line, off then on (on
+// then off: item_inverted); config.vhd's default. And
 // every setting of the menu kept: all but drives, files, help and text lines.
+// An item of a single-select line: two choices, no line per choice
+static int on_off_line(const item_t *it)
+{
+   return it->choices && item_choices(it) == 2 && it->choices[2] == NULL &&
+          (!strcmp(it->choices[0], "Disabled") || !strcmp(it->choices[0], "Normal") || item_inverted(it));
+}
+
 static void check_stores(void)
 {
    for (int k = 0; k < stores_count; k++) {
@@ -535,7 +544,8 @@ static void check_stores(void)
          const char *l = menu.line[i];
          while (*l == ' ')
             l++;
-         if (it->store == ST_MEGA65 && (n >= item_choices(it) || strcmp(l, it->choices[n])))
+         if ((it->store == ST_MEGA65 || it->store == ST_U64) && !on_off_line(it) &&
+             (n >= item_choices(it) || strcmp(l, it->choices[n])))
             words = 0;
          if (cfg_get(CFG_OPTM_STDSEL, i))
             def = n;
@@ -544,7 +554,8 @@ static void check_stores(void)
       }
       // A single-select line: the item's value is the line's
       int toggle = n == 1 && cfg_get(CFG_OPTM_SINGLE, line) && item_choices(it) == 2;
-      check(toggle ? it->def == (def == 0) && item_get(it) == setting_get(line) :
+      int inv = item_inverted(it);
+      check(toggle ? it->def == ((def == 0) ^ inv) && item_get(it) == (setting_get(line) ^ inv) :
                      n == item_choices(it) && it->def == def && words, it->name);
    }
    int all = 1;
@@ -684,9 +695,10 @@ int main(int argc, char **argv)
    idle();
    check(M2M_CSR & M2M_CSR_KBD, "keyboard back after closing");
    check(setting_line("[Drive A Settings]\nDrive Type=1541\nDrive Bus ID=8\n") &&
-         setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
-                      "HDMI Display Mode=720p 50 Hz 16:9\nHDMI Flicker-free=Disabled\nHDMI Audio=Enabled\n") &&
-         setting_line("Use IEC Port=Enabled\n"), "settings file saved");
+         setting_line("[U64 Specific Settings]\nSystem Mode=PAL\nHDMI Scan Resolution=720p 50 Hz 16:9\n") &&
+         setting_line("Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=All Connected\n") &&
+         setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Flicker-free=Disabled\n"),
+         "settings file saved");
    press(M2M_KEY_HELP);
    check(cursor_on("8:1541"), "cursor remembered");
 
@@ -733,7 +745,7 @@ int main(int argc, char **argv)
    check(find_row("=Swap joystick ports") > 0 && setting_get(item(" Swap joystick ports")), "joystick ports swapped");
    press(M2M_KEY_HELP);
    idle();
-   check(setting_line("Use IEC Port=Enabled\nJoystick Swapper=Swapped\n"), "kept: Joystick Swapper=Swapped");
+   check(setting_line("HDMI Scan Resolution=720p 50 Hz 16:9\nJoystick Swapper=Swapped\n"), "kept: Joystick Swapper=Swapped");
    press(M2M_KEY_HELP);
    press(M2M_KEY_RETURN);
    check(cursor_on("Swap joystick ports") && !setting_get(item(" Swap joystick ports")), "joystick ports back");
@@ -1296,8 +1308,8 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    check(cursor_on("Load settings") && find_row("=Load settings") < 0, "loaded: back in the menu, the line unmarked");
    check(setting_get(item(" High")) && setting_get(item(" 640x480 60 Hz")) && setting_get(item(" Swap joystick ports")) &&
-         setting_line("VIC-II Jailbars=High\nHDMI Display Mode=640x480 60 Hz\n") &&
-         setting_line("Joystick Swapper=Swapped\n"), "mine.cfg in effect, kept");
+         setting_line("VIC-II Jailbars=High\n") &&
+         setting_line("HDMI Scan Resolution=640x480 60 Hz\nJoystick Swapper=Swapped\n"), "mine.cfg in effect, kept");
    check(setting_get(item(" 15 kHz with CSYNC")) && setting_line("VGA Display Mode=Standard\n"),
          "game.cfg's VGA mode in effect, not kept");
    // The VGA mode picked in the menu is kept
@@ -1329,7 +1341,8 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    check(setting_get(item(" Standard")) && setting_get(item(" 40/80")) && setting_get(item(" 720p 50 Hz 16:9")) &&
          !setting_get(item(" Swap joystick ports")) &&
-         setting_line("VIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"), "back.cfg: as before");
+         setting_line("VIC-II Jailbars=Off\n") && setting_line("HDMI Scan Resolution=720p 50 Hz 16:9\n"),
+         "back.cfg: as before");
 
    // Close Menu: next time from the start item
    go_to("Close Menu");
@@ -1349,7 +1362,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    press(M2M_KEY_HELP);
    idle();
-   check(setting_line("[Drive A Settings]\nDrive Type=1571\n") && setting_line("Use IEC Port=Disabled\n"),
+   check(setting_line("[Drive A Settings]\nDrive Type=1571\n") && setting_line("Serial Bus Mode=C64 <-> Internal\n"),
          "saved for the next run");
    // What the next run should start with
    uint8_t b[MENU_MAX];

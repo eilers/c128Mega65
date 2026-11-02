@@ -93,7 +93,7 @@ static void step(void)
 // --- clients ---
 typedef struct {
    struct tcp_pcb *pcb;
-   char     got[70000];
+   char     got[512 * 1024];
    int      n;
    bool     up, closed, reset;         // closed: by a FIN or a reset
    uint64_t closed_at;
@@ -229,6 +229,7 @@ static const char *html(int code, const char *text, const char *body)
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
                   "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10a\",\n" \
+                  "  \"core_version\" : \"1.0a\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -559,7 +560,26 @@ static void machine(void)
           errs(501, "Unknown", "The current FPGA build does not support timing measurement of the cartridge bus."));
    expect("heap", "GET /v1/machine:heap HTTP/1.1\r\n\r\n", json(200, "OK",
           "{ \n  \"free\" : 3000000,\n  \"min_ever_free\" : 3000000,\n  \"total\" : 3500000,\n  \"errors\" : [  ]\n}"));
-   expect("debugreg: a U64's only", "GET /v1/machine:debugreg HTTP/1.1\r\n\r\n", NOT_FOUND);
+   // His U64's input, debugreg and streams: there, not in the core yet
+   expect("debugreg: not yet", "GET /v1/machine:debugreg HTTP/1.1\r\n\r\n",
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("PUT debugreg without value", "PUT /v1/machine:debugreg HTTP/1.1\r\n\r\n",
+          bad("\"Function debugreg requires parameter value\""));
+   expect("PUT debugreg: not yet", "PUT /v1/machine:debugreg?value=12 HTTP/1.1\r\n\r\n",
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("input: not yet", "GET /v1/machine:input HTTP/1.1\r\n\r\n",
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("POST input: not yet", "POST /v1/machine:input HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("stream start without ip", "PUT /v1/streams/video:start HTTP/1.1\r\n\r\n",
+          bad("\"Function start requires parameter ip\""));
+   expect("stream start: not yet", "PUT /v1/streams/video:start?ip=192.168.1.28:11000 HTTP/1.1\r\n\r\n",
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("stream start, no name", "PUT /v1/streams:start?ip=1.2.3.4 HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "No stream name given in path"));
+   expect("stream start, unknown name", "PUT /v1/streams/screen:start?ip=1.2.3.4 HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "Unrecognized stream name 'screen'"));
+   expect("stream stop: none runs", "PUT /v1/streams/Audio:stop HTTP/1.1\r\n\r\n", OK);
    expect("menu_screen, closed", "GET /v1/machine:menu_screen HTTP/1.1\r\n\r\n",
           errs(404, "Not Found", "Menu screen unavailable."));
    static uint8_t screen[2000];
@@ -715,7 +735,7 @@ static void machine(void)
 
 // --- the configs routes ---
 
-#define CATEGORIES "\"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", \"Modem Settings\", " \
+#define CATEGORIES "\"U64 Specific Settings\", \"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", \"Modem Settings\", " \
                    "\"Ethernet Settings\", \"Network Settings\", \"C128 ROM Settings\", \"MEGA65 Settings\""
 #define DRIVE_ROMS ",\n  \"ROM for 1541 mode\" : \"1541.rom\",\n  \"ROM for 1571 mode\" : \"1571.rom\",\n" \
                    "  \"ROM for 1581 mode\" : \"1581.rom\""
@@ -820,6 +840,8 @@ static void configs(void)
    int got = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
    cfg[got > 0 ? got : 0] = 0;
    check("save: the settings file, every item", !strcmp(cfg,
+         "[U64 Specific Settings]\nSystem Mode=PAL\nHDMI Scan Resolution=720p 50 Hz 16:9\nJoystick Swapper=Normal\n"
+         "Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=All Connected\n"
          "[C64 and Cartridge Settings]\nCartridge=\nCartridge Preference=External\nAlternate Kernal=\n"
          "RAM Expansion Unit=Enabled\nREU Size=16 MB\nREU Preload Image=/SD/c128/x.reu\nCommand Interface=Disabled\n"
          "[Drive A Settings]\nDrive=Disabled\nDrive Type=1571\nDrive Bus ID=8\n" DRIVE_ROMS_FILE
@@ -830,9 +852,9 @@ static void configs(void)
          "[Network Settings]\nHost Name=abcdefghijklmnopqrstuvwxyz0123*\nNetwork Password=\nFTP File Service=Enabled\n"
          "Web Remote Control Service=Enabled\n"
          "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
-         "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Display Mode=720p 50 Hz 16:9\n"
-         "HDMI Flicker-free=Disabled\nHDMI Audio=Enabled\nHDMI CRT Emulation=Disabled\nVGA Display Mode=Standard\n"
-         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\nUse IEC Port=Enabled\nJoystick Swapper=Normal\n"), cfg);
+         "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
+         "HDMI Flicker-free=Disabled\nVGA Display Mode=Standard\n"
+         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n"), cfg);
    check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
    expect("save again: nothing", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
@@ -1139,11 +1161,17 @@ static void drives(void)
    expect("set_mode 1541", "PUT /v1/drives/a:set_mode?mode=1541 HTTP/1.1\r\n\r\n",
           json(200, "OK", "{ \n  \"mode\" : \"1541\",\n  \"errors\" : [  ]\n}"));
    check("set_mode: drive a's model, not b's", settings[OPTM_G_DRVA_MODEL][0] && settings[OPTM_G_DRVB_MODEL][1], NULL);
+   // A model the image can't run: his switches; here the image goes, as in the menu
    expect("set_mode 1581 for b's D71", "PUT /v1/drives/b:set_mode?mode=1581 HTTP/1.1\r\n\r\n",
-          bad("\"The drive's image can't run as a 1581\""));
-   expect("Drive Type 1541 for b's D71", "PUT /v1/configs/drive%20b%20settings/drive%20type?value=1541 HTTP/1.1\r\n\r\n",
-          bad("\"Value '1541' is not a valid choice for item Drive Type\""));
-   check("b stays a 1571", settings[OPTM_G_DRVB_MODEL][1] && stores_drive_type(1) == 1, NULL);
+          json(200, "OK", "{ \n  \"mode\" : \"1581\",\n  \"errors\" : [  ]\n}"));
+   check("b a 1581, its D71 out", settings[OPTM_G_DRVB_MODEL][2] && !drv_mounted[1] && stores_drive_type(1) == 2, NULL);
+   expect("b's D71 again", "PUT /v1/drives/b:mount?image=/SD/games/b.d71 HTTP/1.1\r\n\r\n",
+          mounted(200, "OK", 3, 1571, 0x1520, "/SD/games/b.d71", NULL));
+   expect("Drive Type 1541 for b's D71", "PUT /v1/configs/drive%20b%20settings/drive%20type?value=1541 HTTP/1.1\r\n\r\n", OK);
+   check("b a 1541, its D71 out", settings[OPTM_G_DRVB_MODEL][0] && !drv_mounted[1] && stores_drive_type(1) == 0, NULL);
+   expect("b's D71 once more", "PUT /v1/drives/b:mount?image=/SD/games/b.d71 HTTP/1.1\r\n\r\n",
+          mounted(200, "OK", 3, 1571, 0x1520, "/SD/games/b.d71", NULL));
+   check("b a 1571 for it", settings[OPTM_G_DRVB_MODEL][1] && drv_mounted[1] && stores_drive_type(1) == 1, NULL);
    // The internal floppy: one drive at a time; leaving it, the image under it takes its model
    expect("Drive Type Internal 1581 for b", "PUT /v1/configs/drive%20b%20settings/drive%20type?value=Internal%201581 "
           "HTTP/1.1\r\n\r\n", OK);
@@ -1167,7 +1195,7 @@ static void drives(void)
    check("drives, b at 10", strstr(ids->got, "\"b\" : { \n  \"enabled\" : true,\n  \"bus_id\" : 10,") != NULL, ids->got);
    free(ids);
    expect("drive a at b's 10", "PUT /v1/configs/drive%20a%20settings/drive%20bus%20id?value=10 HTTP/1.1\r\n\r\n", OK);
-   check("never two drives on one ID: b takes a's 8", stores_drive_id(0) == 10 && stores_drive_id(1) == 8, NULL);
+   check("two drives on one ID, as his", stores_drive_id(0) == 10 && stores_drive_id(1) == 10, NULL);
    expect("drive a at 8 again", "PUT /v1/configs/drive%20a%20settings/drive%20bus%20id?value=8 HTTP/1.1\r\n\r\n", OK);
    expect("drive b at 9 again", "PUT /v1/configs/drive%20b%20settings/drive%20bus%20id?value=9 HTTP/1.1\r\n\r\n", OK);
    check("drives at 8 and 9", stores_drive_id(0) == 8 && stores_drive_id(1) == 9, NULL);
@@ -1414,6 +1442,19 @@ static void roms(void)
          strstr(c->got, "\"rom\" : \"Unable to load!\""), c->got);
    free(c);
 
+   // load_rom lasts until the drive runs another model, then the bank has its pick again (his
+   // set_drive_type loads the configured ROM)
+   expect("load_rom into drive 8's 1571 bank", "PUT /v1/drives/a:load_rom?file=/SD/c128/roms/f32.bin HTTP/1.1\r\n\r\n", OK);
+   rompick_poll();
+   check("load_rom: kept while the model stays", dev_holds(drive_rom, 2 * 32768, rom_f32, 32768), NULL);
+   expect_200("drive 8 a 1541", "PUT /v1/drives/a:set_mode?mode=1541 HTTP/1.1\r\n\r\n");
+   rompick_poll();
+   check("another model: the 1571 bank its pick again (stock: none.bin is missing)",
+         dev_holds(drive_rom, 2 * 32768, rom_drv + 2 * 32768, 32768), NULL);
+   expect_200("drive 8 a 1571 again", "PUT /v1/drives/a:set_mode?mode=1571 HTTP/1.1\r\n\r\n");
+   rompick_poll();
+   check("and the bank stays", dev_holds(drive_rom, 2 * 32768, rom_drv + 2 * 32768, 32768), NULL);
+
    // The boot cartridge: named now, loaded at the start
    int loads = crt_loads;
    expect("boot cartridge", "PUT /v1/configs/c64*/cartridge?value=boot.crt HTTP/1.1\r\n\r\n", OK);
@@ -1434,13 +1475,15 @@ static void roms(void)
    check("the settings file at the start", stores_load() == 0 && !strcmp(rompick_name(RP_K128), "k16.bin") &&
          dev_holds(sys_rom, 0x4000, rom_k16, 16384) && !strcmp(rompick_name(RP_BOOT), "boot.crt"), NULL);
    // One written by hand: the menu's settings by their names, drive B the internal floppy
-   static const char hand[] = "[MEGA65 Settings]\nHDMI Display Mode=576p 50 Hz 4:3\nUse IEC Port=Disabled\n"
+   static const char hand[] = "[U64 Specific Settings]\nHDMI Scan Resolution=576p 50 Hz 4:3\n"
+                              "Serial Bus Mode=C64 <-> Internal\n"
                               "[Drive B Settings]\nDrive Type=Internal 1581\n";
    put_file(SETTINGS_FILE, hand, sizeof hand - 1);
    check("by hand, at the start", stores_load() == 0 && settings[OPTM_G_HDMI][2] && !settings[OPTM_G_HDMI][0] &&
          !settings[OPTM_G_IEC][0] && settings[OPTM_G_DRVB_MODEL][3], NULL);
    // The power gone between the old file's removal and the new one's rename: the new one
-   static const char cut[] = "[MEGA65 Settings]\nHDMI Display Mode=720p 50 Hz 16:9\nUse IEC Port=Enabled\n"
+   static const char cut[] = "[U64 Specific Settings]\nHDMI Scan Resolution=720p 50 Hz 16:9\n"
+                             "Serial Bus Mode=All Connected\n"
                              "[Drive B Settings]\nDrive Type=1571\n";
    f_unlink(SETTINGS_FILE);
    put_file(SETTINGS_TMP, cut, sizeof cut - 1);
@@ -1456,8 +1499,8 @@ static void roms(void)
          dev_holds(drive_rom, 0, rom_drv, sizeof rom_drv) && rompick_state(RP_BOOT) == RS_STOCK, NULL);
    f_unlink(SETTINGS_FILE);
 
-   // The presets grow with the card: an answer over 16 KB comes whole, one over 64 KB is an
-   // error rather than cut-off JSON
+   // The presets grow with the card: an answer over 16 KB comes whole, one over 64 KB too while
+   // the heap has room, else an error rather than cut-off JSON
    static const char end[] = "\"errors\" : [  ]\n}";
    char name[64];
    for (int i = 0; i < 400; i++) {
@@ -1470,8 +1513,15 @@ static void roms(void)
       snprintf(name, sizeof name, "/c128/roms/a_rather_long_rom_name_%03d.bin", i);
       put_file(name, rom_k16, sizeof rom_k16);
    }
-   expect("presets of 400 ROMs: over 64 KB, an error", "GET /v1/configs/*/* HTTP/1.1\r\n\r\n",
+   host_heap_free = 600000;
+   expect("presets of 400 ROMs: over 64 KB, the heap short, an error", "GET /v1/configs/*/* HTTP/1.1\r\n\r\n",
           errs(500, "Unknown", "The answer is longer than 64 KB."));
+   host_heap_free = 3000000;
+   client_t *big = ask("GET /v1/configs/*/* HTTP/1.1\r\n\r\n");
+   check("presets of 400 ROMs: over 64 KB, whole", !strncmp(big->got, "HTTP/1.1 200 OK\r\n", 17) &&
+         big->n > 65536 && !strcmp(big->got + big->n - strlen(end), end) &&
+         strstr(big->got, "a_rather_long_rom_name_399.bin"), NULL);
+   free(big);
    for (int i = 0; i < 400; i++) {
       snprintf(name, sizeof name, "/c128/roms/a_rather_long_rom_name_%03d.bin", i);
       f_unlink(name);

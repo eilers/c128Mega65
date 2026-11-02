@@ -1,8 +1,9 @@
 // Gideon's configuration stores as the core has them (stores.h). The core is a machine with
 // fewer stores, items and choices than an Ultimate. Where it has one of his items, the item
 // has his name and type; its choices are the core's, under his names where he has the same.
-// The C128's own ROMs are in a store of ours, C128 ROM Settings, and the menu's settings he
-// has nothing like in another, MEGA65 Settings.
+// The menu's settings his U64 has are in his U64 Specific Settings. The C128's own ROMs are in
+// a store of ours, C128 ROM Settings, and the menu's settings he has nothing like in another,
+// MEGA65 Settings.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stdlib.h>
@@ -20,12 +21,12 @@
 #include "uci.h"
 
 // I_GROUP: a menu group (item_t's group); an on_off item is its single-select line
-enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_MODEM_IF,
-       I_MODEM_HW, I_GROUP, I_NET };                        // I_NET + NC_*: netcfg's strings
+enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED,
+       I_GROUP, I_NET };                                    // I_FIXED: one choice, nothing to set                        // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
 static const char *const names[ST_COUNT] = {
-   "C64 and Cartridge Settings", "Drive A Settings", "Drive B Settings", "Modem Settings",
+   "U64 Specific Settings", "C64 and Cartridge Settings", "Drive A Settings", "Drive B Settings", "Modem Settings",
    "Ethernet Settings", "Network Settings", "C128 ROM Settings", "MEGA65 Settings"
 };
 
@@ -44,17 +45,32 @@ static const char *const hdmi_modes[]  = { "720p 50 Hz 16:9", "720p 60 Hz 16:9",
                                            "640x480 60 Hz", "720x480 59.94 Hz", "800x600 60 Hz", NULL };
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
-static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };   // his U64's Joystick Swapper
+// His U64's
+static const char *const sys_modes[]   = { "PAL", NULL };                     // System Mode
+static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };       // Joystick Swapper
+static const char *const hdmi_dvi[]    = { "HDMI", "DVI", NULL };             // Digital Video Mode
+static const char *const iec_modes[]   = { "All Connected", "C64 <-> Internal", NULL };   // Serial Bus Mode
 
-// An I_GROUP item on a single-select line: off, then on
+// An I_GROUP item on a single-select line: off, then on; or on, then off
 static int on_off(const item_t *it)
 {
-   return it->choices == en_dis || it->choices == joy_swaps;
+   return it->choices == en_dis || it->choices == joy_swaps || item_inverted(it);
+}
+
+int item_inverted(const item_t *it)
+{
+   return it->choices == hdmi_dvi || it->choices == iec_modes;
 }
 
 // In his stores' order; a string's max is his longest (the REU image's is a card path), a
 // file's what the menu can pick
 const item_t stores_items[] = {
+   { ST_U64,     I_FIXED,        IT_ENUM,   "System Mode",                sys_modes,   0, 0, 0, NULL, 0 },
+   { ST_U64,     I_GROUP,        IT_ENUM,   "HDMI Scan Resolution",       hdmi_modes,  0, 0, 0, NULL, OPTM_G_HDMI },
+   { ST_U64,     I_GROUP,        IT_ENUM,   "Joystick Swapper",           joy_swaps,   0, 0, 0, NULL, OPTM_G_JOY_SWAP },
+   { ST_U64,     I_GROUP,        IT_ENUM,   "Digital Video Mode",         hdmi_dvi,    0, 0, 0, NULL, OPTM_G_HDMI_AUDIO },
+   { ST_U64,     I_GROUP,        IT_ENUM,   "HDMI Scan lines",            en_dis,      0, 0, 0, NULL, OPTM_G_CRT },
+   { ST_U64,     I_GROUP,        IT_ENUM,   "Serial Bus Mode",            iec_modes,   0, 0, 0, NULL, OPTM_G_IEC },
    { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "", 0 },
    { ST_C64,     I_GROUP,        IT_ENUM,   "Cartridge Preference",       cart_prefs,  0, 0, 0, NULL, OPTM_G_CART },
    { ST_C64,     I_ROM + RP_K64, IT_FILE,   "Alternate Kernal",           NULL, 0, PICK_MAX - 1, 0, "", 0 },
@@ -74,9 +90,9 @@ const item_t stores_items[] = {
    { ST_DRIVE_B, I_ROM + RP_DRV(1, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom", 0 },
    { ST_DRIVE_B, I_ROM + RP_DRV(1, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom", 0 },
    { ST_DRIVE_B, I_ROM + RP_DRV(1, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom", 0 },
-   { ST_MODEM,   I_MODEM_IF,     IT_ENUM,   "Modem Interface",            modem_ifs,   0, 0, 0, NULL, 0 },
+   { ST_MODEM,   I_FIXED,        IT_ENUM,   "Modem Interface",            modem_ifs,   0, 0, 0, NULL, 0 },
    { ST_MODEM,   I_GROUP,        IT_ENUM,   "ACIA (6551) Mapping",        acia_maps,   0, 0, 0, NULL, OPTM_G_MODEM },
-   { ST_MODEM,   I_MODEM_HW,     IT_ENUM,   "Hardware Mode",              modem_hws,   0, 0, 0, NULL, 0 },
+   { ST_MODEM,   I_FIXED,        IT_ENUM,   "Hardware Mode",              modem_hws,   0, 0, 0, NULL, 0 },
    { ST_ETH,     I_GROUP,        IT_ENUM,   "Use DHCP",                   en_dis,      0, 0, 1, NULL, OPTM_G_NET_DHCP },
    { ST_ETH,     I_NET + NC_IP,  IT_STRING, "Static IP",                  NULL, 0, 16, 0, "192.168.2.64", 0 },
    { ST_ETH,     I_NET + NC_MASK,IT_STRING, "Static Netmask",             NULL, 0, 16, 0, "255.255.255.0", 0 },
@@ -95,15 +111,10 @@ const item_t stores_items[] = {
    // Ours: the menu's other settings, under its names
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Video Output",               video_outs,  0, 0, 0, NULL, OPTM_G_VIDEO_OUT },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VIC-II Jailbars",            jailbars,    0, 0, 0, NULL, OPTM_G_JAILBARS },
-   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Display Mode",          hdmi_modes,  0, 0, 0, NULL, OPTM_G_HDMI },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Flicker-free",          en_dis,      0, 0, 0, NULL, OPTM_G_FF },
-   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Audio",                 en_dis,      0, 0, 1, NULL, OPTM_G_HDMI_AUDIO },
-   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI CRT Emulation",         en_dis,      0, 0, 0, NULL, OPTM_G_CRT },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VGA Display Mode",           vga_modes,   0, 0, 0, NULL, OPTM_G_VGA_MODES },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
-   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Use IEC Port",               en_dis,      0, 0, 1, NULL, OPTM_G_IEC },
-   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Joystick Swapper",           joy_swaps,   0, 0, 0, NULL, OPTM_G_JOY_SWAP },
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
@@ -183,12 +194,9 @@ int stores_drive_id(int d)
    return 8 + d;
 }
 
-// The other drive with that ID takes this one's: never two drives on one ID
+// As his: two drives may share an ID (the menu swaps them instead, core_sel_post)
 void stores_drive_set_id(int d, int id)
 {
-   int was = stores_drive_id(d);
-   if (id != was && stores_drive_id(!d) == id)
-      shell_force(id_group(!d), was - 8, 1);
    shell_force(id_group(d), id - 8, 1);
 }
 
@@ -214,20 +222,20 @@ int stores_drive_fit(int d, int m)
    return img == 2 ? DM_1581 : DM_1571;
 }
 
-// Leaving the internal floppy, an image under it takes the nearest model. One drive at a
-// time is the internal floppy, as in the menu (core_sel_post).
-int stores_drive_ask_model(int d, int m)
+// Leaving the internal floppy, an image under it takes the nearest model. Else an image the
+// model can't run is ejected, as the menu does (core_sel_post). One drive at a time is the
+// internal floppy, as in the menu.
+void stores_drive_ask_model(int d, int m)
 {
    if (stores_drive_internal(d) && m != DM_INTERNAL) {
       stores_drive_set_model(d, stores_drive_fit(d, m));
-      return 1;
+      return;
    }
    if (stores_drive_fit(d, m) != m)
-      return 0;
+      shell_unmount(d);
    if (m == DM_INTERNAL && stores_drive_model(!d) == DM_INTERNAL)
       stores_drive_set_model(!d, stores_drive_fit(!d, DM_1581));
    stores_drive_set_model(d, m);
-   return 1;
 }
 
 // As main.vhd runs it: the image's type where the model can't read it, a D64 in a 1581 as a
@@ -284,7 +292,9 @@ int item_get(const item_t *it)
    case I_DRIVE_TYPE: return stores_drive_model(d);
    case I_DRIVE_ID:   return stores_drive_id(d);
    case I_GROUP:
-      return on_off(it) ? shell_setting(it->group, 0) : group_pos(it->group, item_choices(it));
+      if (on_off(it))
+         return shell_setting(it->group, 0) ^ item_inverted(it);
+      return group_pos(it->group, item_choices(it));
    default:           return 0;
    }
 }
@@ -368,12 +378,9 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
    case I_UCI:      want.uci = c;      return WANT_OK;
    case I_DRIVE:    want.power[d] = c; return WANT_OK;
    case I_GROUP:    want.group[it - stores_items] = c; return WANT_OK;
-   case I_MODEM_IF:
-   case I_MODEM_HW:                    return WANT_OK;
+   case I_FIXED:                       return WANT_OK;
    case I_REU_SIZE: want.size = c + 1; return WANT_OK;
    case I_DRIVE_TYPE:
-      if (!stores_drive_internal(d) && stores_drive_fit(d, c) != c)
-         return WANT_CHOICE;                        // its image can't run it
       want.model[d] = c;
       return WANT_OK;
    case I_DRIVE_ID:
@@ -507,7 +514,7 @@ static int apply(void)
       if (it->id != I_GROUP || c < 0)
          continue;
       if (on_off(it))
-         shell_force(it->group, 0, c);
+         shell_force(it->group, 0, c ^ item_inverted(it));
       else
          shell_force(it->group, c, 1);
       net |= it->group == OPTM_G_NET_DHCP || it->group == OPTM_G_NET_FTP || it->group == OPTM_G_NET_REST;

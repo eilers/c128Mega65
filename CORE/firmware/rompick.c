@@ -45,6 +45,7 @@ static char    names[RP_COUNT][PICK_MAX] = {
 static uint8_t state[RP_COUNT];
 static int     started;              // rompick_boot has run
 static int     cart_due;             // the boot cartridge, once the C128 runs (rompick_poll)
+static int8_t  loaded[2] = { -1, -1 };   // the model whose bank load_rom wrote, per drive
 
 const char *rompick_name(int p)    { return names[p]; }
 const char *rompick_default(int p) { return p >= RP_DRIVE && p < RP_BOOT ? drive_defaults[(p - RP_DRIVE) % 3] : ""; }
@@ -280,6 +281,8 @@ void rompick_apply(uint32_t changed)
       int d = (p - RP_DRIVE) / 3, t = (p - RP_DRIVE) % 3;
       if (!(changed & 1u << p))
          continue;
+      if (loaded[d] == t)
+         loaded[d] = -1;
       apply_one(p);
       // The drive's model: it reloads its bank and resets, or (off) does once it is on
       if (stores_drive_type(d) == t)
@@ -307,8 +310,16 @@ void rompick_boot(void)
 // Loaded as the menu loads one, with the C128 running (main.vhd restarts it into the
 // cartridge): loaded while the whole core was held in the start's reset, a C64 cartridge
 // could leave the C128 frozen until the next reset
+void rompick_loaded(int d, int t)
+{
+   loaded[d] = t;
+}
+
 DMEM_CODE void rompick_poll(void)
 {
+   for (int d = 0; d < 2; d++)
+      if (loaded[d] >= 0 && stores_drive_type(d) != loaded[d])
+         rompick_apply(1u << RP_DRV(d, loaded[d]));    // clears loaded[d]
    if (!cart_due)
       return;
    cart_due = 0;

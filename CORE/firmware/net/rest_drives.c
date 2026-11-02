@@ -8,8 +8,8 @@
 //     (vd_sd's hold), without a disk change;
 //   - G64/G71 aren't read by the core's drives: 501.
 // load_rom writes the drive's bank of boot1.rom for its current model and reloads it into the
-// drive (C_DEV_DRIVE_ROM's CSR), which resets it; it lasts until boot1.rom is loaded again
-// (a long reset). Uploads to mount go to /c128/temp, as his to /Temp.
+// drive (C_DEV_DRIVE_ROM's CSR), which resets it; it lasts until the drive runs another model
+// (the bank gets its pick again, as his set_drive_type) or a long reset loads boot1.rom. Uploads to mount go to /c128/temp, as his to /Temp.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
@@ -586,7 +586,8 @@ static void put_unlink(rest_t *r)
 // reset once anything came; 16 and 32 KB are ROMs
 static void load_rom(rest_t *r, int d, const uint8_t *rom, int n)
 {
-   uint32_t at = (uint32_t)(stores_drive_type(d) * 2 + d) * BANK_SIZE;
+   int t = stores_drive_type(d);
+   uint32_t at = (uint32_t)(t * 2 + d) * BANK_SIZE;
    M2M_RAMROM_DEV = DRIVE_ROM;
    for (int i = 0; i < n; i++)
       M2M_DEV16[at + i] = rom[i];
@@ -594,9 +595,10 @@ static void load_rom(rest_t *r, int d, const uint8_t *rom, int n)
       for (int i = 0; i < n; i++)
          M2M_DEV16[at + n + i] = rom[i];
    int ss = n == BANK_SIZE || n == BANK_SIZE / 2 ? SS_OK : SS_INVALID_DRIVE_ROM;
-   if (n)
+   if (n) {
+      rompick_loaded(d, t);
       after_reload(r, d, ss);
-   else
+   } else
       subsys_response(r, ss);
 }
 
@@ -638,7 +640,7 @@ static void post_load_rom(rest_t *r)
 }
 
 // The drive's model, as his set_drive_type and its config; the drive that is the internal
-// floppy stays it as a 1581. Not a model its image can't run.
+// floppy stays it as a 1581. An image the model can't run is ejected (his keeps it unread).
 static void put_set_mode(rest_t *r)
 {
    const char *mode = arg(r, "mode");
@@ -653,11 +655,7 @@ static void put_set_mode(rest_t *r)
       json_response(r, HTTP_BAD_REQUEST);
       return;
    }
-   if (!stores_drive_ask_model(d, m)) {
-      error(r, "The drive's image can't run as a %s", types[m]);
-      json_response(r, HTTP_BAD_REQUEST);
-      return;
-   }
+   stores_drive_ask_model(d, m);
    add_str(r, "mode", mode);
    subsys_response(r, SS_OK);
 }

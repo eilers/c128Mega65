@@ -320,6 +320,13 @@ static void get_menu_screen(rest_t *r)
    binary_response(r, r->mem, 2000);
 }
 
+// His U64's keyboard/joystick/mouse input and debug register: not in the core yet
+static void not_yet(rest_t *r)
+{
+   error(r, "This command is not supported on this architecture");
+   json_response(r, HTTP_NOT_IMPLEMENTED);
+}
+
 // No bus measurement in this core
 static void get_measure(rest_t *r)
 {
@@ -339,6 +346,7 @@ static void get_heap(rest_t *r)
 static const param_t writemem_params[] = { { "address", P_REQUIRED }, { "data", P_REQUIRED } };
 static const param_t upload_params[]   = { { "address", P_REQUIRED } };
 static const param_t readmem_params[]  = { { "address", P_REQUIRED }, { "length", 0 } };
+static const param_t value_params[]    = { { "value", P_REQUIRED } };
 
 const call_t rest_machine_calls[] = {
    CALL0(HTTP_PUT, "machine", "menu_button", put_menu_button),
@@ -351,6 +359,10 @@ const call_t rest_machine_calls[] = {
    CALL(HTTP_POST, "machine", "writemem", post_writemem, upload_params, UPLOAD_MAX),
    CALL(HTTP_GET, "machine", "readmem", get_readmem, readmem_params, 0),
    CALL0(HTTP_GET, "machine", "menu_screen", get_menu_screen),
+   CALL0(HTTP_GET, "machine", "input", not_yet),
+   CALL0(HTTP_POST, "machine", "input", not_yet),
+   CALL0(HTTP_GET, "machine", "debugreg", not_yet),
+   CALL(HTTP_PUT, "machine", "debugreg", not_yet, value_params, 0),
    CALL0(HTTP_GET, "machine", "measure", get_measure),
    CALL0(HTTP_GET, "machine", "heap", get_heap),
 };
