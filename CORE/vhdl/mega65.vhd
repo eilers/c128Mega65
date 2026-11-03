@@ -17,6 +17,7 @@ use work.globals.all;
 use work.types_pkg.all;
 use work.video_modes_pkg.all;
 use work.sdhost_pkg.all;
+use work.input_inject_pkg.all;
 
 library unisim;
 use unisim.vcomponents.all;
@@ -551,6 +552,15 @@ signal qnice_dma_ce           : std_logic;
 signal qnice_dma_we           : std_logic;
 signal qnice_dma_data         : std_logic_vector(15 downto 0);
 
+-- REST machine:input and debugreg (input_inject.vhd)
+signal main_api_input         : t_api_input;
+signal main_dbg_we            : std_logic;
+signal main_dbg_wdata         : std_logic_vector(7 downto 0);
+signal main_dbg_rdata         : std_logic_vector(7 downto 0);
+signal qnice_input_ce         : std_logic;
+signal qnice_input_we         : std_logic;
+signal qnice_input_data       : std_logic_vector(15 downto 0);
+
 -- The REU's SD card DMA (reu_sd.vhd): device, engine port, memory on the QNICE clock (dma_q_*)
 -- and on hr_clk (dma_hr_*: SDRAM, dma_hm_*: HyperRAM on R3 memory)
 signal qnice_reusd_ce         : std_logic;
@@ -946,6 +956,11 @@ begin
          modem_data_i         => main_modem_rdata,
          modem_irq_i          => main_modem_irq,
 
+         api_input_i          => main_api_input,
+         dbg_we_o             => main_dbg_we,
+         dbg_data_o           => main_dbg_wdata,
+         dbg_data_i           => main_dbg_rdata,
+
          uci_rst_o            => main_uci_rst,
          uci_cs_o             => main_uci_cs,
          uci_we_o             => main_uci_we,
@@ -1103,6 +1118,8 @@ begin
       qnice_net_we         <= '0';
       qnice_dma_ce         <= '0';
       qnice_dma_we         <= '0';
+      qnice_input_ce       <= '0';
+      qnice_input_we       <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -1184,6 +1201,12 @@ begin
             qnice_dma_ce      <= qnice_dev_ce_i;
             qnice_dma_we      <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_dma_data;
+
+        -- REST machine:input and debugreg (input_inject.vhd)
+        when C_DEV_INPUT =>
+            qnice_input_ce    <= qnice_dev_ce_i;
+            qnice_input_we    <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_input_data;
 
          when others => null;
       end case;
@@ -1660,6 +1683,27 @@ begin
          qnice_we_i      => qnice_dma_we,
          qnice_data_o    => qnice_dma_data
       ); -- i_c128_dma
+
+   ---------------------------------------------------------------------------------------------
+   -- REST machine:input and debugreg: keys, joysticks, POT lines and $D7FF (input_inject.vhd)
+   ---------------------------------------------------------------------------------------------
+
+   i_input_inject : entity work.input_inject
+      port map (
+         main_clk_i      => main_clk_o,
+         main_rst_i      => main_rst_o or main_reset_m2m_i,
+         main_input_o    => main_api_input,
+         main_dbg_we_i   => main_dbg_we,
+         main_dbg_data_i => main_dbg_wdata,
+         main_dbg_o      => main_dbg_rdata,
+         qnice_clk_i     => qnice_clk_i,
+         qnice_rst_i     => qnice_rst_i,
+         qnice_addr_i    => qnice_dev_addr_i(11 downto 0),
+         qnice_data_i    => qnice_dev_data_i,
+         qnice_ce_i      => qnice_input_ce,
+         qnice_we_i      => qnice_input_we,
+         qnice_data_o    => qnice_input_data
+      ); -- i_input_inject
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)

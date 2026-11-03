@@ -17,6 +17,7 @@ use work.video_modes_pkg.all;
 use work.globals.all;
 use work.vdrives_pkg.all;
 use work.sdhost_pkg.all;
+use work.input_inject_pkg.all;
 
 entity main is
    generic (
@@ -249,6 +250,13 @@ entity main is
       modem_data_i            : in  std_logic_vector(7 downto 0) := x"FF";
       modem_irq_i             : in  std_logic := '0';             -- to NMI, as on a SwiftLink
 
+      -- The REST API's keys, joysticks and POT lines (input_inject.vhd in mega65.vhd), and its
+      -- debug register at $D7FF
+      api_input_i             : in  t_api_input := C_API_INPUT_NONE;
+      dbg_we_o                : out std_logic;                    -- the C128 writes $D7FF
+      dbg_data_o              : out std_logic_vector(7 downto 0);
+      dbg_data_i              : in  std_logic_vector(7 downto 0) := x"00";
+
       -- Ultimate Command Interface at $DF1C (clk_main_i domain); uci.vhd is in mega65.vhd
       uci_rst_o               : out std_logic;                    -- C128 reset
       uci_cs_o                : out std_logic;                    -- select strobe, CPU4-7
@@ -404,6 +412,14 @@ signal d4080_sel_s       : std_logic := '1';
 signal cpslk_sense_s     : std_logic := '1';
 -- RESTORE (key 75) -> NMI: latched on the RESTORE key edge, cleared by nmi_ack.
 signal restore_key_s     : std_logic := '0';
+-- The joysticks with the API's directions: fire, right, left, down, up, low active
+signal joy1_n, joy2_n    : std_logic_vector(4 downto 0);
+-- The API's keys, while the keyboard reaches the core
+signal api_keys          : std_logic_vector(87 downto 0);
+signal dbg_sel           : std_logic;                      -- $D7FF
+signal dbg_wr            : std_logic := '0';
+signal pot1_x, pot1_y    : std_logic_vector(7 downto 0);
+signal pot2_x, pot2_y    : std_logic_vector(7 downto 0);
 signal restore_key_d     : std_logic := '0';
 signal nmi_q             : std_logic := '0';
 signal core_nmi_n_s      : std_logic := '1';
@@ -924,6 +940,25 @@ modem_sel  <= '1' when core_ram_addr(7 downto 3) = "00000" and
                        ((modem_base = "01" and core_ioe = '1') or
                         (modem_base = "10" and core_iof = '1') or
                         (modem_base = "11" and core_io7 = '1')) else '0';
+
+-- His U64's debug register at $D7FF (machine:debugreg), in input_inject.vhd. A write lands
+-- once, as the access ends, with the data of its last clock. C64 mode reads $D7xx from the
+-- SID mirror ahead of external I/O, so it reads back there only through the firmware.
+dbg_sel <= '1' when core_io7 = '1' and core_ram_addr(7 downto 0) = x"FF" else '0';
+
+dbg_write : process(clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      dbg_we_o <= '0';
+      if dbg_sel = '1' and io_phi2 = '1' and system_we = '1' then
+         dbg_wr     <= '1';
+         dbg_data_o <= std_logic_vector(core_ram_data_out);
+      elsif dbg_wr = '1' then
+         dbg_wr   <= '0';
+         dbg_we_o <= '1';
+      end if;
+   end if;
+end process dbg_write;
 
 modem_en_o   <= '0' when modem_base = "00" else '1';
 modem_rst_o  <= not reset_core_n;
@@ -1517,6 +1552,13 @@ begin
       core_nmi_n <= '0';
    end if;
 
+   -- The debug register at $D7FF
+   if dbg_sel = '1' then
+      core_io_rom  <= '0';
+      core_io_ext  <= '1';
+      core_io_data <= unsigned(dbg_data_i);
+   end if;
+
    core_irq_n <= v_irq_n;
    core_dma   <= v_dma;
 end process handle_cores_expansion_port_signals_proc;
@@ -1816,10 +1858,19 @@ sys_rom_addr_o <= "11" & core_romfh & std_logic_vector(core_ram_addr(13 downto 0
                   std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= core_ram_addr;
 sysrom_data <= unsigned(sys_rom_data_i);
-joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
-         (not joy_1_down_n_i) & (not joy_1_up_n_i) & '0';
-joy_b <= '0' & (not joy_2_fire_n_i) & (not joy_2_right_n_i) & (not joy_2_left_n_i) &
-         (not joy_2_down_n_i) & (not joy_2_up_n_i) & '0';
+-- The API's directions join the ports' lines (after Swap joystick ports, in the framework)
+joy1_n <= (joy_1_fire_n_i & joy_1_right_n_i & joy_1_left_n_i & joy_1_down_n_i & joy_1_up_n_i) and
+          not api_input_i.joy1;
+joy2_n <= (joy_2_fire_n_i & joy_2_right_n_i & joy_2_left_n_i & joy_2_down_n_i & joy_2_up_n_i) and
+          not api_input_i.joy2;
+joy_a <= '0' & (not joy1_n) & '0';
+joy_b <= '0' & (not joy2_n) & '0';
+-- A port's POT lines are the API's while it drives them (its mouse, fire2 and fire3). The
+-- core takes 255 minus the reading, as the framework gives it; the API's is the reading.
+pot1_x <= not api_input_i.pot1_x when api_input_i.pot1_en = '1' else pot1_x_i;
+pot1_y <= not api_input_i.pot1_y when api_input_i.pot1_en = '1' else pot1_y_i;
+pot2_x <= not api_input_i.pot2_x when api_input_i.pot2_en = '1' else pot2_x_i;
+pot2_y <= not api_input_i.pot2_y when api_input_i.pot2_en = '1' else pot2_y_i;
 audio_left_o <= signed(sid_audio_l(17 downto 2));
 audio_right_o <= signed(sid_audio_r(17 downto 2));
 
@@ -1875,9 +1926,15 @@ end process;
 f9_latched_o <= f9_latch;
 
 -- Default (ASCII/DIN menu bit clear): real Caps Lock is 40/80, F9 is Caps Lock.
--- The other choice swaps them. A pressed key reads as '0' on the sense line.
-d4080_sel_s   <= capslock_engaged_n when osm_control_i(C_MENU_KEYS_ASCII) = '0' else not f9_latch;
-cpslk_sense_s <= not f9_latch       when osm_control_i(C_MENU_KEYS_ASCII) = '0' else capslock_engaged_n;
+-- The other choice swaps them. A pressed key reads as '0' on the sense line. The API's 40/80
+-- and Caps Lock are down too while it holds them, menu or not, as the keys are.
+d4080_sel_s   <= capslock_engaged_n and not api_input_i.d4080 when osm_control_i(C_MENU_KEYS_ASCII) = '0' else
+                 not f9_latch and not api_input_i.d4080;
+cpslk_sense_s <= not f9_latch and not api_input_i.capslock when osm_control_i(C_MENU_KEYS_ASCII) = '0' else
+                 capslock_engaged_n and not api_input_i.capslock;
+
+-- The menu takes the API's keys as it takes the keyboard's (the firmware sends them there)
+api_keys <= api_input_i.keys when kb_key_enabled_i = '1' else (others => '0');
 
 keyboard_inst : entity work.keyboard
   port map (
@@ -1890,11 +1947,11 @@ keyboard_inst : entity work.keyboard
     key_num_i            => kb_key_num_i,
     key_pressed_n_i      => kb_key_pressed_n_i,
 
-    joy_1_up_n_i         => joy_1_up_n_i,
-    joy_1_down_n_i       => joy_1_down_n_i,
-    joy_1_left_n_i       => joy_1_left_n_i,
-    joy_1_right_n_i      => joy_1_right_n_i,
-    joy_1_fire_n_i       => joy_1_fire_n_i,
+    joy_1_up_n_i         => joy1_n(0),
+    joy_1_down_n_i       => joy1_n(1),
+    joy_1_left_n_i       => joy1_n(2),
+    joy_1_right_n_i      => joy1_n(3),
+    joy_1_fire_n_i       => joy1_n(4),
 
     joy_1_up_n_o         => open,
     joy_1_down_n_o       => open,
@@ -1902,11 +1959,11 @@ keyboard_inst : entity work.keyboard
     joy_1_right_n_o      => open,
     joy_1_fire_n_o       => open,
 
-    joy_2_up_n_i         => joy_2_up_n_i,
-    joy_2_down_n_i       => joy_2_down_n_i,
-    joy_2_left_n_i       => joy_2_left_n_i,
-    joy_2_right_n_i      => joy_2_right_n_i,
-    joy_2_fire_n_i       => joy_2_fire_n_i,
+    joy_2_up_n_i         => joy2_n(0),
+    joy_2_down_n_i       => joy2_n(1),
+    joy_2_left_n_i       => joy2_n(2),
+    joy_2_right_n_i      => joy2_n(3),
+    joy_2_fire_n_i       => joy2_n(4),
 
     joy_2_up_n_o         => open,
     joy_2_down_n_o       => open,
@@ -1915,6 +1972,9 @@ keyboard_inst : entity work.keyboard
     joy_2_fire_n_o       => open,
 
     vic_ko_i             => vic_ko_s,
+
+    api_keys_i           => api_keys,
+    api_restore_i        => api_input_i.restore and kb_key_enabled_i,
 
     cia1_pai_o           => cia1_pa_in,
     cia1_pao_i           => cia1_pa_out,
@@ -2067,10 +2127,10 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
 
 
       -- paddle interface
-      pot1          => pot1_x_i,
-      pot2          => pot1_y_i,
-      pot3          => pot2_x_i,
-      pot4          => pot2_y_i,
+      pot1          => pot1_x,
+      pot2          => pot1_y,
+      pot3          => pot2_x,
+      pot4          => pot2_y,
 
       -- Joystick ports
       joyA          => joy_a,

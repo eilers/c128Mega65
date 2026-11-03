@@ -12,6 +12,7 @@
 #include "fmt.h"
 #include "ftp.h"
 #include "http.h"
+#include "input.h"
 #include "m2m_rv.h"
 #include "net/netcfg.h"
 #include "reu.h"
@@ -633,6 +634,7 @@ int core_crtrom_loaded(int dev)
 const char *core_prep_start(void)
 {
    const char *msg;
+   input_release_all();               // the input device as the firmware starts: nothing held
    stores_load();
    rompick_boot();
    if (reu_file_picked() && reu_size()) {
@@ -656,11 +658,12 @@ uint32_t core_menu_key(void)
 }
 
 // The boot cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST
-// API (net/http.c) and the FTP server (net/ftp.c)
+// API (net/http.c), its input's timing (input.c) and the FTP server (net/ftp.c)
 DMEM_CODE void core_poll(void)
 {
    rompick_poll();
    uci_poll();
    http_poll();
+   input_poll();
    ftp_poll();
 }

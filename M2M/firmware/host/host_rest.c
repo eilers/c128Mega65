@@ -12,9 +12,12 @@
 #include "drives.h"
 #include "ff.h"
 #include "host_rest.h"
+#include "m2m_rv.h"
 #include "net/netcfg.h"
 #include "stores.h"
 #include "roms.h"
+
+uint32_t net_millis(void);         // test_http.c's clock
 
 uint8_t c128_mem[65536];
 int     dma_held_v, dma_z80_v, dma_polls = 3, dma_jobs, dma_stops;
@@ -22,6 +25,7 @@ int     z80_cpm;                        // the Z80 runs CP/M until the next rese
 int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], mounts, remaps;
 char    drv_card[2][256];
 uint16_t *drive_rom, *crt_mem, *sys_rom;
+uint16_t input_dev[16];            // C_DEV_INPUT's words as input.c last wrote them
 uint32_t  csr_reg = 0x0038;            // M2M_CSR: keyboard and joysticks, out of reset
 int       func_size = -1, c128_resets;  // the function ROM's CSR; resets by a ROM change
 int       rom_under_z80;                 // system ROM accesses while the Z80 runs
@@ -361,10 +365,12 @@ volatile uint32_t *host_rest_reg32(uint32_t a)
       csr_was = csr_reg;
       return (volatile uint32_t *)&csr_reg;
    }
-   if (a == 0xFFF4BFF8u || a == 0xFFF4BFFCu) {   // MTIME: 10 us a read
+   if (a == 0xFFF4BFF8u || a == 0xFFF4BFFCu) {   // MTIME: 10 us a read, never behind net_millis
       static uint64_t time;
       static uint32_t t;
       time += 1000;
+      if (time < (uint64_t)net_millis() * (CPU_HZ / 1000))
+         time = (uint64_t)net_millis() * (CPU_HZ / 1000);
       t = a == 0xFFF4BFF8u ? (uint32_t)time : (uint32_t)(time >> 32);
       return (volatile uint32_t *)&t;
    }
@@ -386,6 +392,10 @@ volatile uint16_t *host_rest_dev(void)
       return drive_rom;
    if (ramrom == 0x0106)
       return crt_mem;
+   if (ramrom == 0x010D) {            // the input device: every commit has reached the C128
+      input_dev[15] = 0;
+      return input_dev;
+   }
    fprintf(stderr, "test_http: device %04X\n", ramrom);
    exit(2);
 }

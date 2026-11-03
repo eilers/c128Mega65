@@ -586,6 +586,8 @@ static const call_t *find_call(http_method_t m, const char *route, const char *c
       c = find_in(rest_files_calls, rest_files_count, m, route, cmd);
    if (!c)
       c = find_in(rest_runners_calls, rest_runners_count, m, route, cmd);
+   if (!c)
+      c = find_in(rest_input_calls, rest_input_count, m, route, cmd);
    return c;
 }
 
@@ -723,6 +725,11 @@ void rest_dispatch(http_req_t *req, http_resp_t *res)
       return;
    }
    if (!r->call->upload) {
+      run(r);
+      return;
+   }
+   if (req->body_type == BODY_NONE && r->call->no_body_ok) {
+      r->up_len = r->up_size = r->up_parts = 0;
       run(r);
       return;
    }

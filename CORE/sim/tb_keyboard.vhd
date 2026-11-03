@@ -2,6 +2,8 @@
 -- line or a K line low, PB read) and the other way round (a PB line low, PA read). With the
 -- 8502 they are the C64 CRSR keys (Right Shift for up and left); with the Z80 (alt_crsr_i) the
 -- top-row cursor keys. A key is its KERNAL index: row (PA bit, or 8-10 for K0-K2) * 8 + PB bit.
+-- Then the REST API's keys (api_keys_i), which use that index: each one alone, with a MEGA65
+-- key, in Z80 mode, and RESTORE.
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -18,6 +20,9 @@ architecture sim of tb_keyboard is
    signal ko       : std_logic_vector(2 downto 0) := "111";
    signal pao, pbo : std_logic_vector(7 downto 0) := (others => '1');
    signal pai, pbi : std_logic_vector(7 downto 0);
+   signal api      : std_logic_vector(87 downto 0) := (others => '0');
+   signal api_rest : std_logic := '0';
+   signal restore  : std_logic;
 
    -- MEGA65 key numbers (keyboard.vhd)
    constant M_HORZ : natural := 2;   constant M_VERT  : natural := 7;
@@ -50,9 +55,9 @@ begin
          joy_2_right_n_i => '1', joy_2_fire_n_i => '1',
          joy_2_up_n_o => open, joy_2_down_n_o => open, joy_2_left_n_o => open,
          joy_2_right_n_o => open, joy_2_fire_n_o => open,
-         vic_ko_i => ko,
+         vic_ko_i => ko, api_keys_i => api, api_restore_i => api_rest,
          cia1_pai_o => pai, cia1_pao_i => pao, cia1_pbi_o => pbi, cia1_pbo_i => pbo,
-         restore_key_o => open);
+         restore_key_o => restore);
 
    test : process
       variable fails, checks : natural := 0;
@@ -172,6 +177,46 @@ begin
       expect("down held, back to the 8502", (0 => C_UD));
       key(M_VERT, false);
       expect("released", (0 => NONE));
+
+      -- The API's keys, each alone; in Z80 mode too, where the MEGA65's C64 CRSR keys are off
+      for z80 in 0 to 1 loop
+         alt <= '1' when z80 = 1 else '0';
+         for k in 0 to 87 loop
+            api    <= (others => '0');
+            api(k) <= '1';
+            wait for 1 ns;
+            expect("API key " & integer'image(k) & ", z80 " & integer'image(z80), (0 => k));
+         end loop;
+      end loop;
+      alt <= '0';
+      api <= (others => '0');
+
+      -- With the MEGA65's keys, and as a chord
+      key(M_W, true);
+      api(C_TAB) <= '1';
+      api(C_RSHFT) <= '1';
+      wait for 1 ns;
+      expect("API Tab + Right Shift, MEGA65 W", (C_W, C_TAB, C_RSHFT));
+      key(M_W, false);
+      api <= (others => '0');
+      wait for 1 ns;
+      expect("API released", (0 => NONE));
+
+      -- RESTORE: the API's or the key
+      checks := checks + 1;
+      api_rest <= '1';
+      wait for 1 ns;
+      if restore /= '1' then
+         fails := fails + 1;
+         report "API RESTORE: FAIL" severity warning;
+      end if;
+      api_rest <= '0';
+      wait for 1 ns;
+      checks := checks + 1;
+      if restore /= '0' then
+         fails := fails + 1;
+         report "API RESTORE released: FAIL" severity warning;
+      end if;
 
       if fails = 0 then
          report "ALL CHECKS PASSED (" & integer'image(checks) & ")";

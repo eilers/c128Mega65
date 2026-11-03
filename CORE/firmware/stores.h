@@ -42,6 +42,10 @@ int         item_choices(const item_t *it);   // an IT_ENUM's choices on this bo
 int         item_inverted(const item_t *it);  // a single-select line's item whose choice 0 is on
 // The drives' submenus: a model (DM_*) and a bus ID (8-11) each. The internal floppy is the
 // model of one drive at a time.
+// His U64's mouse settings, which the REST API's mouse follows (net/rest_input.c)
+enum { MS_MODE, MS_SENS, MS_ACCEL, MS_WHEEL, MS_WHEEL_DIR, MS_COUNT };
+int         stores_mouse(int k);
+
 enum { DM_1541, DM_1571, DM_1581, DM_INTERNAL };
 int         stores_drive_model(int d);
 void        stores_drive_set_model(int d, int m);

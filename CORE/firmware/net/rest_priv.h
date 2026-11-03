@@ -20,6 +20,7 @@
 #define HTTP_NOT_FOUND         404
 #define HTTP_PRECONDITION      412
 #define HTTP_LOCKED            423
+#define HTTP_TOO_MANY_REQUESTS 429
 #define HTTP_INTERNAL_ERROR    500
 #define HTTP_NOT_IMPLEMENTED   501
 
@@ -63,13 +64,15 @@ typedef struct {
    // Or the first part as it comes (MP_DATA_START or MP_SUBHEADER, MP_DATA, MP_DATA_END, then
    // MP_END at the body's end, or MP_ABORT): into a file, a device
    void         (*sink)(rest_t *r, mp_event_t ev, const uint8_t *data, int len);
+   int            no_body_ok;           // a request without a body runs too: the route says why not
 } call_t;
 
-#define CALL(m, route, cmd, proc, params, up) { m, route, cmd, proc, params, sizeof params / sizeof params[0], up, NULL }
-#define CALL0(m, route, cmd, proc)            { m, route, cmd, proc, NULL, 0, 0, NULL }
-#define CALLU(m, route, cmd, proc, up)        { m, route, cmd, proc, NULL, 0, up, NULL }
-#define CALLS(m, route, cmd, proc, params, sink) { m, route, cmd, proc, params, sizeof params / sizeof params[0], 1, sink }
-#define CALLS0(m, route, cmd, proc, sink)        { m, route, cmd, proc, NULL, 0, 1, sink }
+#define CALL(m, route, cmd, proc, params, up) { m, route, cmd, proc, params, sizeof params / sizeof params[0], up, NULL, 0 }
+#define CALL0(m, route, cmd, proc)            { m, route, cmd, proc, NULL, 0, 0, NULL, 0 }
+#define CALLU(m, route, cmd, proc, up)        { m, route, cmd, proc, NULL, 0, up, NULL, 0 }
+#define CALLS(m, route, cmd, proc, params, sink) { m, route, cmd, proc, params, sizeof params / sizeof params[0], 1, sink, 0 }
+#define CALLS0(m, route, cmd, proc, sink)        { m, route, cmd, proc, NULL, 0, 1, sink, 0 }
+#define CALLB(m, route, cmd, proc, up)           { m, route, cmd, proc, NULL, 0, up, NULL, 1 }
 
 // A request's arguments and answer, one per connection, in HyperRAM
 struct rest {
@@ -148,7 +151,10 @@ void        dma_keep(int on);             // the C128's CPU held between jobs to
 void        temp_sink(rest_t *r, mp_event_t ev, const uint8_t *data, int len);
 const char *temp_file(rest_t *r);
 
+// machine:input (rest_input.c): everything the API holds let go, its mouse detached
+void        input_api_release(void);
+
 extern const call_t rest_machine_calls[], rest_configs_calls[], rest_drives_calls[],
-                    rest_files_calls[], rest_runners_calls[];
+                    rest_files_calls[], rest_runners_calls[], rest_input_calls[];
 extern const int    rest_machine_count, rest_configs_count, rest_drives_count, rest_files_count,
-                    rest_runners_count;
+                    rest_runners_count, rest_input_count;

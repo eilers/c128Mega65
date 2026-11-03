@@ -144,6 +144,11 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##                   its toggle flips; the toggles, hold, done and status bits through ASYNC_REG
 ##                   pairs; the buffer is a dual-clock RAM.
 ##
+##   REST input      input_inject.vhd: a commit copies the words, which stay put until the
+##                   C128 side has taken them, then flips a toggle; the toggles and their
+##                   answers through ASYNC_REG pairs. The debug register's value comes back
+##                   through an ASYNC_REG pair, taken when two samples agree.
+##
 ##   every key       m2m_keyb's 80-key matrix to the CPU through xpm_cdc_array_single, a bit
 ##                   each, as the menu keys.
 ##

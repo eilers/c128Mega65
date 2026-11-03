@@ -10,6 +10,7 @@
 #include "core.h"
 #include "fmt.h"
 #include "heap.h"
+#include "input.h"
 #include "net.h"
 #include "rest_priv.h"
 #include "uci.h"
@@ -185,12 +186,14 @@ static void put_menu_button(rest_t *r)
    json_response(r, HTTP_OK);
 }
 
-// A pause ends with the reset; the cartridge starts again with it either way
+// A pause ends with the reset; the cartridge starts again with it either way. What the
+// input API holds is let go and its mouse detached, as on his U64.
 static void put_reset(rest_t *r)
 {
    m.paused = 0;
    hold();
    uci_reboot();
+   input_api_release();
    json_response(r, HTTP_OK);
 }
 
@@ -320,11 +323,29 @@ static void get_menu_screen(rest_t *r)
    binary_response(r, r->mem, 2000);
 }
 
-// His U64's keyboard/joystick/mouse input and debug register: not in the core yet
-static void not_yet(rest_t *r)
+// His U64's debug register at $D7FF: here a byte the C128 and REST both read and write
+static void debug_value(rest_t *r, int v)
 {
-   error(r, "This command is not supported on this architecture");
-   json_response(r, HTTP_NOT_IMPLEMENTED);
+   char text[4];
+   fmt_snprintf(text, sizeof text, "%02X", v);
+   add_str(r, "value", text);
+   json_response(r, HTTP_OK);
+}
+
+static void get_debugreg(rest_t *r)
+{
+   debug_value(r, input_debug_get());
+}
+
+static void put_debugreg(rest_t *r)
+{
+   int v;
+   if (!parse_hex(arg(r, "value"), 0xFF, &v)) {
+      error(r, "Invalid value");
+      json_response(r, HTTP_BAD_REQUEST);
+      return;
+   }
+   debug_value(r, input_debug_set(v));
 }
 
 // No bus measurement in this core
@@ -359,10 +380,8 @@ const call_t rest_machine_calls[] = {
    CALL(HTTP_POST, "machine", "writemem", post_writemem, upload_params, UPLOAD_MAX),
    CALL(HTTP_GET, "machine", "readmem", get_readmem, readmem_params, 0),
    CALL0(HTTP_GET, "machine", "menu_screen", get_menu_screen),
-   CALL0(HTTP_GET, "machine", "input", not_yet),
-   CALL0(HTTP_POST, "machine", "input", not_yet),
-   CALL0(HTTP_GET, "machine", "debugreg", not_yet),
-   CALL(HTTP_PUT, "machine", "debugreg", not_yet, value_params, 0),
+   CALL0(HTTP_GET, "machine", "debugreg", get_debugreg),
+   CALL(HTTP_PUT, "machine", "debugreg", put_debugreg, value_params, 0),
    CALL0(HTTP_GET, "machine", "measure", get_measure),
    CALL0(HTTP_GET, "machine", "heap", get_heap),
 };
