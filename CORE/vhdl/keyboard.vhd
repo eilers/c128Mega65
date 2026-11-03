@@ -8,6 +8,9 @@
 -- While the Z80 runs, the arrows are the C128's top-row cursor keys, as MiSTer's alt_crsr:
 -- CP/M gives those WordStar's ^E ^X ^S ^D, but the C64 CRSR keys ^W ^F ^A (scroll, word jumps).
 --
+-- The REST API's keys (api_keys_i, input_inject.vhd) join the same lines by matrix position:
+-- key index r * 8 + c is between PA r and PB c, 64-87 are K0-K2 on PB 0-7.
+--
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2022 and licensed under GPL v3
 ---------------------------------------------------------------------------------------------------------
 
@@ -52,6 +55,10 @@ entity keyboard is
 
       -- VIC keyboard extension scan lines (C128)
       vic_ko_i             : in std_logic_vector(2 downto 0);
+
+      -- Keys and RESTORE held by the REST API, '1' held
+      api_keys_i           : in std_logic_vector(87 downto 0) := (others => '0');
+      api_restore_i        : in std_logic := '0';
 
       cia1_pai_o           : out std_logic_vector(7 downto 0);
       cia1_pao_i           : in std_logic_vector(7 downto 0);
@@ -158,6 +165,10 @@ signal autokey_delay : natural range 0 to C_AK_DELAY;
 signal crsr_lr_n, crsr_ud_n, crsr_shift_n : std_logic;
 signal top_up_n, top_down_n, top_left_n, top_right_n : std_logic;
 
+-- The MEGA65 keyboard's and the joysticks' lines, then the API's
+signal pai_phys, pbi_phys : std_logic_vector(7 downto 0);
+signal pai_api, pbi_api   : std_logic_vector(7 downto 0);
+
 begin
 
    crsr_lr_n    <= alt_crsr_i or (key_pressed_n(m65_horz_crsr) and key_pressed_n(m65_left_crsr));
@@ -179,7 +190,7 @@ begin
    joy_2_right_n_o <= '1';
    joy_2_fire_n_o  <= '1';
 
-   restore_key_o <= not key_pressed_n(m65_restore);
+   restore_key_o <= not key_pressed_n(m65_restore) or api_restore_i;
 
    keyboard_state : process(clk_main_i)
    begin
@@ -242,7 +253,7 @@ begin
    -- See: https://www.c64-wiki.com/wiki/Keyboard#Keyboard_Matrix
    ------------------------------------------------------------------------------
 
-   cia1_pai_o(0) <=  cia1_pao_i(0)                                      and
+   pai_phys(0) <=  cia1_pao_i(0)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_ins_del))      and
                      (cia1_pbo_i(1) or key_pressed_n(m65_return))       and
                      (cia1_pbo_i(2) or crsr_lr_n)                       and
@@ -253,7 +264,7 @@ begin
                      (cia1_pbo_i(7) or crsr_ud_n)                       and
                      joy_2_up_n_i;
 
-   cia1_pai_o(1) <=  cia1_pao_i(1)                                      and
+   pai_phys(1) <=  cia1_pao_i(1)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_3))            and
                      (cia1_pbo_i(1) or key_pressed_n(m65_w))            and
                      (cia1_pbo_i(2) or key_pressed_n(m65_a))            and
@@ -264,7 +275,7 @@ begin
                      (cia1_pbo_i(7) or key_pressed_n(m65_left_shift))   and
                      joy_2_down_n_i;
 
-   cia1_pai_o(2) <=  cia1_pao_i(2)                                      and
+   pai_phys(2) <=  cia1_pao_i(2)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_5))            and
                      (cia1_pbo_i(1) or key_pressed_n(m65_r))            and
                      (cia1_pbo_i(2) or key_pressed_n(m65_d))            and
@@ -275,7 +286,7 @@ begin
                      (cia1_pbo_i(7) or key_pressed_n(m65_x))            and
                      joy_2_left_n_i;
 
-   cia1_pai_o(3) <=  cia1_pao_i(3)                                      and
+   pai_phys(3) <=  cia1_pao_i(3)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_7))            and
                      (cia1_pbo_i(1) or key_pressed_n(m65_y))            and
                      (cia1_pbo_i(2) or key_pressed_n(m65_g))            and
@@ -286,7 +297,7 @@ begin
                      (cia1_pbo_i(7) or key_pressed_n(m65_v))            and
                      joy_2_right_n_i;
 
-   cia1_pai_o(4) <=  cia1_pao_i(4)                                      and
+   pai_phys(4) <=  cia1_pao_i(4)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_9))            and
                      (cia1_pbo_i(1) or key_pressed_n(m65_i))            and
                      (cia1_pbo_i(2) or key_pressed_n(m65_j))            and
@@ -297,7 +308,7 @@ begin
                      (cia1_pbo_i(7) or key_pressed_n(m65_n))            and
                      joy_2_fire_n_i;
 
-   cia1_pai_o(5) <=  cia1_pao_i(5)                                      and
+   pai_phys(5) <=  cia1_pao_i(5)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_plus))         and
                      (cia1_pbo_i(1) or key_pressed_n(m65_p))            and
                      (cia1_pbo_i(2) or key_pressed_n(m65_l))            and
@@ -307,7 +318,7 @@ begin
                      (cia1_pbo_i(6) or key_pressed_n(m65_at))           and
                      (cia1_pbo_i(7) or key_pressed_n(m65_comma));
 
-   cia1_pai_o(6) <=  cia1_pao_i(6)                                      and
+   pai_phys(6) <=  cia1_pao_i(6)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_gbp))          and
                      (cia1_pbo_i(1) or key_pressed_n(m65_asterisk))     and
                      (cia1_pbo_i(2) or key_pressed_n(m65_semicolon))    and
@@ -318,7 +329,7 @@ begin
                      (cia1_pbo_i(6) or key_pressed_n(m65_arrow_up))     and
                      (cia1_pbo_i(7) or key_pressed_n(m65_slash));
 
-   cia1_pai_o(7) <=  cia1_pao_i(7)                                      and
+   pai_phys(7) <=  cia1_pao_i(7)                                      and
                      (cia1_pbo_i(0) or key_pressed_n(m65_1))            and
                      (cia1_pbo_i(1) or key_pressed_n(m65_arrow_left))   and
                      (cia1_pbo_i(2) or key_pressed_n(m65_ctrl))         and
@@ -333,7 +344,7 @@ begin
    -- C128 extension keys use vic_ko_i scan lines (see fpga64_keyboard ki port).
    ------------------------------------------------------------------------------
 
-   cia1_pbi_o(0) <=  cia1_pbo_i(0)                                      and
+   pbi_phys(0) <=  cia1_pbo_i(0)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_ins_del))      and
                      (cia1_pao_i(1) or key_pressed_n(m65_3))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_5))            and
@@ -347,7 +358,7 @@ begin
                      (vic_ko_i(1) or key_pressed_n(m65_esc))            and
                      (vic_ko_i(2) or key_pressed_n(m65_alt));
 
-   cia1_pbi_o(1) <=  cia1_pbo_i(1)                                      and
+   pbi_phys(1) <=  cia1_pbo_i(1)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_return))       and
                      (cia1_pao_i(1) or key_pressed_n(m65_w))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_r))            and
@@ -358,7 +369,7 @@ begin
                      (cia1_pao_i(7) or key_pressed_n(m65_arrow_left))   and
                      joy_1_down_n_i;
 
-   cia1_pbi_o(2) <=  cia1_pbo_i(2)                                      and
+   pbi_phys(2) <=  cia1_pbo_i(2)                                      and
                      (cia1_pao_i(0) or crsr_lr_n)                       and
                      (cia1_pao_i(1) or key_pressed_n(m65_a))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_d))            and
@@ -369,7 +380,7 @@ begin
                      (cia1_pao_i(7) or key_pressed_n(m65_ctrl))         and
                      joy_1_left_n_i;
 
-   cia1_pbi_o(3) <=  cia1_pbo_i(3)                                      and
+   pbi_phys(3) <=  cia1_pbo_i(3)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_f7))           and
                      (cia1_pao_i(1) or key_pressed_n(m65_4))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_6))            and
@@ -382,7 +393,7 @@ begin
                      (vic_ko_i(0) or key_pressed_n(m65_tab))            and
                      (vic_ko_i(2) or top_up_n);
 
-   cia1_pbi_o(4) <=  cia1_pbo_i(4)                                      and
+   pbi_phys(4) <=  cia1_pbo_i(4)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_f1))           and
                      (cia1_pao_i(1) or key_pressed_n(m65_z))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_c))            and
@@ -395,7 +406,7 @@ begin
                      joy_1_fire_n_i                                     and
                      (vic_ko_i(2) or top_down_n);
 
-   cia1_pbi_o(5) <=  cia1_pbo_i(5)                                      and
+   pbi_phys(5) <=  cia1_pbo_i(5)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_f3))           and
                      (cia1_pao_i(1) or key_pressed_n(m65_s))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_f))            and
@@ -406,7 +417,7 @@ begin
                      (cia1_pao_i(7) or key_pressed_n(m65_mega))         and
                      (vic_ko_i(2) or top_left_n);
 
-   cia1_pbi_o(6) <=  cia1_pbo_i(6)                                      and
+   pbi_phys(6) <=  cia1_pbo_i(6)                                      and
                      (cia1_pao_i(0) or key_pressed_n(m65_f5))           and
                      (cia1_pao_i(1) or key_pressed_n(m65_e))            and
                      (cia1_pao_i(2) or key_pressed_n(m65_t))            and
@@ -417,7 +428,7 @@ begin
                      (cia1_pao_i(7) or key_pressed_n(m65_q))            and
                      (vic_ko_i(2) or top_right_n);
 
-   cia1_pbi_o(7) <=  cia1_pbo_i(7)                                      and
+   pbi_phys(7) <=  cia1_pbo_i(7)                                      and
                      (cia1_pao_i(0) or crsr_ud_n)                       and
                      (cia1_pao_i(1) or key_pressed_n(m65_left_shift))   and
                      (cia1_pao_i(2) or key_pressed_n(m65_x))            and
@@ -427,5 +438,36 @@ begin
                      (cia1_pao_i(6) or key_pressed_n(m65_slash))        and
                      (cia1_pao_i(7) or key_pressed_n(m65_run_stop))     and
                      (vic_ko_i(2) or key_pressed_n(m65_no_scrl));
+
+   ------------------------------------------------------------------------------
+   -- The API's keys, by matrix position
+   ------------------------------------------------------------------------------
+
+   api_lines : process(all)
+      variable v_pa, v_pb : std_logic_vector(7 downto 0);
+   begin
+      v_pa := (others => '1');
+      v_pb := (others => '1');
+      for r in 0 to 7 loop
+         for c in 0 to 7 loop
+            if api_keys_i(r * 8 + c) = '1' then
+               v_pa(r) := v_pa(r) and cia1_pbo_i(c);
+               v_pb(c) := v_pb(c) and cia1_pao_i(r);
+            end if;
+         end loop;
+      end loop;
+      for k in 0 to 2 loop
+         for c in 0 to 7 loop
+            if api_keys_i(64 + k * 8 + c) = '1' then
+               v_pb(c) := v_pb(c) and vic_ko_i(k);
+            end if;
+         end loop;
+      end loop;
+      pai_api <= v_pa;
+      pbi_api <= v_pb;
+   end process;
+
+   cia1_pai_o <= pai_phys and pai_api;
+   cia1_pbi_o <= pbi_phys and pbi_api;
 
 end architecture beh;
