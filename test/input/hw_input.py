@@ -100,6 +100,10 @@ def settle(core):
 
 
 def start(core):
+    # From BASIC: a Z80 (CP/M) holds the bus, and run_prg answers 423 then
+    core.call("PUT", "machine:reset")
+    time.sleep(1)
+    ready(core)
     prg = (HERE / "inputtest.prg").read_bytes()
     status, body = core.call("POST", "runners:run_prg", prg, "application/octet-stream")
     assert status == 200, body
@@ -229,7 +233,8 @@ def debugreg(core):
 def ready(core):
     t0 = time.monotonic()
     while time.monotonic() - t0 < 15:
-        if core.readmem(0x0A00, 1)[0] == 3:
+        status, body = core.call("GET", "machine:readmem?address=0A00&length=1")
+        if status == 200 and body[:1] == b"\x03":
             return
         time.sleep(0.2)
     raise RuntimeError("no READY")
