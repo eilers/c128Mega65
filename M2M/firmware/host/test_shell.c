@@ -11,6 +11,7 @@
 #include "core.h"
 #include "ff.h"
 #include "heap.h"
+#include "input.h"
 #include "keys.h"
 #include "m2m_rv.h"
 #include "menu.h"
@@ -163,7 +164,19 @@ static void poll(int n)
       keys_poll();
       sdcard_poll();
       shell_poll();
+      input_poll();
    }
+}
+
+// A tap of the REST API's while the menu is open (input.c): the keys, until it is over
+static void api_tap(int row, uint8_t bits, int row2, uint8_t bits2)
+{
+   uint8_t m[IN_ROWS] = { 0 };
+   m[row] |= bits;
+   m[row2] |= bits2;
+   input_menu_sync();
+   input_tap(IN_MENU, m, false);
+   poll(20000);                       // 200 ms: past the tap's 60
 }
 
 static void press(uint32_t key)
@@ -699,6 +712,24 @@ int main(int argc, char **argv)
          setting_line("Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=All Connected\n") &&
          setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Flicker-free=Disabled\n"),
          "settings file saved");
+   // The REST API's keys drive the menu as the keyboard does, and the C128 sees none of them
+   shell_menu_button();
+   check(M2M_CSR & M2M_CSR_OSM, "API: machine:menu_button opens the menu");
+   int at = cursor_row();
+   api_tap(0, 0x80, 0, 0);                                  // cursor_up_down
+   check(cursor_row() == at + 1, "API: cursor_up_down moves down");
+   api_tap(0, 0x80, 1, 0x80);                               // with left_shift
+   check(cursor_row() == at, "API: with left_shift, up");
+   api_tap(0, 0x02, 0, 0);                                  // return
+   check(find_row(" Drive A") == 1, "API: Return opens drive A's submenu");
+   M2M_RAMROM_DEV = 0x10D;
+   check(!M2M_DEV16[0] && !M2M_DEV16[1] && !M2M_DEV16[2] && !M2M_DEV16[3], "API: nothing on the C128's matrix");
+   api_tap(7, 0x80, 0, 0);                                  // run_stop
+   check(find_row(" Drives") == 1, "API: Run/Stop back to the main menu");
+   api_tap(8, 0x01, 0, 0);                                  // help
+   check(!(M2M_CSR & M2M_CSR_OSM), "API: Help closes the menu");
+   idle();
+
    press(M2M_KEY_HELP);
    check(cursor_on("8:1541"), "cursor remembered");
 

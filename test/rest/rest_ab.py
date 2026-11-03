@@ -82,6 +82,12 @@ CASES = [
     ("menu_screen, closed", b"GET /v1/machine:menu_screen HTTP/1.1\r\n\r\n", "exact"),
     ("heap", b"GET /v1/machine:heap HTTP/1.1\r\n\r\n", "info"),
     ("debugreg", b"GET /v1/machine:debugreg HTTP/1.1\r\n\r\n", "exact"),
+    ("input", b"GET /v1/machine:input HTTP/1.1\r\n\r\n", "exact"),
+    ("POST input, not JSON", b"POST /v1/machine:input HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}", "exact"),
+    ("POST input, a bad key", b"POST /v1/machine:input HTTP/1.1\r\nContent-Type: application/json\r\n"
+     b"Content-Length: 66\r\n\r\n{\"events\":[{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"A\"]}]}", "exact"),
+    ("POST input, release_all", b"POST /v1/machine:input HTTP/1.1\r\nContent-Type: application/json\r\n"
+     b"Content-Length: 35\r\n\r\n{\"events\":[{\"kind\":\"release_all\"}]}", "exact"),
     ("configs", b"GET /v1/configs HTTP/1.1\r\n\r\n", "mine"),
     ("configs, a category", b"GET /v1/configs/drive%20a%20settings HTTP/1.1\r\n\r\n", "mine"),
     ("configs, an item in full", b"GET /v1/configs/drive%20a*/drive%20type HTTP/1.1\r\n\r\n", "mine"),

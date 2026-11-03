@@ -22,7 +22,7 @@
 
 // I_GROUP: a menu group (item_t's group); an on_off item is its single-select line
 enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED,
-       I_GROUP, I_NET };                                    // I_FIXED: one choice, nothing to set                        // I_NET + NC_*: netcfg's strings
+       I_MOUSE, I_GROUP = I_MOUSE + MS_COUNT, I_NET };      // I_MOUSE + MS_*: the mouse's                                    // I_FIXED: one choice, nothing to set                        // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
 static const char *const names[ST_COUNT] = {
@@ -50,6 +50,9 @@ static const char *const sys_modes[]   = { "PAL", NULL };                     //
 static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };       // Joystick Swapper
 static const char *const hdmi_dvi[]    = { "HDMI", "DVI", NULL };             // Digital Video Mode
 static const char *const iec_modes[]   = { "All Connected", "C64 <-> Internal", NULL };   // Serial Bus Mode
+static const char *const mouse_modes[] = { "Cursor", "Mouse", "Mouse + Cursor", "Mouse + Wheel", NULL };
+static const char *const mouse_accel[] = { "Off", "Adaptive", NULL };
+static const char *const wheel_dirs[]  = { "Normal", "Reversed", NULL };
 
 // An I_GROUP item on a single-select line: off, then on; or on, then off
 static int on_off(const item_t *it)
@@ -68,6 +71,11 @@ const item_t stores_items[] = {
    { ST_U64,     I_FIXED,        IT_ENUM,   "System Mode",                sys_modes,   0, 0, 0, NULL, 0 },
    { ST_U64,     I_GROUP,        IT_ENUM,   "HDMI Scan Resolution",       hdmi_modes,  0, 0, 0, NULL, OPTM_G_HDMI },
    { ST_U64,     I_GROUP,        IT_ENUM,   "Joystick Swapper",           joy_swaps,   0, 0, 0, NULL, OPTM_G_JOY_SWAP },
+   { ST_U64,     I_MOUSE + MS_MODE,      IT_ENUM,  "Mouse Mode",              mouse_modes, 0, 0, 1, NULL, 0 },
+   { ST_U64,     I_MOUSE + MS_SENS,      IT_VALUE, "Mouse Sensitivity",       NULL,        1, 16, 8, NULL, 0 },
+   { ST_U64,     I_MOUSE + MS_ACCEL,     IT_ENUM,  "Mouse Acceleration",      mouse_accel, 0, 0, 0, NULL, 0 },
+   { ST_U64,     I_MOUSE + MS_WHEEL,     IT_VALUE, "Mouse Wheel Sensitivity", NULL,        1, 16, 8, NULL, 0 },
+   { ST_U64,     I_MOUSE + MS_WHEEL_DIR, IT_ENUM,  "Mouse Wheel Direction",   wheel_dirs,  0, 0, 0, NULL, 0 },
    { ST_U64,     I_GROUP,        IT_ENUM,   "Digital Video Mode",         hdmi_dvi,    0, 0, 0, NULL, OPTM_G_HDMI_AUDIO },
    { ST_U64,     I_GROUP,        IT_ENUM,   "HDMI Scan lines",            en_dis,      0, 0, 0, NULL, OPTM_G_CRT },
    { ST_U64,     I_GROUP,        IT_ENUM,   "Serial Bus Mode",            iec_modes,   0, 0, 0, NULL, OPTM_G_IEC },
@@ -126,6 +134,7 @@ _Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.
 static uint8_t wanted[ITEMS_MAX];
 static struct {
    int8_t reu, size, image, uci, power[2], model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
+   int8_t mouse[MS_COUNT];
    int8_t group[ITEMS_MAX];          // an I_GROUP item's, by its index
 } want;
 static char    want_str[NC_COUNT][32];
@@ -134,6 +143,7 @@ static int8_t  power_kept[2] = { -1, -1 };   // Drive as REST or LOAD_CONFIG set
 static char    want_image[UCI_PATH_MAX];
 static char    shown[UCI_PATH_MAX + 4];   // item_text's
 static int8_t  reu_kept;                  // the REU's size while it is off, as his REU Size
+static int8_t  mouse[MS_COUNT] = { -1, -1, -1, -1, -1 };   // -1: the item's default
 static uint8_t stale[ST_COUNT];
 static uint8_t want_store[ST_COUNT];
 static int     starting;                  // stores_load: the C128 held in reset
@@ -291,12 +301,23 @@ int item_get(const item_t *it)
    case I_DRIVE:      return drive_running(d) != 0;
    case I_DRIVE_TYPE: return stores_drive_model(d);
    case I_DRIVE_ID:   return stores_drive_id(d);
+   case I_MOUSE + MS_MODE: case I_MOUSE + MS_SENS: case I_MOUSE + MS_ACCEL:
+   case I_MOUSE + MS_WHEEL: case I_MOUSE + MS_WHEEL_DIR:
+      return mouse[it->id - I_MOUSE] >= 0 ? mouse[it->id - I_MOUSE] : it->def;
    case I_GROUP:
       if (on_off(it))
          return shell_setting(it->group, 0) ^ item_inverted(it);
       return group_pos(it->group, item_choices(it));
    default:           return 0;
    }
+}
+
+int stores_mouse(int k)
+{
+   for (int i = 0; i < stores_count; i++)
+      if (stores_items[i].id == I_MOUSE + k)
+         return item_get(&stores_items[i]);
+   return 0;
 }
 
 int item_pick(const item_t *it)
@@ -384,13 +405,23 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
       want.model[d] = c;
       return WANT_OK;
    case I_DRIVE_ID:
+   case I_MOUSE + MS_SENS:
+   case I_MOUSE + MS_WHEEL:
       if (!loadcfg)
          *n = strtol(v, NULL, 0);
       else if (!number(v, n))
          return WANT_NONUM;                         // LOAD_CONFIG's says nothing of it
       if (*n < it->min || *n > it->max)
          return loadcfg ? WANT_CHOICE : WANT_RANGE;
-      want.id[d] = *n;
+      if (it->id == I_DRIVE_ID)
+         want.id[d] = *n;
+      else
+         want.mouse[it->id - I_MOUSE] = *n;
+      return WANT_OK;
+   case I_MOUSE + MS_MODE:
+   case I_MOUSE + MS_ACCEL:
+   case I_MOUSE + MS_WHEEL_DIR:
+      want.mouse[it->id - I_MOUSE] = c;
       return WANT_OK;
    case I_REU_IMAGE:
       if (!*v) {
@@ -461,6 +492,9 @@ static void want_defaults(int s, int power)
       else if (it->id == I_DRIVE_ID) {
          want.id[it->store == ST_DRIVE_B] = it->def;
          want_store[s] = 1;
+      } else if (it->type == IT_VALUE) {
+         want.mouse[it->id - I_MOUSE] = it->def;
+         want_store[s] = 1;
       } else if (it->type != IT_VALUE)
          stores_want(it, it->sdef, 0, &n);
    }
@@ -508,6 +542,9 @@ static int apply(void)
       if (want.id[d] >= 0)
          stores_drive_set_id(d, want.id[d]);
    }
+   for (int k = 0; k < MS_COUNT; k++)
+      if (want.mouse[k] >= 0)
+         mouse[k] = want.mouse[k];
    for (int i = 0; i < stores_count; i++) {
       const item_t *it = &stores_items[i];
       int c = want.group[i];

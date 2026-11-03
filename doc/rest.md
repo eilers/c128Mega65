@@ -35,7 +35,8 @@ byte, because tools parse his answers. Where it differs, "Not his" below says so
 | `GET /v1/machine:menu_screen` | 404 while the menu is closed; else 2000 bytes: the OSM window from its top left as 40 × 25 C64 screen codes (lower-case set), then their colours |
 | `PUT /v1/machine:poweroff` | 501, his answer where the hardware can't: the MEGA65 can't switch itself off |
 | `GET /v1/machine:measure` | 501, as his U2: no bus measurement |
-| `GET /v1/machine:debugreg`, `PUT ?value=`; `GET /v1/machine:input`, `POST` | his U64's debug register and keyboard/joystick/mouse input: 501 until the core has them (bitstream) |
+| `GET /v1/machine:debugreg`, `PUT ?value=` | his U64's debug register at $D7FF, two hex digits: here a plain byte the C128 and REST both read and write (a test program can leave its result there). In C64 mode the C128 writes it but reads the SID mirror there; REST reads it in both modes |
+| `GET /v1/machine:input`, `POST` | his U64's keyboard, joystick and mouse input, below |
 | `PUT /v1/streams/S:start?ip=`, `:stop` | his video, audio and debug streams: an unknown name his 404; start 501 until the core has them (bitstream), stop 200 (none runs, as his) |
 | `GET /v1/machine:heap` | the firmware's HyperRAM heap: it never frees, so `min_ever_free` is `free` |
 | `GET /v1/configs[/CATEGORY[/ITEM]]` | his stores and items that the core has (below), with his names and patterns |
@@ -66,7 +67,7 @@ choices are the core's, under his names where he has the same.
 
 | Category | Items |
 |---|---|
-| U64 Specific Settings | his U64's, for the menu's lines: System Mode (PAL, the core's only), HDMI Scan Resolution (the menu's HDMI modes), Joystick Swapper (Normal, Swapped), Digital Video Mode (HDMI, DVI: the menu's HDMI audio on or off), HDMI Scan lines (the menu's CRT emulation), Serial Bus Mode (All Connected: the IEC port on; C64 <-> Internal: off) |
+| U64 Specific Settings | his U64's, for the menu's lines: System Mode (PAL, the core's only), HDMI Scan Resolution (the menu's HDMI modes), Joystick Swapper (Normal, Swapped), Digital Video Mode (HDMI, DVI: the menu's HDMI audio on or off), HDMI Scan lines (the menu's CRT emulation), Serial Bus Mode (All Connected: the IEC port on; C64 <-> Internal: off); and his for machine:input's mouse, with no menu lines: Mouse Mode (Cursor, Mouse, Mouse + Cursor, Mouse + Wheel), Mouse Sensitivity (1-16), Mouse Acceleration (Off, Adaptive), Mouse Wheel Sensitivity (1-16), Mouse Wheel Direction (Normal, Reversed) |
 | C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
 | Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, as set_mode; the internal floppy one drive at a time), Drive Bus ID (8-11; two drives may share one, as his; the menu swaps them instead), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
@@ -88,8 +89,37 @@ A change made here stays in memory until `save_to_flash`, unless the menu saves 
 writes `settings.cfg` whole when it closes after a change, when a ROM or the REU's file is
 picked or cleared, or when a network setting is typed. Unsaved REST changes go with it.
 
-The routes are in `net/rest_machine.c`, `rest_configs.c`, `rest_drives.c`, `rest_files.c`
-and `rest_runners.c`.
+The routes are in `net/rest_machine.c`, `rest_configs.c`, `rest_drives.c`, `rest_files.c`,
+`rest_runners.c` and `rest_input.c`.
+
+### machine:input
+
+His U64's input API (`route_input.cc`, `input_api.h` at `4b00732`), at the hardware level, so
+it works in every mode and program: BASIC, games that scan the matrix, GEOS, CP/M. A POST is
+a batch of up to 64 events, checked whole before any is applied (his error texts); the answer
+is what is held then. `net/rest_input.c` has the routes, `input.c` the keys and joysticks
+(his `Keyboard_USB` and `JoystickOutput`), `mouse.c` the mouse (his report queue and USB mouse
+handling); the hardware is `CORE/vhdl/input_inject.vhd`.
+
+- Keys: his names, by their place in the C64 matrix, joined to the same lines as the MEGA65
+  keyboard's (which stays live). `press` holds, `release` lets go, `tap` holds for 40 ms and
+  leaves 20 ms before the next tap (2 + 1 of his 20 ms ticks: a key every 60 ms). `restore`
+  only taps, an NMI edge, with RUN/STOP or C= in the same event for their combinations.
+- The C128's own keys (ours): `help`, `esc`, `alt`, `tab`, `line_feed`, `no_scroll`,
+  `kp_0`-`kp_9`, `kp_plus`, `kp_minus`, `kp_period`, `kp_enter`, the top-row `up`, `down`,
+  `left`, `right` (K0-K2), and `40_80` and `caps_lock`, which lock: `press` engages, `release`
+  lets go. They come after his names in the answer's list.
+- Joysticks: `port` 1 and 2 are the C128's control ports (after Swap joystick ports). `fire2`
+  and `fire3` are POTX and POTY, as his.
+- Mouse: a 1351 on port 1 (POT lines, left button = fire, right = up, middle = down), from
+  the first mouse event until `release_all` or a reset. Reports go out at most every 20 ms,
+  paced so a driver never sees the pointer jump back (his MousePotPacer); 1024 reports queue,
+  a batch that needs more is a 429. The U64 Specific Settings' Mouse items apply, as his.
+- While the menu is open, keys go to it instead: cursor keys (Shift for up and left, or the
+  top-row ones), Return, Space, RUN/STOP, Help, F1, F3, and typing in text lines. The C128 sees
+  none of them, as with the MEGA65 keyboard. What the menu held is dropped when it closes.
+- `release_all`, `machine:reset` and `machine:reboot` let go of everything and detach the
+  mouse.
 
 ### How run_prg finds READY
 
@@ -110,6 +140,10 @@ Hardware interface 5: the internal function ROM in `C_DEV_SYSTEM_ROM` from `0x18
 (boot0.rom's BRAM has 128 KB), its size in that device's CSR register 0 (0 none, 1 16 KB,
 2 32 KB; a missing half floats, as on MiSTer). The firmware writes a 16 KB function ROM twice,
 as VICE and a 16 KB EPROM in the C128's 32 KB socket have it, so it uses 0 and 2.
+
+Hardware interface 11: `C_DEV_INPUT` (`input_inject.vhd`, register map in its header): the
+keys by matrix position (C64 rows, K0-K2), RESTORE, 40/80, Caps Lock, both ports' lines and
+POT values, sent to the C128 together by a commit; and the debug register at $D7FF.
 
 ## Settings
 
@@ -133,7 +167,16 @@ password, host `c128-mega65`, DHCP.
 - A model a drive's image can't run (set_mode, Drive Type) ejects the image; his keeps it
   mounted, unread. main.vhd runs an image as its own type, so keeping it would run another
   model than the one set.
-- machine:debugreg, machine:input and streams start answer 501 until the core has them.
+- Streams start answers 501 until the core has them.
+- machine:input's C128 keys (above) are ours (Jeff, 2026-11-03); his U64 has a C64 keyboard.
+- machine:debugreg is a plain byte; his U64's register drives FPGA debug features.
+- A batch whose tap waits for room in the tap queue holds its answer until the tap is in (his
+  REST task waits); another input request waits for it, as for his mutex.
+- Keys tapped while the menu is open go to it through the same tap queue as the C128's (60 ms
+  a key); his push key codes into his menu's buffer at once. The mouse doesn't drive the menu
+  (his Menu Mouse Navigation).
+- Right after the menu closes the C128's keyboard is off for a third of a second; taps wait
+  for it.
 - Uploads are files on the card (`/c128/temp`), where his are in a RAM disk; a .crt upload
   goes into the cartridge's memory as it comes.
 - Never his 403 "Disk has been modified, save first": the drives write to the card as they go.
@@ -149,6 +192,11 @@ password, host `c128-mega65`, DHCP.
   devices, the menu's bits) with the real `stores.c` and FatFs on a card image. `test_shell` types in the Network
   submenu; `test_uci` and `test_prg` keep LOAD_CONFIG's answers.
 - `CORE/scripts/run_c128_dma_nvc.sh`: the bus DMA against a model of the core's DMA port.
+- machine:input: `test_http` checks his validation texts, the answers, tap timing on its clock,
+  the C128 keys, RESTORE, joysticks, the mouse and its 429, the menu, release_all and reset;
+  `test_shell` drives the menu by API taps. `CORE/scripts/run_input_inject_nvc.sh` (the device:
+  commits, never a mix of two, the debug register) and `run_keyboard_nvc.sh` (every key
+  position, both scan directions, with the Z80).
 - `M2M/firmware/host/build/test_http -serve 18080 IMG` puts that build on `127.0.0.1:18080`,
   with the FAT image IMG as its card.
 - `CORE/scripts/run_drive_rom_sim.tcl` (tb_drive_rom: reloads, also in the middle of a load
@@ -156,5 +204,5 @@ password, host `c128-mega65`, DHCP.
 - `test/rest/rest_ab.py`: the same raw requests to the core and to an Ultimate, compared
   byte for byte (`--slow` adds the 15 s cases). `--contract ~/Code/1541ultimate` checks the
   answers against his OpenAPI document for what `/v1/info` says (`core_version`: U64) with his
-  own checker. Against his U64 document only poweroff's and debugreg's 501s fail (above). The cases change nothing on either
+  own checker. Against his U64 document only poweroff's 501 fails (above). The cases change nothing on either
   machine (no such file, or refused first).

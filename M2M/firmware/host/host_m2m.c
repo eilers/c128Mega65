@@ -57,6 +57,9 @@ volatile uint16_t *host_dev(void)
       host_dev_hook();
    if (host_dev_hw)
       host_dev_hw();
+   // The core's input device (input.c): every commit has reached the C128
+   if ((host_regs[7] & 0x1FF) == 0x10D)
+      host_dev_at(0x10D)[15] = 0;
    return host_dev_at(host_regs[7] & 0x1FF);
 }
 

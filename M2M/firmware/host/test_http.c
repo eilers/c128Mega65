@@ -25,6 +25,8 @@
 #include "ff.h"
 #include "host_rest.h"
 #include "http.h"
+#include "input.h"
+#include "m2m_rv.h"
 #include "net.h"
 #include "netcfg.h"
 #include "rompick.h"
@@ -88,6 +90,7 @@ static void step(void)
    }
    sys_check_timeouts();
    http_poll();
+   input_poll();
 }
 
 // --- clients ---
@@ -228,8 +231,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10a\",\n" \
-                  "  \"core_version\" : \"1.0a\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10b\",\n" \
+                  "  \"core_version\" : \"1.0b\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -560,17 +563,7 @@ static void machine(void)
           errs(501, "Unknown", "The current FPGA build does not support timing measurement of the cartridge bus."));
    expect("heap", "GET /v1/machine:heap HTTP/1.1\r\n\r\n", json(200, "OK",
           "{ \n  \"free\" : 3000000,\n  \"min_ever_free\" : 3000000,\n  \"total\" : 3500000,\n  \"errors\" : [  ]\n}"));
-   // His U64's input, debugreg and streams: there, not in the core yet
-   expect("debugreg: not yet", "GET /v1/machine:debugreg HTTP/1.1\r\n\r\n",
-          errs(501, "Unknown", "This command is not supported on this architecture"));
-   expect("PUT debugreg without value", "PUT /v1/machine:debugreg HTTP/1.1\r\n\r\n",
-          bad("\"Function debugreg requires parameter value\""));
-   expect("PUT debugreg: not yet", "PUT /v1/machine:debugreg?value=12 HTTP/1.1\r\n\r\n",
-          errs(501, "Unknown", "This command is not supported on this architecture"));
-   expect("input: not yet", "GET /v1/machine:input HTTP/1.1\r\n\r\n",
-          errs(501, "Unknown", "This command is not supported on this architecture"));
-   expect("POST input: not yet", "POST /v1/machine:input HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
-          errs(501, "Unknown", "This command is not supported on this architecture"));
+   // His U64's streams: there, not in the core yet
    expect("stream start without ip", "PUT /v1/streams/video:start HTTP/1.1\r\n\r\n",
           bad("\"Function start requires parameter ip\""));
    expect("stream start: not yet", "PUT /v1/streams/video:start?ip=192.168.1.28:11000 HTTP/1.1\r\n\r\n",
@@ -840,7 +833,8 @@ static void configs(void)
    int got = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
    cfg[got > 0 ? got : 0] = 0;
    check("save: the settings file, every item", !strcmp(cfg,
-         "[U64 Specific Settings]\nSystem Mode=PAL\nHDMI Scan Resolution=720p 50 Hz 16:9\nJoystick Swapper=Normal\n"
+         "[U64 Specific Settings]\nSystem Mode=PAL\nHDMI Scan Resolution=720p 50 Hz 16:9\nJoystick Swapper=Normal\nMouse Mode=Mouse\n"
+         "Mouse Sensitivity=8\nMouse Acceleration=Off\nMouse Wheel Sensitivity=8\nMouse Wheel Direction=Normal\n"
          "Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=All Connected\n"
          "[C64 and Cartridge Settings]\nCartridge=\nCartridge Preference=External\nAlternate Kernal=\n"
          "RAM Expansion Unit=Enabled\nREU Size=16 MB\nREU Preload Image=/SD/c128/x.reu\nCommand Interface=Disabled\n"
@@ -1644,6 +1638,359 @@ static void runners(void)
           errs(501, "Unknown", "Sampler module not available"));
 }
 
+// --- machine:input and debugreg (rest_input.c, input.c, mouse.c) ---
+
+#define INPUT "/v1/machine:input"
+
+// His InputStateResponse: the keys, the ports' inputs and the mouse, each list's items given
+static const char *state(int code, const char *keys, const char *j1, const char *j2,
+                         bool attached, const char *buttons, int pending)
+{
+   static char body[2048];
+   char k[512], a[256], b[256], m[128];
+   snprintf(k, sizeof k, *keys ? "[ %s ]" : "[  ]", keys);
+   snprintf(a, sizeof a, *j1 ? "[ %s ]" : "[  ]", j1);
+   snprintf(b, sizeof b, *j2 ? "[ %s ]" : "[  ]", j2);
+   snprintf(m, sizeof m, *buttons ? "[ %s ]" : "[  ]", buttons);
+   snprintf(body, sizeof body,
+            "{ \n  \"keyboard\" : { \n  \"inputs\" : %s\n},\n"
+            "  \"joysticks\" : [ { \n  \"port\" : 1,\n  \"inputs\" : %s\n}, { \n  \"port\" : 2,\n  \"inputs\" : %s\n} ],\n"
+            "  \"mouse\" : { \n  \"attached\" : %s,\n  \"inputs\" : %s,\n  \"pending\" : %d\n},\n"
+            "  \"errors\" : [  ]\n}", k, a, b, attached ? "true" : "false", m, pending);
+   return json(code, code == 200 ? "OK" : "Unknown", body);
+}
+
+#define NOTHING state(200, "", "", "", false, "", 0)
+
+static const char *events(const char *list)
+{
+   static char body[4096];
+   snprintf(body, sizeof body, "{\"events\":[%s]}", list);
+   return post(INPUT, "application/json", body);
+}
+
+static void input_bad(const char *name, const char *list, const char *error)
+{
+   char e[300];
+   snprintf(e, sizeof e, "\"%s\"", error);
+   expect(name, events(list), bad(e));
+}
+
+// The input device's word w, bits mask, sampled every millisecond for ms: the moments (ms
+// from now) they change, up to n of them
+static int trace(int w, uint16_t mask, int ms, int *at, int n)
+{
+   int k = 0;
+   uint16_t was = input_dev[w] & mask;
+   for (int t = 1; t <= ms && k < n; t++) {
+      run_for(1000);
+      if ((input_dev[w] & mask) != was) {
+         was = input_dev[w] & mask;
+         at[k++] = t;
+      }
+   }
+   return k;
+}
+
+static void input_validation(void)
+{
+   expect("input: nothing held", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
+   expect("input: wrong type", post(INPUT, "text/plain", "{}"),
+          bad("\"Content type should be 'application/json'.\""));
+   expect("input: no type", "POST " INPUT " HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
+          bad("\"Content type should be 'application/json'.\""));
+   expect("input: no body", "POST " INPUT " HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 0\r\n\r\n",
+          bad("\"Request body is required.\""));
+   expect("input: empty body", post(INPUT, "application/json", ""), bad("\"Request body is required.\""));
+   static char big[6000], req[6200];
+   memset(big, ' ', 4097);
+   big[0] = '{';
+   big[4095] = '}';
+   big[4097] = 0;
+   snprintf(req, sizeof req, "POST " INPUT " HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
+            (int)strlen(big), big);
+   expect("input: 4097 bytes", req, bad("\"JSON body is too large.\""));
+   expect("input: cut off", post(INPUT, "application/json", "{\"events\":["),
+          bad("\"JSON could not be parsed. Error: -3\""));
+   // 1025 values: an object, a key and a list, then 1022 numbers
+   static char many[4096];
+   int n = snprintf(many, sizeof many, "{\"events\":[");
+   for (int i = 0; i < 1022; i++)
+      n += snprintf(many + n, sizeof many - n, i ? ",1" : "1");
+   snprintf(many + n, sizeof many - n, "]}");
+   expect("input: 1025 JSON values", post(INPUT, "application/json", many),
+          bad("\"The request has more than 1024 JSON values; send long mouse paths in several requests.\""));
+   expect("input: root a list", post(INPUT, "application/json", "[1]"), bad("\"Root must be an object.\""));
+   expect("input: unknown root field", post(INPUT, "application/json", "{\"events\":[{\"kind\":\"release_all\"}],\"extra\":true}"),
+          bad("\"Unknown field `extra`.\""));
+   expect("input: no events", post(INPUT, "application/json", "{}"), bad("\"`events` is required.\""));
+   expect("input: events not a list", post(INPUT, "application/json", "{\"events\":1}"), bad("\"`events` must be an array.\""));
+   input_bad("input: no event", "", "`events` must contain 1..64 entries.");
+   input_bad("input: a late bad event, nothing applied",
+             "{\"kind\":\"release_all\"},{\"kind\":\"keyboard\",\"transition\":\"press\",\"inputs\":[\"left_shift\"]},"
+             "{\"kind\":\"joystick\",\"port\":3,\"transition\":\"press\",\"inputs\":[\"up\"]}",
+             "events[2]: `port` must be 1 or 2.");
+   expect("input: still nothing held", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
+   input_bad("input: event not an object", "1", "events[0]: Each event must be an object.");
+   input_bad("input: no kind", "{}", "events[0]: `kind` is required.");
+   input_bad("input: kind a number", "{\"kind\":1}", "events[0]: `kind` must be a string.");
+   input_bad("input: unknown kind", "{\"kind\":\"trackball\"}",
+             "events[0]: `kind` must be one of `keyboard`, `joystick`, `mouse`, or `release_all`.");
+   input_bad("input: keyboard with port", "{\"kind\":\"keyboard\",\"port\":1,\"transition\":\"tap\",\"inputs\":[\"a\"]}",
+             "events[0]: Unknown field `port`.");
+   input_bad("input: long unknown field", "{\"kind\":\"keyboard\",\"abcdefghijklmnopqrstuvwxyz0123456789\":1}",
+             "events[0]: Unknown field `abcdefghijklmnopqrstuvwxyz01...`.");
+   input_bad("input: no transition", "{\"kind\":\"keyboard\",\"inputs\":[\"a\"]}", "events[0]: `transition` is required.");
+   input_bad("input: bad transition", "{\"kind\":\"keyboard\",\"transition\":\"hold\",\"inputs\":[\"a\"]}",
+             "events[0]: `transition` must be one of `press`, `release`, or `tap`.");
+   input_bad("input: no inputs", "{\"kind\":\"keyboard\",\"transition\":\"tap\"}", "events[0]: `inputs` is required.");
+   input_bad("input: inputs a string", "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":\"a\"}",
+             "events[0]: `inputs` must be an array.");
+   input_bad("input: nine keys", "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]}",
+             "events[0]: `inputs` must contain 1..8 entries.");
+   input_bad("input: key a number", "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[1]}",
+             "events[0]: Keyboard inputs must be strings.");
+   input_bad("input: unknown key", "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"A\"]}",
+             "events[0]: `A` is not a valid keyboard input.");
+   input_bad("input: a key twice", "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"a\",\"a\"]}",
+             "events[0]: `a` appears more than once in `inputs`.");
+   input_bad("input: restore pressed", "{\"kind\":\"keyboard\",\"transition\":\"press\",\"inputs\":[\"restore\"]}",
+             "events[0]: `restore` is only valid with transition `tap`.");
+   input_bad("input: restore released", "{\"kind\":\"keyboard\",\"transition\":\"release\",\"inputs\":[\"run_stop\",\"restore\"]}",
+             "events[0]: `restore` is only valid with transition `tap`.");
+   input_bad("input: restore twice", "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"restore\",\"restore\"]}",
+             "events[0]: `restore` appears more than once in `inputs`.");
+   input_bad("input: joystick port missing", "{\"kind\":\"joystick\",\"transition\":\"tap\",\"inputs\":[\"up\"]}",
+             "events[0]: `port` is required.");
+   input_bad("input: joystick port a string", "{\"kind\":\"joystick\",\"port\":\"1\",\"transition\":\"tap\",\"inputs\":[\"up\"]}",
+             "events[0]: `port` must be an integer.");
+   input_bad("input: joystick input twice", "{\"kind\":\"joystick\",\"port\":1,\"transition\":\"tap\",\"inputs\":[\"up\",\"up\"]}",
+             "events[0]: `up` appears more than once in `inputs`.");
+   input_bad("input: joystick input unknown", "{\"kind\":\"joystick\",\"port\":1,\"transition\":\"tap\",\"inputs\":[\"jump\"]}",
+             "events[0]: `jump` is not a valid joystick input.");
+   input_bad("input: eight joystick inputs", "{\"kind\":\"joystick\",\"port\":1,\"transition\":\"tap\",\"inputs\":[\"up\",\"down\",\"left\",\"right\",\"fire\",\"fire2\",\"fire3\",\"up\"]}",
+             "events[0]: `inputs` must contain 1..7 entries.");
+   input_bad("input: release_all with port", "{\"kind\":\"release_all\",\"port\":1}", "events[0]: Unknown field `port`.");
+
+   // His RejectsMalformedMouseEvents
+   static const struct { const char *ev, *error; } mouse[] = {
+      { "{\"kind\":\"mouse\"}", "A mouse event needs exactly one of `inputs`, `move`, `wheel`, or `path`." },
+      { "{\"kind\":\"mouse\",\"move\":{\"x\":1},\"wheel\":{\"vertical\":1}}",
+        "A mouse event needs exactly one of `inputs`, `move`, `wheel`, or `path`." },
+      { "{\"kind\":\"mouse\",\"move\":{\"x\":128}}", "`move.x` must be -127..127." },
+      { "{\"kind\":\"mouse\",\"move\":{\"y\":-128}}", "`move.y` must be -127..127." },
+      { "{\"kind\":\"mouse\",\"move\":{\"z\":1}}", "Unknown field `move.z`." },
+      { "{\"kind\":\"mouse\",\"move\":{}}", "`move` must have `x` or `y`." },
+      { "{\"kind\":\"mouse\",\"move\":[1,2]}", "`move` must be an object." },
+      { "{\"kind\":\"mouse\",\"move\":{\"x\":\"1\"}}", "`move.x` must be an integer." },
+      { "{\"kind\":\"mouse\",\"wheel\":{}}", "`wheel` must turn at least one wheel." },
+      { "{\"kind\":\"mouse\",\"wheel\":{\"vertical\":65}}", "`wheel.vertical` must be -64..64." },
+      { "{\"kind\":\"mouse\",\"inputs\":[\"left\"]}", "`transition` is required." },
+      { "{\"kind\":\"mouse\",\"inputs\":[\"thumb\"],\"transition\":\"press\"}", "`thumb` is not a valid mouse input." },
+      { "{\"kind\":\"mouse\",\"inputs\":[\"left\",\"left\"],\"transition\":\"press\"}", "`left` appears more than once in `inputs`." },
+      { "{\"kind\":\"mouse\",\"inputs\":[],\"transition\":\"press\"}", "`inputs` must contain 1..3 entries." },
+      { "{\"kind\":\"mouse\",\"move\":{\"x\":1},\"transition\":\"press\"}", "`transition` is only valid with `inputs`." },
+      { "{\"kind\":\"mouse\",\"move\":{\"x\":1},\"interval_ms\":10}", "`interval_ms` is only valid with `path`." },
+      { "{\"kind\":\"mouse\",\"path\":[]}", "`path` must contain 1..256 steps." },
+      { "{\"kind\":\"mouse\",\"path\":[[1]]}", "`path[0]` must be an [x, y] pair." },
+      { "{\"kind\":\"mouse\",\"path\":[[1,2],[3,\"4\"]]}", "`path[1]` must hold integers." },
+      { "{\"kind\":\"mouse\",\"path\":[[1,200]]}", "`path[0]` values must be -127..127." },
+      { "{\"kind\":\"mouse\",\"path\":[[1,2]],\"interval_ms\":19}", "`interval_ms` must be 20..1000." },
+      { "{\"kind\":\"mouse\",\"port\":1,\"move\":{\"x\":1}}", "Unknown field `port`." },
+   };
+   for (unsigned i = 0; i < sizeof mouse / sizeof mouse[0]; i++) {
+      char name[80], e[200];
+      snprintf(name, sizeof name, "input: mouse case %u", i);
+      snprintf(e, sizeof e, "events[0]: %s", mouse[i].error);
+      input_bad(name, mouse[i].ev, e);
+   }
+   // The longest path, and one step more
+   static char path[4096];
+   n = snprintf(path, sizeof path, "{\"kind\":\"mouse\",\"path\":[");
+   for (int i = 0; i < 257; i++)
+      n += snprintf(path + n, sizeof path - n, i ? ",[1,-1]" : "[1,-1]");
+   snprintf(path + n, sizeof path - n, "]}");
+   input_bad("input: 257 path steps", path, "events[0]: `path` must contain 1..256 steps.");
+   expect("input: still nothing held after the bad ones", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
+}
+
+static void input_keys(void)
+{
+   int at[8];
+   // Two taps: 40 ms down, 20 ms up, so a key every 60 ms (2 + 1 of his 20 ms ticks)
+   expect("input: tap a and s", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"a\"]},"
+                                       "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"s\"]}"),
+          state(200, "\"a\", \"s\"", "", "", false, "", 0));
+   uint16_t a = 1 << 10, s = 1 << 13;          // row 1 (word 0's high byte): a is PB2, s PB5
+   check("input: a is down", (input_dev[0] & (a | s)) == a, NULL);
+   int k = trace(0, a | s, 200, at, 8);
+   char got[100];
+   snprintf(got, sizeof got, "%d changes: %d %d %d", k, at[0], at[1], at[2]);
+   // From the answer on: a up after ~40 ms, s down 20 ms later, up after 40 more
+   check("input: a, gap, s, gap", k == 3 && at[1] - at[0] >= 19 && at[1] - at[0] <= 21 &&
+         at[2] - at[1] >= 39 && at[2] - at[1] <= 41, got);
+   expect("input: the taps are over", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
+
+   // Held: until released; the answer and GET show it
+   expect("input: press left_shift", events("{\"kind\":\"keyboard\",\"transition\":\"press\",\"inputs\":[\"left_shift\"]}"),
+          state(200, "\"left_shift\"", "", "", false, "", 0));
+   run_for(100000);
+   expect("input: shift held", "GET " INPUT " HTTP/1.1\r\n\r\n", state(200, "\"left_shift\"", "", "", false, "", 0));
+   check("input: shift on the matrix", input_dev[0] & 0x8000, NULL);
+   expect("input: release it", events("{\"kind\":\"keyboard\",\"transition\":\"release\",\"inputs\":[\"left_shift\"]}"), NOTHING);
+   check("input: shift let go", !(input_dev[0] & 0x8000), NULL);
+
+   // The C128's keys and the locking ones: K0-K2 words and word 6
+   expect("input: C128 keys pressed", events("{\"kind\":\"keyboard\",\"transition\":\"press\","
+          "\"inputs\":[\"help\",\"kp_enter\",\"no_scroll\",\"up\",\"40_80\",\"caps_lock\",\"kp_1\",\"line_feed\"]}"),
+          state(200, "\"help\", \"kp_1\", \"line_feed\", \"kp_enter\", \"up\", \"no_scroll\", \"40_80\", \"caps_lock\"",
+                "", "", false, "", 0));
+   snprintf(got, sizeof got, "%04X %04X %04X", input_dev[4], input_dev[5], input_dev[6]);
+   check("input: K0 help+kp_1, K1 line_feed+kp_enter, K2 up+no_scroll, 40/80 and Caps Lock",
+         input_dev[4] == (0x81 | 0x18 << 8) && input_dev[5] == 0x88 && input_dev[6] == 6, got);
+   expect("input: C128 keys released", events("{\"kind\":\"keyboard\",\"transition\":\"release\","
+          "\"inputs\":[\"help\",\"kp_enter\",\"no_scroll\",\"up\",\"40_80\",\"caps_lock\",\"kp_1\",\"line_feed\"]}"), NOTHING);
+   check("input: all let go", !input_dev[4] && !input_dev[5] && !input_dev[6], NULL);
+
+   // RESTORE: a tap, with run_stop, on NMI's word for 40 ms
+   expect("input: run_stop + restore", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"run_stop\",\"restore\"]}"),
+          state(200, "\"run_stop\", \"restore\"", "", "", false, "", 0));
+   check("input: both down together", (input_dev[6] & 1) && (input_dev[3] & 0x8000), NULL);
+   k = trace(6, 1, 100, at, 4);
+   check("input: RESTORE let go, once", k == 1, NULL);
+
+   // A press during a tap keeps the key down after the tap (his overlay)
+   expect("input: tap q, then hold it", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"q\"]},"
+          "{\"kind\":\"keyboard\",\"transition\":\"press\",\"inputs\":[\"q\"]}"), state(200, "\"q\"", "", "", false, "", 0));
+   run_for(200000);
+   check("input: q still down", input_dev[3] & 0x4000, NULL);
+   expect("input: release_all", events("{\"kind\":\"release_all\"}"), NOTHING);
+   check("input: nothing on the matrix", !input_dev[0] && !input_dev[1] && !input_dev[2] && !input_dev[3], NULL);
+
+   // A full queue: 64 taps, then 64 more wait for room, and the answer waits with them
+   static char list[4096];
+   int n = 0;
+   for (int i = 0; i < 64; i++)
+      n += snprintf(list + n, sizeof list - n, "%s{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"x\"]}", i ? "," : "");
+   expect("input: 64 taps", events(list), state(200, "\"x\"", "", "", false, "", 0));
+   expect("input: 64 more", events(list), state(200, "\"x\"", "", "", false, "", 0));
+   client_t *c = ask(events(list));
+   check("input: 64 more again: answered once there was room", c->n > 0 && strstr(c->got, "200 OK"), c->got);
+   free(c);
+   expect("input: release_all empties the queue", events("{\"kind\":\"release_all\"}"), NOTHING);
+   run_for(100000);
+   check("input: x not tapped any more", !(input_dev[1] & 0x8000), NULL);
+}
+
+static void input_joysticks(void)
+{
+   expect("input: port 1 up+fire", events("{\"kind\":\"joystick\",\"port\":1,\"transition\":\"press\",\"inputs\":[\"up\",\"fire\"]}"),
+          state(200, "", "\"up\", \"fire\"", "", false, "", 0));
+   check("input: port 1's lines", input_dev[7] == 0x11 && !input_dev[8], NULL);
+   expect("input: port 2 fire2+fire3", events("{\"kind\":\"joystick\",\"port\":2,\"transition\":\"press\",\"inputs\":[\"fire2\",\"fire3\"]}"),
+          state(200, "", "\"up\", \"fire\"", "\"fire2\", \"fire3\"", false, "", 0));
+   char got[60];
+   snprintf(got, sizeof got, "%04X %04X", input_dev[9], input_dev[11]);
+   check("input: port 2's POT lines pressed", input_dev[9] == 2 && input_dev[11] == 0x0000, got);
+   expect("input: fire3 let go", events("{\"kind\":\"joystick\",\"port\":2,\"transition\":\"release\",\"inputs\":[\"fire3\"]}"),
+          state(200, "", "\"up\", \"fire\"", "\"fire2\"", false, "", 0));
+   check("input: POTY released", input_dev[9] == 2 && input_dev[11] == 0x8000, NULL);
+   expect("input: port 1 released", events("{\"kind\":\"joystick\",\"port\":1,\"transition\":\"release\",\"inputs\":[\"up\",\"fire\"]},"
+          "{\"kind\":\"joystick\",\"port\":2,\"transition\":\"release\",\"inputs\":[\"fire2\"]}"), NOTHING);
+   check("input: lines and POTs let go", !input_dev[7] && !input_dev[9], NULL);
+   // A tap: one tick of his 20 ms timer
+   expect("input: tap right", events("{\"kind\":\"joystick\",\"port\":2,\"transition\":\"tap\",\"inputs\":[\"right\"]}"),
+          state(200, "", "", "\"right\"", false, "", 0));
+   int at[4];
+   int k = trace(8, 0x1F, 50, at, 4);
+   check("input: right let go within a tick", k == 1 && at[0] <= 21, NULL);
+}
+
+static void input_mouse(void)
+{
+   expect("input: mouse left tap", events("{\"kind\":\"mouse\",\"inputs\":[\"left\"],\"transition\":\"tap\"}"),
+          state(200, "", "", "", true, "", 2));
+   check("input: the POT lines are the mouse's", input_dev[9] & 1, NULL);
+   run_for(5000);
+   check("input: left button = fire", input_dev[7] == 0x10, NULL);
+   run_for(100000);
+   check("input: let go", !input_dev[7], NULL);
+   // At sensitivity 8 a count is a step, two POT counts; y up is down the screen
+   uint16_t before = input_dev[10];
+   expect("input: move", events("{\"kind\":\"mouse\",\"move\":{\"x\":5,\"y\":-3}}"), state(200, "", "", "", true, "", 1));
+   run_for(30000);
+   char got[60];
+   snprintf(got, sizeof got, "%04X -> %04X", before, input_dev[10]);
+   check("input: POTX +10, POTY +6", (uint8_t)(input_dev[10] - before) == 10 &&
+         (uint8_t)((input_dev[10] >> 8) - (before >> 8)) == 6, got);
+   // A path at 20 ms a step
+   expect("input: path", events("{\"kind\":\"mouse\",\"path\":[[1,0],[1,0],[1,0]],\"interval_ms\":20}"),
+          state(200, "", "", "", true, "", 3));
+   run_for(100000);
+   expect("input: path done", "GET " INPUT " HTTP/1.1\r\n\r\n", state(200, "", "", "", true, "", 0));
+   // Room for 1024 reports: a batch past it is refused whole (8 x 128 detents, a move)
+   static char list[4096];
+   int n = 0;
+   for (int i = 0; i < 8; i++)
+      n += snprintf(list + n, sizeof list - n, "{\"kind\":\"mouse\",\"wheel\":{\"vertical\":64,\"horizontal\":-64}},");
+   snprintf(list + n, sizeof list - n, "{\"kind\":\"mouse\",\"move\":{\"x\":1}}");
+   expect("input: 1025 reports", events(list),
+          errs(429, "Unknown", "The batch needs 1025 mouse reports and the queue has room for 1024; wait for `mouse.pending` to fall."));
+   expect("input: release_all detaches it", events("{\"kind\":\"release_all\"}"), NOTHING);
+   check("input: port 1 a joystick port again", !input_dev[9], NULL);
+}
+
+static void input_menu(void)
+{
+   extern uint32_t keys_api, keys_api_matrix[3];
+   csr_reg |= M2M_CSR_OSM;
+   expect("input: menu: shift + cursor_up_down held", events("{\"kind\":\"keyboard\",\"transition\":\"press\","
+          "\"inputs\":[\"left_shift\",\"cursor_up_down\"]}"), state(200, "\"cursor_up_down\", \"left_shift\"", "", "", false, "", 0));
+   check("input: menu: up, not on the C128", keys_api == M2M_KEY_UP && !input_dev[0], NULL);
+   expect("input: menu: shift let go", events("{\"kind\":\"keyboard\",\"transition\":\"release\",\"inputs\":[\"left_shift\"]}"),
+          state(200, "\"cursor_up_down\"", "", "", false, "", 0));
+   check("input: menu: down", keys_api == M2M_KEY_DOWN, NULL);
+   expect("input: menu: tap return and type", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"return\"]},"
+          "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"h\"]}"),
+          state(200, "\"return\", \"cursor_up_down\", \"h\"", "", "", false, "", 0));
+   int saw_ret = 0, saw_h = 0;
+   for (int t = 0; t < 150; t++) {
+      run_for(1000);
+      saw_ret |= keys_api == (M2M_KEY_DOWN | M2M_KEY_RETURN);
+      saw_h |= (keys_api_matrix[0] >> 29) & 1;     // h: key 29
+   }
+   check("input: menu: return", saw_ret, NULL);
+   check("input: menu: h typed", saw_h, NULL);
+   csr_reg &= ~M2M_CSR_OSM;
+   run_for(30000);
+   check("input: menu closed: its keys dropped", !keys_api && !keys_api_matrix[0], NULL);
+   expect("input: menu closed: nothing held", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
+}
+
+static void input_api(void)
+{
+   input_validation();
+   input_keys();
+   input_joysticks();
+   input_mouse();
+   input_menu();
+   // A reset lets go of everything, the mouse too
+   expect("input: hold a and a mouse button", events("{\"kind\":\"keyboard\",\"transition\":\"press\",\"inputs\":[\"a\"]},"
+          "{\"kind\":\"mouse\",\"inputs\":[\"left\"],\"transition\":\"press\"}"), state(200, "\"a\"", "", "", true, "", 1));
+   expect("input: reset", "PUT /v1/machine:reset HTTP/1.1\r\n\r\n", OK);
+   expect("input: reset let go", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
+
+   // His debug register
+   expect("debugreg: 00", "GET /v1/machine:debugreg HTTP/1.1\r\n\r\n", json(200, "OK", "{ \n  \"value\" : \"00\",\n  \"errors\" : [  ]\n}"));
+   expect("PUT debugreg without value", "PUT /v1/machine:debugreg HTTP/1.1\r\n\r\n",
+          bad("\"Function debugreg requires parameter value\""));
+   expect("PUT debugreg 1F", "PUT /v1/machine:debugreg?value=1F HTTP/1.1\r\n\r\n",
+          json(200, "OK", "{ \n  \"value\" : \"1F\",\n  \"errors\" : [  ]\n}"));
+   check("debugreg: on the device", input_dev[12] == 0x1F, NULL);
+   expect("PUT debugreg 100", "PUT /v1/machine:debugreg?value=100 HTTP/1.1\r\n\r\n", bad("\"Invalid value\""));
+   expect("PUT debugreg xy", "PUT /v1/machine:debugreg?value=xy HTTP/1.1\r\n\r\n", bad("\"Invalid value\""));
+}
+
 int main(int argc, char **argv)
 {
    setvbuf(stdout, NULL, _IONBF, 0);
@@ -1679,6 +2026,7 @@ int main(int argc, char **argv)
    bodies();
    connections();
    machine();
+   input_api();
    configs();
    drives();
    files();

@@ -1,7 +1,9 @@
 // The menu keys, as QNICE's keyboard.asm read them: a key has to be let go
 // before it counts again; Up and Down repeat after half a second, 12 times a second.
 // And typing, from every key (M2M_MATRIX): characters as the keys show them, held ones
-// repeating the same way.
+// repeating the same way. While the menu is shown, keys the REST API holds there count too
+// (keys_api, keys_api_matrix: the core's input.c).
+#include <stdbool.h>
 #include "keys.h"
 #include "dmem.h"
 #include "m2m_rv.h"
@@ -14,10 +16,15 @@ static uint32_t held;          // high active
 static uint32_t pending;       // pressed and not taken yet
 static uint32_t repeat_at;
 
+uint32_t keys_api;             // menu keys (M2M_KEY_*), high active
+uint32_t keys_api_matrix[3];   // keys by key_num, high active
+
 DMEM_CODE void keys_poll(void)
 {
    uint32_t now = ~M2M_KEYS & 0xFFFF;
    uint32_t t = MTIME_LO;
+   if (M2M_CSR & M2M_CSR_OSM)
+      now |= keys_api;
    uint32_t rep = now & REPEAT_KEYS;
 
    pending |= now & ~held;
@@ -76,10 +83,16 @@ static int held_now(const uint32_t *m, int k)
    return m[k / 32] >> (k % 32) & 1;
 }
 
+static void matrix_now(uint32_t *m)
+{
+   bool api = (M2M_CSR & M2M_CSR_OSM) != 0;
+   for (int i = 0; i < 3; i++)
+      m[i] = ~M2M_MATRIX(i) | (api ? keys_api_matrix[i] : 0);
+}
+
 void keys_text(void)
 {
-   for (int i = 0; i < 3; i++)
-      down[i] = ~M2M_MATRIX(i);
+   matrix_now(down);
    rep_key = -1;
 }
 
@@ -88,8 +101,7 @@ int keys_char(void)
    uint32_t now[3];
    uint32_t t = MTIME_LO;
    int key = -1;
-   for (int i = 0; i < 3; i++)
-      now[i] = ~M2M_MATRIX(i);
+   matrix_now(now);
    now[2] &= 0xFFFF;
    for (int k = 0; k < KEYS && key < 0; k++)
       if (held_now(now, k) && !held_now(down, k) && plain[k])
