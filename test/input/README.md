@@ -9,5 +9,6 @@ shows on the 40-column screen. The layout is in `inputtest.s`. Stop it with a re
 API's machine:input: every key name in both scan directions, the locking keys, RESTORE, both
 joysticks with fire2/fire3, the mouse, the debug register; then typing at BASIC's READY,
 100 keys at full speed, and the menu by keys. Each line ends in ok or FAIL.
+It needs the menu's Network > REST API on (default off).
 
 `make_image.py` assembles it with cc65 and writes the disk image.
