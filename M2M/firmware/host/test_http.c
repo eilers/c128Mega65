@@ -1817,18 +1817,18 @@ static void input_validation(void)
 static void input_keys(void)
 {
    int at[8];
-   // Two taps: 40 ms down, 20 ms up, so a key every 60 ms (2 + 1 of his 20 ms ticks)
+   // Two taps: 80 ms down, 20 ms up, so a key every 100 ms (4 + 1 of his 20 ms ticks)
    expect("input: tap a and s", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"a\"]},"
                                        "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"s\"]}"),
           state(200, "\"a\", \"s\"", "", "", false, "", 0));
    uint16_t a = 1 << 10, s = 1 << 13;          // row 1 (word 0's high byte): a is PB2, s PB5
    check("input: a is down", (input_dev[0] & (a | s)) == a, NULL);
-   int k = trace(0, a | s, 200, at, 8);
+   int k = trace(0, a | s, 300, at, 8);
    char got[100];
    snprintf(got, sizeof got, "%d changes: %d %d %d", k, at[0], at[1], at[2]);
-   // From the answer on: a up after ~40 ms, s down 20 ms later, up after 40 more
+   // From the answer on: a up after ~80 ms, s down 20 ms later, up after 80 more
    check("input: a, gap, s, gap", k == 3 && at[1] - at[0] >= 19 && at[1] - at[0] <= 21 &&
-         at[2] - at[1] >= 39 && at[2] - at[1] <= 41, got);
+         at[2] - at[1] >= 79 && at[2] - at[1] <= 81, got);
    expect("input: the taps are over", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
 
    // Held: until released; the answer and GET show it
@@ -1852,7 +1852,7 @@ static void input_keys(void)
           "\"inputs\":[\"help\",\"kp_enter\",\"no_scroll\",\"up\",\"40_80\",\"caps_lock\",\"kp_1\",\"line_feed\"]}"), NOTHING);
    check("input: all let go", !input_dev[4] && !input_dev[5] && !input_dev[6], NULL);
 
-   // RESTORE: a tap, with run_stop, on NMI's word for 40 ms
+   // RESTORE: a tap, with run_stop, on NMI's word for 80 ms
    expect("input: run_stop + restore", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"run_stop\",\"restore\"]}"),
           state(200, "\"run_stop\", \"restore\"", "", "", false, "", 0));
    check("input: both down together", (input_dev[6] & 1) && (input_dev[3] & 0x8000), NULL);

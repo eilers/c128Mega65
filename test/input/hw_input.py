@@ -258,7 +258,7 @@ def basic(core):
     line = "rem " + "abcdefghij" * 9 + "abcdef"
     t0 = time.monotonic()
     type_line(core, line)
-    time.sleep(len(line) * 0.061 + 0.5)
+    time.sleep(len(line) * 0.101 + 0.5)
     screen = core.readmem(0x0400, 1000)
     text = bytes(screen)
     want = bytes((ord(c) - 0x60) if c.isalpha() else ord(c) for c in line)

@@ -102,8 +102,8 @@ is what is held then. `net/rest_input.c` has the routes, `input.c` the keys and 
 handling); the hardware is `CORE/vhdl/input_inject.vhd`.
 
 - Keys: his names, by their place in the C64 matrix, joined to the same lines as the MEGA65
-  keyboard's (which stays live). `press` holds, `release` lets go, `tap` holds for 40 ms and
-  leaves 20 ms before the next tap (2 + 1 of his 20 ms ticks: a key every 60 ms). `restore`
+  keyboard's (which stays live). `press` holds, `release` lets go, `tap` holds for 80 ms and
+  leaves 20 ms before the next tap (4 + 1 of his 20 ms ticks: a key every 100 ms). `restore`
   only taps, an NMI edge, with RUN/STOP or C= in the same event for their combinations.
 - The C128's own keys (ours): `help`, `esc`, `alt`, `tab`, `line_feed`, `no_scroll`,
   `kp_0`-`kp_9`, `kp_plus`, `kp_minus`, `kp_period`, `kp_enter`, the top-row `up`, `down`,
@@ -172,7 +172,9 @@ password, host `c128-mega65`, DHCP.
 - machine:debugreg is a plain byte; his U64's register drives FPGA debug features.
 - A batch whose tap waits for room in the tap queue holds its answer until the tap is in (his
   REST task waits); another input request waits for it, as for his mutex.
-- Keys tapped while the menu is open go to it through the same tap queue as the C128's (60 ms
+- A tap holds a key 80 ms, his 40 (a key every 100 ms, his 60): the C128's CP/M BIOS loses
+  keys held under ~45 ms (measured on the R6). Jeff, 2026-11-03: 80 ms in every mode.
+- Keys tapped while the menu is open go to it through the same tap queue as the C128's (100 ms
   a key); his push key codes into his menu's buffer at once. The mouse doesn't drive the menu
   (his Menu Mouse Navigation).
 - Right after the menu closes the C128's keyboard is off for a third of a second; taps wait

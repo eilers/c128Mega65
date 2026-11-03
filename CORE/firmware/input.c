@@ -1,6 +1,6 @@
 // The REST API's keys, joysticks and mouse lines as the C128 sees them, on the device
 // C_DEV_INPUT (CORE/vhdl/input_inject.vhd). Ports of Gideon's Keyboard_USB rest* (held and
-// tapped keys, the tap queue: 2 ticks down, 1 up, 60 ms a key), JoystickOutput (held and
+// tapped keys, the tap queue: 4 ticks down, 1 up, 100 ms a key), JoystickOutput (held and
 // tapped lines, fire2 and fire3 on the POT lines) and MousePotPacer, on the 20 ms ticks of
 // his timers. While the menu has the keyboard, keys go to it instead (keys.c).
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
@@ -18,7 +18,8 @@
 #define W_COMMIT     15
 
 #define TICK_MS      20            // his REST_INPUT_TIMER_TICKS and JOYSTICK_REST_TIMER_TICKS
-#define TAP_HOLD     2             // REST_KEYBOARD_TAP_HOLD_QUEUE_TICKS
+#define TAP_HOLD     4             // his REST_KEYBOARD_TAP_HOLD_QUEUE_TICKS is 2: CP/M needs ~50 ms
+                                   // down (Jeff, 2026-11-03: 80 ms in every mode)
 #define TAP_GAP      1             // REST_TAP_GAP_TICKS
 #define TAPS         128           // REST_TAP_QUEUE_SIZE
 #define JOY_HOLD     1             // REST_JOYSTICK_TAP_HOLD_TICKS
