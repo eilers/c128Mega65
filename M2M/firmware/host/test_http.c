@@ -1831,6 +1831,23 @@ static void input_keys(void)
          at[2] - at[1] >= 79 && at[2] - at[1] <= 81, got);
    expect("input: the taps are over", "GET " INPUT " HTTP/1.1\r\n\r\n", NOTHING);
 
+   // The same key twice, and Shift in two taps: 80 ms up between them (CP/M must see it up)
+   expect("input: tap a, a", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"a\"]},"
+                                    "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"a\"]}"),
+          state(200, "\"a\"", "", "", false, "", 0));
+   k = trace(0, a, 300, at, 8);
+   snprintf(got, sizeof got, "%d changes: %d %d %d", k, at[0], at[1], at[2]);
+   check("input: a, 80 ms up, a", k == 3 && at[1] - at[0] >= 79 && at[1] - at[0] <= 81 &&
+         at[2] - at[1] >= 79 && at[2] - at[1] <= 81, got);
+   run_for(200000);                               // the last tap's a is long up
+   expect("input: tap A, S", events("{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"left_shift\",\"a\"]},"
+                                    "{\"kind\":\"keyboard\",\"transition\":\"tap\",\"inputs\":[\"left_shift\",\"s\"]}"),
+          state(200, "\"a\", \"s\", \"left_shift\"", "", "", false, "", 0));
+   check("input: A is down", (input_dev[0] & (a | s)) == a, NULL);
+   k = trace(0, a | s, 300, at, 8);
+   snprintf(got, sizeof got, "%d changes: %d %d %d", k, at[0], at[1], at[2]);
+   check("input: A, 80 ms up (Shift in both), S", k == 3 && at[1] - at[0] >= 79 && at[1] - at[0] <= 81, got);
+
    // Held: until released; the answer and GET show it
    expect("input: press left_shift", events("{\"kind\":\"keyboard\",\"transition\":\"press\",\"inputs\":[\"left_shift\"]}"),
           state(200, "\"left_shift\"", "", "", false, "", 0));

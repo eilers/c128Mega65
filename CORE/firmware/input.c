@@ -21,6 +21,8 @@
 #define TAP_HOLD     4             // his REST_KEYBOARD_TAP_HOLD_QUEUE_TICKS is 2: CP/M needs ~50 ms
                                    // down (Jeff, 2026-11-03: 80 ms in every mode)
 #define TAP_GAP      1             // REST_TAP_GAP_TICKS
+#define REPEAT_GAP   4             // before a tap with a key of the tap before: CP/M needs the
+                                   // key seen up ~70 ms to take it again (Jeff, 2026-11-03)
 #define TAPS         128           // REST_TAP_QUEUE_SIZE
 #define JOY_HOLD     1             // REST_JOYSTICK_TAP_HOLD_TICKS
 #define JOY_BITS     7
@@ -37,10 +39,12 @@ typedef struct {
    uint8_t hold[IN_ROWS][8];       // ticks a tapped key stays down
    bool    restore, restore_overlay;
    uint8_t restore_hold;
-   int     head, tail, gap;
+   int     head, tail;
+   uint8_t last[IN_ROWS];          // the keys of the tap that ran last
+   uint8_t rel;                    // ticks since it let go
 } kbd_t;
 
-static kbd_t kbd[2];
+static kbd_t kbd[2] = { { .rel = REPEAT_GAP }, { .rel = REPEAT_GAP } };
 static tap_t *queues[2];           // TAPS each, in HyperRAM
 static bool  menu_was;
 
@@ -153,7 +157,7 @@ static bool overlay_active(const kbd_t *k)
 
 static bool kbd_busy(const kbd_t *k)
 {
-   return overlay_active(k) || k->gap || k->head != k->tail;
+   return overlay_active(k) || k->rel < REPEAT_GAP || k->head != k->tail;
 }
 
 static bool kbd_any(const kbd_t *k)
@@ -169,6 +173,7 @@ static bool kbd_any(const kbd_t *k)
 static void kbd_clear(kbd_t *k)
 {
    memset(k, 0, sizeof *k);
+   k->rel = REPEAT_GAP;
 }
 
 static tap_t *queue(const kbd_t *k)
@@ -321,30 +326,45 @@ static void start_tap(kbd_t *k, const tap_t *t)
    }
 }
 
-// His tickRestOverlays. A tap starts only once the keys can get through (start).
+static bool shares(const uint8_t *a, const uint8_t *b)
+{
+   for (int r = 0; r < IN_ROWS; r++)
+      if (a[r] & b[r])
+         return true;
+   return false;
+}
+
+// His tickRestOverlays. The next tap waits a tick after the last let go, as his, or 4 if it
+// has a key of the last one (Shift too); and only once the keys can get through (start).
 static bool kbd_tick(kbd_t *k, bool start)
 {
-   bool change = false;
+   bool change = false, released = false;
    for (int r = 0; r < IN_ROWS; r++)
       for (int c = 0; c < 8; c++) {
          if (!k->hold[r][c] || --k->hold[r][c])
             continue;
          k->overlay[r] &= ~(1 << c);
-         k->gap = TAP_GAP;
-         change = true;
+         released = true;
       }
    if (k->restore_hold && !--k->restore_hold) {
       k->restore_overlay = false;
-      k->gap = TAP_GAP;
+      released = true;
+   }
+   if (released) {
+      k->rel = 0;
       change = true;
    }
    if (!overlay_active(k)) {
-      if (k->gap > 0) {
-         k->gap--;
-      } else if (k->head != k->tail && start) {
-         start_tap(k, &queue(k)[k->tail]);
-         k->tail = (k->tail + 1) % TAPS;
-         change = true;
+      if (!released && k->rel < REPEAT_GAP)
+         k->rel++;
+      if (k->head != k->tail && start) {
+         const tap_t *t = &queue(k)[k->tail];
+         if (k->rel >= (shares(t->m, k->last) ? REPEAT_GAP : TAP_GAP)) {
+            start_tap(k, t);
+            memcpy(k->last, t->m, IN_ROWS);
+            k->tail = (k->tail + 1) % TAPS;
+            change = true;
+         }
       }
    }
    return change;
