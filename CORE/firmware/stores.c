@@ -108,8 +108,8 @@ const item_t stores_items[] = {
    { ST_ETH,     I_NET + NC_DNS, IT_STRING, "Static DNS",                 NULL, 0, 16, 0, "8.8.8.8", 0 },
    { ST_NET,     I_NET + NC_HOST,IT_STRING, "Host Name",                  NULL, 0, 31, 0, "c128-mega65", 0 },
    { ST_NET,     I_NET + NC_PASS,IT_PASS,   "Network Password",           NULL, 0, 31, 0, "", 0 },
-   { ST_NET,     I_GROUP,        IT_ENUM,   "FTP File Service",           en_dis,      0, 0, 1, NULL, OPTM_G_NET_FTP },
-   { ST_NET,     I_GROUP,        IT_ENUM,   "Web Remote Control Service", en_dis,      0, 0, 1, NULL, OPTM_G_NET_REST },
+   { ST_NET,     I_GROUP,        IT_ENUM,   "FTP File Service",           en_dis,      0, 0, 0, NULL, OPTM_G_NET_FTP },    // his: Enabled
+   { ST_NET,     I_GROUP,        IT_ENUM,   "Web Remote Control Service", en_dis,      0, 0, 0, NULL, OPTM_G_NET_REST },   // his: Enabled
    // Ours: empty is the stock ROM (rompick.h)
    { ST_ROMS,    I_ROM + RP_K128,IT_FILE,   "C128 Kernal ROM",            NULL, 0, PICK_MAX - 1, 0, "", 0 },
    { ST_ROMS,    I_ROM + RP_B128,IT_FILE,   "C128 Basic ROM",             NULL, 0, PICK_MAX - 1, 0, "", 0 },

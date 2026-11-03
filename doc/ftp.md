@@ -34,6 +34,8 @@ answers as his `software/network/ftpd.cc` (at `4b00732`) does, reply for reply.
   on the card, where his firmware has a copy in memory): `450 File in use.`
 - An empty upload makes an empty file; his makes none.
 - ABOR is answered with 226; his doesn't answer.
+- Off by default, as the REST API is: with no password set, anyone on the network could
+  log in. His is on.
 - Uploads are dated 1 January 2026, as everything the firmware writes (FatFs without a clock).
 
 ## Speed
@@ -56,6 +58,6 @@ card time from network time.
 
 ## Settings
 
-The menu's Network submenu has an `FTP Server` line (default on), saved with the menu; REST
+The menu's Network submenu has an `FTP Server` line (default off), saved with the menu; REST
 and LOAD_CONFIG call it `FTP File Service` in Network Settings, as his. Turning it off closes
 port 21; sessions already open go on.

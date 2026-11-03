@@ -442,8 +442,8 @@ constant OPTM_ITEMS_ALL    : string :=
    " Net: %s\n"             &    -- Network submenu; %s is the IP address (core.c)
    " Network\n"             &
    "\n"                     &
-   " REST API\n"            &    -- default on: Gideon's REST API on port 80
-   " FTP Server\n"          &    -- default on: his FTP server on port 21
+   " REST API\n"            &    -- default off (his: on): Gideon's REST API on port 80
+   " FTP Server\n"          &    -- default off (his: on): his FTP server on port 21
    " Host:%s\n"             &    -- typed in the menu, as Password and IP to DNS are (core.c)
    " Password:%s\n"         &    -- REST's X-Password, <none> without one
    "\n"                     &
@@ -692,8 +692,8 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_SUBMENU,                                      -- Network submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Network
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_NET_REST + OPTM_G_SINGLESEL + OPTM_G_STDSEL,  -- REST API (default on)
-                                             OPTM_G_NET_FTP + OPTM_G_SINGLESEL + OPTM_G_STDSEL,   -- FTP Server (default on)
+                                             OPTM_G_NET_REST + OPTM_G_SINGLESEL,                  -- REST API (default off)
+                                             OPTM_G_NET_FTP + OPTM_G_SINGLESEL,                   -- FTP Server (default off)
                                              OPTM_G_NET_HOST + OPTM_G_SINGLESEL,                  -- Host:%s
                                              OPTM_G_NET_PASS + OPTM_G_SINGLESEL,                  -- Password:%s
                                              OPTM_G_LINE,                                         -- Line

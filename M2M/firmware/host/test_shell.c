@@ -1163,8 +1163,9 @@ int main(int argc, char **argv)
    go_to("Net:");
    press(M2M_KEY_RETURN);
    dump("network");
-   check(find_row("=REST API") > 0 && find_row("=DHCP") > 0 && find_row(" Host:c128-mega65") > 0 &&
-         find_row(" Password:<none>") > 0 && find_row(" IP:<none>") > 0, "network submenu");
+   check(find_row("REST API") > 0 && find_row("=REST API") < 0 && find_row("=FTP Server") < 0 &&
+         find_row("=DHCP") > 0 && find_row(" Host:c128-mega65") > 0 &&
+         find_row(" Password:<none>") > 0 && find_row(" IP:<none>") > 0, "network submenu: REST and FTP off");
    go_to("Host:");
    press(M2M_KEY_RETURN);
    int y = find_row(" Host:c128-mega65_");

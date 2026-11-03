@@ -152,11 +152,13 @@ The menu's Network submenu: REST API, FTP Server and DHCP are menu items, saved 
 menu closes; host name, password and the static address are typed in their lines (Return
 keeps, Run/Stop leaves, Del, Clr), saved at once. Both go into `/c128/settings.cfg`. While
 DHCP is on the address lines show what it gave; typing one turns DHCP off, the others then as
-DHCP gave them. The main menu's line shows the address. Defaults: REST and FTP on, no
+DHCP gave them. The main menu's line shows the address. Defaults: REST and FTP off, no
 password, host `c128-mega65`, DHCP.
 
 ## Not his
 
+- Off by default, as the FTP server is: with no password set, anyone on the network could
+  drive the machine. His is on. `:reset_to_default` turns it off too.
 - No web pages: his firmware serves its web UI from flash for any other path; this one
   answers 404.
 - A connection closes with a FIN after any bytes that followed the request. His sockets
