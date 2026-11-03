@@ -6,7 +6,8 @@ byte for byte. Raw sockets, so every byte sent and received is the script's own.
   rest_ab.py HOST_A HOST_B        compare: A is ours, B the Ultimate
   --slow                          also the 15 s cases (idle reaper, a header too big)
   --contract ULTIMATE_REPO        check the first host's answers to the documented requests
-                                  against Gideon's U2 OpenAPI document, with his
+                                  against Gideon's OpenAPI document for what its /v1/info
+                                  says it is (core_version: his U64's), with his
                                   tests/lib/openapi_contract.py (needs PyYAML and
                                   openapi-schema-validator)
 
@@ -177,10 +178,11 @@ def split(answer):
 
 
 def same_info(a, b):
-    """The same keys in the same order (but wifi_mac: the MEGA65 has no Wi-Fi)"""
+    """The same keys in the same order (but wifi_mac: the MEGA65 has no Wi-Fi; core_version:
+    a U64's, which a cartridge such as the II+L doesn't send)"""
     try:
-        ka = list(json.loads(split(a)[2]))
-        kb = [k for k in json.loads(split(b)[2]) if k != "wifi_mac"]
+        ka = [k for k in json.loads(split(a)[2]) if k != "core_version"]
+        kb = [k for k in json.loads(split(b)[2]) if k not in ("wifi_mac", "core_version")]
     except ValueError:
         return False, "not JSON"
     return ka == kb, "keys %s vs %s" % (ka, kb)
@@ -198,7 +200,9 @@ def main():
         sys.path.insert(0, args.contract + "/tests/lib")
         import openapi_contract
         from report import Failure
-        contract = openapi_contract.Contract.load("u2")
+        info = json.loads(split(ask(args.hosts[0], b"GET /v1/info HTTP/1.1\r\n\r\n")[0])[2])
+        contract = openapi_contract.Contract.load(openapi_contract.profile_of(info))
+        print("contract: %s" % openapi_contract.profile_of(info))
 
     cases = [(n, header(2048) if r is None else r, how) for n, r, how in CASES]
     failed = 0

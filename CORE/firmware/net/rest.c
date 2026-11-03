@@ -48,10 +48,54 @@ static char *sep(char **s, const char *delim)
 
 // --- the answer: ResponseWrapper and json.h ----------------------------------------------
 
+// Buffers a longer answer left behind, for the next one that grows (the heap never frees)
+#define SPARES       8
+#define HEAP_RESERVE (512 * 1024)       // what growing leaves the rest of the firmware
+static struct { char *p; int size; } spare[SPARES];
+
+// His answer has no limit: the buffer doubles until it holds need bytes, as long as the heap
+// has room
+static bool grow(rest_t *r, int need)
+{
+   int size = r->size, best = -1;
+   while (size < need)
+      size *= 2;
+   for (int i = 0; i < SPARES; i++)
+      if (spare[i].p && spare[i].size >= size && (best < 0 || spare[i].size < spare[best].size))
+         best = i;
+   char *p;
+   if (best >= 0) {
+      p = spare[best].p;
+      size = spare[best].size;
+      spare[best].p = NULL;
+   } else if (heap_free() >= (uint32_t)size + HEAP_RESERVE) {
+      p = heap_alloc(size);
+   } else {
+      return false;
+   }
+   memcpy(p, r->body, r->len);
+   for (int i = 0; i < SPARES; i++)
+      if (!spare[i].p) {
+         spare[i].p = r->body;
+         spare[i].size = r->size;
+         break;
+      }
+   r->body = p;
+   r->size = size;
+   return true;
+}
+
 static void putv(rest_t *r, const char *f, va_list ap)
 {
-   int room = BODY_SIZE - r->len;
+   va_list again;
+   va_copy(again, ap);
+   int room = r->size - r->len;
    int n = fmt_vsnprintf(r->body + r->len, room, f, ap);
+   if (n >= room && !r->over && grow(r, r->len + n + 1)) {
+      room = r->size - r->len;
+      n = fmt_vsnprintf(r->body + r->len, room, f, again);
+   }
+   va_end(again);
    if (n >= room)
       r->over = true;
    r->len += n < room ? n : room - 1;
@@ -168,13 +212,13 @@ static void respond(rest_t *r, int code, const char *type)
 
 void json_response(rest_t *r, int code)
 {
-   // His has no limit; cut-off JSON would be worse than an error
+   // Out of heap; cut-off JSON would be worse than an error
    if (r->over) {
       r->over = false;
       r->len = r->elen = 0;
       r->first[0] = true;
       put(r, "{ \n");
-      error(r, "The answer is longer than %d KB.", BODY_SIZE / 1024);
+      error(r, "The answer is longer than %d KB.", r->size / 1024);
       code = HTTP_INTERNAL_ERROR;
    }
    r->level = 0;
@@ -455,30 +499,68 @@ static void get_version(rest_t *r)
    json_response(r, HTTP_OK);
 }
 
-// No core_version (his U64s only), so his tests take this for a U2: a cartridge's routes.
-// The product is a name, as his; fpga_version is the hardware interface's, in his "1xx" form.
+// As his U64 (a whole machine): fpga_version and core_version are the hardware interface's,
+// in his "1xx" and "1.xx" forms. The product is a name, as his.
 static void get_info(rest_t *r)
 {
-   char fpga[8], mac[18];
+   char fpga[8], core[8], mac[18];
    const uint8_t *m = eth_netif.hwaddr;
    fmt_snprintf(fpga, sizeof fpga, "1%02x", M2M_RV_HW_VERSION);
+   fmt_snprintf(core, sizeof core, "1.%02x", M2M_RV_HW_VERSION);
    fmt_snprintf(mac, sizeof mac, "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
    add_str(r, "product", "C128MEGA65");
    add_str(r, "firmware_version", CORE_VERSION);
    add_str(r, "git_commit_hash", FW_VERSION);
    add_str(r, "fpga_version", fpga);
+   add_str(r, "core_version", core);
    add_str(r, "hostname", netif_get_hostname(&eth_netif));
    add_str(r, "unique_id", eth_unique_id);
    add_str(r, "ethernet_mac", mac);
    json_response(r, HTTP_OK);
 }
 
+// His streams: VIC video, audio and the bus trace over UDP. Not in the core yet: start
+// answers his 501, stop his 200 (no stream runs).
+static int stream_name(rest_t *r)
+{
+   static const char *const names[] = { "video", "audio", "debug" };
+   const char *s = r->depth ? r->parts[0] : NULL;
+   if (!s) {
+      error(r, "No stream name given in path");
+      json_response(r, HTTP_NOT_FOUND);
+      return 0;
+   }
+   for (int i = 0; i < 3; i++)
+      if (!strcasecmp(s, names[i]))
+         return 1;
+   error(r, "Unrecognized stream name '%s'", s);
+   json_response(r, HTTP_NOT_FOUND);
+   return 0;
+}
+
+static void put_stream_start(rest_t *r)
+{
+   if (stream_name(r)) {
+      error(r, "This command is not supported on this architecture");
+      json_response(r, HTTP_NOT_IMPLEMENTED);
+   }
+}
+
+static void put_stream_stop(rest_t *r)
+{
+   if (stream_name(r))
+      json_response(r, HTTP_OK);
+}
+
 static const param_t help_params[] = { { "command", P_REQUIRED } };
+static const param_t ip_params[]   = { { "ip", P_REQUIRED } };
 
 static const call_t about_calls[] = {
    CALL(HTTP_GET, "help", "none", get_help, help_params, 0),
    CALL0(HTTP_GET, "version", "none", get_version),
    CALL0(HTTP_GET, "info", "none", get_info),
+   CALL(HTTP_PUT, "streams", "start", put_stream_start, ip_params, 0),
+   CALL0(HTTP_PUT, "streams", "stop", put_stream_stop),
 };
 
 // --- middleware.c's Dispatch and routes.cc's execute_api_v1 -------------------------------
@@ -605,8 +687,11 @@ static int upload_in(void *ctx, const uint8_t *data, int size)
 
 void rest_dispatch(http_req_t *req, http_resp_t *res)
 {
-   if (!rests[req->slot])
+   if (!rests[req->slot]) {
       rests[req->slot] = heap_alloc(sizeof(rest_t));
+      rests[req->slot]->body = heap_alloc(BODY_SIZE);
+      rests[req->slot]->size = BODY_SIZE;
+   }
    rest_t *r = rests[req->slot];
    char *route, *cmd;
 

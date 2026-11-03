@@ -7,6 +7,7 @@ extern int     dma_held_v, dma_z80_v, dma_polls, dma_jobs, dma_stops, z80_cpm;
 extern int     menu_buttons, menu_open, reboots, net_applies, func_size, c128_resets, rom_under_z80;
 extern uint16_t *sys_rom;
 extern uint32_t csr_reg;           // M2M_CSR
+extern uint32_t host_heap_free;    // what heap_free says
 extern uint8_t settings[64][8];   // the menu's bits by group and item
 extern int     drive_on[2];
 extern char    reu_path[256];

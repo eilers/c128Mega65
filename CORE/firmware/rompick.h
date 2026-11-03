@@ -35,3 +35,6 @@ void        rompick_apply(uint32_t changed);
 // loads from the main loop, once the C128 runs (rompick_poll).
 void        rompick_boot(void);
 void        rompick_poll(void);
+// REST's load_rom wrote drive d's bank for model t: once the drive runs another model, the
+// bank gets its pick again, as his set_drive_type loads the configured ROM
+void        rompick_loaded(int d, int t);

@@ -631,14 +631,16 @@ static void cfg_tests(void)
          "A a 1581, B a 1541 at 10");
    cfg("[Drive A Settings]\nDrive Bus ID=10\n");
    want_data("LOAD_CONFIG: A at B's 10", "00,OK", "");
-   check(settings[OPTM_G_DRVA_ID][2] && settings[OPTM_G_DRVB_ID][0], "they swap: A at 10, B at A's 8");
+   check(settings[OPTM_G_DRVA_ID][2] && settings[OPTM_G_DRVB_ID][2], "as his, no swap: both at 10");
    cfg("[Drive A Settings]\nDrive Bus ID=8\n");
+   want_data("LOAD_CONFIG: A at 8 again", "00,OK", "");
    mounted_d    = 1;
    mounted_type = 2;
    cfg("[Drive B Settings]\nDrive Type=1541\n");
-   want_data("LOAD_CONFIG: a 1541 for B's D81", "89,CONFIG FILE HAD ERRORS",
-             "Line 2: Value '1541' is not a valid choice for item Drive Type\n");
-   check(settings[OPTM_G_DRVB_MODEL][0] && !settings[OPTM_G_DRVB_MODEL][2], "B's model unchanged");
+   // His switches; here the image goes, as in the menu
+   want_data("LOAD_CONFIG: a 1541 for B's D81", "00,OK", "");
+   check(settings[OPTM_G_DRVB_MODEL][0] && mounted_d == -11, "B a 1541, its D81 out");
+   mounted_d    = 1;
    cfg("[Drive B Settings]\nDrive Type=1581\nDrive Bus ID=9\n[Drive A Settings]\nDrive Type=1571\nDrive=Enabled\n");
    want_data("LOAD_CONFIG: B holds a D81, A 1571", "00,OK", "");
    check(settings[OPTM_G_DRVA_MODEL][1] && settings[OPTM_G_DRVB_MODEL][2] && settings[OPTM_G_DRVB_ID][1] &&

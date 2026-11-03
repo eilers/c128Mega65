@@ -2,7 +2,8 @@
 
 The HTTP API of Gideon's Ultimate firmware, on port 80 of the MEGA65's Ethernet port, so
 tools written for an Ultimate II+ or an Ultimate 64 can drive the C128. It answers as his
-firmware does, byte for byte, because tools parse his answers.
+Ultimate 64 firmware does (the core is a whole machine, as a U64, not a cartridge), byte for
+byte, because tools parse his answers. Where it differs, "Not his" below says so.
 
 - `CORE/firmware/net/http.c`: the server, a port of MicroHttpServer (Gideon's
   `software/httpd` at `ad73d32`) to lwIP's raw API. Its rules: four connections and two
@@ -16,14 +17,15 @@ firmware does, byte for byte, because tools parse his answers.
   on Jeff's II+L, has the same core): the URL split, the arguments and their checks,
   X-Password, his JSON layout (no escaping, `{ \n`, `[  ]`) and status texts (any code but
   200, 203, 400, 403 and 404 goes out as `Unknown`), and a bare 404 for anything that isn't a
-  route.
+  route. A JSON answer starts in a 64 KB buffer that doubles as it needs (buffers left behind
+  are reused, the heap never frees), as long as the heap keeps 512 KB.
 
 ## Routes
 
 | Route | Answer |
 |---|---|
 | `GET /v1/version` | `0.1`, as his |
-| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`108`), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. No `core_version`, so his tests take it for a U2 (a cartridge) and check it against his U2 document; no `wifi_mac` |
+| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`108`), `core_version` "1." and the same number (`1.08`; his U64's form), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. With `core_version` his tests and clients take it for a U64; no `wifi_mac` (no Wi-Fi) |
 | `GET /v1/help?command=` | his fixed page |
 | `PUT /v1/machine:reset`, `:reboot` | the reset button, as UCI's REBOOT; a pause ends with it |
 | `PUT /v1/machine:pause`, `:resume` | the C128's CPU held by bus DMA, as his `stop()`; answered at once |
@@ -31,7 +33,10 @@ firmware does, byte for byte, because tools parse his answers.
 | `PUT /v1/machine:writemem?address=&data=`, `POST` | the same, written: up to 128 bytes in the URL, or a POST's body (raw, or a multipart file part: the first part, up to 64 KB) |
 | `PUT /v1/machine:menu_button` | opens the On-Screen-Menu, or closes it (not while a file is being picked) |
 | `GET /v1/machine:menu_screen` | 404 while the menu is closed; else 2000 bytes: the OSM window from its top left as 40 × 25 C64 screen codes (lower-case set), then their colours |
-| `PUT /v1/machine:poweroff`, `GET :measure` | 501, as his U2 |
+| `PUT /v1/machine:poweroff` | 501, his answer where the hardware can't: the MEGA65 can't switch itself off |
+| `GET /v1/machine:measure` | 501, as his U2: no bus measurement |
+| `GET /v1/machine:debugreg`, `PUT ?value=`; `GET /v1/machine:input`, `POST` | his U64's debug register and keyboard/joystick/mouse input: 501 until the core has them (bitstream) |
+| `PUT /v1/streams/S:start?ip=`, `:stop` | his video, audio and debug streams: an unknown name his 404; start 501 until the core has them (bitstream), stop 200 (none runs, as his) |
 | `GET /v1/machine:heap` | the firmware's HyperRAM heap: it never frees, so `min_ever_free` is `free` |
 | `GET /v1/configs[/CATEGORY[/ITEM]]` | his stores and items that the core has (below), with his names and patterns |
 | `PUT /v1/configs/CATEGORY/ITEM?value=` or `/VALUE` | one item, in effect at once, in memory |
@@ -41,15 +46,15 @@ firmware does, byte for byte, because tools parse his answers.
 | `PUT /v1/drives/D:mount?image=&type=&mode=`, `POST` | the image into the drive, answered once a 1541/1571 has it (as UCI's MOUNT_DISK). `type` (default: the extension) only picks his command and Ftype; the core takes D64, D71 and D81 by their size, G64/G71 answer 501. `readonly` write protects the disk. `unlinked` mounts a copy in `/c128/temp`: writes go to the copy, the file stays as it was. On the internal floppy's drive the floppy is turned off first, as the menu does. POST: the body goes to `/c128/temp/NAME` (NAME from the part's file name, `temp0000` and up without one; `_1`, `_2` while that name is in a drive) |
 | `PUT /v1/drives/D:reset`, `:on`, `:off`, `:remove` | the drive's ROM reloaded (a reset), its power, the image out |
 | `PUT /v1/drives/D:unlink` | the drive moves onto a copy of its image in `/c128/temp` without a disk change: its requests wait (vd_sd's hold) while its changes go to the card and the copy is made, then its table points at the copy. GET drives still shows the file it came from |
-| `PUT /v1/drives/D:load_rom?file=`, `POST` | 16 or 32 KB into the drive's bank of `boot1.rom` for its model (a 16 KB image twice), then the bank reloaded into the drive, which resets it; another size is written anyway and answers his 412. Lasts until a long reset loads `boot1.rom` again |
-| `PUT /v1/drives/D:set_mode?mode=` | 1541, 1571 or 1581: the drive's model, as his set_drive_type and its config; the internal floppy's drive stays it as a 1581. Not a model its image can't run: 400 `The drive's image can't run as a 1581` (the menu ejects the image instead). A mount moves the model to one its image runs: a D81 a 1581, a D71 a 1571, a D64 in a 1581 a 1571 |
+| `PUT /v1/drives/D:load_rom?file=`, `POST` | 16 or 32 KB into the drive's bank of `boot1.rom` for its model (a 16 KB image twice), then the bank reloaded into the drive, which resets it; another size is written anyway and answers his 412. Lasts until the drive runs another model (then the bank gets its configured ROM again, as his set_drive_type loads it) or a long reset loads `boot1.rom` again |
+| `PUT /v1/drives/D:set_mode?mode=` | 1541, 1571 or 1581: the drive's model, as his set_drive_type and its config; the internal floppy's drive stays it as a 1581. A model its image can't run ejects the image, as the menu does. A mount moves the model to one its image runs: a D81 a 1581, a D71 a 1571, a D64 in a 1581 a 1571 |
 | `GET /v1/files/PATH:info` | his name, size and extension of a file on the card (`SD/...`) |
 | `PUT /v1/files/PATH:create_d64?tracks=&diskname=`, `:create_d71`, `:create_d81` | zeros, then his `format()`: the BAM and the first directory block (byte for byte his, `$20` in a D64's byte 3 included). `create_dnp` checks his arguments, then 501 |
 | `PUT /v1/runners:load_prg?file=`, `:run_prg`, `POST` | a program for `$0801` runs in C64 mode, any other in C128 mode: the C128 reset, BASIC's READY awaited, GO64 typed for C64 mode, the program and his loader's pointers by DMA with the CPU held, the lines relinked (his runner's LINKPRG), RUN typed for run_prg. A `.cfg` (or `.usr`) next to the file is loaded first, as his: a line with an error is skipped, the rest take effect until the next start (`settings.cfg` keeps what it had for them unless they change again). A P00's header is skipped. 423 while the Z80 runs, when C64 BASIC comes up for a C128 program (a C64 cartridge), or when READY doesn't come within 10 s (a cartridge, a boot or CP/M disk) |
 | `PUT /v1/runners:run_crt?file=`, `POST` | the `.crt` as the menu's CRT: line: the cartridge's source becomes the virtual cartridge, main.vhd resets the C128 into it; an upload goes straight into the cartridge's memory. Too large: 412, not a `.crt` the parser takes: 415 |
 | `PUT /v1/runners:sidplay`, `:modplay`, `POST` | 501: modplay as his U2 without a sampler ("Sampler module not available"); sidplay with his "not supported on this architecture": no player here, where his U2 has one |
 
-`machine:debugreg` is a U64's only: 404, as on his U2. A request that takes the bus waits
+A request that takes the bus waits
 for another one's; the Z80 takes no DMA, so readmem and writemem answer 423 (his "Could not
 obtain lock of subsystem") while it runs. The bus DMA is `CORE/vhdl/c128_dma.vhd`: jobs of
 up to 2 KB through its own buffer, after a cartridge and the REU on the core's DMA port.
@@ -61,13 +66,14 @@ choices are the core's, under his names where he has the same.
 
 | Category | Items |
 |---|---|
+| U64 Specific Settings | his U64's, for the menu's lines: System Mode (PAL, the core's only), HDMI Scan Resolution (the menu's HDMI modes), Joystick Swapper (Normal, Swapped), Digital Video Mode (HDMI, DVI: the menu's HDMI audio on or off), HDMI Scan lines (the menu's CRT emulation), Serial Bus Mode (All Connected: the IEC port on; C64 <-> Internal: off) |
 | C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
-| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, not one its image can't run; the internal floppy one drive at a time), Drive Bus ID (8-11; the other drive's swaps them), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
+| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, as set_mode; the internal floppy one drive at a time), Drive Bus ID (8-11; two drives may share one, as his; the menu swaps them instead), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
-| MEGA65 Settings (ours) | the menu's other settings, its words for the choices: Video Output, VIC-II Jailbars, HDMI Display Mode, HDMI Flicker-free, HDMI Audio, HDMI CRT Emulation, VGA Display Mode, Caps Lock Key, Help Menu on F13, Use IEC Port; and his U64's Joystick Swapper (Normal, Swapped) |
+| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, VGA Display Mode, Caps Lock Key, Help Menu on F13 |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
 GET with an item in full lists his `presets` (the files of the right size). Empty, or a
@@ -122,15 +128,17 @@ password, host `c128-mega65`, DHCP.
   would reset it then.
 - run_prg/load_prg load by DMA in the program's own mode, and run_prg then types RUN; his boot
   cartridge always starts C64 mode (on a C128 too) and prints LOAD/SEARCHING/LOADING lines first.
-- A D64 mounted in a 1581 makes the drive a 1571 (a C128's drive); his makes it a 1541.
-- Two drives never share a bus ID: giving one the other's swaps them. His lets them clash.
-- A load_rom'd ROM stays in its bank through a drive model change; his reloads the configured
-  ROM file then.
+- A D64 mounted in a 1581 makes the drive a 1571 (a C128's drive; Jeff, 2026-11-02); his
+  makes it a 1541.
+- A model a drive's image can't run (set_mode, Drive Type) ejects the image; his keeps it
+  mounted, unread. main.vhd runs an image as its own type, so keeping it would run another
+  model than the one set.
+- machine:debugreg, machine:input and streams start answer 501 until the core has them.
 - Uploads are files on the card (`/c128/temp`), where his are in a RAM disk; a .crt upload
   goes into the cartridge's memory as it comes.
 - Never his 403 "Disk has been modified, save first": the drives write to the card as they go.
-- A JSON answer holds 64 KB at most (his has no limit); a longer one, such as configs' presets
-  with hundreds of ROM files, is a 500 with "The answer is longer than 64 KB."
+- A JSON answer that would leave the heap less than 512 KB (his has no limit but his RAM) is a
+  500 with "The answer is longer than N KB."
 
 ## Tests
 
@@ -147,7 +155,6 @@ password, host `c128-mega65`, DHCP.
   and in reset) and `run_vd_sd_sim.tcl` (tb_vd_sd: hold).
 - `test/rest/rest_ab.py`: the same raw requests to the core and to an Ultimate, compared
   byte for byte (`--slow` adds the 15 s cases). `--contract ~/Code/1541ultimate` checks the
-  answers against his U2 OpenAPI document with his own checker; his document says an HTML
-  400 for `/v1/help` without its argument, where his code (and the II+L) answers JSON, and
-  leaves out the 400 for an argument a call hasn't. The cases change nothing on either
+  answers against his OpenAPI document for what `/v1/info` says (`core_version`: U64) with his
+  own checker. Against his U64 document only poweroff's and debugreg's 501s fail (above). The cases change nothing on either
   machine (no such file, or refused first).

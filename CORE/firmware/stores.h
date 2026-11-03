@@ -14,7 +14,7 @@
 #define SETTINGS_FILE "/c128/settings.cfg"
 #define SETTINGS_TMP  "/c128/settings.tmp"   // written first, then renamed over it
 
-enum { ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_ROMS, ST_MEGA65, ST_COUNT };
+enum { ST_U64, ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_ROMS, ST_MEGA65, ST_COUNT };
 // His CFG_TYPE_ENUM, _VALUE, _STRING, _STRPASS, _STRFUNC (here a file of rompick.c's folder)
 enum { IT_ENUM, IT_VALUE, IT_STRING, IT_PASS, IT_FILE };
 
@@ -39,21 +39,22 @@ int         item_get(const item_t *it);
 int         item_pick(const item_t *it);      // an IT_FILE's rompick.h pick
 const char *item_text(const item_t *it);
 int         item_choices(const item_t *it);   // an IT_ENUM's choices on this board (REU sizes)
+int         item_inverted(const item_t *it);  // a single-select line's item whose choice 0 is on
 // The drives' submenus: a model (DM_*) and a bus ID (8-11) each. The internal floppy is the
 // model of one drive at a time.
 enum { DM_1541, DM_1571, DM_1581, DM_INTERNAL };
 int         stores_drive_model(int d);
 void        stores_drive_set_model(int d, int m);
 int         stores_drive_id(int d);
-void        stores_drive_set_id(int d, int id);   // swaps with the other drive if that has it
+void        stores_drive_set_id(int d, int id);   // as his, even onto the other drive's ID
 int         stores_drive_of_id(int id);     // -1 for none
 int         stores_drive_internal(int d);
 // The model nearest m that the drive's image runs: a D64 a 1541 or 1571, a D71 a 1571, a D81
 // a 1581. Without an image, and for the internal floppy, m.
 int         stores_drive_fit(int d, int m);
-// A model REST or a config asks for: 0 if the drive's image can't run it. Leaving the
-// internal floppy, an image under it takes the nearest model.
-int         stores_drive_ask_model(int d, int m);
+// A model REST or a config asks for, as his set_drive_type: an image it can't run is ejected
+// (as the menu does). Leaving the internal floppy, an image under it takes the nearest model.
+void        stores_drive_ask_model(int d, int m);
 // What a drive runs as, as his get_drive_type() gives it: 0 1541, 1 1571, 2 1581
 int         stores_drive_type(int d);
 

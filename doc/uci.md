@@ -181,13 +181,14 @@ items and choices than an Ultimate:
 | | `Alternate Kernal` | a file in `/c128/roms`: 8 KB (the C64 KERNAL) or 16 KB (with C64 BASIC); empty: stock |
 | `C128 ROM Settings` (the core's own) | `C128 Kernal ROM`, `C128 Basic ROM`, `C64 Basic ROM`, `Char ROM`, `Internal Function ROM` | a file in `/c128/roms` of the right size (16, 32, 8, 8, 16 or 32 KB); empty: stock, or no function ROM |
 | `Drive A Settings`, `Drive B Settings` | `Drive` | `Disabled`, `Enabled`: drive power off or on |
-| | `Drive Type` | `1541`, `1571`, `1581`: the drive's model, not one its image can't run (an error line); the internal floppy's drive stays it for `1581` |
-| | `Drive Bus ID` | `8` to `11`; a new one resets the drive, as its jumpers would. The other drive's ID swaps them: never two drives on one |
+| | `Drive Type` | `1541`, `1571`, `1581`: the drive's model; an image it can't run is ejected, as the menu does (his keeps it, unread); the internal floppy's drive stays it for `1581` |
+| | `Drive Bus ID` | `8` to `11`; a new one resets the drive, as its jumpers would. Two drives may share one, as his (the menu swaps them instead) |
 | | `ROM for 1541 mode`, `ROM for 1571 mode`, `ROM for 1581 mode` | a file in `/c128/roms`, 16 or 32 KB; `1541.rom` etc.: stock. A drive running that model reloads it and resets |
 | `Modem Settings` | `ACIA (6551) Mapping` | `Off`, `DE00/NMI`, `DF00/NMI`, `D700/NMI` (a SwiftLink: no IRQ choices) |
 | | `Modem Interface`, `Hardware Mode` | `ACIA / SwiftLink`, `SwiftLink`: nothing to change |
 | `Ethernet Settings` | `Use DHCP`, `Static IP`, `Static Netmask`, `Static Gateway`, `Static DNS` | as REST's configs routes take them (`doc/rest.md`); the network takes them at once |
 | `Network Settings` | `Host Name`, `Network Password`, `FTP File Service`, `Web Remote Control Service` | the same |
+| `U64 Specific Settings`, `MEGA65 Settings` (the core's own) | the menu's settings | as in `doc/rest.md` |
 
 As in his firmware: a store the machine doesn't have is skipped with `Line n: Store name '...'
 not found; section ignored.`, an item with `Line n: Item '...' not found in this store [...];

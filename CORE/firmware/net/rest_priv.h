@@ -9,7 +9,7 @@
 
 #define ARGS_MAX   32
 #define PARTS_MAX  16                   // his path_parts[16]
-#define BODY_SIZE  (64 * 1024)          // a JSON answer; a longer one answers an error
+#define BODY_SIZE  (64 * 1024)          // a JSON answer's buffer at first; it grows
 #define ERROR_SIZE 2048
 #define DEPTH_MAX  4                    // objects in objects
 #define UPLOAD_MAX 65536                // the most of a POST's body a route keeps
@@ -83,9 +83,9 @@ struct rest {
    int           depth;                 // path parts
    char          full_path[HTTP_MAX_HEADER_SIZE + 4];
 
-   char          body[BODY_SIZE];       // a JSON or HTML answer
-   int           len, pos;
-   bool          over;                  // the answer didn't fit in body
+   char         *body;                  // a JSON or HTML answer, size bytes
+   int           size, len, pos;
+   bool          over;                  // the answer didn't fit: the heap is too short
    bool          first[DEPTH_MAX];      // no key in the open object yet
    int           level;
    char          errors[ERROR_SIZE];    // the errors list's items, rendered

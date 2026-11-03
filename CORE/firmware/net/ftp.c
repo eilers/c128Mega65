@@ -49,7 +49,7 @@
 #define MSG230     "230 User logged in, proceed."
 #define MSG250     "250 Requested file action okay, completed."
 #define MSG257PWD  "257 \"%s\" is current directory."
-#define MSG257MKD  "257 \"%s\" created."
+#define MSG257MKD  "257 \"%s/%s\" created."
 #define MSG331     "331 User name okay, need password."
 #define MSG350     "350 Requested file action pending further information."
 #define MSG421     "421 Too many FTP connections, try again later.\r\n"
@@ -634,7 +634,18 @@ static void cd(sess_t *s, const char *name)
 
 static void cmd_cwd(sess_t *s, const char *arg)  { cd(s, arg); }
 static void cmd_cdup(sess_t *s, const char *arg) { cd(s, ".."); }
-static void cmd_pwd(sess_t *s, const char *arg)  { say(s, MSG257PWD, s->cwd); }
+// His vfs_getcwd: the folder without its last '/', but "/"
+static const char *getcwd_text(sess_t *s)
+{
+   static char t[UCI_PATH_MAX];
+   int n = strlen(s->cwd);
+   strcpy(t, s->cwd);
+   if (n > 1 && t[n - 1] == '/')
+      t[n - 1] = 0;
+   return t;
+}
+
+static void cmd_pwd(sess_t *s, const char *arg)  { say(s, MSG257PWD, getcwd_text(s)); }
 
 // LIST, NLST, MLSD: a folder, or the files in one that a name or pattern matches
 static void list(sess_t *s, const char *arg, int x)
@@ -796,7 +807,7 @@ static void cmd_mkd(sess_t *s, const char *arg)
    else if (!(c = card(s, arg)) || f_mkdir(c) != FR_OK)
       say(s, MSG553);
    else
-      say(s, MSG257MKD, path);
+      say(s, MSG257MKD, getcwd_text(s), arg);   // as his: the folder, then the name as given
 }
 
 static void cmd_rmd(sess_t *s, const char *arg)
