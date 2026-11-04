@@ -276,19 +276,19 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 196; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 195; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 28 rows. The drive submenus are
--- 22 rows and the Video submenu 20 (headline through Back to main menu; the "%s"
--- opener is hidden inside the submenu); they leave empty space below.
+-- tallest page. The main menu is the tallest at 27 rows, the HDMI submenu 25 and the
+-- drive submenus 22 (headline through Back to main menu; the "%s" opener is hidden
+-- inside the submenu); they leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 28;
+constant OPTM_DY           : natural := 27;
 
 -- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
@@ -374,8 +374,9 @@ constant OPTM_ITEMS_ALL    : string :=
    " Back to main menu\n"   &
 
    " HDMI: %s\n"            &    -- HDMI submenu; %s is the HDMI mode
-   " HDMI Display Mode\n"   &
+   " HDMI\n"                &
    "\n"                     &
+   " Display Mode\n"        &
    " 720p 50 Hz 16:9\n"     &
    " 720p 60 Hz 16:9\n"     &
    " 576p 50 Hz 4:3\n"      &
@@ -384,14 +385,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " 720x480 59.94 Hz\n"    &    -- longest summary: " HDMI: 720x480 59.94 Hz" is exactly OPTM_DX
    " 800x600 60 Hz\n"       &
    "\n"                     &
-   " Flicker-free\n"        &
-   " HDMI audio\n"          &    -- default on; off means DVI, no HDMI audio
-   "\n"                     &
-   " Back to main menu\n"   &
-
-   " HDMI: %s\n"            &    -- HDMI filter submenu; %s is the filter
-   " HDMI Filter\n"         &
-   "\n"                     &
+   " Filter\n"              &
    " No Filter\n"           &    -- nearest neighbour, as before the filters
    " Sharp Bilinear\n"      &    -- default: even columns at any scale
    " Bicubic\n"             &
@@ -399,7 +393,10 @@ constant OPTM_ITEMS_ALL    : string :=
    " Lanczos\n"             &
    " Scanlines\n"           &    -- the old CRT emulation
    " CRT (S-Video)\n"       &
-   " CRT (Composite)\n"     &    -- longest summary: " HDMI: CRT (Composite)"
+   " CRT (Composite)\n"     &
+   "\n"                     &
+   " Flicker-free\n"        &
+   " HDMI audio\n"          &    -- default on; off means DVI, no HDMI audio
    "\n"                     &
    " Back to main menu\n"   &
 
@@ -429,6 +426,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " 16 MB\n"               &    -- R4 and later: in SDRAM
    "\n"                     &
    " File:%s\n"             &    -- the REU's image file: picking one loads it (LOAD_REU, SAVE_REU)
+   " Space: no file\n"      &    -- Space on the File line: no image loaded at start (core.c)
    "\n"                     &
    " Back to main menu\n"   &
    " Cartridge: %s\n"       &    -- Cartridge submenu; %s is the selected source
@@ -437,8 +435,8 @@ constant OPTM_ITEMS_ALL    : string :=
    " Hardware\n"            &    -- default: the physical cartridge slot
    " CRT file\n"            &    -- virtual cartridge
    " CRT:%s\n"              &    -- the .crt file; loading one selects CRT file
-   " Boot:%s\n"             &    -- a .crt from /c128/carts loaded at every start (Gideon's "Cartridge")
-   " Space clears Boot\n"   &    -- Space on the Boot line: no boot cartridge (core.c)
+   " Boot:%s\n"             &    -- a .crt loaded at every start (Gideon's "Cartridge"), from /c128/carts on
+   " Space: no file\n"      &    -- Space on CRT ejects it, on Boot: no boot cartridge (core.c)
    "\n"                     &
    " Back to main menu\n"   &
    " Modem: %s\n"           &    -- Modem submenu; %s is the SwiftLink's address or Off
@@ -474,7 +472,7 @@ constant OPTM_ITEMS_ALL    : string :=
    "\n"                     &
 
    " System ROMs: %s\n"     &    -- System ROMs submenu; %s is Stock or Custom (core.c). Each line
-   " System ROMs\n"         &    -- picks a file in /c128/roms of the right size, kept on the card
+   " System ROMs\n"         &    -- picks a file of the right size, from /c128/roms on, kept on the card
    "\n"                     &
    " C128 KERNAL:%s\n"      &    -- 16 KB: editor, Z80 BIOS and KERNAL (U35)
    " C128 BASIC:%s\n"       &    -- 32 KB (U33 + U34)
@@ -644,8 +642,9 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
                                              OPTM_G_SUBMENU,                                      -- HDMI submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI Display Mode
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI
                                              OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Display Mode
                                              OPTM_G_HDMI + OPTM_G_STDSEL,                         -- 720p 50 Hz 16:9
                                              OPTM_G_HDMI,                                         -- 720p 60 Hz 16:9
                                              OPTM_G_HDMI,                                         -- 576p 50 Hz 4:3
@@ -654,14 +653,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_HDMI,                                         -- 720x480 59.94 Hz
                                              OPTM_G_HDMI,                                         -- 800x600 60 Hz
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_FF      + OPTM_G_SINGLESEL,                   -- Flicker-free
-                                             OPTM_G_HDMI_AUDIO + OPTM_G_SINGLESEL + OPTM_G_STDSEL, -- HDMI audio (default on)
-                                             OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
-
-                                             OPTM_G_SUBMENU,                                      -- HDMI filter submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI Filter
-                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Filter
                                              OPTM_G_HDMI_FILTER,                                  -- No Filter
                                              OPTM_G_HDMI_FILTER + OPTM_G_STDSEL,                  -- Sharp Bilinear (default)
                                              OPTM_G_HDMI_FILTER,                                  -- Bicubic
@@ -670,6 +662,9 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_HDMI_FILTER,                                  -- Scanlines
                                              OPTM_G_HDMI_FILTER,                                  -- CRT (S-Video)
                                              OPTM_G_HDMI_FILTER,                                  -- CRT (Composite)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_FF      + OPTM_G_SINGLESEL,                   -- Flicker-free
+                                             OPTM_G_HDMI_AUDIO + OPTM_G_SINGLESEL + OPTM_G_STDSEL, -- HDMI audio (default on)
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
@@ -700,6 +695,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_REU,                                          -- 16 MB
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_REU_FILE + OPTM_G_LOAD_ROM,                   -- File:%s
+                                             OPTM_G_TEXT,                                         -- Space: no file
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- Cartridge submenu START
@@ -709,7 +705,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_CART,                                         -- CRT file
                                              OPTM_G_MOUNT_CRT + OPTM_G_LOAD_ROM,                  -- CRT:%s
                                              OPTM_G_CRT_BOOT + OPTM_G_LOAD_ROM,                   -- Boot:%s
-                                             OPTM_G_TEXT,                                         -- Space clears Boot
+                                             OPTM_G_TEXT,                                         -- Space: no file
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- Modem submenu START

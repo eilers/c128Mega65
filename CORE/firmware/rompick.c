@@ -74,7 +74,7 @@ void rompick_list(int p, void (*each)(const char *name, void *ctx), void *ctx)
    if (f_opendir(&d, rompick_dir(p)) != FR_OK)
       return;
    while (f_readdir(&d, &fi) == FR_OK && fi.fname[0])
-      if (!(fi.fattrib & (AM_DIR | AM_HID)) && strlen(fi.fname) < PICK_MAX &&
+      if (!(fi.fattrib & (AM_DIR | AM_HID)) && strlen(fi.fname) < PICK_NAME &&
           (p == RP_BOOT ? is_crt(fi.fname) : rompick_fits(p, fi.fsize)))
          each(fi.fname, ctx);
    f_closedir(&d);
@@ -82,7 +82,10 @@ void rompick_list(int p, void (*each)(const char *name, void *ctx), void *ctx)
 
 static void path_of(int p, char *out)
 {
-   fmt_snprintf(out, PICK_PATH, "%s/%s", rompick_dir(p), names[p]);
+   if (names[p][0] == '/')
+      strcpy(out, names[p]);
+   else
+      fmt_snprintf(out, PICK_PATH, "%s/%s", rompick_dir(p), names[p]);
 }
 
 // Stock: no name, or a drive's default name with no such file (his 1541.rom is the stock ROM)

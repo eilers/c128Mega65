@@ -1,14 +1,16 @@
-// The ROMs picked in place of the stock ones: files in /c128/roms over parts of boot0.rom
+// The ROMs picked in place of the stock ones: files over parts of boot0.rom
 // (C_DEV_SYSTEM_ROM) and boot1.rom (C_DEV_DRIVE_ROM), the internal function ROM (the system
-// ROM's device from 0x18000), and the boot cartridge, a .crt in /c128/carts loaded at every
-// start. stores.c has them as Gideon's items, kept in the settings file; the menu's ROMs
+// ROM's device from 0x18000), and the boot cartridge, a .crt loaded at every start. A pick
+// names a file in its folder (/c128/roms, /c128/carts), as his do, or anywhere on the card
+// by its path. stores.c has them as Gideon's items, kept in the settings file; the menu's ROMs
 // submenu and Boot line pick them (core.c).
 #pragma once
 #include <stdint.h>
 
 #define ROMS_DIR   "/c128/roms"
 #define CARTS_DIR  "/c128/carts"
-#define PICK_MAX   33                // a name, as his longest (32) and its 0
+#define PICK_NAME  33                // a name in its folder, as his longest (32) and its 0
+#define PICK_MAX   128               // that, or a path on the card ('/' first) and its 0
 
 // The picks, in the order of the ROMs submenu's lines; then the boot cartridge
 enum { RP_K128, RP_B128, RP_K64, RP_B64, RP_CHAR, RP_FUNC, RP_DRIVE, RP_BOOT = RP_DRIVE + 6, RP_COUNT };

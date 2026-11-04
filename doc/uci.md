@@ -177,13 +177,13 @@ items and choices than an Ultimate:
 | | `REU Size` | `512 KB`, `2 MB`, `16 MB` (R3 memory: `512 KB`); while the REU is off it is kept for an `Enabled` later, as his item is; `Enabled` with no size known is his default, 2 MB (512 KB on R3 memory) |
 | | `REU Preload Image` | a path under `/SD/`: the REU's file, as one picked in the menu (not loaded); empty: none, so `/c128/preload.reu` |
 | | `Command Interface` | `Disabled`, `Enabled`; switched last, as once it is off the C128 can't read the reply |
-| | `Cartridge` | a `.crt` in `/c128/carts`, the boot cartridge, loaded at the next start; empty: none |
-| | `Alternate Kernal` | a file in `/c128/roms`: 8 KB (the C64 KERNAL) or 16 KB (with C64 BASIC); empty: stock |
-| `C128 ROM Settings` (the core's own) | `C128 Kernal ROM`, `C128 Basic ROM`, `C64 Basic ROM`, `Char ROM`, `Internal Function ROM` | a file in `/c128/roms` of the right size (16, 32, 8, 8, 16 or 32 KB); empty: stock, or no function ROM |
+| | `Cartridge` | a `.crt` in `/c128/carts`, or a card path `/SD/...`, the boot cartridge, loaded at the next start; empty: none |
+| | `Alternate Kernal` | a file in `/c128/roms` or a card path `/SD/...`: 8 KB (the C64 KERNAL) or 16 KB (with C64 BASIC); empty: stock |
+| `C128 ROM Settings` (the core's own) | `C128 Kernal ROM`, `C128 Basic ROM`, `C64 Basic ROM`, `Char ROM`, `Internal Function ROM` | a file in `/c128/roms` or a card path `/SD/...`, of the right size (16, 32, 8, 8, 16 or 32 KB); empty: stock, or no function ROM |
 | `Drive A Settings`, `Drive B Settings` | `Drive` | `Disabled`, `Enabled`: drive power off or on |
 | | `Drive Type` | `1541`, `1571`, `1581`: the drive's model; an image it can't run is ejected, as the menu does (his keeps it, unread); the internal floppy's drive stays it for `1581` |
 | | `Drive Bus ID` | `8` to `11`; a new one resets the drive, as its jumpers would. Two drives may share one, as his (the menu swaps them instead) |
-| | `ROM for 1541 mode`, `ROM for 1571 mode`, `ROM for 1581 mode` | a file in `/c128/roms`, 16 or 32 KB; `1541.rom` etc.: stock. A drive running that model reloads it and resets |
+| | `ROM for 1541 mode`, `ROM for 1571 mode`, `ROM for 1581 mode` | a file in `/c128/roms` or a card path `/SD/...`, 16 or 32 KB; `1541.rom` etc.: stock. A drive running that model reloads it and resets |
 | `Modem Settings` | `ACIA (6551) Mapping` | `Off`, `DE00/NMI`, `DF00/NMI`, `D700/NMI` (a SwiftLink: no IRQ choices) |
 | | `Modem Interface`, `Hardware Mode` | `ACIA / SwiftLink`, `SwiftLink`: nothing to change |
 | `Ethernet Settings` | `Use DHCP`, `Static IP`, `Static Netmask`, `Static Gateway`, `Static DNS` | as REST's configs routes take them (`doc/rest.md`); the network takes them at once |

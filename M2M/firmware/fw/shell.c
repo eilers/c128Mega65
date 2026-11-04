@@ -391,9 +391,8 @@ static void select(uint16_t group, int item, enum menu_key key)
       menu_show();
       return;
    }
-   // Space on a CRT/ROM item of the core's may empty it instead
-   if (is_crtrom[idx] && key == MENU_KEY_SELALT && crtrom_core(is_crtrom[idx] - 1) &&
-       core_crtrom_clear(crtrom_dev(is_crtrom[idx] - 1))) {
+   // Space on a CRT/ROM item may empty it instead
+   if (is_crtrom[idx] && key == MENU_KEY_SELALT && core_crtrom_clear(group & MENU_ID)) {
       int k = is_crtrom[idx] - 1;
       crt_loaded[k] = crtrom_loaded(k);
       menu_set(idx, crt_loaded[k]);

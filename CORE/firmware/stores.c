@@ -333,11 +333,17 @@ int item_pick(const item_t *it)
    return it->id - I_ROM;
 }
 
-// The REU image as an Ultimate shows a file on its card, under /SD
+// The REU image and a pick's path as an Ultimate shows a file on its card, under /SD
 const char *item_text(const item_t *it)
 {
-   if (it->type == IT_FILE)
-      return rompick_name(item_pick(it));
+   if (it->type == IT_FILE) {
+      const char *name = rompick_name(item_pick(it));
+      if (name[0] != '/')
+         return name;
+      strcpy(shown, "/SD");
+      strcat(shown, name);
+      return shown;
+   }
    if (it->id == I_REU_IMAGE) {
       if (!reu_file_picked())
          return "";
@@ -443,6 +449,14 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
       want.image = 1;
       return WANT_OK;
    default: {
+      // A pick's path, as the REU image's: the card's
+      char path[UCI_PATH_MAX];
+      if (it->type == IT_FILE && strchr(v, '/')) {
+         card = uci_card_path(v, path);
+         if (!card || strlen(card) > (size_t)it->max)
+            return WANT_CHOICE;
+         v = card;
+      }
       // His setString: cut to the longest, its last character then a '*'
       int k = it->type == IT_FILE ? item_pick(it) : it->id - I_NET;
       char *to = it->type == IT_FILE ? want_rom[k] : want_str[k];

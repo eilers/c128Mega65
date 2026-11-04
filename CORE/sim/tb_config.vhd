@@ -141,7 +141,27 @@ begin
       item(items_f, len_f, C_MENU_CART_CRT, f1, f2);
       check(items_f(f1 to f2) = " CRT file", "full item C_MENU_CART_CRT is """ & items_f(f1 to f2) & """");
 
-      -- The HDMI filter submenu, and lines after it
+      -- Every line the hardware reads by its index
+      named(C_MENU_DRVA_ID8,      " 8");
+      named(C_MENU_DRVA_1541,     " 1541");
+      named(C_MENU_DRVB_ID8,      " 8");
+      named(C_MENU_DRVB_1541,     " 1541");
+      named(C_MENU_VIDEO_FOLLOW,  " Follow 40/80");
+      named(C_MENU_VIDEO_40,      " 40 columns");
+      named(C_MENU_VIDEO_80,      " 80 columns");
+      named(C_MENU_VIDEO_H40_V80, " HDMI 40, VGA 80");
+      named(C_MENU_VIDEO_H80_V40, " HDMI 80, VGA 40");
+      named(C_MENU_VIDEO_SWAP,    " Swap with 40/80");
+      named(C_MENU_JAILBARS_OFF,  " Off");
+      named(C_MENU_JAILBARS_HIGH, " High");
+      named(C_MENU_HDMI_720p_50,  " 720p 50 Hz 16:9");
+      named(C_MENU_HDMI_720p_60,  " 720p 60 Hz 16:9");
+      named(C_MENU_HDMI_576p_50,  " 576p 50 Hz 4:3");
+      named(C_MENU_HDMI_576p_50_5_4, " 576p 50 Hz 5:4");
+      named(C_MENU_HDMI_640_60,   " 640x480 60 Hz");
+      named(C_MENU_HDMI_720_5994, " 720x480 59.94 Hz");
+      named(C_MENU_HDMI_800_60,   " 800x600 60 Hz");
+      named(C_MENU_HDMI_FF,       " Flicker-free");
       named(C_MENU_HDMI_AUDIO,    " HDMI audio");
       named(C_MENU_FLT_NONE,      " No Filter");
       named(C_MENU_FLT_SHARP,     " Sharp Bilinear");
@@ -152,10 +172,19 @@ begin
       named(C_MENU_FLT_SVIDEO,    " CRT (S-Video)");
       named(C_MENU_FLT_COMPOSITE, " CRT (Composite)");
       named(C_MENU_VGA_STD,       " Standard");
+      named(C_MENU_VGA_15KHZHSVS, " 15 kHz with HS/VS");
       named(C_MENU_VGA_15KHZCS,   " 15 kHz with CSYNC");
       named(C_MENU_IEC,           " Use IEC port");
       named(C_MENU_JOY_SWAP,      " Swap joystick ports");
+      named(C_MENU_REU_OFF,       " Off");
+      named(C_MENU_REU_512K,      " 512 KB");
+      named(C_MENU_CART_HW,       " Hardware");
+      named(C_MENU_MODEM_DE00,    " $DE00");
+      named(C_MENU_MODEM_DF00,    " $DF00");
+      named(C_MENU_MODEM_D700,    " $D700");
       named(C_MENU_UCI,           " UCI at $DF1C");
+      named(C_MENU_KEYS_4080,     " 40/80");
+      named(C_MENU_KEYS_ASCII,    " ASCII/DIN");
       named(C_MENU_HELP_F13,      " Help menu on F13");
 
       -- R3 item i is full item i, or i + 2 from the 2 MB item on, in text and in every selector
