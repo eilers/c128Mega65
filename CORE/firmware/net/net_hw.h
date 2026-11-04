@@ -42,3 +42,16 @@
 // The FPGA's device DNA: 57 bits, 16 a word, word 3 bit 15 = valid
 #define NET_DNA(i)     NET_REG(0x10 + (i))
 #define NET_DNA_VALID     0x8000u
+
+// His video and audio streams (stream.c): each packet is a 42-byte Ethernet, IP and UDP header
+// the firmware writes, then the 12- or 2-byte stream header and the pixels or samples the
+// hardware adds. Clear a stream's bit and wait out its busy bit before writing its header.
+#define STREAM_CTRL    NET_REG(0x20)   // RW: video on (0), audio on (1). R: a packet going out (8, 9)
+#define STREAM_VSENT   NET_REG(0x21)   // R: video packets sent (wraps)
+#define STREAM_ASENT   NET_REG(0x22)   // R: audio packets sent
+#define STREAM_VDROP   NET_REG(0x23)   // R: video slots never sent (no room on the wire)
+#define STREAM_ADROP   NET_REG(0x24)   // R: audio slots never sent
+#define STREAM_HDR(s, i) NET_REG(0x40 + 0x20 * (s) + (i))   // W: header bytes 2i (7..0), 2i+1 (15..8)
+
+#define STREAM_ON(s)      (1u << (s))
+#define STREAM_BUSY(s)    (0x100u << (s))

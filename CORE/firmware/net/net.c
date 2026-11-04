@@ -15,6 +15,7 @@
 #include "net.h"
 #include "net_hw.h"
 #include "netcfg.h"
+#include "stream.h"
 #include "lwip/init.h"
 #include "lwip/timeouts.h"
 #include "lwip/ip_addr.h"
@@ -70,6 +71,7 @@ static void start(void)
    last_turn = MTIME_LO;
    lwip_init();
    eth_init();
+   stream_init();
    netif_set_status_callback(&eth_netif, on_status);
    modem_init();
    http_start();
@@ -103,6 +105,8 @@ DMEM_CODE void core_net(void)
       timers_ms = ms;
       sys_check_timeouts();
    }
+   if (stream_waiting)
+      stream_poll();
    modem_poll();
    M2M_RAMROM_DEV = dev;
    busy = false;

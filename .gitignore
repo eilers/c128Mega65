@@ -29,3 +29,5 @@ test/vice-testprogs/*
 CORE/c128_dma_nvc
 CORE/input_inject_nvc
 CORE/net_nvc
+CORE/stream_nvc
+CORE/vic_window_nvc

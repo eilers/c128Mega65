@@ -7,6 +7,9 @@
 //        test_http -serve PORT IMG the server on this Mac's 127.0.0.1:PORT, in real time, for
 //                                  curl and test/rest's scripts
 #include "lwip/init.h"            // first: macOS's headers define BYTE_ORDER and htons too
+#include "lwip/dns.h"
+#include "lwip/etharp.h"
+#include "lwip/inet_chksum.h"
 #include "lwip/ip4.h"
 #include "lwip/tcp.h"
 #include "lwip/timeouts.h"
@@ -29,8 +32,10 @@
 #include "m2m_rv.h"
 #include "net.h"
 #include "netcfg.h"
+#include "rest_priv.h"
 #include "rompick.h"
 #include "stores.h"
+#include "stream.h"
 #include "version.h"
 
 #define STEP_US 100                    // a main-loop round
@@ -51,16 +56,83 @@ char eth_unique_id[7] = "A1B2C3";
 static struct pkt { uint8_t *d; int n; uint64_t at; } wire[4096];
 static int wire_n;
 
-static err_t lo_output(struct netif *nif, struct pbuf *p, const ip4_addr_t *a)
+// A stream's ARP probes: two zero bytes over UDP (stream.c), the last one's address and port
+static int  probes, probe_port;
+static char probe_to[16];
+
+static void put_wire(uint8_t *d, int n)
 {
    if (wire_n == 4096) {
       fprintf(stderr, "wire full\n");
       exit(2);
    }
-   wire[wire_n].d = malloc(p->tot_len);
-   wire[wire_n].n = pbuf_copy_partial(p, wire[wire_n].d, p->tot_len, 0);
+   wire[wire_n].d = d;
+   wire[wire_n].n = n;
    wire[wire_n].at = now_us + WIRE_US;
    wire_n++;
+}
+
+// A DNS server at 10.0.0.53: every name is 10.0.0.77 but *.invalid, which doesn't exist
+static void dns_answer(const uint8_t *req, int n)
+{
+   static const uint8_t answer[] = { 0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 10, 0, 0, 77 };
+   int ihl = (req[0] & 15) * 4, at = 12, k = 0;
+   const uint8_t *q = req + ihl + 8;
+   char name[300];
+   n -= ihl + 8;
+   while (at < n && q[at] && k + q[at] < 290) {
+      int l = q[at++];
+      if (k)
+         name[k++] = '.';
+      memcpy(name + k, q + at, l);
+      k += l;
+      at += l;
+   }
+   name[k] = 0;
+   at += 5;
+   int nx = k >= 8 && !strcasecmp(name + k - 8, ".invalid");
+   uint8_t *d = calloc(1, 28 + at + sizeof answer);
+   memcpy(d + 28, q, at);
+   d[28 + 2] = 0x81;
+   d[28 + 3] = nx ? 0x83 : 0x80;
+   d[28 + 6] = 0;
+   d[28 + 7] = !nx;
+   memset(d + 28 + 8, 0, 4);
+   if (!nx) {
+      memcpy(d + 28 + at, answer, sizeof answer);
+      at += sizeof answer;
+   }
+   d[0] = 0x45;
+   d[2] = (28 + at) >> 8;
+   d[3] = 28 + at;
+   d[8] = 64;
+   d[9] = IP_PROTO_UDP;
+   memcpy(d + 12, req + 16, 4);
+   memcpy(d + 16, req + 12, 4);
+   u16_t ck = inet_chksum(d, 20);
+   memcpy(d + 10, &ck, 2);
+   memcpy(d + 20, req + ihl + 2, 2);
+   memcpy(d + 22, req + ihl, 2);
+   d[24] = (8 + at) >> 8;
+   d[25] = 8 + at;
+   put_wire(d, 28 + at);
+}
+
+static err_t lo_output(struct netif *nif, struct pbuf *p, const ip4_addr_t *a)
+{
+   uint8_t *d = malloc(p->tot_len);
+   int n = pbuf_copy_partial(p, d, p->tot_len, 0), ihl = (d[0] & 15) * 4;
+   if (d[9] == IP_PROTO_UDP && n == ihl + 10 && !d[ihl + 8] && !d[ihl + 9]) {
+      probes++;
+      probe_port = d[ihl + 2] << 8 | d[ihl + 3];
+      snprintf(probe_to, sizeof probe_to, "%d.%d.%d.%d", d[16], d[17], d[18], d[19]);
+   }
+   if (d[9] == IP_PROTO_UDP && (d[ihl + 2] << 8 | d[ihl + 3]) == 53) {
+      dns_answer(d, n);
+      free(d);
+      return ERR_OK;
+   }
+   put_wire(d, n);
    return ERR_OK;
 }
 
@@ -89,6 +161,10 @@ static void step(void)
          pbuf_free(p);
    }
    sys_check_timeouts();
+   if (stream_waiting)
+      stream_poll();
+   if (stream_dirty)
+      stream_menu_sync();
    http_poll();
    input_poll();
 }
@@ -231,8 +307,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10b\",\n" \
-                  "  \"core_version\" : \"1.0b\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10c\",\n" \
+                  "  \"core_version\" : \"1.0c\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -563,16 +639,6 @@ static void machine(void)
           errs(501, "Unknown", "The current FPGA build does not support timing measurement of the cartridge bus."));
    expect("heap", "GET /v1/machine:heap HTTP/1.1\r\n\r\n", json(200, "OK",
           "{ \n  \"free\" : 3000000,\n  \"min_ever_free\" : 3000000,\n  \"total\" : 3500000,\n  \"errors\" : [  ]\n}"));
-   // His U64's streams: there, not in the core yet
-   expect("stream start without ip", "PUT /v1/streams/video:start HTTP/1.1\r\n\r\n",
-          bad("\"Function start requires parameter ip\""));
-   expect("stream start: not yet", "PUT /v1/streams/video:start?ip=192.168.1.28:11000 HTTP/1.1\r\n\r\n",
-          errs(501, "Unknown", "This command is not supported on this architecture"));
-   expect("stream start, no name", "PUT /v1/streams:start?ip=1.2.3.4 HTTP/1.1\r\n\r\n",
-          errs(404, "Not Found", "No stream name given in path"));
-   expect("stream start, unknown name", "PUT /v1/streams/screen:start?ip=1.2.3.4 HTTP/1.1\r\n\r\n",
-          errs(404, "Not Found", "Unrecognized stream name 'screen'"));
-   expect("stream stop: none runs", "PUT /v1/streams/Audio:stop HTTP/1.1\r\n\r\n", OK);
    expect("menu_screen, closed", "GET /v1/machine:menu_screen HTTP/1.1\r\n\r\n",
           errs(404, "Not Found", "Menu screen unavailable."));
    static uint8_t screen[2000];
@@ -726,10 +792,148 @@ static void machine(void)
           json(200, "OK", "{ \n  \"address\" : \"0000-0000\",\n  \"errors\" : [  ]\n}"));
 }
 
+// --- his streams (route_streams.cc, data_streamer.cc) ---
+
+// test/streams/udp_headers.py: his calculate_udp_headers in Python, with the whole packet's
+// lengths and checksum
+#define HDR_MULTICAST "01005E00014002C128123456080045000328BBBB4000401181C80A000001EF000140D0002AF803140000"
+#define HDR_BROADCAST "FFFFFFFFFFFF02C12812345608004500031EBBBB4000401172130A000001FFFFFFFFD4001770030A0000"
+#define HDR_UNICAST   "00112233445502C128123456080045000328BBBB4000401167BC0A0000010A00004DD0002AF803140000"
+#define HDR_GATEWAY   "66778899AABB02C12812345608004500031EBBBB40004011AC650A000001C0A80505D4002AF9030A0000"
+#define STREAM_PUT(s, cmd, q) "PUT /v1/streams/" s ":" cmd q " HTTP/1.1\r\n\r\n"
+
+extern uint16_t net_dev[0x80];
+
+// A stream's header as the hardware has it
+static const char *hdr(int id)
+{
+   static char h[85];
+   for (int i = 0; i < 42; i++)
+      sprintf(h + 2 * i, "%02X", (net_dev[0x40 + 0x20 * id + i / 2] >> (i % 2 * 8)) & 0xFF);
+   return h;
+}
+
+// The request's answer, and how long it took in ms
+static uint64_t ask_ms(const char *name, const char *req, const char *answer)
+{
+   uint64_t t0 = now_us;
+   expect(name, req, answer);
+   return (now_us - t0) / 1000;
+}
+
+static void streams(void)
+{
+   ip4_addr_t a;
+   struct eth_addr peer = {{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55 }}, gw = {{ 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB }};
+   IP4_ADDR(&a, 10, 0, 0, 77);
+   etharp_add_static_entry(&a, &peer);
+   IP4_ADDR(&a, 10, 0, 0, 254);
+   etharp_add_static_entry(&a, &gw);
+   char n[64];
+
+   expect("stream start without ip", STREAM_PUT("video", "start", ""), bad("\"Function start requires parameter ip\""));
+   expect("stream start, no name", "PUT /v1/streams:start?ip=1.2.3.4 HTTP/1.1\r\n\r\n",
+          errs(404, "Not Found", "No stream name given in path"));
+   expect("stream start, unknown name", STREAM_PUT("screen", "start", "?ip=1.2.3.4"),
+          errs(404, "Not Found", "Unrecognized stream name 'screen'"));
+   expect("stream stop: none runs", STREAM_PUT("Audio", "stop", ""), OK);
+   expect("debug stream: not in the core", STREAM_PUT("debug", "start", "?ip=239.0.1.66"),
+          errs(501, "Unknown", "This command is not supported on this architecture"));
+   expect("debug stream stop", STREAM_PUT("debug", "stop", ""), OK);
+   check("nothing streams yet", net_dev[0x20] == 0 && !settings[OPTM_G_NET_VSTREAM][0], NULL);
+
+   // An empty ip: the settings' target, his default multicast group; no ARP for a group
+   probes = 0;
+   expect("video to the settings' group", STREAM_PUT("video", "start", "?ip="), OK);
+   check("video: its header", !strcmp(hdr(0), HDR_MULTICAST), hdr(0));
+   check("video: on, its line ticked, no probe", net_dev[0x20] == 1 && settings[OPTM_G_NET_VSTREAM][0] && !probes, NULL);
+   expect("audio to the broadcast address", STREAM_PUT("Audio", "start", "?ip=255.255.255.255:6000"), OK);
+   check("audio: its header", !strcmp(hdr(1), HDR_BROADCAST), hdr(1));
+   check("audio: both on", net_dev[0x20] == 3 && settings[OPTM_G_NET_ASTREAM][0], NULL);
+
+   // A host: his probe to its port, the MAC from the ARP table a probe's 100 ms later
+   uint64_t ms = ask_ms("video to a host", STREAM_PUT("video", "start", "?ip=10.0.0.77"), OK);
+   check("video to a host: its header", !strcmp(hdr(0), HDR_UNICAST), hdr(0));
+   snprintf(n, sizeof n, "%d probe(s) to %s:%d, %d ms", probes, probe_to, probe_port, (int)ms);
+   check("video to a host: one probe to it, answered after 100 ms",
+         probes == 1 && !strcmp(probe_to, "10.0.0.77") && probe_port == 11000 && ms >= 100 && ms < 200, n);
+   probes = 0;
+   expect("audio off the subnet", STREAM_PUT("audio", "start", "?ip=192.168.5.5"), OK);
+   check("audio off the subnet: the gateway's MAC", !strcmp(hdr(1), HDR_GATEWAY), hdr(1));
+   check("audio off the subnet: probed at the gateway, its port",
+         probes == 1 && !strcmp(probe_to, "10.0.0.254") && probe_port == 11001, probe_to);
+   probes = 0;
+   expect("video to a name", STREAM_PUT("video", "start", "?ip=viewer.lan:11000"), OK);
+   check("video to a name: its address", !strcmp(hdr(0), HDR_UNICAST) && probes == 1, hdr(0));
+
+   // His group test takes 232 to 239 only: 224.1.2.3 is a host to him, here off the subnet
+   probes = 0;
+   expect("audio to 224.1.2.3", STREAM_PUT("audio", "start", "?ip=224.1.2.3"), OK);
+   check("audio to 224.1.2.3: the gateway's MAC, as his",
+         !strncmp(hdr(1), "66778899AABB", 12) && probes == 1 && !strcmp(probe_to, "10.0.0.254"), hdr(1));
+
+   // Failures: the stream that ran runs on, as his
+   probes = 0;
+   ms = ask_ms("no MAC", STREAM_PUT("video", "start", "?ip=10.0.0.99"),
+               errs(404, "Not Found", "Network Host Resolve Error"));
+   snprintf(n, sizeof n, "%d probes, %d ms", probes, (int)ms);
+   check("no MAC: ten probes in a second", probes == 10 && ms >= 1000 && ms < 1100, n);
+   check("no MAC: the old target streams on", !strcmp(hdr(0), HDR_UNICAST) && net_dev[0x20] == 3 &&
+         settings[OPTM_G_NET_VSTREAM][0], hdr(0));
+   expect("an unknown name", STREAM_PUT("video", "start", "?ip=nothing.invalid"),
+          errs(404, "Not Found", "Network Host Resolve Error"));
+   expect("port 0", STREAM_PUT("video", "start", "?ip=239.0.1.64:0"), errs(400, "Bad Request", "Invalid Parameter"));
+   expect("no host", STREAM_PUT("video", "start", "?ip=:11000"), errs(404, "Not Found", "Network Host Resolve Error"));
+   check("failures: the old header", !strcmp(hdr(0), HDR_UNICAST), hdr(0));
+   expect("a port that isn't a number: the default", STREAM_PUT("video", "start", "?ip=239.0.1.64:x"), OK);
+   check("a port that isn't a number: 11000", !strcmp(hdr(0), HDR_MULTICAST), hdr(0));
+   strcpy(netcfg[NC_STREAM], "");
+   expect("no target anywhere", STREAM_PUT("video", "start", "?ip="), errs(400, "Bad Request", "Invalid Parameter"));
+   strcpy(netcfg[NC_STREAM], "239.0.1.64:11000");
+   // Without an address no request comes in either: stream.c's own answer, which REST
+   // gives as his "No Operational Network Interface", 500
+   netif_set_ipaddr(&eth_netif, IP4_ADDR_ANY4);
+   int r = stream_start(STREAM_AUDIO, "239.0.1.65", 0);
+   IP4_ADDR(&a, 10, 0, 0, 1);
+   netif_set_ipaddr(&eth_netif, &a);
+   check("no address: no network", r == -SS_NO_NETWORK && net_dev[0x20] == 3, NULL);
+
+   // Two starts of one stream at once: in turn, the second's target last
+   client_t *c1 = cl_open(), *c2 = cl_open();
+   const char *r1 = STREAM_PUT("video", "start", "?ip=10.0.0.77"), *r2 = STREAM_PUT("video", "start", "?ip=239.0.1.64");
+   cl_send(c1, r1, strlen(r1));
+   cl_send(c2, r2, strlen(r2));
+   run_until(c2, 2000000);
+   run_until(c1, 2000000);
+   check("two starts: both answered", strstr(c1->got, "200 OK") && strstr(c2->got, "200 OK"), c1->got);
+   check("two starts: the second's target", !strcmp(hdr(0), HDR_MULTICAST), hdr(0));
+   free(c1);
+   free(c2);
+
+   // A stop while a name resolves: that start ends there, its late DNS answer starts nothing
+   expect("video stop", STREAM_PUT("video", "stop", ""), OK);
+   c1 = cl_open();
+   c2 = cl_open();
+   r1 = STREAM_PUT("video", "start", "?ip=fresh.lan");          // not in lwIP's DNS cache
+   r2 = STREAM_PUT("video", "stop", "");
+   cl_send(c1, r1, strlen(r1));
+   cl_send(c2, r2, strlen(r2));
+   run_until(c1, 2000000);
+   run_until(c2, 2000000);
+   run_for(300000);
+   check("stopped while resolving: aborted", !strcmp(c1->got, errs(500, "Unknown", "Operation aborted by user")), c1->got);
+   check("stopped while resolving: nothing streams", !(net_dev[0x20] & 1) && !settings[OPTM_G_NET_VSTREAM][0], NULL);
+   free(c1);
+   free(c2);
+   check("video stop: off, its line too", net_dev[0x20] == 2 && !settings[OPTM_G_NET_VSTREAM][0], NULL);
+   expect("audio stop", STREAM_PUT("audio", "stop", ""), OK);
+   check("audio stop: nothing streams", net_dev[0x20] == 0 && !settings[OPTM_G_NET_ASTREAM][0], NULL);
+}
+
 // --- the configs routes ---
 
 #define CATEGORIES "\"U64 Specific Settings\", \"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", \"Modem Settings\", " \
-                   "\"Ethernet Settings\", \"Network Settings\", \"C128 ROM Settings\", \"MEGA65 Settings\""
+                   "\"Ethernet Settings\", \"Network Settings\", \"Data Streams\", \"C128 ROM Settings\", \"MEGA65 Settings\""
 #define DRIVE_ROMS ",\n  \"ROM for 1541 mode\" : \"1541.rom\",\n  \"ROM for 1571 mode\" : \"1571.rom\",\n" \
                    "  \"ROM for 1581 mode\" : \"1581.rom\""
 #define DRIVE_ROMS_FILE "ROM for 1541 mode=1541.rom\nROM for 1571 mode=1571.rom\nROM for 1581 mode=1581.rom\n"
@@ -774,6 +978,9 @@ static void configs(void)
    expect("a string in full", "GET /v1/configs/network%20settings/host%20name HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Network Settings\" : { \n  \"Host Name\" : { \n  \"current\" : \"c128-mega65\",\n"
              "  \"default\" : \"c128-mega65\"\n}\n},\n  \"errors\" : [  ]\n}"));
+   expect("his streams' targets", "GET /v1/configs/data%20streams HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"Data Streams\" : { \n  \"Stream VIC to\" : \"239.0.1.64:11000\",\n"
+             "  \"Stream Audio to\" : \"239.0.1.65:11001\"\n},\n  \"errors\" : [  ]\n}"));
    expect("no item matches: an empty object", "GET /v1/configs/drive%20a%20settings/nothing HTTP/1.1\r\n\r\n",
           ok("{ \n  \"Drive A Settings\" : { \n},\n  \"errors\" : [  ]\n}"));
    expect("no category", "GET /v1/configs/drive%20c* HTTP/1.1\r\n\r\n",
@@ -814,6 +1021,16 @@ static void configs(void)
    applies = net_applies;
    expect("host name", "PUT /v1/configs/network%20settings/host%20name/c128-den HTTP/1.1\r\n\r\n", OK);
    check("host name: set, in effect", !strcmp(netcfg[NC_HOST], "c128-den") && net_applies == applies + 1, netcfg[NC_HOST]);
+   applies = net_applies;
+   expect("a stream's target", "PUT /v1/configs/data%20streams/stream%20audio%20to?value=viewer.lan:6000 HTTP/1.1\r\n\r\n", OK);
+   check("a stream's target: set, nothing started", !strcmp(netcfg[NC_STREAM + 1], "viewer.lan:6000") &&
+         net_applies == applies && net_dev[0x20] == 0, netcfg[NC_STREAM + 1]);
+   expect("a stream's target cut at 36", "PUT /v1/configs/data%20streams/stream%20vic%20to?value="
+          "abcdefghijklmnopqrstuvwxyz0123456789x HTTP/1.1\r\n\r\n", OK);
+   check("a stream's target cut at 36: his '*'", !strcmp(netcfg[NC_STREAM], "abcdefghijklmnopqrstuvwxyz012345678*"),
+         netcfg[NC_STREAM]);
+   strcpy(netcfg[NC_STREAM], "239.0.1.64:11000");
+   strcpy(netcfg[NC_STREAM + 1], "239.0.1.65:11001");
    expect("host name, too long", "PUT /v1/configs/network%20settings/host%20name/"
           "abcdefghijklmnopqrstuvwxyz0123456789 HTTP/1.1\r\n\r\n", OK);
    check("host name, too long: cut", !strcmp(netcfg[NC_HOST], "abcdefghijklmnopqrstuvwxyz0123*"), netcfg[NC_HOST]);
@@ -829,7 +1046,7 @@ static void configs(void)
    f_unlink(SETTINGS_FILE);
    expect("save", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
           ok("{ \n  \"written\" : [ \"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", "
-             "\"Modem Settings\", \"Network Settings\" ],\n  \"errors\" : [  ]\n}"));
+             "\"Modem Settings\", \"Network Settings\", \"Data Streams\" ],\n  \"errors\" : [  ]\n}"));
    int got = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
    cfg[got > 0 ? got : 0] = 0;
    check("save: the settings file, every item", !strcmp(cfg,
@@ -845,6 +1062,7 @@ static void configs(void)
          "Static Gateway=192.168.2.1\nStatic DNS=8.8.8.8\n"
          "[Network Settings]\nHost Name=abcdefghijklmnopqrstuvwxyz0123*\nNetwork Password=\nFTP File Service=Enabled\n"
          "Web Remote Control Service=Enabled\n"
+         "[Data Streams]\nStream VIC to=239.0.1.64:11000\nStream Audio to=239.0.1.65:11001\n"
          "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
          "HDMI Flicker-free=Disabled\nVGA Display Mode=Standard\n"
@@ -2019,6 +2237,9 @@ int main(int argc, char **argv)
    netif_add(&eth_netif, &ip, &mask, &gw, NULL, lo_init, ip4_input);
    netif_set_default(&eth_netif);
    netif_set_up(&eth_netif);
+   ip_addr_t dns;
+   IP_ADDR4(&dns, 10, 0, 0, 53);
+   dns_setserver(0, &dns);
    http_start();
    http_listen(1);
    host_rest_init();
@@ -2043,6 +2264,7 @@ int main(int argc, char **argv)
    bodies();
    connections();
    machine();
+   streams();
    input_api();
    configs();
    drives();

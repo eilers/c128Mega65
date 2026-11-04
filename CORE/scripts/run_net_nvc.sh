@@ -19,6 +19,7 @@ nvc --std=2008 -L . -a \
     "$repo/M2M/vhdl/controllers/ethernet/eth_rmii.vhd" \
     "$repo/M2M/vhdl/controllers/ethernet/eth_wrapper.vhd" \
     "$repo/CORE/vhdl/net/acia6551.vhd" \
+    "$repo/CORE/vhdl/net/stream_tx.vhd" \
     "$repo/CORE/vhdl/net/net.vhd" \
     "$repo/CORE/sim/tb_net.vhd"
 nvc --std=2008 -L . --ieee-warnings=off -e tb_net -r --exit-severity=error 2>&1 | tee tb_net.log

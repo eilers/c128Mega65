@@ -276,7 +276,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 179; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 184; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
@@ -453,6 +453,11 @@ constant OPTM_ITEMS_ALL    : string :=
    " GW:%s\n"               &
    " DNS:%s\n"              &
    "\n"                     &
+   " Video stream\n"        &    -- his VIC stream: start/stop, never saved (none at power-up)
+   "  to:%s\n"              &    -- his "Stream VIC to", typed in the menu (core.c)
+   " Audio stream\n"        &    -- his audio stream
+   "  to:%s\n"              &    -- his "Stream Audio to"
+   "\n"                     &
    " Back to main menu\n"   &
    "\n"                     &
 
@@ -538,6 +543,10 @@ constant OPTM_G_DRVB_ID    : integer := 44;   -- Drive B's
 constant OPTM_G_NET_FTP    : integer := 45;   -- FTP server on port 21
 constant OPTM_G_LOAD_CFG   : integer := 46;   -- Load settings: a .cfg file of settings
 constant OPTM_G_JOY_SWAP   : integer := 47;   -- Swap joystick ports
+constant OPTM_G_NET_VSTREAM: integer := 48;   -- Video stream: his VIC stream on/off
+constant OPTM_G_NET_VTO    : integer := 49;   -- its target, to:%s
+constant OPTM_G_NET_ASTREAM: integer := 50;   -- Audio stream
+constant OPTM_G_NET_ATO    : integer := 51;   -- its target
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -702,6 +711,11 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_NET_MASK + OPTM_G_SINGLESEL,                  -- Mask:%s
                                              OPTM_G_NET_GW + OPTM_G_SINGLESEL,                    -- GW:%s
                                              OPTM_G_NET_DNS + OPTM_G_SINGLESEL,                   -- DNS:%s
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_NET_VSTREAM + OPTM_G_SINGLESEL,               -- Video stream
+                                             OPTM_G_NET_VTO + OPTM_G_SINGLESEL,                   -- to:%s
+                                             OPTM_G_NET_ASTREAM + OPTM_G_SINGLESEL,               -- Audio stream
+                                             OPTM_G_NET_ATO + OPTM_G_SINGLESEL,                   -- to:%s
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_LINE,                                         -- Line

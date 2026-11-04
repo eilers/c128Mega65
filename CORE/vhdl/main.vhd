@@ -73,6 +73,12 @@ entity main is
       audio_left_o            : out signed(15 downto 0);
       audio_right_o           : out signed(15 downto 0);
 
+      -- His VIC stream (net.vhd): each pixel's colour index with its rasterX/rasterY, on the ce
+      stream_vic_ce_o         : out std_logic;
+      stream_vic_index_o      : out unsigned(3 downto 0);
+      stream_vic_x_o          : out unsigned(9 downto 0);
+      stream_vic_y_o          : out unsigned(8 downto 0);
+
       -- Drive led (monochrome + RGB colour)
       drive_led_o             : out std_logic;
       drive_led_col_o         : out std_logic_vector(23 downto 0);
@@ -865,6 +871,8 @@ begin
 end process video_switch_blank_proc;
 
 -- Native-domain muxes: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes each port's clock to match.
+stream_vic_ce_o <= vic_pixel_ce;
+
 video_ce_o     <= vdc_dot_ce when hdmi_sel_vdc = '1' else vic_pixel_ce;
 video_hs_o     <= vdc_hs_out when hdmi_sel_vdc = '1' else vic_hs_out;
 video_vs_o     <= vdc_vs_out when hdmi_sel_vdc = '1' else vic_vs_out;
@@ -2068,6 +2076,9 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vicVsync      => core_vic_vs,
       vicR          => vic_r,
       vic_pixel_ce_o => vic_pixel_ce,
+      vic_index_o   => stream_vic_index_o,
+      vic_x_o       => stream_vic_x_o,
+      vic_y_o       => stream_vic_y_o,
       phi2_o        => core_phi2,      -- output. Expansion Port PHI2
       ba_o          => core_ba,        -- output. Expansion Port BA
       aec_o         => core_aec,       -- output. The VIC's AEC

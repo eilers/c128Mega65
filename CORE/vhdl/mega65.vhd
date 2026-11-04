@@ -519,6 +519,11 @@ signal main_modem_addr        : std_logic_vector(2 downto 0);
 signal main_modem_wdata       : std_logic_vector(7 downto 0);
 signal main_modem_rdata       : std_logic_vector(7 downto 0);
 signal main_modem_irq         : std_logic;
+-- His VIC stream's pixels, from main to the network device
+signal main_stream_vic_ce     : std_logic;
+signal main_stream_vic_index  : unsigned(3 downto 0);
+signal main_stream_vic_x      : unsigned(9 downto 0);
+signal main_stream_vic_y      : unsigned(8 downto 0);
 signal qnice_net_ce           : std_logic;
 signal qnice_net_we           : std_logic;
 signal qnice_net_data         : std_logic_vector(15 downto 0);
@@ -798,6 +803,10 @@ begin
          -- audio output (pcm format, signed values)
          audio_left_o         => main_audio_left_o,
          audio_right_o        => main_audio_right_o,
+         stream_vic_ce_o      => main_stream_vic_ce,
+         stream_vic_index_o   => main_stream_vic_index,
+         stream_vic_x_o       => main_stream_vic_x,
+         stream_vic_y_o       => main_stream_vic_y,
 
          -- Drive led
          drive_led_o => main_drive_led_o,
@@ -1610,6 +1619,12 @@ begin
          data_i         => main_modem_wdata,
          data_o         => main_modem_rdata,
          irq_o          => main_modem_irq,
+         vic_ce_i       => main_stream_vic_ce,
+         vic_index_i    => main_stream_vic_index,
+         vic_x_i        => main_stream_vic_x,
+         vic_y_i        => main_stream_vic_y,
+         audio_l_i      => main_audio_left_o,
+         audio_r_i      => main_audio_right_o,
          dev_ce_i       => qnice_net_ce,
          dev_we_i       => qnice_net_we,
          dev_addr_i     => qnice_dev_addr_i(11 downto 0),

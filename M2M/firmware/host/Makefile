@@ -9,7 +9,8 @@ CFLAGS := -O1 -g -Wall -Wextra -Wno-unused-parameter -I../include -I../lib -I../
 NET      := ../../../CORE/firmware/net
 LWIP     := $(wildcard $(NET)/lwip/core/*.c) $(wildcard $(NET)/lwip/core/ipv4/*.c) $(NET)/lwip/netif/ethernet.c
 REST_SRC := $(NET)/rest.c $(NET)/rest_machine.c $(NET)/rest_configs.c $(NET)/rest_drives.c \
-            $(NET)/rest_files.c $(NET)/rest_runners.c $(NET)/rest_input.c $(NET)/multipart.c
+            $(NET)/rest_files.c $(NET)/rest_runners.c $(NET)/rest_input.c $(NET)/multipart.c \
+            $(NET)/stream.c
 NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(NET)/ftp.c $(REST_SRC) $(NET)/netcfg.c $(NET)/log.c $(LWIP)
 NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
 
@@ -79,7 +80,7 @@ build/test_http: test_http.c host_rest.c diskio_file.c $(NET)/http.c $(REST_SRC)
                  ../build/fw/config_ids.h ../build/fw/version.h ../fw/ffconf.h
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../include -I../fatfs -I../../../CORE/firmware $(NET_FLAGS) \
-	          -include host_rest_regs.h -DMEMP_NUM_TCP_PCB=32 $(filter %.c,$^) -o $@
+	          -include host_rest_regs.h -DMEMP_NUM_TCP_PCB=32 -DETHARP_SUPPORT_STATIC_ENTRIES=1 $(filter %.c,$^) -o $@
 
 # The FTP server with lwIP, against clients on a loopback, on a card image
 build/test_ftp: test_ftp.c diskio_file.c $(NET)/ftp.c $(NET)/log.c ../../../CORE/firmware/dos_path.c ../lib/fmt.c \

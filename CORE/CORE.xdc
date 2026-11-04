@@ -193,6 +193,9 @@ set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {N
 ## read data) and two-flip-flop synchronizers. A datapath-only limit of one destination
 ## period keeps the Gray bits within a clock of each other. Its device bus comes from
 ## qnice_clk, the same MMCM's 50 MHz with phase 0, and is timed as one clock.
+## His streams (stream_tx.vhd) cross the same way: a slot's LUTRAM and its tags are written
+## on main_clk and read on modem_clk only after its full toggle has crossed two flip-flops;
+## the sent toggles and the enables come back through ASYNC_REG pairs.
 create_generated_clock -name modem_clk [get_pins i_framework/i_clk_m2m/i_clk_qnice/CLKOUT4]
 set_max_delay -datapath_only 15 -from [get_clocks main_clk]  -to [get_clocks modem_clk]
 set_max_delay -datapath_only 15 -from [get_clocks modem_clk] -to [get_clocks main_clk]

@@ -27,7 +27,7 @@ enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID,
 
 static const char *const names[ST_COUNT] = {
    "U64 Specific Settings", "C64 and Cartridge Settings", "Drive A Settings", "Drive B Settings", "Modem Settings",
-   "Ethernet Settings", "Network Settings", "C128 ROM Settings", "MEGA65 Settings"
+   "Ethernet Settings", "Network Settings", "Data Streams", "C128 ROM Settings", "MEGA65 Settings"
 };
 
 static const char *const en_dis[]      = { "Disabled", "Enabled", NULL };
@@ -110,6 +110,9 @@ const item_t stores_items[] = {
    { ST_NET,     I_NET + NC_PASS,IT_PASS,   "Network Password",           NULL, 0, 31, 0, "", 0 },
    { ST_NET,     I_GROUP,        IT_ENUM,   "FTP File Service",           en_dis,      0, 0, 0, NULL, OPTM_G_NET_FTP },    // his: Enabled
    { ST_NET,     I_GROUP,        IT_ENUM,   "Web Remote Control Service", en_dis,      0, 0, 0, NULL, OPTM_G_NET_REST },   // his: Enabled
+   // His streams' targets; his debug stream's two items aren't here (the core has no debug stream)
+   { ST_STREAMS, I_NET + NC_STREAM,     IT_STRING, "Stream VIC to",       NULL, 0, 36, 0, "239.0.1.64:11000", 0 },
+   { ST_STREAMS, I_NET + NC_STREAM + 1, IT_STRING, "Stream Audio to",     NULL, 0, 36, 0, "239.0.1.65:11001", 0 },
    // Ours: empty is the stock ROM (rompick.h)
    { ST_ROMS,    I_ROM + RP_K128,IT_FILE,   "C128 Kernal ROM",            NULL, 0, PICK_MAX - 1, 0, "", 0 },
    { ST_ROMS,    I_ROM + RP_B128,IT_FILE,   "C128 Basic ROM",             NULL, 0, PICK_MAX - 1, 0, "", 0 },
@@ -137,7 +140,7 @@ static struct {
    int8_t mouse[MS_COUNT];
    int8_t group[ITEMS_MAX];          // an I_GROUP item's, by its index
 } want;
-static char    want_str[NC_COUNT][32];
+static char    want_str[NC_COUNT][NC_LEN];
 static char    want_rom[RP_COUNT][PICK_MAX];
 static int8_t  power_kept[2] = { -1, -1 };   // Drive as REST or LOAD_CONFIG set it, -1 never: in the file
 static char    want_image[UCI_PATH_MAX];
@@ -563,7 +566,7 @@ static int apply(void)
    for (int k = 0; k < NC_COUNT; k++)
       if (want.net[k] >= 0) {
          strcpy(netcfg[k], want_str[k]);
-         net = 1;
+         net |= k < NC_STREAM;          // a stream's target takes effect at its next start
       }
    if (net)
       netcfg_apply();

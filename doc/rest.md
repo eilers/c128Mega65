@@ -37,7 +37,7 @@ byte, because tools parse his answers. Where it differs, "Not his" below says so
 | `GET /v1/machine:measure` | 501, as his U2: no bus measurement |
 | `GET /v1/machine:debugreg`, `PUT ?value=` | his U64's debug register at $D7FF, two hex digits: here a plain byte the C128 and REST both read and write (a test program can leave its result there). In C64 mode the C128 writes it but reads the SID mirror there; REST reads it in both modes |
 | `GET /v1/machine:input`, `POST` | his U64's keyboard, joystick and mouse input, below |
-| `PUT /v1/streams/S:start?ip=`, `:stop` | his video, audio and debug streams: an unknown name his 404; start 501 until the core has them (bitstream), stop 200 (none runs, as his) |
+| `PUT /v1/streams/S:start?ip=`, `:stop` | his video and audio streams (`doc/streams.md`): `ip` is `host[:port]`, empty for the Data Streams store's target; answered once the target is resolved, with his texts and codes (404 "Network Host Resolve Error" for a name or MAC not found, 400 "Invalid Parameter" for port 0). `debug`: start 501 (no debug stream), stop 200. An unknown name his 404 |
 | `GET /v1/machine:heap` | the firmware's HyperRAM heap: it never frees, so `min_ever_free` is `free` |
 | `GET /v1/configs[/CATEGORY[/ITEM]]` | his stores and items that the core has (below), with his names and patterns |
 | `PUT /v1/configs/CATEGORY/ITEM?value=` or `/VALUE` | one item, in effect at once, in memory |
@@ -73,6 +73,7 @@ choices are the core's, under his names where he has the same.
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
+| Data Streams | Stream VIC to, Stream Audio to (`host[:port]`, 36 characters; his defaults `239.0.1.64:11000`, `239.0.1.65:11001`). A change takes effect at the stream's next start, as his |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
 | MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, VGA Display Mode, Caps Lock Key, Help Menu on F13 |
 
@@ -146,6 +147,9 @@ Hardware interface 11: `C_DEV_INPUT` (`input_inject.vhd`, register map in its he
 keys by matrix position (C64 rows, K0-K2), RESTORE, 40/80, Caps Lock, both ports' lines and
 POT values, sent to the C128 together by a commit; and the debug register at $D7FF.
 
+Hardware interface 12: his video and audio streams in `C_DEV_NET` (words `0x20`-`0x7F`,
+`net/net_hw.h`), and the Network submenu's stream lines.
+
 ## Settings
 
 The menu's Network submenu: REST API, FTP Server and DHCP are menu items, saved when the
@@ -154,6 +158,20 @@ keeps, Run/Stop leaves, Del, Clr), saved at once. Both go into `/c128/settings.c
 DHCP is on the address lines show what it gave; typing one turns DHCP off, the others then as
 DHCP gave them. The main menu's line shows the address. Defaults: REST and FTP off, no
 password, host `c128-mega65`, DHCP.
+
+Its stream lines are his F5 menu's: Video stream and Audio stream start and stop a stream
+(never saved: none at power-up, as his), each to the target on its `to:` line, typed as the
+host name is and kept in the Data Streams store. A tick shows a stream that runs, started
+here or by REST. A start that fails shows his popup's text until Space.
+
+## Clients
+
+- **C64 Ultimate Toolbox** (macOS): its keyboard types only in C64 mode (`GO64`) for now. It
+  doesn't use `machine:input`; it writes each character into the C64 KERNAL's keyboard
+  buffer with `writemem` (`$0277` on, its count at `$C6`). In C128 mode those addresses are
+  BASIC's input buffer and `BA`, the LOAD/SAVE bank: nothing is typed and `BA` counts up to
+  10 (BASIC sets it again before every LOAD and SAVE). Its video needs a wired network
+  (`doc/streams.md`).
 
 ## Not his
 
@@ -170,7 +188,11 @@ password, host `c128-mega65`, DHCP.
 - A model a drive's image can't run (set_mode, Drive Type) ejects the image; his keeps it
   mounted, unread. main.vhd runs an image as its own type, so keeping it would run another
   model than the one set.
-- Streams start answers 501 until the core has them.
+- No debug stream: its start answers 501, and the Data Streams store has no Stream Debug to
+  or Debug Stream Mode (Jeff deferred it, 2026-11-04).
+- The streams' start and stop are lines in the Network submenu, ticked while a stream runs; his
+  are F5 actions that ask "Send to..." each time. A failed start's text is a message screen,
+  his a popup.
 - machine:input's C128 keys (above) are ours (Jeff, 2026-11-03); his U64 has a C64 keyboard.
 - machine:debugreg is a plain byte; his U64's register drives FPGA debug features.
 - A batch whose tap waits for room in the tap queue holds its answer until the tap is in (his
@@ -198,6 +220,11 @@ password, host `c128-mega65`, DHCP.
   resets, boots to BASIC and takes typed keys, the drives, the drive ROM and cartridge
   devices, the menu's bits) with the real `stores.c` and FatFs on a card image. `test_shell` types in the Network
   submenu; `test_uci` and `test_prg` keep LOAD_CONFIG's answers.
+- Streams: `test_http` starts and stops them against a DNS server and ARP entries on its
+  loopback and checks each header against `test/streams/udp_headers.py` (his
+  calculate_udp_headers in Python), his ARP probes and their timing, his error texts, a failed
+  restart leaving the old target streaming, two starts in turn, a stop while a name
+  resolves; `test_shell` the menu's lines, his popup and a typed target.
 - `CORE/scripts/run_c128_dma_nvc.sh`: the bus DMA against a model of the core's DMA port.
 - machine:input: `test_http` checks his validation texts, the answers, tap timing on its clock,
   the C128 keys, RESTORE, joysticks, the mouse and its 429, the menu, release_all and reset;

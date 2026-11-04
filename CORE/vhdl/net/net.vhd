@@ -2,9 +2,9 @@
 -- MEGA65 port of the C128 core
 --
 -- The network hardware, a device on the system CPU's device bus (C_DEV_NET): the
--- SwiftLink's 6551 (acia6551) and its FIFOs, the Ethernet MAC (eth_wrapper) and the
--- device DNA for the MAC address. lwIP, the Hayes modem, UCI target 3 and the REST
--- server run in the system firmware's main loop.
+-- SwiftLink's 6551 (acia6551) and its FIFOs, the Ethernet MAC (eth_wrapper), Gideon's
+-- video and audio streams (stream_tx) and the device DNA for the MAC address. lwIP, the
+-- Hayes modem, UCI target 3 and the REST server run in the system firmware's main loop.
 --
 -- The 6551 runs on the C128's main clock, the rest on clk_i (the Ethernet's 50 MHz); they
 -- meet through the FIFOs and synchronizers. The device bus comes from qnice_clk, the same
@@ -25,6 +25,9 @@
 --  11  ETH_DROPS    r: frames received with errors or without room
 --  12  ETH_CTRL     r/w: bit 0 run (the MAC and PHY leave reset)
 --  16..19 DNA       r: the device DNA's 57 bits, 16 a word; word 19 bit 15 valid
+--  32  STREAM_CTRL  r/w: bit 0 video on, 1 audio on; r: bits 8, 9 its packet going out
+--  33..36           r: video and audio packets sent, video and audio slots dropped
+--  64..95, 96..127  w: the video and audio streams' 42-byte headers, two bytes a word, low first
 --
 -- GPL-3.0-or-later
 ----------------------------------------------------------------------------------
@@ -55,6 +58,14 @@ entity net is
       data_i         : in  std_logic_vector(7 downto 0);
       data_o         : out std_logic_vector(7 downto 0);
       irq_o          : out std_logic;
+
+      -- His streams' sources, main clock: VIC pixels with their raster position, audio
+      vic_ce_i       : in  std_logic := '0';
+      vic_index_i    : in  unsigned(3 downto 0) := (others => '0');
+      vic_x_i        : in  unsigned(9 downto 0) := (others => '0');
+      vic_y_i        : in  unsigned(8 downto 0) := (others => '0');
+      audio_l_i      : in  signed(15 downto 0) := (others => '0');
+      audio_r_i      : in  signed(15 downto 0) := (others => '0');
 
       -- Device bus, from qnice_clk
       dev_ce_i       : in  std_logic;
@@ -143,6 +154,18 @@ architecture synthesis of net is
    signal eth_tx_data  : std_logic_vector(7 downto 0) := x"00";
    signal eth_tx_room  : std_logic;
    signal eth_drops    : std_logic_vector(15 downto 0);
+
+   -- Streams
+   signal strm_en      : std_logic_vector(1 downto 0) := "00";
+   signal strm_busy    : std_logic_vector(1 downto 0);
+   signal strm_hdr_we  : std_logic := '0';
+   signal strm_hdr_adr : std_logic_vector(5 downto 0) := (others => '0');
+   signal strm_hdr_dat : std_logic_vector(15 downto 0) := (others => '0');
+   signal strm_vsent, strm_asent, strm_vdrop, strm_adrop : unsigned(15 downto 0);
+   signal strm_valid   : std_logic;
+   signal strm_ready   : std_logic;
+   signal strm_data    : std_logic_vector(7 downto 0);
+   signal strm_last    : std_logic;
 
    -- Device DNA, for the MAC address
    signal dna        : std_logic_vector(56 downto 0) := (others => '0');
@@ -284,6 +307,7 @@ begin
          eth_rx_ready <= '0';
          eth_tx_valid <= '0';
          ev_clear     <= "000";
+         strm_hdr_we  <= '0';
 
          if dev_ce_i = '1' and dev_ce_d = '0' then
             if dev_we_i = '1' then
@@ -298,8 +322,14 @@ begin
                      eth_tx_data  <= dev_data_i(7 downto 0);
                      eth_tx_last  <= dev_data_i(8);
                   when x"00C" => eth_run  <= dev_data_i(0);
+                  when x"020" => strm_en  <= dev_data_i(1 downto 0);
                   when others => null;
                end case;
+               if dev_addr_i(11 downto 6) = "000001" then    -- 0x040..0x07F: stream headers
+                  strm_hdr_we  <= '1';
+                  strm_hdr_adr <= dev_addr_i(5 downto 0);
+                  strm_hdr_dat <= dev_data_i;
+               end if;
             else
                case dev_addr_i is
                   when x"001" =>
@@ -324,6 +354,7 @@ begin
          end if;
          if rst_i = '1' then
             eth_run <= '0';
+            strm_en <= "00";
          end if;
       end if;
    end process dev_proc;
@@ -351,6 +382,13 @@ begin
          when x"013" =>
             dev_data_o(8 downto 0) <= dna(56 downto 48);
             dev_data_o(15)         <= dna_valid;
+         when x"020" =>
+            dev_data_o(1 downto 0) <= strm_en;
+            dev_data_o(9 downto 8) <= strm_busy;
+         when x"021" => dev_data_o              <= std_logic_vector(strm_vsent);
+         when x"022" => dev_data_o              <= std_logic_vector(strm_asent);
+         when x"023" => dev_data_o              <= std_logic_vector(strm_vdrop);
+         when x"024" => dev_data_o              <= std_logic_vector(strm_adrop);
          when others => null;
       end case;
    end process read_proc;
@@ -360,6 +398,32 @@ begin
    -----------------------------------------------------------------------------
 
    eth_rst <= rst_i or not eth_run;
+
+   i_stream : entity work.stream_tx
+      port map (
+         main_clk_i  => main_clk_i,
+         vic_ce_i    => vic_ce_i,
+         vic_index_i => vic_index_i,
+         vic_x_i     => vic_x_i,
+         vic_y_i     => vic_y_i,
+         audio_l_i   => audio_l_i,
+         audio_r_i   => audio_r_i,
+         clk_i       => clk_i,
+         rst_i       => rst_i,
+         enable_i    => strm_en,
+         busy_o      => strm_busy,
+         hdr_we_i    => strm_hdr_we,
+         hdr_addr_i  => strm_hdr_adr,
+         hdr_data_i  => strm_hdr_dat,
+         vsent_o     => strm_vsent,
+         asent_o     => strm_asent,
+         vdrop_o     => strm_vdrop,
+         adrop_o     => strm_adrop,
+         m_valid_o   => strm_valid,
+         m_ready_i   => strm_ready,
+         m_data_o    => strm_data,
+         m_last_o    => strm_last
+      ); -- i_stream
 
    i_eth : entity work.eth_wrapper
       generic map (
@@ -380,6 +444,10 @@ begin
          core_tx_data_i     => eth_tx_data,
          core_rx_cnt_drop_o => eth_drops,
          core_tx_room_o     => eth_tx_room,
+         strm_valid_i       => strm_valid,
+         strm_ready_o       => strm_ready,
+         strm_data_i        => strm_data,
+         strm_last_i        => strm_last,
          eth_clk_i          => clk_i,
          eth_rst_i          => eth_rst,
          eth_clk_o          => eth_clock_o,
