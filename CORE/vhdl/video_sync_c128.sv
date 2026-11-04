@@ -158,7 +158,8 @@ always @(posedge clk32) begin
          vblank_len        = 9'(vres <= 252 ? 5 : vres-247);
       end
       else if (!field_detect && (hres >= 1994 && hres < 2103) && (vres >= 298 && vres < 329)) begin
-         vblank_start_line = 9'(vres-18);
+         // MEGA65: vres-13 (MiSTer vres-18) centers the KERNAL's 25 rows: 34 lines above, 35 below
+         vblank_start_line = 9'(vres-13);
          vsync_start_line  = 9'(vres-9);
          vsync_len         = 9'd4;
          vblank_len        = 9'(vres-268);
