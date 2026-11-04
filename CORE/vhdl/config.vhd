@@ -276,7 +276,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 184; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 196; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
@@ -389,7 +389,19 @@ constant OPTM_ITEMS_ALL    : string :=
    "\n"                     &
    " Back to main menu\n"   &
 
-   " HDMI: CRT emulation\n" &
+   " HDMI: %s\n"            &    -- HDMI filter submenu; %s is the filter
+   " HDMI Filter\n"         &
+   "\n"                     &
+   " No Filter\n"           &    -- nearest neighbour, as before the filters
+   " Sharp Bilinear\n"      &    -- default: even columns at any scale
+   " Bicubic\n"             &
+   " Smooth\n"              &
+   " Lanczos\n"             &
+   " Scanlines\n"           &    -- the old CRT emulation
+   " CRT (S-Video)\n"       &
+   " CRT (Composite)\n"     &    -- longest summary: " HDMI: CRT (Composite)"
+   "\n"                     &
+   " Back to main menu\n"   &
 
    " VGA: %s\n"             &    -- VGA submenu; %s is the VGA mode
    " VGA Display Mode\n"    &
@@ -499,7 +511,7 @@ constant OPTM_ITEMS_ALL    : string :=
 constant OPTM_G_VIDEO_OUT  : integer := 1;
 constant OPTM_G_HDMI       : integer := 2;
 constant OPTM_G_FF         : integer := 3;
-constant OPTM_G_CRT        : integer := 4;
+constant OPTM_G_HDMI_FILTER: integer := 4;    -- HDMI filter: ascal's scalers and polyphase filters
 constant OPTM_G_JAILBARS   : integer := 5;
 constant OPTM_G_CREDITS    : integer := 6;
 constant OPTM_G_CART       : integer := 7;    -- Cartridge source: hardware slot or virtual cartridge
@@ -647,7 +659,19 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
-                                             OPTM_G_CRT     + OPTM_G_SINGLESEL,                   -- HDMI: CRT emulation
+                                             OPTM_G_SUBMENU,                                      -- HDMI filter submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- HDMI Filter
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_HDMI_FILTER,                                  -- No Filter
+                                             OPTM_G_HDMI_FILTER + OPTM_G_STDSEL,                  -- Sharp Bilinear (default)
+                                             OPTM_G_HDMI_FILTER,                                  -- Bicubic
+                                             OPTM_G_HDMI_FILTER,                                  -- Smooth
+                                             OPTM_G_HDMI_FILTER,                                  -- Lanczos
+                                             OPTM_G_HDMI_FILTER,                                  -- Scanlines
+                                             OPTM_G_HDMI_FILTER,                                  -- CRT (S-Video)
+                                             OPTM_G_HDMI_FILTER,                                  -- CRT (Composite)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 
                                              OPTM_G_SUBMENU,                                      -- VGA submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- VGA Display Mode

@@ -456,4 +456,5 @@ void host_rest_init(void)
    settings[OPTM_G_DRVA_MODEL][1] = settings[OPTM_G_DRVB_MODEL][1] = 1;   // 1571
    settings[OPTM_G_DRVA_ID][0] = settings[OPTM_G_DRVB_ID][1] = 1;         // 8, 9
    settings[OPTM_G_HDMI_AUDIO][0] = settings[OPTM_G_IEC][0] = 1;          // on, as config.vhd has them
+   settings[OPTM_G_HDMI_FILTER][1] = 1;                                   // Sharp Bilinear
 }

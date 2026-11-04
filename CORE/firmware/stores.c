@@ -13,6 +13,7 @@
 #include "core.h"
 #include "drives.h"
 #include "fmt.h"
+#include "hdmi_filter.h"
 #include "heap.h"
 #include "net/netcfg.h"
 #include "reu.h"
@@ -21,7 +22,7 @@
 #include "uci.h"
 
 // I_GROUP: a menu group (item_t's group); an on_off item is its single-select line
-enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED,
+enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED, I_SCAN,
        I_MOUSE, I_GROUP = I_MOUSE + MS_COUNT, I_NET };      // I_MOUSE + MS_*: the mouse's                                    // I_FIXED: one choice, nothing to set                        // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
@@ -43,6 +44,8 @@ static const char *const video_outs[]  = { "Follow 40/80", "40 columns", "80 col
 static const char *const jailbars[]    = { "Off", "Low", "Medium", "High", NULL };
 static const char *const hdmi_modes[]  = { "720p 50 Hz 16:9", "720p 60 Hz 16:9", "576p 50 Hz 4:3", "576p 50 Hz 5:4",
                                            "640x480 60 Hz", "720x480 59.94 Hz", "800x600 60 Hz", NULL };
+static const char *const hdmi_filters[] = { "No Filter", "Sharp Bilinear", "Bicubic", "Smooth", "Lanczos",
+                                           "Scanlines", "CRT (S-Video)", "CRT (Composite)", NULL };   // HF_*
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
 // His U64's
@@ -77,7 +80,7 @@ const item_t stores_items[] = {
    { ST_U64,     I_MOUSE + MS_WHEEL,     IT_VALUE, "Mouse Wheel Sensitivity", NULL,        1, 16, 8, NULL, 0 },
    { ST_U64,     I_MOUSE + MS_WHEEL_DIR, IT_ENUM,  "Mouse Wheel Direction",   wheel_dirs,  0, 0, 0, NULL, 0 },
    { ST_U64,     I_GROUP,        IT_ENUM,   "Digital Video Mode",         hdmi_dvi,    0, 0, 0, NULL, OPTM_G_HDMI_AUDIO },
-   { ST_U64,     I_GROUP,        IT_ENUM,   "HDMI Scan lines",            en_dis,      0, 0, 0, NULL, OPTM_G_CRT },
+   { ST_U64,     I_SCAN,         IT_ENUM,   "HDMI Scan lines",            en_dis,      0, 0, 0, NULL, 0 },   // the HDMI Filter's
    { ST_U64,     I_GROUP,        IT_ENUM,   "Serial Bus Mode",            iec_modes,   0, 0, 0, NULL, OPTM_G_IEC },
    { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "", 0 },
    { ST_C64,     I_GROUP,        IT_ENUM,   "Cartridge Preference",       cart_prefs,  0, 0, 0, NULL, OPTM_G_CART },
@@ -123,6 +126,7 @@ const item_t stores_items[] = {
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Video Output",               video_outs,  0, 0, 0, NULL, OPTM_G_VIDEO_OUT },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VIC-II Jailbars",            jailbars,    0, 0, 0, NULL, OPTM_G_JAILBARS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Flicker-free",          en_dis,      0, 0, 0, NULL, OPTM_G_FF },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Filter",                hdmi_filters, 0, 0, HF_DEFAULT, NULL, OPTM_G_HDMI_FILTER },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VGA Display Mode",           vga_modes,   0, 0, 0, NULL, OPTM_G_VGA_MODES },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
@@ -136,7 +140,7 @@ _Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.
 // items it names.
 static uint8_t wanted[ITEMS_MAX];
 static struct {
-   int8_t reu, size, image, uci, power[2], model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
+   int8_t reu, size, image, uci, scan, power[2], model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
    int8_t mouse[MS_COUNT];
    int8_t group[ITEMS_MAX];          // an I_GROUP item's, by its index
 } want;
@@ -301,6 +305,7 @@ int item_get(const item_t *it)
       r = reu_now() ? reu_now() : reu_kept ? reu_kept : 1 + it->def;
       return r - 1 < item_choices(it) ? r - 1 : 0;
    case I_UCI:        return shell_setting(OPTM_G_UCI, 0);
+   case I_SCAN:       return group_pos(OPTM_G_HDMI_FILTER, HF_COUNT) >= HF_SCANLINES;
    case I_DRIVE:      return drive_running(d) != 0;
    case I_DRIVE_TYPE: return stores_drive_model(d);
    case I_DRIVE_ID:   return stores_drive_id(d);
@@ -400,6 +405,7 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
    switch (it->id) {
    case I_REU:      want.reu = c;      return WANT_OK;
    case I_UCI:      want.uci = c;      return WANT_OK;
+   case I_SCAN:     want.scan = c;     return WANT_OK;
    case I_DRIVE:    want.power[d] = c; return WANT_OK;
    case I_GROUP:    want.group[it - stores_items] = c; return WANT_OK;
    case I_FIXED:                       return WANT_OK;
@@ -512,6 +518,12 @@ void stores_want_saved(int s)
 {
    FIL f;
    want_defaults(s, 0);
+   // A file from before the HDMI Filter has no line for it: then it keeps the scan lines
+   // his HDMI Scan lines, read before it, left
+   int f0 = group_pos(OPTM_G_HDMI_FILTER, HF_COUNT);
+   for (int i = 0; i < stores_count; i++)
+      if (stores_items[i].store == s && stores_items[i].group == OPTM_G_HDMI_FILTER && f0 >= HF_SCANLINES)
+         want.group[i] = f0;
    if (settings_open(&f) == FR_OK) {
       stores_read(&f, 1u << s, no_log);
       f_close(&f);
@@ -558,6 +570,15 @@ static int apply(void)
       else
          shell_force(it->group, c, 1);
       net |= it->group == OPTM_G_NET_DHCP || it->group == OPTM_G_NET_FTP || it->group == OPTM_G_NET_REST;
+   }
+   // His HDMI Scan lines after the HDMI Filter: a filter without them for Enabled becomes
+   // Scanlines, one with them for Disabled the default (a file from before the filters)
+   if (want.scan >= 0) {
+      int f = group_pos(OPTM_G_HDMI_FILTER, HF_COUNT);
+      if (want.scan && f < HF_SCANLINES)
+         shell_force(OPTM_G_HDMI_FILTER, HF_SCANLINES, 1);
+      else if (!want.scan && f >= HF_SCANLINES)
+         shell_force(OPTM_G_HDMI_FILTER, HF_DEFAULT < HF_SCANLINES ? HF_DEFAULT : HF_NONE, 1);
    }
    if (want.image >= 0) {
       reu_file_set(want.image ? want_image : NULL);

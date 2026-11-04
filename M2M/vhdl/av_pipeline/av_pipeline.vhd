@@ -83,6 +83,7 @@ entity av_pipeline is
       qnice_poly_a_i          : in  std_logic_vector( 9 downto 0);
       qnice_poly_wr_i         : in  std_logic;
       qnice_ascal_mode_i      : in  std_logic_vector( 4 downto 0);
+      qnice_hdmi_scanlines_i  : in  std_logic;                     -- a scanline filter: scanline_fit on
 
       -- To QNICE
       qnice_hdmax_o           : out std_logic_vector(11 downto 0);
@@ -631,6 +632,7 @@ begin
 
          -- QNICE connection to ascal's mode register
          qnice_ascal_mode_i       => unsigned(qnice_ascal_mode_i),
+         qnice_hdmi_scanlines_i   => qnice_hdmi_scanlines_i,
 
          -- QNICE device for interacting with the Polyphase filter coefficients
          qnice_poly_clk_i         => qnice_clk_i,

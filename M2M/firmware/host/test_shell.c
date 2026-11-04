@@ -10,6 +10,8 @@
 #include "config_ids.h"
 #include "core.h"
 #include "ff.h"
+#include "filters.h"
+#include "hdmi_filter.h"
 #include "heap.h"
 #include "host_net.h"
 #include "input.h"
@@ -630,8 +632,6 @@ int main(int argc, char **argv)
    check(device_holds(0x101, 0, 4100), "boot0.rom in its device");
    check(second ? dev_at(0x102, 0, 22, 0, 32768) : device_holds(0x102, 1, 600),
          second ? "drive 8's 1541 ROM picked over boot1.rom" : "boot1.rom in its device");
-   M2M_RAMROM_DEV = M2M_DEV_ASCAL_PPHASE;
-   check(M2M_DEV16[0] == 0x03E8 && M2M_DEV16[0x100] != 0, "ascal filters loaded");
    check(M2M_CSR & M2M_CSR_ASCAL_AUTO, "ascal follows the core");
    // The first run left ROMs picked and a boot cartridge in the settings file; the cartridge
    // loads from the main loop, once the C128 runs
@@ -659,6 +659,21 @@ int main(int argc, char **argv)
    if (second)
       check(!setting_get(item(" Use IEC port")), "IEC port off, as the first run left it");
    check_stores();
+   // The HDMI filter's coefficients (hdmi_filter.c): a polyphase choice's once its poll in the
+   // main loop sees it, however it was set, and the device bus left as it was
+   static const struct { const char *line; const uint16_t *h, *v; } flt[] = {
+      { " Scanlines", LANCZOS2_12, SCAN_BR_110_80 }, { " Smooth", GS_SHARPNESS_050, GS_SHARPNESS_050 },
+      { " CRT (Composite)", CRT_SIM_COMPOSITE_H, SCAN_BR_110_80 } };
+   for (int k = 0; k < 3; k++) {
+      shell_force(OPTM_G_HDMI_FILTER, item(flt[k].line) - item(" No Filter"), 1);
+      M2M_RAMROM_DEV = 0x0101;
+      hdmi_filter_poll();
+      int same = M2M_RAMROM_DEV == 0x0101;
+      M2M_RAMROM_DEV = M2M_DEV_ASCAL_PPHASE;
+      for (int i = 0; i < 256; i++)
+         same &= M2M_DEV16[i] == flt[k].h[i] && M2M_DEV16[0x100 + i] == flt[k].v[i];
+      check(same, flt[k].line);
+   }
    // Back to the defaults for the checks below
    M2M_CONTROL_M(0) = M2M_CONTROL_M(1) = M2M_CONTROL_M(2) = M2M_CONTROL_M(3) = 0;
    for (int i = 0; i < menu.n; i++)

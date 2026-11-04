@@ -11,6 +11,7 @@
 #include "drives.h"
 #include "fmt.h"
 #include "ftp.h"
+#include "hdmi_filter.h"
 #include "http.h"
 #include "input.h"
 #include "m2m_rv.h"
@@ -679,10 +680,11 @@ uint32_t core_menu_key(void)
 }
 
 // The menu's stream lines (net/stream.c), the boot cartridge's load (rompick.c), the Ultimate
-// Command Interface (uci.c), the REST API (net/http.c), its input's timing (input.c) and the
-// FTP server (net/ftp.c)
+// Command Interface (uci.c), the REST API (net/http.c), its input's timing (input.c), the
+// FTP server (net/ftp.c) and the HDMI filter's coefficients (hdmi_filter.c)
 DMEM_CODE void core_poll(void)
 {
+   hdmi_filter_poll();
    if (stream_dirty)
       stream_menu_sync();
    rompick_poll();

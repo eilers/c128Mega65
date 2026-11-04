@@ -3,7 +3,7 @@
 --
 -- Testbench for config.vhd: R3-memory builds (G_R3_MEMORY) leave the 2 MB and 16 MB REU items
 -- out of the menu. Reads both menus the way the Shell does and checks that the R3 one is the full
--- one without those items, in every selector.
+-- one without those items, in every selector, and that the lines mega65.vhd reads are where it reads them.
 --
 -- Run with CORE/scripts/run_config_nvc.sh
 ----------------------------------------------------------------------------------
@@ -108,6 +108,14 @@ begin
       variable vf, vr           : natural;
       variable j                : natural;
 
+      -- full item idx, a line mega65.vhd reads, is text
+      procedure named(idx : natural; text : string) is
+         variable a, b : natural;
+      begin
+         item(items_f, len_f, idx, a, b);
+         check(items_f(a to b) = text, "full item " & integer'image(idx) & " is """ & items_f(a to b) & """");
+      end procedure named;
+
    begin
       wait until rising_edge(clk);
 
@@ -132,6 +140,23 @@ begin
       check(items_f(f1 to f2) = " 16 MB", "full item C_MENU_REU_16M is """ & items_f(f1 to f2) & """");
       item(items_f, len_f, C_MENU_CART_CRT, f1, f2);
       check(items_f(f1 to f2) = " CRT file", "full item C_MENU_CART_CRT is """ & items_f(f1 to f2) & """");
+
+      -- The HDMI filter submenu, and lines after it
+      named(C_MENU_HDMI_AUDIO,    " HDMI audio");
+      named(C_MENU_FLT_NONE,      " No Filter");
+      named(C_MENU_FLT_SHARP,     " Sharp Bilinear");
+      named(C_MENU_FLT_BICUBIC,   " Bicubic");
+      named(C_MENU_FLT_SMOOTH,    " Smooth");
+      named(C_MENU_FLT_LANCZOS,   " Lanczos");
+      named(C_MENU_FLT_SCANLINES, " Scanlines");
+      named(C_MENU_FLT_SVIDEO,    " CRT (S-Video)");
+      named(C_MENU_FLT_COMPOSITE, " CRT (Composite)");
+      named(C_MENU_VGA_STD,       " Standard");
+      named(C_MENU_VGA_15KHZCS,   " 15 kHz with CSYNC");
+      named(C_MENU_IEC,           " Use IEC port");
+      named(C_MENU_JOY_SWAP,      " Swap joystick ports");
+      named(C_MENU_UCI,           " UCI at $DF1C");
+      named(C_MENU_HELP_F13,      " Help menu on F13");
 
       -- R3 item i is full item i, or i + 2 from the 2 MB item on, in text and in every selector
       for i in 0 to n_r - 1 loop

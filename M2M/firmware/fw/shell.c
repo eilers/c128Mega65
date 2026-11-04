@@ -9,7 +9,6 @@
 #include "core.h"
 #include "dmem.h"
 #include "drives.h"
-#include "filters.h"
 #include "fmt.h"
 #include "heap.h"
 #include "keys.h"
@@ -171,16 +170,22 @@ static void csr_flags(uint32_t csr, int kb, int j1, int j2)
    M2M_CSR = csr;
 }
 
-static void ascal_init(void)
+// ascal's polyphase coefficients, 256 words each. ascal builds each entry from four writes
+// in a row through one register, so one table is written whole before the other.
+void shell_polyphase(const uint16_t *h, const uint16_t *v)
 {
-   // The CRT emulation's polyphase filters. ascal builds each entry from four writes in a
-   // row through one register, so one filter has to be written whole before the other.
+   uint32_t dev = M2M_RAMROM_DEV;
    M2M_RAMROM_DEV = M2M_DEV_ASCAL_PPHASE;
    for (int i = 0; i < 256; i++)
-      M2M_DEV16[i] = LANCZOS2_12[i];
+      M2M_DEV16[i] = h[i];
    for (int i = 0; i < 256; i++)
-      M2M_DEV16[0x100 + i] = SCAN_BR_110_80[i];
+      M2M_DEV16[0x100 + i] = v[i];
+   M2M_RAMROM_DEV = dev;
+}
 
+// The core loads the polyphase coefficients for its filter (shell_polyphase)
+static void ascal_init(void)
+{
    M2M_CSR &= ~M2M_CSR_ASCAL_AUTO;
    switch (cfg_get(CFG_GENERAL, CFG_ASCAL_USAGE)) {
    case CFG_AUSE_CFG:

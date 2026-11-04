@@ -72,6 +72,7 @@ entity digital_pipeline is
 
       -- QNICE connection to ascal's mode register
       qnice_ascal_mode_i       : in  unsigned(4 downto 0);
+      qnice_hdmi_scanlines_i   : in  std_logic;              -- a scanline filter: scanline_fit on
 
       -- QNICE device for interacting with the Polyphase filter coefficients
       qnice_poly_clk_i         : in  std_logic;
@@ -323,8 +324,8 @@ begin
       hdmi_cropped_rect <= C_HDMI_CROPPED_RECTS_0(video_mode_to_index(hdmi_video_mode_i));
    end generate gen_legacy_view_size;
 
-   -- CRT emulation: scanline_fit measures and crops the input, so it needs the mode and
-   -- the polyphase bit on the video clock. Its rectangle comes back to the HDMI clock.
+   -- Scanline filters: scanline_fit measures and crops the input, so it needs the mode and
+   -- the scanline bit on the video clock. Its rectangle comes back to the HDMI clock.
    i_cdc_scanlines : entity work.cdc_stable
       generic map (
          G_DATA_SIZE    => 1,
@@ -332,7 +333,7 @@ begin
       )
       port map (
          src_clk_i     => qnice_poly_clk_i,
-         src_data_i(0) => qnice_ascal_mode_i(2),
+         src_data_i(0) => qnice_hdmi_scanlines_i,
          dst_clk_i     => video_clk_i,
          dst_data_o    => video_scanlines
       ); -- i_cdc_scanlines

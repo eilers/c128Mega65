@@ -69,7 +69,7 @@ choices are the core's, under his names where he has the same.
 
 | Category | Items |
 |---|---|
-| U64 Specific Settings | his U64's, for the menu's lines: System Mode (PAL, the core's only), HDMI Scan Resolution (the menu's HDMI modes), Joystick Swapper (Normal, Swapped), Digital Video Mode (HDMI, DVI: the menu's HDMI audio on or off), HDMI Scan lines (the menu's CRT emulation), Serial Bus Mode (All Connected: the IEC port on; C64 <-> Internal: off); and his for machine:input's mouse, with no menu lines: Mouse Mode (Cursor, Mouse, Mouse + Cursor, Mouse + Wheel), Mouse Sensitivity (1-16), Mouse Acceleration (Off, Adaptive), Mouse Wheel Sensitivity (1-16), Mouse Wheel Direction (Normal, Reversed) |
+| U64 Specific Settings | his U64's, for the menu's lines: System Mode (PAL, the core's only), HDMI Scan Resolution (the menu's HDMI modes), Joystick Swapper (Normal, Swapped), Digital Video Mode (HDMI, DVI: the menu's HDMI audio on or off), HDMI Scan lines (Enabled while the HDMI filter has scan lines: Scanlines or a CRT one; set Enabled, it picks Scanlines for a filter without them, set Disabled the default filter for one with them), Serial Bus Mode (All Connected: the IEC port on; C64 <-> Internal: off); and his for machine:input's mouse, with no menu lines: Mouse Mode (Cursor, Mouse, Mouse + Cursor, Mouse + Wheel), Mouse Sensitivity (1-16), Mouse Acceleration (Off, Adaptive), Mouse Wheel Sensitivity (1-16), Mouse Wheel Direction (Normal, Reversed) |
 | C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
 | Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, as set_mode; the internal floppy one drive at a time), Drive Bus ID (8-11; two drives may share one, as his; the menu swaps them instead), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
@@ -77,7 +77,7 @@ choices are the core's, under his names where he has the same.
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | Data Streams | Stream VIC to, Stream Audio to (`host[:port]`, 36 characters; his defaults `239.0.1.64:11000`, `239.0.1.65:11001`). A change takes effect at the stream's next start, as his |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
-| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, VGA Display Mode, Caps Lock Key, Help Menu on F13 |
+| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, HDMI Filter, VGA Display Mode, Caps Lock Key, Help Menu on F13 |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
 GET with an item in full lists his `presets` (the files of the right size). Empty, or a

@@ -253,6 +253,7 @@ port (
    qnice_ascal_mode_i      : in    std_logic_vector(1 downto 0);
    qnice_ascal_polyphase_i : in    std_logic;
    qnice_ascal_triplebuf_i : in    std_logic;
+   qnice_hdmi_scanlines_i  : in    std_logic;     -- a scanline filter: scanline_fit on
    qnice_flip_joyports_i   : in    std_logic;
    qnice_osm_control_m_o   : out   std_logic_vector(255 downto 0);
    qnice_gp_reg_o          : out   std_logic_vector(255 downto 0);
@@ -1025,6 +1026,7 @@ begin
          qnice_poly_a_i          => qnice_ramrom_addr_o(6+3 downto 0),
          qnice_poly_wr_i         => qnice_poly_wr,
          qnice_ascal_mode_i      => qnice_ascal_mode,
+         qnice_hdmi_scanlines_i  => qnice_hdmi_scanlines_i,
          qnice_hdmax_o           => qnice_hdmax,
          qnice_vdmax_o           => qnice_vdmax,
          qnice_h_pixels_o        => qnice_h_pixels,
