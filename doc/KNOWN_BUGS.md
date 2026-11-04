@@ -73,8 +73,6 @@
 
 * Video:
   * "Flicker-free" has no effect in 80-column mode.
-  * A smooth HDMI filter without scanlines for 80 columns. CRT emulation's polyphase
-      filter does the smoothing, but its coefficients are hard-coded in the framework.
   * "HDMI: Zoom-in": removed from the menu, `qnice_zoom_crop_o` is hardwired to
       '0' in `mega65.vhd`. `crop.vhd` uses fixed VIC-II geometry (border 33/35,
       image 320x200), so it has to become source-aware before the menu item can

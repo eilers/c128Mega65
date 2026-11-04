@@ -55,7 +55,8 @@ Other than that and our own work, c128Mega65 uses:
 
   * Parts of C64MEGA65 by MJoergen and sy2002: the virtual cartridge (.crt)
     support, the internal 3.5" floppy drive (physical_1581), the SDRAM
-    controller and the Ethernet MAC
+    controller, the Ethernet MAC and the HDMI filter menu with its polyphase
+    tables (M2M/video_filters, from MiSTer's Filters_MiSTer)
     https://github.com/MJoergen/C64MEGA65
 
   * NEORV32 RISC-V processor by Stephan Nolting, for the system CPU and the

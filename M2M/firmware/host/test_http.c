@@ -26,6 +26,7 @@
 #include "drives.h"
 #include "eth.h"
 #include "ff.h"
+#include "hdmi_filter.h"
 #include "host_rest.h"
 #include "http.h"
 #include "input.h"
@@ -307,8 +308,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10d\",\n" \
-                  "  \"core_version\" : \"1.0d\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10e\",\n" \
+                  "  \"core_version\" : \"1.0e\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -1093,7 +1094,7 @@ static void configs(void)
          "[Data Streams]\nStream VIC to=239.0.1.64:11000\nStream Audio to=239.0.1.65:11001\n"
          "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
-         "HDMI Flicker-free=Disabled\nVGA Display Mode=Standard\n"
+         "HDMI Flicker-free=Disabled\nHDMI Filter=Sharp Bilinear\nVGA Display Mode=Standard\n"
          "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n"), cfg);
    check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
@@ -1119,6 +1120,44 @@ static void configs(void)
    settings[OPTM_G_HDMI][3] = 1;
    expect("load all", "PUT /v1/configs:load_from_flash HTTP/1.1\r\n\r\n", OK);
    check("load all: the file's $DF00, the default HDMI mode", settings[OPTM_G_MODEM][2] && settings[OPTM_G_HDMI][0], NULL);
+   f_unlink(SETTINGS_FILE);
+
+   // His HDMI Scan lines on our HDMI Filter: Enabled is a filter with scan lines
+   uint8_t *flt = settings[OPTM_G_HDMI_FILTER];
+   expect("scan lines on", "PUT /v1/configs/u64*/hdmi%20scan%20lines/Enabled HTTP/1.1\r\n\r\n", OK);
+   check("scan lines on: Scanlines", flt[HF_SCANLINES] && !flt[HF_NONE], NULL);
+   expect("a CRT filter", "PUT /v1/configs/mega65*/hdmi%20filter?value=crt%20%28composite%29 HTTP/1.1\r\n\r\n", OK);
+   check("a CRT filter: set", flt[HF_COMPOSITE] && !flt[HF_SCANLINES], NULL);
+   expect("a CRT filter: scan lines on", "GET /v1/configs/u64*/hdmi%20scan%20lines HTTP/1.1\r\n\r\n",
+          ok("{ \n  \"U64 Specific Settings\" : { \n  \"HDMI Scan lines\" : { \n  \"current\" : \"Enabled\",\n"
+             "  \"values\" : [ \"Disabled\", \"Enabled\" ],\n  \"default\" : \"Disabled\"\n}\n},\n"
+             "  \"errors\" : [  ]\n}"));
+   expect("scan lines on again", "PUT /v1/configs/u64*/hdmi%20scan%20lines/Enabled HTTP/1.1\r\n\r\n", OK);
+   check("scan lines on again: the CRT filter kept", flt[HF_COMPOSITE], NULL);
+   expect("scan lines off", "PUT /v1/configs/u64*/hdmi%20scan%20lines/Disabled HTTP/1.1\r\n\r\n", OK);
+   check("scan lines off: the default filter", flt[HF_DEFAULT] && !flt[HF_COMPOSITE], NULL);
+   expect("Bicubic", "PUT /v1/configs/mega65*/hdmi%20filter?value=Bicubic HTTP/1.1\r\n\r\n", OK);
+   expect("scan lines off again", "PUT /v1/configs/u64*/hdmi%20scan%20lines/Disabled HTTP/1.1\r\n\r\n", OK);
+   check("scan lines off again: Bicubic kept", flt[HF_BICUBIC], NULL);
+   // A file from before the filters has only his item; ours, after it, says which filter
+   static const char old_scan[] = "[U64 Specific Settings]\nHDMI Scan lines=Enabled\n";
+   put_file(SETTINGS_FILE, old_scan, sizeof old_scan - 1);
+   expect("load an old file", "PUT /v1/configs:load_from_flash HTTP/1.1\r\n\r\n", OK);
+   check("load an old file: Scanlines", flt[HF_SCANLINES] && !flt[HF_BICUBIC], NULL);
+   static const char both[] = "[U64 Specific Settings]\nHDMI Scan lines=Enabled\n"
+                              "[MEGA65 Settings]\nHDMI Filter=CRT (S-Video)\n";
+   put_file(SETTINGS_FILE, both, sizeof both - 1);
+   expect("load both items", "PUT /v1/configs:load_from_flash HTTP/1.1\r\n\r\n", OK);
+   check("load both items: the filter", flt[HF_SVIDEO] && !flt[HF_SCANLINES], NULL);
+   static const char off[] = "[U64 Specific Settings]\nHDMI Scan lines=Disabled\n"
+                             "[MEGA65 Settings]\nHDMI Filter=Smooth\n";
+   put_file(SETTINGS_FILE, off, sizeof off - 1);
+   expect("load both items, off", "PUT /v1/configs:load_from_flash HTTP/1.1\r\n\r\n", OK);
+   check("load both items, off: the filter", flt[HF_SMOOTH] && !flt[HF_SVIDEO], NULL);
+   static const char old_off[] = "[U64 Specific Settings]\nHDMI Scan lines=Disabled\n";
+   put_file(SETTINGS_FILE, old_off, sizeof old_off - 1);
+   expect("load an old file, off", "PUT /v1/configs:load_from_flash HTTP/1.1\r\n\r\n", OK);
+   check("load an old file, off: the default filter", flt[HF_DEFAULT] && !flt[HF_SMOOTH], NULL);
    f_unlink(SETTINGS_FILE);
 
    // POST: every item tried

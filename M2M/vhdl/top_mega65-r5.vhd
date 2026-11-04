@@ -460,6 +460,7 @@ architecture synthesis of mega65_r5 is
    signal qnice_ascal_mode       : std_logic_vector(1 downto 0);
    signal qnice_ascal_polyphase  : std_logic;
    signal qnice_ascal_triplebuf  : std_logic;
+   signal qnice_hdmi_scanlines   : std_logic;
    signal qnice_retro15kHz       : std_logic;
    signal qnice_osm_cfg_scaling  : std_logic_vector(8 downto 0);
 
@@ -825,6 +826,7 @@ begin
       qnice_ascal_mode_i      => qnice_ascal_mode,
       qnice_ascal_polyphase_i => qnice_ascal_polyphase,
       qnice_ascal_triplebuf_i => qnice_ascal_triplebuf,
+      qnice_hdmi_scanlines_i  => qnice_hdmi_scanlines,
       qnice_flip_joyports_i   => qnice_flip_joyports,
       qnice_osm_control_m_o   => qnice_osm_control_m,
       qnice_gp_reg_o          => qnice_gp_reg,
@@ -888,6 +890,7 @@ begin
          qnice_ascal_mode_o      => qnice_ascal_mode,
          qnice_ascal_polyphase_o => qnice_ascal_polyphase,
          qnice_ascal_triplebuf_o => qnice_ascal_triplebuf,
+         qnice_hdmi_scanlines_o  => qnice_hdmi_scanlines,
          qnice_retro15kHz_o      => qnice_retro15kHz,
          qnice_osm_cfg_scaling_o => qnice_osm_cfg_scaling,
 

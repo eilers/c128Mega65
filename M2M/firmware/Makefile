@@ -21,7 +21,8 @@ FW_VERSION ?= $(shell git describe --always --dirty --match=NONE 2>/dev/null || 
 # and its config.vhd
 CORE_DIR   ?= ../../CORE/firmware
 CONFIG_VHD ?= ../../CORE/vhdl/config.vhd
-FILTERS    := ../video_filters/lanczos2_12.asm ../video_filters/Scan_Br_110_80.asm
+FILTERS    := $(addprefix ../video_filters/,lanczos2_12.asm Scan_Br_110_80.asm GS_Sharpness_050.asm \
+              CRT_Sim_SVideo_H.asm CRT_Sim_Composite_H.asm)
 
 ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -Os -g -std=gnu11 -ffunction-sections -fdata-sections -MMD -MP \

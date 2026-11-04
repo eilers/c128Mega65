@@ -52,6 +52,7 @@ port (
    qnice_ascal_mode_o      : out std_logic_vector(1 downto 0);
    qnice_ascal_polyphase_o : out std_logic;
    qnice_ascal_triplebuf_o : out std_logic;
+   qnice_hdmi_scanlines_o  : out std_logic;              -- a scanline filter: whole HDMI rows per line
    qnice_retro15kHz_o      : out std_logic;              -- 0 = normal frequency, 1 = retro 15 kHz frequency
    qnice_csync_o           : out std_logic;              -- 0 = normal HS/VS, 1 = Composite Sync  
 
@@ -1088,16 +1089,21 @@ begin
    qnice_csync_o              <= qnice_osm_control(C_MENU_VGA_15KHZCS);
    qnice_osm_cfg_scaling_o    <= (others => '1');
 
-   -- ascal filters that are applied while processing the input
-   -- 00 : Nearest Neighbour
-   -- 01 : Bilinear
-   -- 10 : Sharp Bilinear
-   -- 11 : Bicubic
-   qnice_ascal_mode_o         <= "00";
+   -- HDMI filter: ascal's own scalers (00 Nearest, 10 Sharp Bilinear, 11 Bicubic), or its
+   -- polyphase filter with the coefficients the firmware loads for the choice (hdmi_filter.c)
+   qnice_ascal_mode_o         <= "10" when qnice_osm_control(C_MENU_FLT_SHARP)   = '1' else
+                                 "11" when qnice_osm_control(C_MENU_FLT_BICUBIC) = '1' else
+                                 "00";
+   qnice_ascal_polyphase_o    <= qnice_osm_control(C_MENU_FLT_SMOOTH)    or
+                                 qnice_osm_control(C_MENU_FLT_LANCZOS)   or
+                                 qnice_osm_control(C_MENU_FLT_SCANLINES) or
+                                 qnice_osm_control(C_MENU_FLT_SVIDEO)    or
+                                 qnice_osm_control(C_MENU_FLT_COMPOSITE);
 
-   -- If polyphase is '1' then the ascal filter mode is ignored and polyphase filters are used instead
-   -- @TODO: Right now, the filters are hardcoded in the M2M framework, we need to make them changeable inside m2m-rom.asm
-   qnice_ascal_polyphase_o    <= qnice_osm_control(C_MENU_CRT_EMULATION);
+   -- The scanline filters scale by whole HDMI rows per line (scanline_fit.vhd)
+   qnice_hdmi_scanlines_o     <= qnice_osm_control(C_MENU_FLT_SCANLINES) or
+                                 qnice_osm_control(C_MENU_FLT_SVIDEO)    or
+                                 qnice_osm_control(C_MENU_FLT_COMPOSITE);
 
    -- ascal triple-buffering
    -- @TODO: Right now, the M2M framework only supports OFF, so do not touch until the framework is upgraded
