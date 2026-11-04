@@ -31,3 +31,6 @@ CORE/input_inject_nvc
 CORE/net_nvc
 CORE/stream_nvc
 CORE/vic_window_nvc
+
+# Python bytecode from the test tools
+__pycache__/

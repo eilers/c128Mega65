@@ -16,10 +16,13 @@
 #include "net/netcfg.h"
 #include "stores.h"
 #include "roms.h"
+#include "vdc.h"
 
 uint32_t net_millis(void);         // test_http.c's clock
 
 uint8_t c128_mem[65536];
+uint8_t vdc_ram[65536], vdc_regs[VDC_REGS];   // the VDC, as vdc.c reads it
+int     vdc_reads;
 int     dma_held_v, dma_z80_v, dma_polls = 3, dma_jobs, dma_stops;
 int     z80_cpm;                        // the Z80 runs CP/M until the next reset
 int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], mounts, remaps;
@@ -140,6 +143,9 @@ int dma_z80(void)
    }
    return dma_z80_v;
 }
+uint8_t vdc_mem(uint16_t a) { vdc_reads++; return vdc_ram[a]; }
+uint8_t vdc_reg(int r) { return vdc_regs[r]; }
+
 void dma_put(int i, uint8_t b) { buf[i] = b; }
 uint8_t dma_get(int i) { return buf[i]; }
 

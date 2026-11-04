@@ -32,6 +32,8 @@ byte, because tools parse his answers. Where it differs, "Not his" below says so
 | `GET /v1/machine:readmem?address=&length=` | memory as the C128's CPU sees it then (the MMU's banks, ROMs, I/O), read by bus DMA with the CPU held for the whole request; 1 µs a byte, 64 KB in about 70 ms |
 | `PUT /v1/machine:writemem?address=&data=`, `POST` | the same, written: up to 128 bytes in the URL, or a POST's body (raw, or a multipart file part: the first part, up to 64 KB) |
 | `PUT /v1/machine:menu_button` | opens the On-Screen-Menu, or closes it (not while a file is being picked) |
+| `GET /v1/machine:vdcmem?address=&length=` | readmem's form and answers, for the VDC's 64 KB: the bytes a program reads through R18/R19 and R31 (16K or 64K, as R28 bit 4 has it), without moving the update address. No bus DMA: the C128 keeps running, also while the Z80 runs (CP/M's screen reads; readmem answers 423 then). 0.7 µs a byte, 64 KB in about 50 ms; sending 64 KB takes about 0.4 s, as readmem's. Pause first for a still snapshot |
+| `GET /v1/machine:vdcregs` | 40 bytes: R0-R37 as a program reads them, then the status byte ($D600) and the selected register, without a read's side effects (R31 moves the update address, R16/R17 clear the light pen flag) |
 | `GET /v1/machine:menu_screen` | 404 while the menu is closed; else 2000 bytes: the OSM window from its top left as 40 × 25 C64 screen codes (lower-case set), then their colours |
 | `PUT /v1/machine:poweroff` | 501, his answer where the hardware can't: the MEGA65 can't switch itself off |
 | `GET /v1/machine:measure` | 501, as his U2: no bus measurement |
@@ -150,6 +152,10 @@ POT values, sent to the C128 together by a commit; and the debug register at $D7
 Hardware interface 12: his video and audio streams in `C_DEV_NET` (words `0x20`-`0x7F`,
 `net/net_hw.h`), and the Network submenu's stream lines.
 
+Hardware interface 13: `C_DEV_VDC` (`vdc_peek.vhd`), the VDC's RAM (words `0x0000`-`0xFFFF`)
+and registers (its CSR window), read through a second port of the VDC's own RAM and a copy
+of its register read, on its clock. The VDC is in the C128_MiSTer submodule.
+
 ## Settings
 
 The menu's Network submenu: REST API, FTP Server and DHCP are menu items, saved when the
@@ -195,6 +201,8 @@ here or by REST. A start that fails shows his popup's text until Space.
   his a popup.
 - machine:input's C128 keys (above) are ours (Jeff, 2026-11-03); his U64 has a C64 keyboard.
 - machine:debugreg is a plain byte; his U64's register drives FPGA debug features.
+- machine:vdcmem and machine:vdcregs are ours: the U64 has no VDC. vdcmem takes readmem's
+  arguments and gives its answers.
 - A batch whose tap waits for room in the tap queue holds its answer until the tap is in (his
   REST task waits); another input request waits for it, as for his mutex.
 - A tap holds a key 80 ms, his 40 (a key every 100 ms, his 60): the C128's CP/M BIOS loses
@@ -226,6 +234,11 @@ here or by REST. A start that fails shows his popup's text until Space.
   restart leaving the old target streaming, two starts in turn, a stop while a name
   resolves; `test_shell` the menu's lines, his popup and a typed target.
 - `CORE/scripts/run_c128_dma_nvc.sh`: the bus DMA against a model of the core's DMA port.
+- VDC: `test_http` checks vdcmem's arguments and answers (readmem's), that it needs no DMA
+  and works while the Z80 runs, and vdcregs. `CORE/scripts/run_vdc_peek_sim.tcl`
+  (tb_vdc_peek) reads the real VDC both ways, by the device and as a program does through
+  $D600/$D601, in 16K and 64K mapping; registers without side effects; during a block fill.
+  `test/vdc/hw_vdc.py` does the same on the machine.
 - machine:input: `test_http` checks his validation texts, the answers, tap timing on its clock,
   the C128 keys, RESTORE, joysticks, the mouse and its 429, the menu, release_all and reset;
   `test_shell` drives the menu by API taps. `CORE/scripts/run_input_inject_nvc.sh` (the device:

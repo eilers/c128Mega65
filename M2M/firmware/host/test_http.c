@@ -307,8 +307,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10c\",\n" \
-                  "  \"core_version\" : \"1.0c\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10d\",\n" \
+                  "  \"core_version\" : \"1.0d\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -717,6 +717,34 @@ static void machine(void)
           errs(423, "Unknown", "Could not obtain lock of subsystem"));
    dma_z80_v = 0;
    check("Z80: the CPU let go", !dma_held_v, NULL);
+
+   // vdcmem: readmem's form; no DMA, so not while the CPU is held and not refused for the Z80
+   for (int i = 0; i < 65536; i++)
+      vdc_ram[i] = pat(i) ^ 0x5A;
+   n = dma_jobs;
+   expect_bin("vdcmem 16", "GET /v1/machine:vdcmem?address=1000&length=16 HTTP/1.1\r\n\r\n", vdc_ram + 0x1000, 16);
+   expect_bin("vdcmem, 256 without a length", "GET /v1/machine:vdcmem?address=800 HTTP/1.1\r\n\r\n", vdc_ram + 0x800, 256);
+   expect_bin("vdcmem 64 KB", "GET /v1/machine:vdcmem?address=0&length=65536 HTTP/1.1\r\n\r\n", vdc_ram, 65536);
+   expect_bin("vdcmem to $FFFF", "GET /v1/machine:vdcmem?address=FFF0&length=16 HTTP/1.1\r\n\r\n", vdc_ram + 0xFFF0, 16);
+   expect("vdcmem past $FFFF", "GET /v1/machine:vdcmem?address=FFF0&length=17 HTTP/1.1\r\n\r\n",
+          bad("\"Memory read exceeds location $FFFF\""));
+   expect("vdcmem 0", "GET /v1/machine:vdcmem?address=0&length=0 HTTP/1.1\r\n\r\n", bad("\"Invalid length\""));
+   expect("vdcmem 65537", "GET /v1/machine:vdcmem?address=0&length=65537 HTTP/1.1\r\n\r\n", bad("\"Invalid length\""));
+   expect("vdcmem: a bad address", "GET /v1/machine:vdcmem?address=10000&length=1 HTTP/1.1\r\n\r\n", bad("\"Invalid address\""));
+   expect("vdcmem: no address", "GET /v1/machine:vdcmem?length=1 HTTP/1.1\r\n\r\n",
+          bad("\"Function vdcmem requires parameter address\""));
+   dma_z80_v = 1;
+   expect_bin("vdcmem with the Z80", "GET /v1/machine:vdcmem?address=2000&length=4 HTTP/1.1\r\n\r\n", vdc_ram + 0x2000, 4);
+   dma_z80_v = 0;
+   check("vdcmem: no DMA, the CPU never held", dma_jobs == n && !dma_held_v, NULL);
+   n = vdc_reads;
+   expect_bin("vdcmem 1", "GET /v1/machine:vdcmem?address=FFFF&length=1 HTTP/1.1\r\n\r\n", vdc_ram + 0xFFFF, 1);
+   check("vdcmem: one read a byte", vdc_reads == n + 1, NULL);
+
+   // vdcregs: R0-R37, the status, the selected register
+   for (int i = 0; i < 40; i++)
+      vdc_regs[i] = 0xC0 + i;
+   expect_bin("vdcregs", "GET /v1/machine:vdcregs HTTP/1.1\r\n\r\n", vdc_regs, 40);
 
    // Two at once: one waits for the other's job
    client_t *a = cl_open(), *b = cl_open();

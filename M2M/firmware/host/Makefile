@@ -46,6 +46,7 @@ build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/conf
 UCI_SRC := test_uci.c host_uci_model.c host_m2m.c host_reu_sd.c diskio_file.c ../../../CORE/firmware/uci.c \
            ../../../CORE/firmware/uci_dos.c ../../../CORE/firmware/dos_path.c ../../../CORE/firmware/fr_text.c ../../../CORE/firmware/uci_ctrl.c ../../../CORE/firmware/reu.c \
            ../../../CORE/firmware/stores.c ../../../CORE/firmware/rompick.c ../../../CORE/firmware/c128dma.c \
+           ../../../CORE/firmware/vdc.c \
            ../../../CORE/firmware/diskimg.c ../../../CORE/firmware/input.c ../../../CORE/firmware/mouse.c \
            ../fw/keys.c ../fw/heap.c ../lib/fmt.c ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
 build/test_uci: $(UCI_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h host_net.h ../../../CORE/firmware/uci.h \

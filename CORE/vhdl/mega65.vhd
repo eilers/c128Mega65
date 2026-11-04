@@ -566,6 +566,15 @@ signal qnice_input_ce         : std_logic;
 signal qnice_input_we         : std_logic;
 signal qnice_input_data       : std_logic_vector(15 downto 0);
 
+-- The VDC's RAM and registers for the system CPU (vdc_peek.vhd), vdc_dbg_* on vdc_clk
+signal vdc_dbg_rd             : std_logic;
+signal vdc_dbg_addr           : unsigned(15 downto 0);
+signal vdc_dbg_ram            : unsigned(7 downto 0);
+signal vdc_dbg_reg            : unsigned(7 downto 0);
+signal qnice_vdc_ce           : std_logic;
+signal qnice_vdc_data         : std_logic_vector(15 downto 0);
+signal qnice_vdc_wait         : std_logic;
+
 -- The REU's SD card DMA (reu_sd.vhd): device, engine port, memory on the QNICE clock (dma_q_*)
 -- and on hr_clk (dma_hr_*: SDRAM, dma_hm_*: HyperRAM on R3 memory)
 signal qnice_reusd_ce         : std_logic;
@@ -807,6 +816,10 @@ begin
          stream_vic_index_o   => main_stream_vic_index,
          stream_vic_x_o       => main_stream_vic_x,
          stream_vic_y_o       => main_stream_vic_y,
+         vdc_dbg_rd_i         => vdc_dbg_rd,
+         vdc_dbg_addr_i       => vdc_dbg_addr,
+         vdc_dbg_ram_o        => vdc_dbg_ram,
+         vdc_dbg_reg_o        => vdc_dbg_reg,
 
          -- Drive led
          drive_led_o => main_drive_led_o,
@@ -1128,6 +1141,7 @@ begin
       qnice_dma_ce         <= '0';
       qnice_dma_we         <= '0';
       qnice_input_ce       <= '0';
+      qnice_vdc_ce         <= '0';
       qnice_input_we       <= '0';
 
       case qnice_dev_id_i is
@@ -1216,6 +1230,12 @@ begin
             qnice_input_ce    <= qnice_dev_ce_i;
             qnice_input_we    <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_input_data;
+
+        -- The VDC's RAM and registers, read only: each read waits while it crosses to vdc_clk
+        when C_DEV_VDC =>
+            qnice_vdc_ce      <= qnice_dev_ce_i;
+            qnice_dev_data_o  <= qnice_vdc_data;
+            qnice_dev_wait_o  <= qnice_vdc_wait;
 
          when others => null;
       end case;
@@ -1719,6 +1739,26 @@ begin
          qnice_we_i      => qnice_input_we,
          qnice_data_o    => qnice_input_data
       ); -- i_input_inject
+
+   ---------------------------------------------------------------------------------------------
+   -- The VDC's RAM and registers for REST and the serial monitor (vdc_peek.vhd)
+   ---------------------------------------------------------------------------------------------
+
+   i_vdc_peek : entity work.vdc_peek
+      port map (
+         vdc_clk_i    => vdc_clk,
+         vdc_rd_o     => vdc_dbg_rd,
+         vdc_addr_o   => vdc_dbg_addr,
+         vdc_ram_i    => vdc_dbg_ram,
+         vdc_reg_i    => vdc_dbg_reg,
+         qnice_clk_i  => qnice_clk_i,
+         qnice_rst_i  => qnice_rst_i,
+         qnice_addr_i => qnice_dev_addr_i,
+         qnice_ce_i   => qnice_vdc_ce,
+         qnice_we_i   => qnice_dev_we_i,
+         qnice_data_o => qnice_vdc_data,
+         qnice_wait_o => qnice_vdc_wait
+      ); -- i_vdc_peek
 
    ---------------------------------------------------------------------------------------------
    -- Drive ROM server (QNICE clock domain)

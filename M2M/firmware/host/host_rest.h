@@ -3,6 +3,8 @@
 #include <stdint.h>
 
 extern uint8_t c128_mem[65536];
+extern uint8_t vdc_ram[65536], vdc_regs[40];
+extern int     vdc_reads;
 extern int     dma_held_v, dma_z80_v, dma_polls, dma_jobs, dma_stops, z80_cpm;
 extern int     menu_buttons, menu_open, reboots, net_applies, func_size, c128_resets, rom_under_z80;
 extern uint16_t *sys_rom;
