@@ -2,7 +2,8 @@
 // II+L's 3.15a has the same) with his U2's answers, on the C128. His C64_DMA_RAW_READ and
 // _WRITE go over the core's DMA port (c128dma.c): memory as the C128's CPU sees it then,
 // with the CPU held for the whole of a request, as his stop() holds it. Reset and reboot are
-// the reset button, as UCI's REBOOT; the menu is the On-Screen-Menu.
+// the reset button, as UCI's REBOOT; the menu is the On-Screen-Menu. vdcmem and vdcregs are
+// ours (his U64 has no VDC): readmem's form, read through vdc.c.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
@@ -14,6 +15,7 @@
 #include "net.h"
 #include "rest_priv.h"
 #include "uci.h"
+#include "vdc.h"
 
 #define JOB_TIMEOUT 50                 // ms: a DMA job of 2 KB takes 2 ms
 
@@ -292,22 +294,30 @@ static void post_writemem(rest_t *r)
    job(r, a, r->up_len, 1);
 }
 
-static void get_readmem(rest_t *r)
+// readmem's address and length, and its answers to bad ones (vdcmem's too)
+static int read_range(rest_t *r, int *a, int *len)
 {
-   int a, len = arg_int(r, "length", 256);
-   if (!address(r, &a))
-      return;
-   if (len < 1 || len > 65536) {
+   *len = arg_int(r, "length", 256);
+   if (!address(r, a))
+      return 0;
+   if (*len < 1 || *len > 65536) {
       error(r, "Invalid length");
       json_response(r, HTTP_BAD_REQUEST);
-      return;
+      return 0;
    }
-   if (a + len > 65536) {
+   if (*a + *len > 65536) {
       error(r, "Memory read exceeds location $FFFF");
       json_response(r, HTTP_BAD_REQUEST);
-      return;
+      return 0;
    }
-   job(r, a, len, 0);
+   return 1;
+}
+
+static void get_readmem(rest_t *r)
+{
+   int a, len;
+   if (read_range(r, &a, &len))
+      job(r, a, len, 0);
 }
 
 // What the menu shows, as 40 x 25 screen codes and colours (shell.c)
@@ -321,6 +331,44 @@ static void get_menu_screen(rest_t *r)
       return;
    }
    binary_response(r, r->mem, 2000);
+}
+
+// --- the VDC: no bus needed, so the C128 keeps running and the Z80 doesn't stop it ---------
+
+#define VDC_CHUNK 4096                 // bytes a round: about 2 ms
+
+static int vdcmem_step(rest_t *r)
+{
+   rest_job_t *j = &r->job;
+   int end = j->len - j->pos < VDC_CHUNK ? j->len : j->pos + VDC_CHUNK;
+   for (; j->pos < end; j->pos++)
+      j->buf[j->pos] = vdc_mem(j->addr + j->pos);
+   if (j->pos < j->len)
+      return 0;
+   binary_response(r, j->buf, j->len);
+   return 1;
+}
+
+// The VDC's 64 KB as a program reads it through R18/R19 and R31, without moving its address
+static void get_vdcmem(rest_t *r)
+{
+   int a, len;
+   if (!read_range(r, &a, &len))
+      return;
+   if (!r->mem)
+      r->mem = heap_alloc(65536);
+   job_begin(r, a, len, 0, r->mem);
+   rest_pending(r, vdcmem_step, NULL);
+}
+
+// R0-R37 as a program reads them, then the status byte and the selected register
+static void get_vdcregs(rest_t *r)
+{
+   if (!r->mem)
+      r->mem = heap_alloc(65536);
+   for (int i = 0; i < VDC_REGS; i++)
+      r->mem[i] = vdc_reg(i);
+   binary_response(r, r->mem, VDC_REGS);
 }
 
 // His U64's debug register at $D7FF: here a byte the C128 and REST both read and write
@@ -380,6 +428,8 @@ const call_t rest_machine_calls[] = {
    CALL(HTTP_POST, "machine", "writemem", post_writemem, upload_params, UPLOAD_MAX),
    CALL(HTTP_GET, "machine", "readmem", get_readmem, readmem_params, 0),
    CALL0(HTTP_GET, "machine", "menu_screen", get_menu_screen),
+   CALL(HTTP_GET, "machine", "vdcmem", get_vdcmem, readmem_params, 0),
+   CALL0(HTTP_GET, "machine", "vdcregs", get_vdcregs),
    CALL0(HTTP_GET, "machine", "debugreg", get_debugreg),
    CALL(HTTP_PUT, "machine", "debugreg", put_debugreg, value_params, 0),
    CALL0(HTTP_GET, "machine", "measure", get_measure),
