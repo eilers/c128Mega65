@@ -11,7 +11,13 @@ input                           rd,
 input                           we,
 input      [ADDRESS_WIDTH-1:0]  addr,
 input      [DATA_WIDTH-1:0]     dai,
-output     [DATA_WIDTH-1:0]     dao
+output     [DATA_WIDTH-1:0]     dao,
+
+// MEGA65: a read-only second port for the system CPU, on the same clock, so a read that
+// meets a write at the same address gets the old byte and the write is never at risk
+input                           rd_b,
+input      [ADDRESS_WIDTH-1:0]  addr_b,
+output     [DATA_WIDTH-1:0]     dao_b
 );
 
 // MEGA65: force this 64KB VDC RAM into Block RAM. Vivado otherwise inferred it as
@@ -24,6 +30,7 @@ output     [DATA_WIDTH-1:0]     dao
 // (80-col, unused in 40-col mode) tolerates this.
 (* ram_style = "block" *) reg [DATA_WIDTH-1:0] ram [0:(1 << ADDRESS_WIDTH)-1];
 reg [DATA_WIDTH-1:0] dao_r;
+reg [DATA_WIDTH-1:0] dbo_r;
 
 always @(posedge clk) begin
     if (we) begin
@@ -35,6 +42,13 @@ always @(posedge clk) begin
     end
 end
 
+always @(posedge clk) begin
+    if (rd_b) begin
+        dbo_r <= ram[addr_b];
+    end
+end
+
 assign dao = dao_r;
+assign dao_b = dbo_r;
 
 endmodule

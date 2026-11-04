@@ -138,6 +138,11 @@ port(
    vdcR        : out unsigned(7 downto 0);
    vdcG        : out unsigned(7 downto 0);
    vdcB        : out unsigned(7 downto 0);
+   -- MEGA65: the system CPU's reads of VDC RAM and registers, on clk_vdc (vdc_top's dbg_*)
+   vdc_dbg_rd_i   : in  std_logic := '0';
+   vdc_dbg_addr_i : in  unsigned(15 downto 0) := (others => '0');
+   vdc_dbg_ram_o  : out unsigned(7 downto 0);
+   vdc_dbg_reg_o  : out unsigned(7 downto 0);
 
    -- cartridge port
    game        : in  std_logic;
@@ -541,7 +546,12 @@ component vdc_top
 
       hsync         : out std_logic;
       vsync         : out std_logic;
-      rgbi          : out unsigned(3 downto 0)
+      rgbi          : out unsigned(3 downto 0);
+
+      dbg_rd        : in  std_logic;
+      dbg_addr      : in  unsigned(15 downto 0);
+      dbg_ram       : out unsigned(7 downto 0);
+      dbg_reg       : out unsigned(7 downto 0)
    );
 end component;
 
@@ -1026,7 +1036,12 @@ port map (
    hsync => vdcHsync,
    vsync => vdcVsync,
 
-   rgbi => vdcRGBI
+   rgbi => vdcRGBI,
+
+   dbg_rd => vdc_dbg_rd_i,
+   dbg_addr => vdc_dbg_addr_i,
+   dbg_ram => vdc_dbg_ram_o,
+   dbg_reg => vdc_dbg_reg_o
 );
 
 vdcColors: entity work.rgbicolor

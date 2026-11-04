@@ -31,6 +31,11 @@ module vdc_ramiface #(
 	input          rs,
 	input          we,        // write registers
 
+	// MEGA65: the system CPU's read port, by the address a program sets in R18/R19
+	input          dbg_rd,
+	input   [15:0] dbg_addr,
+	output   [7:0] dbg_do,
+
 	input    [7:0] reg_ht,    // horizontal total
 	input    [7:0] reg_hd,    // horizontal display
 	input    [7:0] reg_ai,	  // address increment
@@ -101,7 +106,10 @@ vdcram #(8, RAM_ADDR_BITS) ram
 	.we(ram_we),
 	.addr(shuffleAddr(ram_addr, ram64k, reg_ram /*|| (ramAction==RA_IDLE || ramAction==RA_RFSH)*/)),
 	.dai(ram_di),
-	.dao(ram_do)
+	.dao(ram_do),
+	.rd_b(dbg_rd),
+	.addr_b(shuffleAddr(dbg_addr, ram64k, reg_ram)),
+	.dao_b(dbg_do)
 );
 
 wire en_rfsh = col >= reg_hd && col <= reg_hd+reg_drr;
