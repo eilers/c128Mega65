@@ -80,8 +80,8 @@ entity main is
       stream_vic_y_o          : out unsigned(8 downto 0);
 
       -- The system CPU's reads of VDC RAM and registers (vdc_peek.vhd), on clk_vdc_i
-      vdc_dbg_rd_i            : in  std_logic;
-      vdc_dbg_addr_i          : in  unsigned(15 downto 0);
+      vdc_dbg_rd_i            : in  std_logic := '0';
+      vdc_dbg_addr_i          : in  unsigned(15 downto 0) := (others => '0');
       vdc_dbg_ram_o           : out unsigned(7 downto 0);
       vdc_dbg_reg_o           : out unsigned(7 downto 0);
 
