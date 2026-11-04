@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The 80-column screen from the VDC's memory, as text: by REST (machine:vdcregs and
-machine:vdcmem) or by the serial monitor (vdcreg: and vdc:). The registers say where things
+machine:vdcmem) or by the serial monitor (vdcreg: and vdcram:). The registers say where things
 are: R12/R13 the screen, R20/R21 the attributes, R1 the columns, R6 the rows, R27 the bytes
 skipped after each row, R28 the character set. Nothing on the C128 changes.
 
@@ -65,7 +65,7 @@ class Mon:
         return self.mon.read_bytes(self.m.Addr("vdcreg:0"), 40)
 
     def mem(self, addr, n):
-        return self.mon.read_bytes(self.m.Addr("vdc:%X" % addr), n)
+        return self.mon.read_bytes(self.m.Addr("vdcram:%X" % addr), n)
 
 
 class Screen:

@@ -35,14 +35,14 @@ them). `tools/mon.py` is the Mac's side:
     tools/mon.py peek ram:1C01 40         # C128 RAM, bank 0, $1C01
     tools/mon.py poke ram:400 8 9         # "HI" at the top left of the 40-column screen
     tools/mon.py save ram:0 40000 c128.bin
-    tools/mon.py peek vdc:0 7D0           # the 80-column screen (R12/R13 give its start)
+    tools/mon.py peek vdcram:0 7D0        # the 80-column screen (R12/R13 give its start)
     tools/mon.py peek vdcreg:0 28         # R0-R37, the status, the selected register
     tools/mon.py load prog.prg            # at its load address in bank 0
     tools/mon.py pause                    # and resume
     tools/mon.py term                     # type commands; h lists them
 
 `ram:` is device 0100 (bank N at N0000), `sysrom:` 0101, `drvrom:` 0102, `osm:` the
-menu's characters, `hr:` HyperRAM; `DEV:WORD` names any device. `vdc:` and `vdcreg:` are
+menu's characters, `hr:` HyperRAM; `DEV:WORD` names any device. `vdcram:` and `vdcreg:` are
 device 010E (`vdc_peek.vhd`): the VDC's RAM at the addresses a program sets in R18/R19 (16K
 or 64K, as R28 bit 4 has it), and its registers as a program reads them, then the status
 byte and the selected register. Neither moves the update address or clears the light pen

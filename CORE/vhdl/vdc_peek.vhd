@@ -3,7 +3,7 @@
 --
 -- The system CPU's reads of the VDC, device C_DEV_VDC: its RAM and registers without a
 -- CPU access's side effects (no update address moved, no light pen flag cleared). REST's
--- machine:vdcmem and vdcregs and the serial monitor's vdc: spaces read through it.
+-- machine:vdcmem and vdcregs and the serial monitor's vdcram: and vdcreg: spaces read through it.
 --
 -- Device words, one byte each in the low half, read only (writes are ignored):
 --   0x0000-0xFFFF        VDC RAM at the address a program sets in R18/R19, mapped as R28

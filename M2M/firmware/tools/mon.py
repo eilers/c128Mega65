@@ -13,9 +13,9 @@ system CPU's address space while the core runs.
                              can be a name here too
   mon.py term                type monitor commands (Ctrl-D ends)
 
-ADDR (hex): ram:1C01 (the C128's 256 KB, bank N at N0000), vdc:0 (the VDC's 64 KB at the
+ADDR (hex): ram:1C01 (the C128's 256 KB, bank N at N0000), vdcram:0 (the VDC's 64 KB at the
 addresses a program sets in R18/R19), vdcreg:0 (R0-R37 as a program reads them, then the
-status byte and the selected register; neither vdc space moves the update address),
+status byte and the selected register; neither moves the update address),
 sysrom:, drvrom:, osm: (the menu's characters), hr: (HyperRAM), DEV:WORD (word WORD of core
 device DEV), or a CPU address such as 40000000. A byte of a device is the low byte of its
 16-bit word.
@@ -29,7 +29,7 @@ import sys
 import termios
 import time
 
-SPACES = {'ram': 0x0100, 'sysrom': 0x0101, 'drvrom': 0x0102, 'osm': 0x0000, 'vdc': 0x010E,
+SPACES = {'ram': 0x0100, 'sysrom': 0x0101, 'drvrom': 0x0102, 'osm': 0x0000, 'vdcram': 0x010E,
           'vdcreg': 0x010E, 'hr': None}
 BASES = {'vdcreg': 0xFFFF000}   # spaces that start in their device's CSR window
 HYPERRAM = 0x40000000

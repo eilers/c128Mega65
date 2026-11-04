@@ -2,7 +2,7 @@
 
 `vdc_screen.py HOST [--password PW]` prints the 80-column screen as text, read from the VDC's
 memory by REST (`machine:vdcregs`, `machine:vdcmem`); `--monitor` reads it over the serial
-monitor instead (`vdcreg:`, `vdc:`). `--attrs` adds each row's attributes, `--raw` gives
+monitor instead (`vdcreg:`, `vdcram:`). `--attrs` adds each row's attributes, `--raw` gives
 screen codes, `--png FILE` draws the screen with the VDC's own character set and colours.
 Nothing on the C128 changes, so a script can read it at any time, CP/M included (it writes
 ASCII and loads an ASCII font into the second character set; the text follows the font);
