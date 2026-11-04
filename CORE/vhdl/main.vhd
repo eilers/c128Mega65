@@ -79,6 +79,12 @@ entity main is
       stream_vic_x_o          : out unsigned(9 downto 0);
       stream_vic_y_o          : out unsigned(8 downto 0);
 
+      -- The system CPU's reads of VDC RAM and registers (vdc_peek.vhd), on clk_vdc_i
+      vdc_dbg_rd_i            : in  std_logic;
+      vdc_dbg_addr_i          : in  unsigned(15 downto 0);
+      vdc_dbg_ram_o           : out unsigned(7 downto 0);
+      vdc_dbg_reg_o           : out unsigned(7 downto 0);
+
       -- Drive led (monochrome + RGB colour)
       drive_led_o             : out std_logic;
       drive_led_col_o         : out std_logic_vector(23 downto 0);
@@ -2090,6 +2096,10 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vdcHsync      => vdc_hs,
       vdcVsync      => vdc_vs,
       vdcR          => vdc_r,
+      vdc_dbg_rd_i   => vdc_dbg_rd_i,
+      vdc_dbg_addr_i => vdc_dbg_addr_i,
+      vdc_dbg_ram_o  => vdc_dbg_ram_o,
+      vdc_dbg_reg_o  => vdc_dbg_reg_o,
       vdcG          => vdc_g,
       vdcB          => vdc_b,
       vdcVersion    => '0',

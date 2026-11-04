@@ -167,6 +167,15 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 set_false_path -from [get_clocks qnice_clk] -to [get_clocks main_clk]
 set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
 
+## ---------------------------------------------------------------------------
+## qnice_clk <-> vdc_clk: the system CPU's reads of the VDC (vdc_peek.vhd)
+## ---------------------------------------------------------------------------
+## A read crosses as a toggle through ASYNC_REG pairs and comes back the same way. The address
+## and the byte are stable from before their toggle flips until it has crossed, at least two
+## destination clocks; one QNICE period bounds their paths.
+set_max_delay -datapath_only 20 -from [get_clocks qnice_clk] -to [get_clocks vdc_clk]
+set_max_delay -datapath_only 20 -from [get_clocks vdc_clk]   -to [get_clocks qnice_clk]
+
 
 
 
