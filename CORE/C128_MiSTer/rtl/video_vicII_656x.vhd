@@ -68,6 +68,8 @@ entity video_vicii_656x is
 		hSync : out std_logic;
 		vSync : out std_logic;
 		colorIndex : out unsigned(3 downto 0);
+		colorX : out unsigned(9 downto 0);  -- MEGA65: rasterX and rasterY of colorIndex's pixel
+		colorY : out unsigned(8 downto 0);
 	   invertV : out std_logic;  -- YUV V-component inversion side-effect (VIC-IIe only)
 
 		-- VIC-IIe only I/O pins
@@ -1469,6 +1471,8 @@ calcBitmap: process(clk)
 				lastBlank := hBlank or vBlank;
 
 				colorIndex <= myColor;
+				colorX <= rasterX;
+				colorY <= rasterY;
 
 -- Krestage 3 debugging routine
 --				if (cs = '1' and aRegisters = "011100") then

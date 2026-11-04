@@ -116,6 +116,9 @@ port(
    vicG        : out unsigned(7 downto 0);
    vicB        : out unsigned(7 downto 0);
    vic_pixel_ce_o : out std_logic;  -- MEGA65: VIC pixel strobe (enablePixel)
+   vic_index_o : out unsigned(3 downto 0);  -- MEGA65: the pixel's colour index, rasterX, rasterY
+   vic_x_o     : out unsigned(9 downto 0);  --   (registered on vic_pixel_ce_o)
+   vic_y_o     : out unsigned(8 downto 0);
 
    -- MEGA65: PHI2 for the physical Expansion Port. Upstream C128_MiSTer has no such output
    -- because MiSTer only ever emulates cartridges. A real cartridge in the MEGA65's slot is
@@ -887,6 +890,8 @@ port map (
    hSync => vicHS,
    vSync => vicVsync,
    colorIndex => vicColorIndex,
+   colorX => vic_x_o,
+   colorY => vic_y_o,
    invertV => vicInvertV,
 
    irq_n => irq_vic
@@ -967,6 +972,7 @@ begin
 end process;
 
 vic_pixel_ce_o <= enablePixel;
+vic_index_o    <= vicColorIndex;
 
 -- -----------------------------------------------------------------------
 -- VDC 80-col video display controller
