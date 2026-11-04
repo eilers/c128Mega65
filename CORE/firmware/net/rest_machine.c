@@ -3,7 +3,7 @@
 // _WRITE go over the core's DMA port (c128dma.c): memory as the C128's CPU sees it then,
 // with the CPU held for the whole of a request, as his stop() holds it. Reset and reboot are
 // the reset button, as UCI's REBOOT; the menu is the On-Screen-Menu. vdcmem and vdcregs are
-// ours (his U64 has no VDC): readmem's form, read through vdc.c.
+// ours (the U64 has no VDC): readmem's form, read through vdc.c.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>

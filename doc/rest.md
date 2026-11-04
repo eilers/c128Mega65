@@ -201,7 +201,7 @@ here or by REST. A start that fails shows his popup's text until Space.
   his a popup.
 - machine:input's C128 keys (above) are ours (Jeff, 2026-11-03); his U64 has a C64 keyboard.
 - machine:debugreg is a plain byte; his U64's register drives FPGA debug features.
-- machine:vdcmem and machine:vdcregs are ours: his U64 has no VDC. vdcmem takes readmem's
+- machine:vdcmem and machine:vdcregs are ours: the U64 has no VDC. vdcmem takes readmem's
   arguments and gives its answers.
 - A batch whose tap waits for room in the tap queue holds its answer until the tap is in (his
   REST task waits); another input request waits for it, as for his mutex.
