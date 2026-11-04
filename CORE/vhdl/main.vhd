@@ -824,8 +824,8 @@ video_sync_vdc : entity work.video_sync_c128
     pause       => '0',
     hshift_r60  => std_logic_vector(to_unsigned(43, 12)),   -- centered, not wide
     hshift_l60  => std_logic_vector(to_unsigned(236, 12)),
-    hshift_r50  => std_logic_vector(to_unsigned(87, 12)),
-    hshift_l50  => std_logic_vector(to_unsigned(290, 12)),
+    hshift_r50  => std_logic_vector(to_unsigned(83, 12)),    -- MiSTer 87/290; 4 clocks later centers 80 col PAL
+    hshift_l50  => std_logic_vector(to_unsigned(294, 12)),
     hsync       => vdc_hs,
     vsync       => vdc_vs,
     hsync_out   => vdc_hs_out,

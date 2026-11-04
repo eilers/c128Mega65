@@ -94,12 +94,14 @@ process(clk32)
 					if line_count = 311 then vsync_out <= '0'; end if;
 				end if;
 
-				if line_count = 298 then vblank <= '1'; end if;
-				if line_count = 028 then vblank <= '0'; end if;
+				-- C128 VIC (vsync at raster 304, the C64's at 300): window raster 16..285
+				-- and 32 pixels each side, the display centered (C64 core: 298/028, 490/106)
+				if line_count = 293 then vblank <= '1'; end if;
+				if line_count = 023 then vblank <= '0'; end if;
 
 				if wide = '0' then
-					if dot_count  = 490 then hblank <= '1'; end if;
-					if dot_count  = 106 then hblank <= '0'; end if;
+					if dot_count  = 493 then hblank <= '1'; end if;
+					if dot_count  = 109 then hblank <= '0'; end if;
 				else
 					if dot_count  = 463 then hblank <= '1'; end if;
 					if dot_count  = 133 then hblank <= '0'; end if;

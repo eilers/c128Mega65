@@ -66,6 +66,7 @@ run_tcl "VGA scandoubler (tb_vga_scandoubler)" CORE/scripts/run_vga_scandoubler_
 run_tcl "HDMI CRT emulation fit (tb_scanline_fit)" CORE/scripts/run_scanline_fit_sim.tcl
 run_tcl "HDMI after a reset (tb_ascal_reset)" CORE/scripts/run_ascal_reset_sim.tcl
 run_tcl "VDC reads for REST and the monitor (tb_vdc_peek)" CORE/scripts/run_vdc_peek_sim.tcl
+run_tcl "Picture centered in the visible window (tb_video_window)" CORE/scripts/run_video_window_sim.tcl
 run_tcl "Drive RAM (tb_iecdrv_mem)" CORE/scripts/run_drive_mem_sim.tcl
 run_tcl "Drive DOS ROM handover (tb_drive_rom)" CORE/scripts/run_drive_rom_sim.tcl
 run_tcl "1581 ready / sector path (tb_c1581_ready)" CORE/scripts/run_c1581_ready_sim.tcl
