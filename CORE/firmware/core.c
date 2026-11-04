@@ -14,7 +14,9 @@
 #include "http.h"
 #include "input.h"
 #include "m2m_rv.h"
+#include "net/net.h"
 #include "net/netcfg.h"
+#include "net/stream.h"
 #include "reu.h"
 #include "rompick.h"
 #include "roms.h"
@@ -156,11 +158,22 @@ void core_sel_post(int group, int item)
          stores_drive_set_model(d, stores_drive_fit(d, stores_drive_model(d)));
    if (group == OPTM_G_NET_DHCP || group == OPTM_G_NET_REST || group == OPTM_G_NET_FTP)
       netcfg_apply();
+   // His F5 menu's stream start and stop, to the target on the line below (stream.c)
+   if (group == OPTM_G_NET_VSTREAM || group == OPTM_G_NET_ASTREAM) {
+      int id = group == OPTM_G_NET_ASTREAM;
+      uint32_t dev = net_lock();
+      if (shell_setting(group, 0))
+         stream_start(id, NULL, 1);
+      else
+         stream_stop(id);
+      net_unlock(dev);
+   }
 }
 
 // --- the Network submenu's text items -----------------------------------------------------
 
-// Its address lines show what DHCP gave while DHCP is on, else the static address
+// Its address lines show what DHCP gave while DHCP is on, else the static address. The
+// streams' to: lines are where they go (his Data Streams store).
 static int net_item(int group)
 {
    switch (group) {
@@ -170,13 +183,20 @@ static int net_item(int group)
    case OPTM_G_NET_MASK: return NC_MASK;
    case OPTM_G_NET_GW:   return NC_GW;
    case OPTM_G_NET_DNS:  return NC_DNS;
+   case OPTM_G_NET_VTO:  return NC_STREAM;
+   case OPTM_G_NET_ATO:  return NC_STREAM + 1;
    default:              return -1;
    }
 }
 
+static int net_addr(int k)
+{
+   return k >= NC_IP && k <= NC_DNS;
+}
+
 static const char *net_value(int k)
 {
-   return k >= NC_IP && shell_setting(OPTM_G_NET_DHCP, 0) ? netcfg_live(k) : netcfg[k];
+   return net_addr(k) && shell_setting(OPTM_G_NET_DHCP, 0) ? netcfg_live(k) : netcfg[k];
 }
 
 const char *core_item_text(int group)
@@ -200,7 +220,7 @@ int core_text_item(int group, char *text, int *max)
    int k = net_item(group);
    if (k < 0)
       return 0;
-   *max = k < NC_IP ? 31 : 15;
+   *max = k >= NC_STREAM ? 36 : k < NC_IP ? 31 : 15;
    strcpy(text, net_value(k));
    return 1;
 }
@@ -237,16 +257,17 @@ static int dotted(const char *s)
 const char *core_text_done(int group, const char *text)
 {
    int k = net_item(group);
-   if (k >= NC_IP && !dotted(text))
+   if (net_addr(k) && !dotted(text))
       return "not an address";
-   if (k >= NC_IP && shell_setting(OPTM_G_NET_DHCP, 0)) {
+   if (net_addr(k) && shell_setting(OPTM_G_NET_DHCP, 0)) {
       for (int i = NC_IP; i <= NC_DNS; i++)
          if (*netcfg_live(i))
             strcpy(netcfg[i], netcfg_live(i));
       shell_force(OPTM_G_NET_DHCP, 0, 0);
    }
    strcpy(netcfg[k], text);
-   netcfg_apply();
+   if (k < NC_STREAM)                 // a stream's target takes effect at its next start
+      netcfg_apply();
    stores_save();
    return NULL;
 }
@@ -657,10 +678,13 @@ uint32_t core_menu_key(void)
    return shell_setting(OPTM_G_HELP_F13, 0) ? M2M_KEY_F13 : M2M_KEY_HELP;
 }
 
-// The boot cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST
-// API (net/http.c), its input's timing (input.c) and the FTP server (net/ftp.c)
+// The menu's stream lines (net/stream.c), the boot cartridge's load (rompick.c), the Ultimate
+// Command Interface (uci.c), the REST API (net/http.c), its input's timing (input.c) and the
+// FTP server (net/ftp.c)
 DMEM_CODE void core_poll(void)
 {
+   if (stream_dirty)
+      stream_menu_sync();
    rompick_poll();
    uci_poll();
    http_poll();

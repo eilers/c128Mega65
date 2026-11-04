@@ -27,7 +27,9 @@
 #define LWIP_IPV6                   0
 #define LWIP_ARP                    1
 #define ARP_TABLE_SIZE              8
+#ifndef ETHARP_SUPPORT_STATIC_ENTRIES     // test_http's streams add the peers' MACs
 #define ETHARP_SUPPORT_STATIC_ENTRIES 0
+#endif
 #define IP_REASSEMBLY               0
 #define IP_FRAG                     0
 #define LWIP_ICMP                   1

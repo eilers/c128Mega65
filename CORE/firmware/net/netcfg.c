@@ -11,7 +11,7 @@
 #include "lwip/dns.h"
 #include "lwip/ip4_addr.h"
 
-char netcfg[NC_COUNT][32];
+char netcfg[NC_COUNT][NC_LEN];
 
 static struct {
    int  dhcp, rest, ftp;             // what the interface has now; -1 before the first

@@ -32,7 +32,7 @@ static uint8_t is_help[MENU_MAX];    // help screen (WHS record) number, or 0
 #define CRTROM_MAX   16              // CRT/ROM items in the menu (C_CRTROMS_MAN's most)
 #define NAME_MAX     32              // a file's name as the menu shows it, cut
 
-static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_CLOSING } ui;
+static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_MSG, UI_CLOSING } ui;
 static uint32_t closing_at;
 static int      help_idx, help_set, help_page, help_pages;
 
@@ -737,6 +737,19 @@ void shell_open_menu(void)
       open_menu();
 }
 
+void shell_message(const char *text)
+{
+   char out[256];
+   if (ui != UI_MENU)
+      return;
+   menu.shown = 0;
+   frame_full();
+   scr_full_on();
+   fmt_snprintf(out, sizeof out, "\n\n%s\n\nPress Space to continue.", text);
+   scr_print(1, 1, 1, out);
+   ui = UI_MSG;
+}
+
 // Gideon's menu button: the menu opens, or closes (but not while a file is being picked)
 void shell_menu_button(void)
 {
@@ -749,6 +762,7 @@ void shell_menu_button(void)
       // fall through
    case UI_MENU:
    case UI_TEXT:
+   case UI_MSG:
       close_menu();
       break;
    default:
@@ -877,6 +891,10 @@ DMEM_CODE void shell_poll(void)
       break;
    case UI_TEXT:
       edit_poll(k);
+      break;
+   case UI_MSG:
+      if (k == M2M_KEY_SPACE || k == M2M_KEY_RUNSTOP)
+         menu_again();
       break;
    case UI_HELP:
       if (k == M2M_KEY_SPACE || k == M2M_KEY_RUNSTOP) {

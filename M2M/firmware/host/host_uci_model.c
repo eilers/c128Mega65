@@ -82,9 +82,11 @@ void reu_sync(void)
    reu_main = reu_menu();
 }
 
+void shell_message(const char *text) { (void)text; }
+
 void shell_force(int group, int pos, int on)
 {
-   if (group != OPTM_G_UCI)                    // the one single-select item it is used for
+   if (group != OPTM_G_UCI && group != OPTM_G_NET_VSTREAM && group != OPTM_G_NET_ASTREAM)   // single-select items
       memset(settings[group], 0, sizeof settings[group]);
    settings[group][pos] = on;
    if (group == OPTM_G_REU) {

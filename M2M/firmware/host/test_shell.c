@@ -11,6 +11,7 @@
 #include "core.h"
 #include "ff.h"
 #include "heap.h"
+#include "host_net.h"
 #include "input.h"
 #include "keys.h"
 #include "m2m_rv.h"
@@ -21,6 +22,8 @@
 #include "sdcard.h"
 #include "shell.h"
 #include "stores.h"
+#include "net/netcfg.h"
+#include "net/stream.h"
 
 void host_init(void);
 int  disk_file_open(const char *path);
@@ -158,6 +161,8 @@ static int cursor_on(const char *s)
 // Keys and time
 // -------------------------------------------------------------------------------------
 
+static int net_on;                    // the network runs (host_net.c), for his streams
+
 static void poll(int n)
 {
    while (n--) {
@@ -165,6 +170,12 @@ static void poll(int n)
       sdcard_poll();
       shell_poll();
       input_poll();
+      if (net_on)
+         host_net_poll();
+      if (stream_waiting)
+         stream_poll();
+      if (stream_dirty)
+         stream_menu_sync();
    }
 }
 
@@ -216,7 +227,7 @@ static void type(const char *s)
    static const struct { char c; int k; } keys[] = {
       { '1', 56 }, { '2', 59 }, { '3', 8 }, { '4', 11 }, { '9', 32 }, { '.', 44 }, { 'y', 25 }, { 'x', 23 },
       { '0', 35 }, { '6', 19 }, { '8', 27 }, { 'a', 10 }, { 'b', 28 }, { 'd', 18 }, { 'k', 37 }, { 'l', 42 },
-      { 'n', 39 }, { ',', 47 },
+      { 'n', 39 }, { ',', 47 }, { 'o', 38 }, { 't', 22 }, { 'h', 29 }, { 'i', 33 }, { 'g', 26 }, { 'v', 31 },
    };
    for (; *s; s++)
       for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++)
@@ -575,6 +586,8 @@ static void check_stores(void)
    for (int i = 0; i < menu.n; i++) {
       int g = shell_group(i), max = 0;
       char text[64];
+      if (g == OPTM_G_NET_VSTREAM || g == OPTM_G_NET_ASTREAM)
+         continue;                                    // his streams: none at power-up
       if (g > 0 && g < 255 && !cfg_get(CFG_OPTM_MOUNT, i) && !cfg_get(CFG_OPTM_CRTROM, i) &&
           !cfg_get(CFG_OPTM_HELP, i) && !core_text_item(g, text, &max) && !kept(i)) {
          printf("not in the settings file: \"%s\"\n", menu.line[i]);
@@ -1210,6 +1223,42 @@ int main(int argc, char **argv)
    go_to("DHCP");
    press(M2M_KEY_RETURN);
    check(find_row("=DHCP") > 0 && find_row(" IP:<none>") > 0, "DHCP on again: its address");
+
+   // His streams (net/stream.c): a line starts and stops one, to the target on the line below.
+   // Without the network, his popup; with it, his default group; a name that doesn't resolve.
+   check(find_row(" Video stream") > 0 && find_row("=Video stream") < 0 && find_row("  to:239.0.1.64:11000") > 0 &&
+         find_row(" Audio stream") > 0 && find_row("  to:239.0.1.65:11001") > 0, "stream lines, off");
+   go_to("Video stream");
+   press(M2M_KEY_RETURN);
+   poll(20);
+   dump("stream without the network");
+   check(find_row("No (valid) link") > 0 && find_row("Press Space to continue.") > 0, "stream without the network: his popup");
+   press(M2M_KEY_SPACE);
+   check(find_row("=Video stream") < 0 && cursor_on("Video stream"), "the popup gone: back in the menu, off");
+   host_net_init();
+   net_on = 1;
+   press(M2M_KEY_RETURN);
+   poll(200);
+   volatile uint16_t *net = host_dev_at(0x10B);
+   check(find_row("=Video stream") > 0 && net[0x20] == 1 && net[0x40] == 0x0001 && net[0x41] == 0x005E &&
+         net[0x42] == 0x4001 && net[0x51] == 0x00D0 && net[0x52] == 0xF82A, "video stream on: his group, port 11000");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Video stream") < 0 && net[0x20] == 0, "video stream off");
+   go_to("to:");
+   press(M2M_KEY_RETURN);
+   for (int i = 0; i < 16; i++)
+      type_key(K_DEL, 0);
+   type("nothing.invalid");
+   press(M2M_KEY_RETURN);
+   check(find_row("  to:nothing.invalid") > 0 && setting_line("[Data Streams]\nStream VIC to=nothing.invalid\n"),
+         "a stream's target: typed, in the settings file");
+   press(M2M_KEY_UP);
+   press(M2M_KEY_RETURN);
+   poll(2000);
+   dump("stream to a name that doesn't resolve");
+   check(find_row("Host could not be resolved.") > 0, "a name that doesn't resolve: his popup");
+   press(M2M_KEY_SPACE);
+   check(find_row("=Video stream") < 0 && net[0x20] == 0, "... and the line off");
    press(M2M_KEY_RUNSTOP);
    f_unlink(SETTINGS_FILE);
    stores_net_defaults();

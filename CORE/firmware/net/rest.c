@@ -17,7 +17,9 @@
 #include "heap.h"
 #include "m2m_rv.h"
 #include "multipart.h"
+#include "net.h"
 #include "rest_priv.h"
+#include "stream.h"
 #include "version.h"
 
 static rest_t *rests[HTTP_CLIENTS];
@@ -281,6 +283,10 @@ static const struct { const char *text; int code; } subsys[] = {
    { "MegaPatch3: Invalid image size", 400 },
    { "MegaPatch3: DNP Image too large", 400 },
    { "Internal Error", 500 },
+   { "SID File Memory Rollover", 415 },
+   { "Invalid Song Number Requested", 400 },
+   { "No Operational Network Interface", 500 },
+   { "Network Host Resolve Error", 404 },
 };
 
 void subsys_response(rest_t *r, int ss)
@@ -519,8 +525,8 @@ static void get_info(rest_t *r)
    json_response(r, HTTP_OK);
 }
 
-// His streams: VIC video, audio and the bus trace over UDP. Not in the core yet: start
-// answers his 501, stop his 200 (no stream runs).
+// His streams (route_streams.cc): video and audio as his (stream.c), answered once the
+// target is resolved; his debug trace isn't in the core: its start answers his 501
 static int stream_name(rest_t *r)
 {
    static const char *const names[] = { "video", "audio", "debug" };
@@ -528,28 +534,65 @@ static int stream_name(rest_t *r)
    if (!s) {
       error(r, "No stream name given in path");
       json_response(r, HTTP_NOT_FOUND);
-      return 0;
+      return -1;
    }
    for (int i = 0; i < 3; i++)
       if (!strcasecmp(s, names[i]))
-         return 1;
+         return i;
    error(r, "Unrecognized stream name '%s'", s);
    json_response(r, HTTP_NOT_FOUND);
-   return 0;
+   return -1;
+}
+
+// One start of a stream at a time, as his run in turn: one that resolves goes first
+static int stream_start_step(rest_t *r)
+{
+   int ss;
+   if (!r->phase) {
+      if (stream_pending(r->d))
+         return 0;
+      uint32_t dev = net_lock();
+      int t = stream_start(r->d, arg(r, "ip"), 0);
+      net_unlock(dev);
+      if (t <= 0) {
+         subsys_response(r, -t);
+         return 1;
+      }
+      r->phase = t;
+      return 0;
+   }
+   if ((ss = stream_done(r->d, r->phase)) < 0)
+      return 0;
+   subsys_response(r, ss);
+   return 1;
 }
 
 static void put_stream_start(rest_t *r)
 {
-   if (stream_name(r)) {
-      error(r, "This command is not supported on this architecture");
-      json_response(r, HTTP_NOT_IMPLEMENTED);
+   int id = stream_name(r);
+   if (id < 0)
+      return;
+   if (id == STREAM_DEBUG) {
+      subsys_response(r, SS_NOT_IMPLEMENTED);
+      return;
    }
+   // His video start stops the debug stream first: the core has none
+   r->d = id;
+   r->phase = 0;
+   rest_pending(r, stream_start_step, NULL);
 }
 
 static void put_stream_stop(rest_t *r)
 {
-   if (stream_name(r))
-      json_response(r, HTTP_OK);
+   int id = stream_name(r);
+   if (id < 0)
+      return;
+   if (id != STREAM_DEBUG) {
+      uint32_t dev = net_lock();
+      stream_stop(id);
+      net_unlock(dev);
+   }
+   json_response(r, HTTP_OK);
 }
 
 static const param_t help_params[] = { { "command", P_REQUIRED } };

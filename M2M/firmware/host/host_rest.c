@@ -40,7 +40,9 @@ int     menu_buttons, menu_open, reboots, net_applies;
 uint8_t settings[64][8];
 int     drive_on[2] = { 1, 1 };
 char    reu_path[256];
-char    netcfg[NC_COUNT][32];
+char    netcfg[NC_COUNT][NC_LEN];
+uint16_t net_dev[0x80];           // C_DEV_NET's words: the streams' (0x20-0x7F)
+char    shell_msg[256];           // the last shell_message
 
 static uint8_t buf[2048];
 static struct { int busy, addr, len, write; } job;
@@ -191,9 +193,12 @@ uint32_t heap_total(void) { return 3500000; }
 int shell_setting(int group, int pos) { return settings[group][pos]; }
 int shell_item(int group, int pos) { return pos < 4 ? pos : -1; }
 
+void shell_message(const char *text) { snprintf(shell_msg, sizeof shell_msg, "%s", text); }
+
 void shell_force(int group, int pos, int on)
 {
-   if (on && group != OPTM_G_UCI && group != OPTM_G_NET_DHCP && group != OPTM_G_NET_REST && group != OPTM_G_NET_FTP)
+   if (on && group != OPTM_G_UCI && group != OPTM_G_NET_DHCP && group != OPTM_G_NET_REST && group != OPTM_G_NET_FTP &&
+       group != OPTM_G_NET_VSTREAM && group != OPTM_G_NET_ASTREAM)
       memset(settings[group], 0, sizeof settings[group]);
    settings[group][pos] = on;
 }
@@ -392,6 +397,8 @@ volatile uint16_t *host_rest_dev(void)
       return drive_rom;
    if (ramrom == 0x0106)
       return crt_mem;
+   if (ramrom == 0x010B)              // the network device: the streams' words, never busy
+      return net_dev;
    if (ramrom == 0x010D) {            // the input device: every commit has reached the C128
       input_dev[15] = 0;
       return input_dev;

@@ -80,5 +80,7 @@ void shell_unmount(int d);
 // image): its name on the item's line, or NULL for none
 void shell_crtrom_named(int group, const char *path);
 void shell_open_menu(void);                   // as the Help key does, unless it is open
+// A message over the open menu, until Space (his popups); nothing while the menu is closed
+void shell_message(const char *text);
 void shell_menu_button(void);                 // opens or closes it (REST's menu_button)
 int  shell_menu_screen(uint8_t *out);         // REST's menu_screen: 2000 bytes, or 0 if closed

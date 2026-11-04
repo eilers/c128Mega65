@@ -34,7 +34,7 @@ void     uart_puts(const char *s) { fputs(s, stderr); }
 int      disk_file_open(const char *path);
 
 // --- what ftp.c uses of the firmware ---
-char netcfg[NC_COUNT][32];
+char netcfg[NC_COUNT][NC_LEN];
 static int  year_now = 2026;
 static bool card_in = true;
 static char mounted[2][256];
