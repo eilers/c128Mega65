@@ -174,6 +174,13 @@ int crtrom_loaded(int k)
    return crtrom_csr_get(crtrom_dev(k), CSR_STATUS) == CSR_ST_OK;
 }
 
+int crtrom_empty(uint16_t dev)
+{
+   int had = crtrom_csr_get(dev, CSR_STATUS) == CSR_ST_OK;
+   crtrom_csr_set(dev, CSR_STATUS, CSR_ST_IDLE);
+   return had;
+}
+
 // The progress bar on the frame's bottom line, a character per 39th of the file; none
 // for a quiet load (REST's)
 static uint32_t prog_step, prog_left;

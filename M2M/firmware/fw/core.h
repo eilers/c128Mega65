@@ -21,8 +21,8 @@ void        core_sel_pre(int group, int item);
 void        core_sel_post(int group, int item);
 // File browser: 1 hides a file (name in upper case; folders are "<NAME>"), of size bytes
 int         core_filter_file(const char *name, int dir, int ctx, int group, uint32_t size);
-// The folder the browser starts in and can't leave, or NULL for config.vhd's start folder
-const char *core_browse_root(int ctx, int group);
+// The folder the browser starts in, or NULL for config.vhd's (also when the card lacks it)
+const char *core_browse_start(int ctx, int group);
 // A file about to be loaded: 0, or an error code and *msg. *type: the image type.
 int         core_prep_load(uint32_t size, int ctx, int group, int *type, const char **msg);
 // A message for a situation (CMSG_*) of the browser for a menu group, or NULL for the standard one
@@ -39,8 +39,9 @@ int         core_crtrom_load(int dev, const char *path, const char **msg);
 int         core_crtrom_loaded(int dev);
 // Its line's text in place of the file's name or <Load>, or NULL for the standard one
 const char *core_crtrom_text(int dev);
-// Space on its line: 1 if the core emptied it, 0 to browse as Return does
-int         core_crtrom_clear(int dev);
+// Space on a CRT/ROM line of the group, of either type: 1 if the core emptied it, 0 to
+// browse as Return does
+int         core_crtrom_clear(int group);
 // A file loaded from the browser for a drive or CRT/ROM item of the group, at path
 void        core_file_loaded(int group, const char *path);
 // Called right before the core leaves reset: NULL, or an error message. The settings are

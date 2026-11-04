@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "browse.h"
 #include "cfg.h"
 #include "config_ids.h"
 #include "core.h"
@@ -683,7 +684,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 30), "menu window 25x30 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 29), "menu window 25x29 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
@@ -923,7 +924,37 @@ int main(int argc, char **argv)
    check(find_row(" CRT:<Load>") > 0 && !setting_get(item(" CRT:%s")), "dropped file followed");
    go_to("Hardware");
    press(M2M_KEY_RETURN);
+
+   // Space on CRT: the cartridge out, the hardware slot the source again (main.vhd resets
+   // the C128 for both); on the line without a file, the browser as Return
+   go_to("CRT:");
+   press(M2M_KEY_RETURN);
+   browse_to("game.crt");
+   press(M2M_KEY_RETURN);
+   check(find_row("=CRT:game.crt") > 0 && setting_get(item(" CRT file")), "game.crt loaded again");
+   check(find_row(" Space: no file") == find_row("Boot:") + 1, "Cartridge: the Space hint");
+   press(M2M_KEY_SPACE);
+   dump("CRT ejected");
+   check(find_row(" CRT:<Load>") > 0 && crtrom_csr_get(CRT_DEV, CSR_STATUS) == 0 && !setting_get(item(" CRT:%s")) &&
+         setting_get(item(" Hardware")) && !setting_get(item(" CRT file")), "Space on CRT: ejected, the slot the source");
+   press(M2M_KEY_SPACE);
+   check(find_row("game.crt") > 0 && find_row("<..>") == 1, "Space on CRT without a file: the browser");
    press(M2M_KEY_RUNSTOP);
+   press(M2M_KEY_RUNSTOP);
+
+   // A drive's browser starts in /c128/disks if the card has it
+   f_mkdir("/c128/disks");
+   put_file("/c128/disks/d.d64", 30, 174848);
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   dump("disks folder");
+   check(find_row("<..>") == 1 && find_row("d.d64") == 2 && find_row("game.d64") < 0, "disk browser: /c128/disks");
+   press(M2M_KEY_RUNSTOP);
+   press(M2M_KEY_RUNSTOP);
+   f_unlink("/c128/disks/d.d64");
+   f_unlink("/c128/disks");
+   browse_reset();
 
    // A disk image for drive A: its line, then Disk. Its drive reads it from the card: its
    // table has the SD block of each 4 KB piece, vdrives the size and type.
@@ -1171,6 +1202,14 @@ int main(int argc, char **argv)
       same &= reu[i] == pattern(13, i);
    check(same && reu[70000] == 0xEE, "ram.reu in the REU's memory, nothing past it");
    check(find_row("=File:ram.reu") > 0 && !strcmp(reu_file(), "/c128/ram.reu"), "menu: File:ram.reu");
+   check(find_row(" Space: no file") == find_row("=File:ram.reu") + 1, "REU: the Space hint below File");
+   // Space: no image at the next start, kept; the REU keeps what it holds
+   press(M2M_KEY_SPACE);
+   check(find_row(" File:<Load>") > 0 && !reu_file_picked() && reu[0] == pattern(13, 0) &&
+         setting_line("REU Preload Image=\n"), "Space on File: none picked, kept");
+   press(M2M_KEY_SPACE);
+   check(find_row("ram.reu") > 0, "Space on File without one: the browser");
+   press(M2M_KEY_RUNSTOP);
    // LOAD_CONFIG's REU Preload Image names one without the browser (uci_ctrl.c), or none
    reu_file_set("/c128/other.reu");
    shell_crtrom_named(OPTM_G_REU_FILE, "/c128/other.reu");
@@ -1289,12 +1328,13 @@ int main(int argc, char **argv)
    dump("System ROMs");
    check(find_row(" C128 KERNAL:Stock") > 0 && find_row(" Function ROM:None") > 0 && find_row("1571 ROM:") < 0 &&
          find_row(" Space: back to stock") > 0, "System ROMs submenu: no drive ROMs");
-   // A line browses /c128/roms, never above it, and shows only files of its size
+   // A line's browser starts in /c128/roms and shows only files of its size
    go_to("C128 KERNAL:");
    press(M2M_KEY_RETURN);
    dump("C128 KERNAL browser");
-   check(find_row("<..>") < 0 && find_row("k16.bin") == 1 && find_row("k8.bin") < 0 && find_row("f32.bin") < 0 &&
+   check(find_row("<..>") == 1 && find_row("k16.bin") == 2 && find_row("k8.bin") < 0 && find_row("f32.bin") < 0 &&
          find_row("odd.bin") < 0, "C128 KERNAL browser: /c128/roms, 16 KB files only");
+   browse_to("k16.bin");
    M2M_RAMROM_DEV = 0x010C;                           // the bus DMA's hold, the UCI's reboot
    M2M_DEV16[0] = 0;
    M2M_RAMROM_DEV = 0x0109;
@@ -1315,7 +1355,8 @@ int main(int argc, char **argv)
    // The function ROM: 16 or 32 KB, its size to the hardware
    go_to("Function ROM:");
    press(M2M_KEY_RETURN);
-   check(find_row("f32.bin") == 1 && find_row("k16.bin") == 2 && find_row("k8.bin") < 0, "function ROM browser: 16 and 32 KB");
+   check(find_row("f32.bin") == 2 && find_row("k16.bin") == 3 && find_row("k8.bin") < 0, "function ROM browser: 16 and 32 KB");
+   browse_to("f32.bin");
    press(M2M_KEY_RETURN);
    check(find_row("=Function ROM:f32.bin") > 0 && dev_at(0x101, 0x18000, 22, 0, 32768) && crtrom_csr_get(0x101, 0) == 2,
          "function ROM: at 0x18000, 32 KB");
@@ -1327,7 +1368,7 @@ int main(int argc, char **argv)
    go_to("1571 ROM:");
    press(M2M_KEY_RETURN);
    check(find_row("k16.bin") > 0 && find_row("k8.bin") < 0, "1571 ROM browser: no 8 KB files");
-   press(M2M_KEY_DOWN);
+   browse_to("k16.bin");
    press(M2M_KEY_RETURN);
    dump("drive ROM picked");
    check(find_row("=1571 ROM:k16.bin") > 0 && dev_at(0x102, 2 * 32768, 20, 0, 16384) &&
@@ -1336,6 +1377,7 @@ int main(int argc, char **argv)
    // Its 1541 ROM, which it runs: a reload
    press(M2M_KEY_UP);
    press(M2M_KEY_RETURN);
+   browse_to("f32.bin");
    press(M2M_KEY_RETURN);
    check(find_row("=1541 ROM:f32.bin") > 0 && dev_at(0x102, 0, 22, 0, 32768) && crtrom_csr_get(0x102, 0) == 1,
          "drive A's 1541 ROM: its bank, reloaded");
@@ -1353,14 +1395,22 @@ int main(int argc, char **argv)
    press(M2M_KEY_RUNSTOP);
    go_to("System ROMs:");
    press(M2M_KEY_RETURN);
-   // No /c128/roms: a message, then the menu
+   // No /c128/roms: the browser starts in /c128. A file from outside the folder is kept by
+   // its path, as an Ultimate shows one; Space: stock again
    f_rename("/c128/roms", "/c128/roms-gone");
+   put_file("/c128/b32.bin", 25, 32768);
    go_to("C128 BASIC:");
    press(M2M_KEY_RETURN);
    dump("no ROMs folder");
-   check(find_row("No ROM files of 32 KB in /c128/roms.") > 0, "no ROMs folder: its message");
+   check(find_row("<roms-gone>") > 0 && find_row("b32.bin") > 0, "no ROMs folder: the browser in /c128");
+   browse_to("b32.bin");
+   press(M2M_KEY_RETURN);
+   check(find_row("=C128 BASIC:b32.bin") > 0 && dev_at(0x101, 0x8000, 25, 0, 32768) &&
+         setting_line("C128 Basic ROM=/SD/c128/b32.bin\n"), "a ROM from /c128: loaded, kept by its path");
    press(M2M_KEY_SPACE);
-   check(find_row(" C128 BASIC:Stock") > 0 && cursor_on("C128 BASIC:"), "no ROMs folder: back in the menu");
+   check(find_row(" C128 BASIC:Stock") > 0 && cursor_on("C128 BASIC:") && setting_line("C128 Basic ROM=\n"),
+         "Space: stock again");
+   f_unlink("/c128/b32.bin");
    f_rename("/c128/roms-gone", "/c128/roms");
    press(M2M_KEY_RUNSTOP);
    check(find_row(" System ROMs: Custom") > 0, "System ROMs summary: custom");
@@ -1370,22 +1420,43 @@ int main(int argc, char **argv)
    go_to("Boot:");
    check(find_row(" Boot:<None>") > 0, "boot cartridge: none");
    press(M2M_KEY_RETURN);
-   check(find_row("<..>") < 0 && find_row("boot.crt") == 1, "boot cartridge browser: /c128/carts");
+   check(find_row("<..>") == 1 && find_row("boot.crt") == 2, "boot cartridge browser: /c128/carts");
+   browse_to("boot.crt");
    press(M2M_KEY_RETURN);
    check(find_row("=Boot:boot.crt") > 0 && setting_line("Cartridge=boot.crt\n"), "boot cartridge: picked, kept");
-   check(find_row(" Space clears Boot") == find_row("=Boot:boot.crt") + 1, "boot cartridge: the Space hint below it");
+   check(find_row(" Space: no file") == find_row("=Boot:boot.crt") + 1, "boot cartridge: the Space hint below it");
    press(M2M_KEY_SPACE);
    check(find_row(" Boot:<None>") > 0 && setting_line("[C64 and Cartridge Settings]\nCartridge=\n"),
          "boot cartridge: Space clears it, kept");
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RETURN);
    check(find_row("=Boot:boot.crt") > 0, "boot cartridge: picked again");
+   // One from elsewhere: kept by its path. Without /c128/carts the browser starts in /c128.
+   press(M2M_KEY_RETURN);
+   browse_to("<..>");
+   press(M2M_KEY_RETURN);
+   browse_to("game.crt");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Boot:game.crt") > 0 && setting_line("Cartridge=/SD/c128/game.crt\n"),
+         "boot cartridge from /c128: kept by its path");
+   f_rename("/c128/carts", "/c128/carts-gone");
+   browse_reset();
+   press(M2M_KEY_RETURN);
+   check(find_row("<carts-gone>") > 0 && find_row("game.crt") > 0, "no carts folder: the browser in /c128");
+   press(M2M_KEY_RUNSTOP);
+   f_rename("/c128/carts-gone", "/c128/carts");
+   browse_reset();
+   press(M2M_KEY_RETURN);
+   browse_to("boot.crt");
+   press(M2M_KEY_RETURN);
+   check(find_row("=Boot:boot.crt") > 0 && setting_line("Cartridge=boot.crt\n"), "boot cartridge: boot.crt again");
    press(M2M_KEY_RUNSTOP);
    // Picked again for the next run, which checks them at its start
    go_to("System ROMs:");
    press(M2M_KEY_RETURN);
    go_to("C128 KERNAL:");
    press(M2M_KEY_RETURN);
+   browse_to("k16.bin");
    press(M2M_KEY_RETURN);
    check(setting_line("C128 Kernal ROM=k16.bin\n") && setting_line("Internal Function ROM=f32.bin\n") &&
          setting_line("Drive Bus ID=8\nROM for 1541 mode=f32.bin\nROM for 1571 mode=k16.bin\n"),
@@ -1394,7 +1465,7 @@ int main(int argc, char **argv)
 
    // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
    // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
-   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 26, "Load settings: the main menu's last line but two");
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 25, "Load settings: the main menu's last line but two");
    go_to("Load settings");
    press(M2M_KEY_RETURN);
    dump("Load settings browser");

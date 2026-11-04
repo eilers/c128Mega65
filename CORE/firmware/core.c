@@ -25,6 +25,8 @@
 #include "uci.h"
 
 // Cartridge: Hardware, CRT file
+#define DISKS_DIR   "/c128/disks"   // where the drives' browser starts, if the card has it
+#define CART_HW     0
 #define CART_CRT    1
 #define MENU_WIDTH  23             // a line's text, as the Shell shows it (config.vhd's OPTM_DX)
 
@@ -290,11 +292,18 @@ static int pick_of_dev(int dev)
    return dev >= DEV_ROM && dev < DEV_ROM + RP_BOOT ? dev - DEV_ROM : -1;
 }
 
-// A pick's browser stays in its folder
-const char *core_browse_root(int ctx, int group)
+// A line's browser starts in the folder for its kind, if the card has it; the REU's image and
+// Load settings start in config.vhd's (/c128)
+const char *core_browse_start(int ctx, int group)
 {
    int p = pick_of_group(group);
-   return ctx == CTX_LOAD_ROM && p >= 0 ? rompick_dir(p) : NULL;
+   if (ctx == CTX_MOUNT_DISKIMG)
+      return DISKS_DIR;
+   if (ctx != CTX_LOAD_ROM)
+      return NULL;
+   if (group == OPTM_G_MOUNT_CRT)
+      return CARTS_DIR;
+   return p >= 0 ? rompick_dir(p) : NULL;
 }
 
 // A pick's line without its file: Stock, None, or <Error> for a file that wouldn't load
@@ -308,10 +317,25 @@ const char *core_crtrom_text(int dev)
    return p == RP_BOOT ? "<None>" : p == RP_FUNC ? "None" : "Stock";
 }
 
-// Space on a pick's line: back to stock, kept at once
-int core_crtrom_clear(int dev)
+// Space on a line: a pick back to stock and kept at once; the virtual cartridge out, the
+// hardware slot the source again (both reset the C128); no REU image at the next start.
+// On a CRT or REU line without a file, Space browses as Return does.
+int core_crtrom_clear(int group)
 {
-   int p = pick_of_dev(dev);
+   int p = pick_of_group(group);
+   if (group == OPTM_G_MOUNT_CRT) {
+      if (!crtrom_empty(CRT_DEVICE))
+         return 0;
+      shell_force(OPTM_G_CART, CART_HW, 1);
+      return 1;
+   }
+   if (group == OPTM_G_REU_FILE) {
+      if (!reu_file_picked())
+         return 0;
+      reu_file_set(NULL);
+      stores_save();
+      return 1;
+   }
    if (p < 0)
       return 0;
    if (p == RP_BOOT)
@@ -417,11 +441,8 @@ const char *core_custom_msg(int situation, int ctx, int group)
       return ".d64, .d71 or .d81 picks the type";
    if (situation != CMSG_BROWSENOTHING)
       return NULL;
-   if (ctx == CTX_LOAD_ROM && p == RP_BOOT)
-      return "No .crt cartridge files in /c128/carts.\n\nCopy the C64 or C128 .crt files to\n"
-             "start with to /c128/carts on this SD\ncard.\n\nPress Space to continue.";
-   if (ctx == CTX_LOAD_ROM && p >= 0) {
-      fmt_snprintf(m, sizeof m, "No ROM files of %s in /c128/roms.\n\n"
+   if (ctx == CTX_LOAD_ROM && p >= 0 && p != RP_BOOT) {
+      fmt_snprintf(m, sizeof m, "No ROM files of %s here.\n\n"
                    "Copy ROM files to /c128/roms on this\nSD card. A line shows the files of its\n"
                    "size only.\n\nPress Space to continue.", sizes(p));
       return m;
@@ -434,12 +455,12 @@ const char *core_custom_msg(int situation, int ctx, int group)
              "/c128/settings.cfg, an Ultimate's.\n\nPress Space to continue.";
    if (ctx == CTX_LOAD_ROM)
       return "No .crt cartridge files here.\n\nCopy C64 or C128 .crt files to any\n"
-             "folder of this SD card, for example\n/c128.\n\nPress Space to continue.";
+             "folder of this SD card, for example\n/c128/carts.\n\nPress Space to continue.";
    if (ctx == CTX_MOUNT_DISKIMG)
       return "This core uses D64, D71 and D81 disk\nimages.\n\n"
              "Please copy at least one D64, D71 or D81\nfile to any sub-directory or to the root\n"
-             "directory of this SD card.\n\nIf you use a folder called /c128, then\n"
-             "the file browser will always start there.\n\nYou can use long file names and you can\n"
+             "directory of this SD card.\n\nThe file browser starts in /c128/disks,\n"
+             "else in /c128.\n\nYou can use long file names and you can\n"
              "also use nested sub-directories to nicely\norder your collection of disk images.\n\n"
              "Nothing to browse.\n\nPress Space to continue.";
    return NULL;
@@ -620,12 +641,14 @@ int core_crtrom_load(int dev, const char *path, const char **msg)
    if (p < 0)
       err = reu_load(path, 1, msg);
    else {
-      // Its name in its folder, where the browser stayed
-      const char *dir = rompick_dir(p), *name;
+      // Its name if it is in its folder, as his are; else its path
+      const char *dir = rompick_dir(p), *name = path;
       int n = strlen(dir);
-      name = !strncmp(path, dir, n) && path[n] == '/' ? path + n + 1 : strrchr(path, '/') + 1;
+      if (!strncmp(path, dir, n) && path[n] == '/' && !strchr(path + n + 1, '/') &&
+          strlen(path + n + 1) < PICK_NAME)
+         name = path + n + 1;
       if (strlen(name) >= PICK_MAX) {
-         *msg = "\n\nThe file's name is too long: 32\ncharacters at most.\n\nPress SPACE to continue.\n";
+         *msg = "\n\nThe file's path is too long: 127\ncharacters at most.\n\nPress SPACE to continue.\n";
          return 0x102;
       }
       rompick_set(p, name);
