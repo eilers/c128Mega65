@@ -17,7 +17,8 @@
 // 9: the Load settings menu item, 16 CRT/ROM items
 // 10: the Swap joystick ports menu item, the Keyboard submenu
 // 11: the REST API's input device (C_DEV_INPUT): keys, joysticks, POT lines, $D7FF
-#define M2M_RV_HW_VERSION    11u
+// 12: his video and audio streams (C_DEV_NET words 0x20-0x7F), stream lines in Network
+#define M2M_RV_HW_VERSION    12u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

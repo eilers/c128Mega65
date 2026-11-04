@@ -91,9 +91,9 @@ constant C_MENU_MODEM_DE00       : natural := 129; -- Modem: SwiftLink at $DE00 
 constant C_MENU_MODEM_DF00       : natural := 130; -- Modem: SwiftLink at $DF00, REU off
 constant C_MENU_MODEM_D700       : natural := 131; -- Modem: SwiftLink at $D700
 constant C_MENU_UCI              : natural := 134; -- UCI at $DF1C: Ultimate Command Interface (default off)
-constant C_MENU_KEYS_4080        : natural := 168; -- Keyboard: real Caps Lock is the 40/80 key (default)
-constant C_MENU_KEYS_ASCII       : natural := 169; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
-constant C_MENU_HELP_F13         : natural := 172; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_KEYS_4080        : natural := 173; -- Keyboard: real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 174; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
+constant C_MENU_HELP_F13         : natural := 177; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode

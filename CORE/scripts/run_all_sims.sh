@@ -39,6 +39,8 @@ run_step "GCR fixture self-test" python3 CORE/scripts/gen_gcr_fixtures.py --self
 
 # nvc: seconds each
 run_step "Network device (tb_net)" CORE/scripts/run_net_nvc.sh
+run_step "Video and audio streams (tb_stream_tx)" CORE/scripts/run_stream_nvc.sh
+run_step "VIC stream window (tb_vic_window)" CORE/scripts/run_vic_window_nvc.sh
 run_step "Ultimate Command Interface (tb_uci)" CORE/scripts/run_uci_nvc.sh
 run_step "Bus DMA (tb_c128_dma)" CORE/scripts/run_c128_dma_nvc.sh
 run_step "REU SD card DMA (tb_reu_sd)" CORE/scripts/run_reu_sd_nvc.sh
