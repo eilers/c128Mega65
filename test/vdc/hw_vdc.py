@@ -143,7 +143,7 @@ def speed(core):
     t0 = time.monotonic()
     core.mem(0, 65536)
     t = time.monotonic() - t0
-    check("vdcmem 64 KB in %.0f ms (%.2f us a byte)" % (t * 1000, t * 1e6 / 65536), t < 1.0)
+    check("vdcmem 64 KB answered in %.0f ms (most of it the network)" % (t * 1000), t < 1.0)
 
 
 def typed(core):

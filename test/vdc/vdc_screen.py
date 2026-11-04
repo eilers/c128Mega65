@@ -11,8 +11,9 @@ skipped after each row, R28 the character set. Nothing on the C128 changes.
   --raw        screen codes in hex instead of text
   --png FILE   the screen drawn from the VDC's own character set and colours (text mode)
 
-Text: letters as the character set the cell's attribute picks (bit 7: lower case), reverse
-cells as their character, graphics as '#'.
+Text: by the character set the cell's attribute picks (bit 7, the second set): the KERNAL's
+screen codes, or ASCII where that set holds an ASCII font (CP/M loads one; told by its glyph
+for 0x61 being an 'a'). Reverse cells read as their character, graphics as '#'.
 """
 import argparse
 import importlib.util
@@ -24,6 +25,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MON_PY = HERE.parent.parent / "M2M" / "firmware" / "tools" / "mon.py"
+
+LOWER_A = bytes([0x00, 0x00, 0x3C, 0x06, 0x3E, 0x66, 0x3E, 0x00])   # the C128 font's 'a'
 
 # RGBI, as the core's default VDC palette
 PALETTE = [(0, 0, 0), (85, 85, 85), (0, 0, 170), (85, 85, 255), (0, 170, 0), (85, 255, 85),
@@ -80,6 +83,8 @@ class Screen:
         self.codes = self.read(src, self.screen, n)
         self.attrs = self.read(src, self.attr, n) if self.attrs_on else bytes(n)
         self.src = src
+        base = (r[28] >> 5) * 0x2000
+        self.ascii = tuple(src.mem(base + half + 0x61 * 16, 8) == LOWER_A for half in (0, 0x1000))
 
     @staticmethod
     def read(src, addr, n):
@@ -93,7 +98,7 @@ class Screen:
         return self.codes[a:a + self.cols], self.attrs[a:a + self.cols]
 
     def text(self):
-        return [decode(*self.row(y)) for y in range(self.rows)]
+        return [decode(*self.row(y), self.ascii) for y in range(self.rows)]
 
     def png(self, path):
         r = self.regs
@@ -122,11 +127,13 @@ class Screen:
         write_png(path, w, len(lines), lines)
 
 
-def decode(codes, attrs):
+def decode(codes, attrs, ascii=(False, False)):
     out = []
     for code, a in zip(codes, attrs):
         c, lower = code & 0x7F, bool(a & 0x80)
-        if c == 0:
+        if ascii[lower]:
+            out.append(chr(c) if 0x20 <= c < 0x7F else "#")
+        elif c == 0:
             out.append("@")
         elif c <= 26:
             out.append(chr((0x60 if lower else 0x40) + c))
@@ -171,7 +178,7 @@ def main():
         sys.exit("vdc_screen.py: the VDC is in bitmap mode (R25 bit 7)")
     for y in range(s.rows):
         codes, attrs = s.row(y)
-        print(" ".join("%02X" % c for c in codes) if a.raw else decode(codes, attrs).rstrip())
+        print(" ".join("%02X" % c for c in codes) if a.raw else decode(codes, attrs, s.ascii).rstrip())
         if a.attrs:
             print(" ".join("%02X" % c for c in attrs))
     if a.png:

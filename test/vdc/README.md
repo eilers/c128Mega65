@@ -4,8 +4,9 @@
 memory by REST (`machine:vdcregs`, `machine:vdcmem`); `--monitor` reads it over the serial
 monitor instead (`vdcreg:`, `vdc:`). `--attrs` adds each row's attributes, `--raw` gives
 screen codes, `--png FILE` draws the screen with the VDC's own character set and colours.
-Nothing on the C128 changes, so a script can read it at any time; pause first
-(`machine:pause`) for a snapshot that can't change halfway.
+Nothing on the C128 changes, so a script can read it at any time, CP/M included (it writes
+ASCII and loads an ASCII font into the second character set; the text follows the font);
+pause first (`machine:pause`) for a snapshot that can't change halfway.
 
 `hw_vdc.py HOST [--password PW]` checks the routes on the machine against a program's own
 reads through $D600/$D601 (writemem and readmem, the C128 paused): the registers and the
