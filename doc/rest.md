@@ -25,7 +25,7 @@ byte, because tools parse his answers. Where it differs, "Not his" below says so
 | Route | Answer |
 |---|---|
 | `GET /v1/version` | `0.1`, as his |
-| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`108`), `core_version` "1." and the same number (`1.08`; his U64's form), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. With `core_version` his tests and clients take it for a U64; no `wifi_mac` (no Wi-Fi) |
+| `GET /v1/info` | product `C128MEGA65 (Ultimate 64 compatible)` (network scans in ultraView and c64stream look for "Ultimate" or "Ultimate 64" in it), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`108`), `core_version` "1." and the same number (`1.08`; his U64's form), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. With `core_version` his tests and clients take it for a U64; no `wifi_mac` (no Wi-Fi) |
 | `GET /v1/help?command=` | his fixed page |
 | `PUT /v1/machine:reset`, `:reboot` | the reset button, as UCI's REBOOT; a pause ends with it |
 | `PUT /v1/machine:pause`, `:resume` | the C128's CPU held by bus DMA, as his `stop()`; answered at once |
