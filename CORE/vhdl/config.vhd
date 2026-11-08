@@ -83,7 +83,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 -- Version of this core. CORE/scripts/build_release.sh refuses to build unless this matches the
 -- release name that is being packaged.
-constant CORE_VERSION : string := "V1.1_Beta1";
+constant CORE_VERSION : string := "V2.0_Beta1";
 
 constant SCR_CREDITS : string :=
 
