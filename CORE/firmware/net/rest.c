@@ -506,7 +506,7 @@ static void get_version(rest_t *r)
 }
 
 // As his U64 (a whole machine): fpga_version and core_version are the hardware interface's,
-// in his "1xx" and "1.xx" forms. The product is a name, as his.
+// in his "1xx" and "1.xx" forms. Clients' network scans look for "Ultimate 64" in the product.
 static void get_info(rest_t *r)
 {
    char fpga[8], core[8], mac[18];
@@ -514,7 +514,7 @@ static void get_info(rest_t *r)
    fmt_snprintf(fpga, sizeof fpga, "1%02x", M2M_RV_HW_VERSION);
    fmt_snprintf(core, sizeof core, "1.%02x", M2M_RV_HW_VERSION);
    fmt_snprintf(mac, sizeof mac, "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
-   add_str(r, "product", "C128MEGA65");
+   add_str(r, "product", "C128MEGA65 (Ultimate 64 compatible)");
    add_str(r, "firmware_version", CORE_VERSION);
    add_str(r, "git_commit_hash", FW_VERSION);
    add_str(r, "fpga_version", fpga);
