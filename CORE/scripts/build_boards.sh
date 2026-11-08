@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Build the bitstreams of several boards at the same time.
 #
-# The M2M shell ROM is assembled once up front; each board's synthesis then skips
-# that step (M2M_ROM_PREBUILT, see CORE/m2m-rom/synth_pre.tcl), so boards building
-# side by side never rewrite the same files. Each board gets its own log.
+# Each board gets its own log.
 #
 # Usage: CORE/scripts/build_boards.sh [board ...]      (default: 6 3)
+#   board       3, 4, 5, 6, or 6r3: an R6 bitstream with R3's memory map (SDRAM unused)
 #   JOBS=2      boards building at once; synthesis takes about 8 GB per board
 #   LOG_DIR=... where the logs go (default: artifacts/build-logs)
 
@@ -27,29 +26,21 @@ LOG_DIR="${LOG_DIR:-$ROOT_DIR/artifacts/build-logs}"
 mkdir -p "$LOG_DIR"
 
 for b in "${BOARDS[@]}"; do
-  [[ -f "$CORE_DIR/CORE-R${b}-vivado2022.xpr" ]] || { echo "ERROR: no project for R$b" >&2; exit 1; }
+  # 6r3 builds from its own copy of the R6 project, so it can run beside 6
+  if [[ "$b" == 6r3 ]]; then
+    sed "s/CORE-R6-vivado2022/CORE-R${b^^}-vivado2022/g" "$CORE_DIR/CORE-R6-vivado2022.xpr" \
+      > "$CORE_DIR/CORE-R${b^^}-vivado2022.xpr" || exit 1
+  fi
+  [[ -f "$CORE_DIR/CORE-R${b^^}-vivado2022.xpr" ]] || { echo "ERROR: no project for R$b" >&2; exit 1; }
 done
-
-# The QNICE assembler needs a C preprocessor, which the Vivado Flatpak has (same app as vivado.sh).
-echo "Assembling the M2M shell ROM..."
-stamp="$(mktemp)"
-flatpak run --filesystem="$ROOT_DIR" --command=bash com.github.corna.Vivado \
-  -c "cd '$CORE_DIR/m2m-rom' && ./make_rom.sh" > "$LOG_DIR/m2m-rom.log" 2>&1
-if [[ ! "$CORE_DIR/m2m-rom/m2m-rom.rom" -nt "$stamp" ]]; then
-  rm -f "$stamp"
-  echo "ERROR: the ROM was not assembled, see $LOG_DIR/m2m-rom.log" >&2
-  exit 1
-fi
-rm -f "$stamp"
-tail -1 "$LOG_DIR/m2m-rom.log"
 
 declare -A board_of start_of rc_of
 build() {
   local b="$1"
   cd "$ROOT_DIR" || exit 1
-  M2M_ROM_PREBUILT=1 exec CORE/scripts/vivado.sh -mode batch \
+  exec CORE/scripts/vivado.sh -mode batch \
     -source CORE/scripts/build_bitstream.tcl \
-    -tclargs "CORE/CORE-R${b}-vivado2022.xpr" > "$LOG_DIR/build-r${b}.log" 2>&1
+    -tclargs "CORE/CORE-R${b^^}-vivado2022.xpr" > "$LOG_DIR/build-r${b}.log" 2>&1
 }
 
 finish_one() {
@@ -82,12 +73,13 @@ done
 echo
 failed=0
 for b in "${BOARDS[@]}"; do
-  impl="$CORE_DIR/CORE-R${b}-vivado2022.runs/impl_1"
+  impl="$CORE_DIR/CORE-R${b^^}-vivado2022.runs/impl_1"
+  top="mega65_r${b:0:1}"
   timing="$(awk '/^\| Design Timing Summary/ {f=1} f && $1 ~ /^-?[0-9.]+$/ {
                    print "setup WNS " $1 " ns (" $3 " failing), hold WHS " $5 " ns (" $7 " failing)"; exit}' \
-            "$impl/mega65_r${b}_timing_summary_routed.rpt" 2>/dev/null)"
+            "$impl/${top}_timing_summary_routed.rpt" 2>/dev/null)"
   bram="$(awk -F'|' '/^\| Block RAM Tile/ {gsub(/ /, "", $3); print $3; exit}' \
-          "$impl/mega65_r${b}_utilization_placed.rpt" 2>/dev/null)"
+          "$impl/${top}_utilization_placed.rpt" 2>/dev/null)"
   echo "R$b: exit ${rc_of[$b]}, ${timing:-no timing report}, block RAM ${bram:-?}"
   [[ "${rc_of[$b]}" == 0 ]] || failed=1
 done

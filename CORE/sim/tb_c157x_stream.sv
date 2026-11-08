@@ -77,6 +77,8 @@ module tb_c157x_stream;
 		.pause(pause),
 
 		.drv_mode(drv_mode),
+		.drv_id('{2'd0, 2'd1}),   // drives 8 and 9
+		.drv_1581('0),
 		.img_mounted(img_mounted),
 		.img_readonly(img_readonly),
 		.img_size(img_size),

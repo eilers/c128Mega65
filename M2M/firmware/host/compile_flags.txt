@@ -1,0 +1,5 @@
+-I../include
+-I../lib
+-I../fatfs
+-I../boot
+-std=gnu11

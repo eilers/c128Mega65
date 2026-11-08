@@ -1,0 +1,9 @@
+--target=riscv32-unknown-elf
+-march=rv32imc_zicsr_zifencei
+-Iinclude
+-Ilib
+-Ifatfs
+-Ifw
+-Iboot
+-Ibuild/fw
+-std=gnu11

@@ -51,21 +51,11 @@ while IFS= read -r line; do
 done < "$ARTIFACT_DIR/submodules.txt"
 pass "All submodules initialized"
 
-log "CHECK: QNICE assembler availability"
-if [[ ! -x "$ROOT_DIR/M2M/QNICE/assembler/qasm" ]]; then
-  fail "QNICE assembler missing. Run: cd M2M/QNICE/tools && ./make-toolchain.sh"
-fi
-pass "QNICE assembler is available"
-
-log "CHECK: Build M2M ROM"
-(
-  cd "$ROOT_DIR/CORE/m2m-rom"
-  ./make_rom.sh
-) > "$ARTIFACT_DIR/m2m-rom-build.log" 2>&1 || {
-  cat "$ARTIFACT_DIR/m2m-rom-build.log" >> "$SUMMARY"
-  fail "M2M ROM build failed"
-}
-pass "M2M ROM build succeeded"
+log "CHECK: Firmware of the system CPU"
+fw_version="$(python3 -I "$ROOT_DIR/M2M/firmware/tools/check_image.py" "$ROOT_DIR/sdcard/c128/firmware.bin" \
+  "$ROOT_DIR/M2M/firmware/include/m2m_rv.h" 2>&1)" || fail "sdcard/c128/firmware.bin: $fw_version"
+"$ROOT_DIR/CORE/scripts/check_firmware_fresh.sh" >> "$SUMMARY" 2>&1 || fail "sdcard/c128/firmware.bin is older than its sources"
+pass "sdcard/c128/firmware.bin ($fw_version) fits the cores and its sources"
 
 log "CHECK: C128 boot simulation gate"
 (

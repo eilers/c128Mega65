@@ -5,7 +5,8 @@
 -- and the HyperRAM device of the MEGA65.
 --
 -- done by MJoergen in 2023 and licensed under GPL v3
--- From C64MEGA65 V5.2 (CORE/vhdl/reu_mapper.vhd); C128 MEGA65 clears the prefetch block on reset.
+-- From C64MEGA65 V5.2 (CORE/vhdl/reu_mapper.vhd); C128 MEGA65 clears the prefetch block on reset,
+-- and its addresses reach all of the SDRAM on R4 and later (16 MB REU).
 ----------------------------------------------------------------------------------
 
 library ieee;
@@ -14,7 +15,7 @@ use ieee.numeric_std_unsigned.all;
 
 entity reu_mapper is
    generic (
-      -- Configure base address within the HyperRAM device
+      -- Configure base address within the HyperRAM or SDRAM device
       G_BASE_ADDRESS : std_logic_vector(31 downto 0)
    );
    port (
@@ -103,7 +104,7 @@ begin
    avm_valid_s      <= '1' when avm_preemptive_r else reu_cs_i and not reu_cs_d;
    avm_write_s      <= '0' when avm_preemptive_r else avm_valid_s and reu_we_i;
    avm_read_s       <= '1' when avm_preemptive_r else avm_valid_s and not reu_we_i;
-   avm_address_s    <= (("00000000" & reu_addr_i(24 downto 1)) + G_BASE_ADDRESS) and X"003FFFFF";
+   avm_address_s    <= (("00000000" & reu_addr_i(24 downto 1)) + G_BASE_ADDRESS) and X"01FFFFFF";
    avm_writedata_s  <= reu_dout_i & reu_dout_i;
    avm_byteenable_s <= "01" when reu_addr_i(0) = '0' else "10";
    avm_burstcount_s <= X"01";

@@ -9,7 +9,9 @@
 -- the buffer sizes are generics instead of globals, and
 -- with a transmit frame buffer: a frame only starts once
 -- it is complete, so a slow writer can't underrun the MAC.
--- core_tx_room_o says a whole frame fits.
+-- core_tx_room_o says a whole frame fits. A second
+-- source, strm_* on eth_clk_i (his data streams),
+-- goes out between the core's frames, first.
 -- ------------------------------------------------
 
 library ieee;
@@ -40,6 +42,12 @@ entity eth_wrapper is
     core_tx_data_i     : in    std_logic_vector(7 downto 0);
     core_rx_cnt_drop_o : out   std_logic_vector(15 downto 0);
     core_tx_room_o     : out   std_logic;                      -- a full frame fits
+
+    -- Frames from the streams (eth_clk_i); taken and dropped while the PHY is in reset
+    strm_valid_i       : in    std_logic := '0';
+    strm_ready_o       : out   std_logic;
+    strm_data_i        : in    std_logic_vector(7 downto 0) := (others => '0');
+    strm_last_i        : in    std_logic := '0';
 
     -- Connect to framework
     eth_clk_i          : in    std_logic; -- 50 MHz
@@ -112,6 +120,14 @@ architecture rtl of eth_wrapper is
   signal   frame_tx_data  : std_logic_vector(7 downto 0);
   signal   frame_tx_last  : std_logic;
   signal   tx_count       : natural range 0 to 2 ** G_TX_ADDR_BITS;
+
+  -- The core's frames after the clock crossing, and whose frame the MAC is sending
+  signal   fifo_tx_ready  : std_logic;
+  signal   fifo_tx_valid  : std_logic;
+  signal   fifo_tx_data   : std_logic_vector(7 downto 0);
+  signal   fifo_tx_last   : std_logic;
+  signal   arb_busy       : std_logic := '0';
+  signal   arb_strm       : std_logic := '0';
 
 begin
 
@@ -346,12 +362,45 @@ begin
       s_data_i(C_LAST) => frame_tx_last,
       s_fill_o         => open,
       m_clk_i          => eth_clk_i,
-      m_ready_i        => eth_tx_ready,
-      m_valid_o        => eth_tx_valid,
-      m_data_o(R_DATA) => eth_tx_data,
-      m_data_o(C_LAST) => eth_tx_last,
+      m_ready_i        => fifo_tx_ready,
+      m_valid_o        => fifo_tx_valid,
+      m_data_o(R_DATA) => fifo_tx_data,
+      m_data_o(C_LAST) => fifo_tx_last,
       m_fill_o         => open
     ); -- axis_fifo_async_tx_inst
+
+  --------------------------------------------------
+  -- Transmit arbiter: whole frames, a stream's first
+  --------------------------------------------------
+
+  arb_proc : process (eth_clk_i)
+  begin
+    if rising_edge(eth_clk_i) then
+      if arb_busy = '0' then
+        if strm_valid_i = '1' then
+          arb_busy <= '1';
+          arb_strm <= '1';
+        elsif fifo_tx_valid = '1' then
+          arb_busy <= '1';
+          arb_strm <= '0';
+        end if;
+      elsif eth_tx_valid = '1' and eth_tx_ready = '1' and eth_tx_last = '1' then
+        arb_busy <= '0';
+      end if;
+      if eth_rst = '1' then
+        arb_busy <= '0';
+      end if;
+    end if;
+  end process arb_proc;
+
+  eth_tx_valid  <= '0' when arb_busy = '0' else
+                   strm_valid_i when arb_strm = '1' else
+                   fifo_tx_valid;
+  eth_tx_data   <= strm_data_i when arb_strm = '1' else fifo_tx_data;
+  eth_tx_last   <= strm_last_i when arb_strm = '1' else fifo_tx_last;
+  fifo_tx_ready <= eth_tx_ready and arb_busy and not arb_strm;
+  strm_ready_o  <= '1' when eth_rst = '1' else
+                   eth_tx_ready and arb_busy and arb_strm;
 
 end architecture rtl;
 

@@ -53,7 +53,13 @@ port (
 
    -- How often the C128 waited for a bank (low word) and its longest wait (high word)
    qnice_stats_i             : in  std_logic_vector(31 downto 0) := (others => '0');
-   qnice_stats_clr_o         : out std_logic                         -- toggles to clear them
+   qnice_stats_clr_o         : out std_logic;                        -- toggles to clear them
+
+   -- UCI's EASYFLASH erase: the sector (bit 6 ROMH's chip, bits 5-0 a bank of it), a toggle
+   -- for each start, and the toggle back once the core has done it
+   qnice_erase_o             : out std_logic_vector(6 downto 0);
+   qnice_erase_req_o         : out std_logic;
+   qnice_erase_ack_i         : in  std_logic := '0'
 );
 end entity sw_cartridge_csr;
 
@@ -73,6 +79,14 @@ architecture synthesis of sw_cartridge_csr is
    constant C_CSR_STATS           : std_logic_vector(11 downto 0) := X"023";  -- R: 1 = show them
 
    signal stats_clr               : std_logic := '0';
+
+   -- UCI's EASYFLASH erase (sw_cartridge_wrapper, crt_flash): the sector, then a start; busy
+   -- until the core has erased it, or seen that there is no EasyFlash to erase
+   constant C_CSR_ERASE           : std_logic_vector(11 downto 0) := X"024";  -- bit 6 ROMH, 5-0 a bank
+   constant C_CSR_ERASE_GO        : std_logic_vector(11 downto 0) := X"025";  -- W: start, R: bit 0 busy
+
+   signal erase_sel               : std_logic_vector(6 downto 0) := (others => '0');
+   signal erase_req               : std_logic := '0';
 
    signal qnice_hr_ce             : std_logic;
    signal qnice_hr_addr           : std_logic_vector(31 downto 0);
@@ -188,6 +202,10 @@ begin
                   if G_STATS then
                      qnice_data_o <= x"0001";
                   end if;
+               elsif qnice_addr_i(11 downto 0) = C_CSR_ERASE then
+                  qnice_data_o <= X"00" & '0' & erase_sel;
+               elsif qnice_addr_i(11 downto 0) = C_CSR_ERASE_GO then
+                  qnice_data_o <= X"000" & "000" & (erase_req xor qnice_erase_ack_i);
                elsif qnice_addr_i(11 downto 0) = C_CSR_DMA_MAGIC then
                   qnice_data_o <= X"5D4A";
                elsif qnice_addr_i(11 downto 0) = C_CSR_DMA_CTRL then
@@ -248,6 +266,8 @@ begin
                when C_CSR_DMA_LEN_LO  => dma_len(15 downto 0)    <= qnice_data_i;
                when C_CSR_DMA_LEN_HI  => dma_len(31 downto 16)   <= qnice_data_i;
                when C_CSR_STALLS      => stats_clr               <= not stats_clr;
+               when C_CSR_ERASE       => erase_sel               <= qnice_data_i(6 downto 0);
+               when C_CSR_ERASE_GO    => erase_req               <= not erase_req;
                when others => null;
             end case;
          end if;
@@ -284,6 +304,8 @@ begin
 
    qnice_sd_want_o        <= dma_busy;
    qnice_stats_clr_o      <= stats_clr;
+   qnice_erase_o          <= erase_sel;
+   qnice_erase_req_o      <= erase_req;
 
    -- The DMA owns the memory port while it runs; QNICE does not touch the file meanwhile
    qnice_avm_write_o      <= dma_avm_write when dma_busy = '1' else q2h_write;

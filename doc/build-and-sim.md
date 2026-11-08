@@ -11,10 +11,8 @@ Target board: **MEGA65 R6**. Vivado project:
 From the repository root:
 
 ```bash
-# One-time setup (submodules, QNICE toolchain, M2M shell ROM)
+# One-time setup
 git submodule update --init --recursive
-cd M2M/QNICE/tools && ./make-toolchain.sh
-cd ../../../CORE/m2m-rom && ./make_rom.sh
 
 # Boot simulation (run before flashing)
 CORE/scripts/run_boot_sim.sh
@@ -37,68 +35,56 @@ git submodule update --init --recursive
 
 Submodules include:
 
-| Path               | Purpose                                     |
-|--------------------|---------------------------------------------|
-| `M2M/QNICE`        | QNICE assembler and monitor (M2M shell ROM) |
-| `CORE/C128_MiSTer` | MiSTer C128 core RTL                        |
+| Path               | Purpose              |
+|--------------------|----------------------|
+| `CORE/C128_MiSTer` | MiSTer C128 core RTL |
 
-### QNICE toolchain
+### System CPU firmware
 
-The M2M menu/shell ROM is assembled with the QNICE toolchain:
-
-```bash
-cd M2M/QNICE/tools
-./make-toolchain.sh
-```
-
-Press Enter at the prompts. When finished, `M2M/QNICE/assembler/qasm` must exist
-and be executable.
-
-### M2M shell ROM
+The on-screen menu, the drives and the ROM loading run on the RISC-V system CPU
+(`doc/riscv-system-cpu.md`). Its boot ROM, `M2M/firmware/boot.rom`, goes into the
+bitstream; its firmware, `sdcard/c128/firmware.bin`, goes on the SD card. Both are
+committed, so a bitstream builds without the RISC-V toolchain. After changing
+`M2M/firmware` or `CORE/firmware`:
 
 ```bash
-cd CORE/m2m-rom
-./make_rom.sh
+make -C M2M/firmware                 # xPack riscv-none-elf-gcc 14.3.0-1 on PATH
+make -C M2M/firmware host-test       # the Shell on the Mac, against config.vhd (nvc)
+cp M2M/firmware/build/firmware.bin sdcard/c128/
 ```
 
-This generates `m2m-rom.rom` and related artifacts used by the Vivado project.
-Re-run after changing `globals.vhd` drive/CRT counts or editing `m2m-rom.asm`.
+Build the firmware from a clean tree and commit it: it carries the commit it was
+built from, and the release scripts refuse one built from uncommitted sources or
+older than its sources (`CORE/scripts/check_firmware_fresh.sh`).
 
 ### C128 boot ROM files
 
 Simulation and hardware both need the system ROM bundle on the SD card path.
 For simulation, the file must exist in the working tree:
 
-| File                    | Size                  | SD card path      |
-|-------------------------|-----------------------|-------------------|
-| `sdcard/c128/boot0.rom` | 73 728 bytes (72 KiB) | `/c128/boot0.rom` |
-| `sdcard/c128/boot1.rom` | 196 608 bytes         | `/c128/boot1.rom` |
+| File                       | Size                  | SD card path         |
+|----------------------------|-----------------------|----------------------|
+| `sdcard/c128/boot0.rom`    | 73 728 bytes (72 KiB) | `/c128/boot0.rom`    |
+| `sdcard/c128/boot1.rom`    | 196 608 bytes         | `/c128/boot1.rom`    |
+| `sdcard/c128/firmware.bin` | about 30 KB           | `/c128/firmware.bin` |
 
 `boot0.rom` is required for the boot simulation. `run_boot_sim.tcl` checks
 that it exists before starting xsim.
 
-Copy both files to the MEGA65 SD card before testing on hardware. Without them
+Copy these files to the MEGA65 SD card before testing on hardware. Without them
 the core cannot boot correctly.
 
-### Saved settings file
+### Saved settings
 
-The on-screen menu only persists its settings if a file of exactly `OPTM_SIZE`
-bytes exists at the `CFG_FILE` path from `CORE/vhdl/config.vhd`. The filename
-carries `CORE_VERSION`, so it changes with every release:
+The firmware keeps every setting, the menu's and the rest, in `/c128/settings.cfg` on the
+SD card, in the Ultimate's settings format (`CORE/firmware/stores.c`): a `[store]` line,
+then `item=value` lines. It makes the file the first time a setting changes, so a release
+ships none. Settings are kept by name, not by menu line, so they survive a new menu layout
+or `CORE_VERSION`, and R3 builds share the file (a choice they lack, such as a 2 MB REU, is
+skipped). The file can be edited by hand; UCI's LOAD_CONFIG, REST's configs routes and the
+menu's **Load settings** read the same names.
 
-| File                                    | Size                   | SD card path                     |
-|-----------------------------------------|------------------------|----------------------------------|
-| `CORE/m2m-rom/c128mega65-<version>.cfg` | one byte per menu line | `/c128/c128mega65-<version>.cfg` |
-
-Regenerate it whenever `OPTM_SIZE` or `CORE_VERSION` changes, and delete the
-file belonging to the previous version:
-
-```bash
-cd M2M/tools
-./make_config.sh ../../CORE/m2m-rom/c128mega65-<version>.cfg auto
-```
-
-`build_release.sh` ships this file with the release zip.
+`build_release.sh` ships `firmware.bin` with the cores.
 
 ### Disk images
 
@@ -160,6 +146,28 @@ This assembles the M2M shell ROM once, then builds the listed boards side by sid
 It ends with one line per board: exit code, timing and block RAM. Each synthesis
 takes about 8 GB of memory, so set `JOBS` to what the machine can hold.
 `build_release.sh` uses it when run with `JOBS=2` or more.
+
+### R3's memory map on an R6
+
+```bash
+CORE/scripts/build_boards.sh 6r3
+```
+
+This builds an R6 bitstream that uses memory the way an R3 does: the SDRAM controller
+is left out and everything lives in HyperRAM, so the virtual cartridge runs through
+`crt_cacher` and its block RAM cache, with R3's 2 MiB file limit. Everything else,
+such as pins, audio and the RTC, stays R6. Use it to work on the R3 code paths without an R3.
+
+While a .crt file runs, the menu's Cartridge line shows `Stalls <n> max <t>us`: how often
+the cache stopped the C128 for a C64 cycle or more while it loaded a bank, and the longest
+stop. Each time the menu is drawn it shows the waits since the last time, so close the menu,
+play the part to measure, and open it again. Other builds show `Cartridge: CRT file`.
+
+The target sets the R6 top's `G_R3_MEMORY` generic. It builds from its own copy of the
+R6 project, `CORE/CORE-R6R3-vivado2022.xpr`, which is made fresh each time and not
+checked in, so it can build next to a normal R6 (`build_boards.sh 6 6r3`). The bitstream
+is `CORE/CORE-R6R3-vivado2022.runs/impl_1/mega65_r6.bit`. Give the `.cor` a version that
+says it is a 6r3 build.
 
 ### What the build does
 
@@ -279,9 +287,14 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 | Drive index bridge       | `CORE/sim/tb_vdrive_index.vhd`     | drive 0/1 across ascending SystemVerilog and descending VHDL arrays                                        |
 | Authentic drive LED      | `CORE/sim/tb_drive_led_policy.vhd` | green access/error pulses and delayed yellow dirty-cache indication                                        |
 | VGA scandoubler          | `CORE/sim/tb_vga_scandoubler.sv`   | M2M `video_mixer` at the VIC-II and VDC dot rates: every dot once per line, every line twice when scandoubled |
-| HDMI CRT emulation fit   | `CORE/sim/tb_scanline_fit.vhd`     | M2M `scanline_fit` in every HDMI mode: whole HDMI rows per line, lines and sides cropped, ascal's output rectangle |
+| Picture centered         | `CORE/sim/tb_video_window.vhd`     | the real VIC-II and VDC into their `video_sync`: 40 and 80 columns centered in the window HDMI and VGA show |
+| HDMI scanline filter fit | `CORE/sim/tb_scanline_fit.vhd`     | M2M `scanline_fit` in every HDMI mode: whole HDMI rows per line, lines and sides cropped, ascal's output rectangle |
 | HDMI after a reset       | `CORE/sim/tb_ascal_reset.vhd`      | ascal and `avm_decrease` against a HyperRAM controller model, reset while ascal writes: no burst left open, no read lost, reads resume |
 | 1541/1571 bring-up       | `CORE/sim/tb_c157x_boot.sv`        | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
+
+`CORE/scripts/run_rv_soc_nvc.sh` runs `CORE/sim/tb_rv_soc.vhd`, the RISC-V system CPU
+with its self-test firmware, in [nvc](https://www.nickg.me.uk/nvc/) (`brew install nvc`)
+rather than Vivado. It takes a few seconds and isn't part of `run_all_sims.sh` yet.
 
 ### 1541/1571 bring-up simulation
 
@@ -508,8 +521,8 @@ bitstream build:
 CORE/scripts/release-check.sh
 ```
 
-Checks: submodules initialized, QNICE assembler present, M2M ROM build, boot
-sim gate, and ROM file sizes.
+Checks: submodules initialized, `sdcard/c128/firmware.bin` (fits the cores, not
+older than its sources), boot sim gate, and ROM file sizes.
 
 Add `--with-vivado` to include a full Vivado batch build (very long-running).
 
@@ -523,10 +536,10 @@ ERROR: boot ROM not found: …/sdcard/c128/boot0.rom
 
 Place a 73 728-byte `boot0.rom` at `sdcard/c128/boot0.rom`.
 
-### QNICE assembler not found
+### `firmware.bin is older than its sources`
 
-Run `git submodule update --init --recursive`, then build the toolchain under
-`M2M/QNICE/tools`.
+The firmware's sources changed after `sdcard/c128/firmware.bin` was built. Rebuild it
+from a clean tree (see "System CPU firmware" above) and commit it.
 
 ### Flatpak Vivado cannot see the repo
 

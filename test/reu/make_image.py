@@ -37,8 +37,8 @@ def main() -> None:
     images = load_d64_writer()
     disk = images.Disk(35)
     disk.add_file("REUTEST", prg.read_bytes())
-    disk.write_bam()
     disk.write_directory()
+    disk.write_bam()
     bam = disk.offset(18, 0)
     disk.image[bam + 0x90:bam + 0xA0] = b"REU TEST".ljust(16, b"\xA0")
     disk.image[bam + 0xA2:bam + 0xA4] = b"RT"

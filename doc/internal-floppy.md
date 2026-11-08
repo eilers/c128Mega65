@@ -10,11 +10,13 @@ written on the MEGA65 reads on the 1581 and the other way round, and
 
 ## Using it
 
-Help menu > **Internal 1581** > **Drive 8** or **Drive 9**. The drive's line in
-the menu then shows `Internal 1581`, and any disk image mounted on it waits
-until the setting goes back to **Off**. Choosing an image for that drive also
-switches the setting back to **Off**. Changing the setting resets that drive,
-as mounting does, so wait until its LED is off.
+Open a drive's line in the menu (drive A or B) and pick **Internal 1581** under
+Model. The drive's line then shows `Internal`, and any disk image mounted on it
+waits until another model is picked; one that can't run the image ejects it.
+Choosing an image for that drive also gives it back to images. One drive at a
+time can be the internal floppy: picking it for one makes the other a drive of
+images again. Changing the model resets that drive, as mounting does, so wait
+until its LED is off.
 
 The write-protect tab is the only guard: with the hole open the drive answers
 `26, WRITE PROTECT ON`, with it closed the C128 can write and format. Use DD

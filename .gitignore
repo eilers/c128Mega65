@@ -1,4 +1,13 @@
 CORE/*.cache
+CORE/CORE-R6R3-vivado2022.xpr
+CORE/rv_soc_nvc
+CORE/config_nvc
+CORE/uci_nvc
+CORE/reu_sd_nvc
+CORE/avm_cache_nvc
+CORE/keyboard_nvc
+M2M/firmware/build
+M2M/firmware/host/build
 CORE/*.hw
 CORE/*.runs
 CORE/*.sim
@@ -8,19 +17,7 @@ CORE/vivado*.log
 CORE/vivado_pid*
 CORE/*ip_user_files
 CORE/webtalk*.*
-CORE/m2m-rom/*.def
-CORE/m2m-rom/*.lis
-CORE/m2m-rom/*.out
-CORE/m2m-rom/*.rom
-CORE/m2m-rom/globals.asm
-CORE/m2m-rom/shell_fhandles.asm
-CORE/m2m-rom/shell_fh_ptrs.asm
 CORE/load_bitstream.sh
-CORE/make_qasm.sh
-M2M/rom/*.lis
-M2M/rom/*.out
-M2M/rom/*.rom
-M2M/video_filters/*.out
 *.sublime-*
 artifacts/*
 CORE/artifacts/*
@@ -29,4 +26,16 @@ CORE/sim/boot_paths_pkg.vhd
 CORE/sim/sim_boot1_path_pkg.sv
 CORE/sim/boot_sim_console.log
 test/vice-testprogs/*
-CORE/modem-fw/build/
+CORE/c128_dma_nvc
+CORE/input_inject_nvc
+CORE/net_nvc
+CORE/stream_nvc
+CORE/vic_window_nvc
+
+# Hide part of the M2M framework that is not needed since V1.2 but 
+# exists when you installed the M2M submodule previously.
+M2M/QNICE/*
+CORE/m2m-rom/*
+
+# Python bytecode from the test tools
+__pycache__/

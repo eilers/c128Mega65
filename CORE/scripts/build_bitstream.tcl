@@ -63,13 +63,23 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/crt_reader.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_flash.vhd"] \
     [file join $repo_dir "M2M/vhdl/controllers/SDRAM/sdram.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sdram_arbit.vhd"] \
     [file join $repo_dir "M2M/vhdl/axi_fifo_small.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_loader.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
     [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
-    [file join $repo_dir "M2M/vhdl/QNICE/sdhost.vhd"] \
+    [file join $repo_dir "M2M/vhdl/sd/sdhost.vhd"] \
     [file join $repo_dir "CORE/vhdl/sd_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/reu_sd.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/io_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/slot_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_if_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_protocol.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/uci.vhd"] \
+    [file join $repo_dir "CORE/vhdl/c128_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/input_inject.vhd"] \
+    [file join $repo_dir "CORE/vhdl/vdc_peek.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \
@@ -100,9 +110,11 @@ foreach required_file $required_source_files {
     }
 }
 
-# The SwiftLink modem: NEORV32 goes in its own library
-source [file join [file dirname [info script]] add_modem_sources.tcl]
-add_modem_sources $repo_dir
+# The network device; NEORV32 goes in its own library with the system CPU
+source [file join [file dirname [info script]] add_net_sources.tcl]
+add_net_sources $repo_dir
+source [file join [file dirname [info script]] add_rv_sources.tcl]
+add_rv_sources $repo_dir
 
 # Board-specific sources not present in the shared R6-derived project template.
 set project_base [file rootname [file tail $project_file]]
@@ -116,6 +128,12 @@ if {[regexp {CORE-R3} $project_base]} {
             add_files -norecurse -fileset [get_filesets sources_1] $required_file
         }
     }
+}
+
+# Target 6r3 (build_boards.sh): an R6 bitstream with R3's memory map, the SDRAM unused.
+if {[regexp {CORE-R6R3} $project_base]} {
+    puts "R3 memory map: G_R3_MEMORY=true"
+    set_property generic {G_R3_MEMORY=true} [get_filesets sources_1]
 }
 
 # Vivado 2022 may import .sv files as plain Verilog from newer project files.

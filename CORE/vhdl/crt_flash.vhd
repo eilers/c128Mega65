@@ -7,6 +7,8 @@
 -- After VICE's flash040core.c (AM29F040B) and Sorgelig's am29f040.sv for MiSTer.
 --
 -- A chip only sees a write while it is selected for one, i.e. in Ultimax mode (main.vhd).
+-- erase_i erases a sector as the chip's own command does, for UCI's EASYFLASH command
+-- (Gideon's control target), unless that chip is busy.
 -- While it is busy or in autoselect it answers reads itself (*_oe_o). A job's status shows
 -- until the memory side reports it done and the next PHI2 rise has passed: a CPU read whose
 -- byte was fetched before the change is latched by then.
@@ -48,7 +50,12 @@ entity crt_flash is
       lo_job_o    : out std_logic_vector(28 downto 0);
       hi_job_o    : out std_logic_vector(28 downto 0);
       done_i      : in  std_logic_vector(1 downto 0);
-      fail_i      : in  std_logic_vector(1 downto 0)
+      fail_i      : in  std_logic_vector(1 downto 0);
+      -- One clock: erase the 64 kB sector (8 banks) bank is in, of ROMH's chip (hi) or ROML's
+      erase_i     : in  std_logic := '0';
+      erase_hi_i  : in  std_logic := '0';
+      erase_bank_i : in std_logic_vector(5 downto 0) := (others => '0');
+      busy_o      : out std_logic_vector(1 downto 0)   -- a job of the chip is under way
    );
 end entity crt_flash;
 
@@ -82,6 +89,8 @@ begin
    lo_job_o  <= job_r(0);
    hi_job_o  <= job_r(1);
    oe_o      <= oe_r;
+   busy_o(0) <= '1' when state(0) = BUSY_ST else '0';
+   busy_o(1) <= '1' when state(1) = BUSY_ST else '0';
    lo_data_o <= data_r(0);
    hi_data_o <= data_r(1);
 
@@ -176,6 +185,14 @@ begin
                         state(c) <= UNLOCK1_ST;
                      end if;
                end case;
+            end if;
+
+            if erase_i = '1' and (erase_hi_i = '1') = (c = 1) and state(c) /= BUSY_ST then
+               job_r(c)   <= "10" & erase_bank_i & '0' & x"000" & x"30";
+               req_r(c)   <= not req_r(c);
+               erasing(c) <= '1';
+               timer(c)   <= G_ERASE_CLKS;
+               state(c)   <= BUSY_ST;
             end if;
 
             if state(c) = BUSY_ST and done_i(c) = req_r(c) and timer(c) = 0 and

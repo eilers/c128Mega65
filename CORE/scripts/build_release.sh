@@ -52,10 +52,9 @@ sanitize_version_slug() {
 CONFIG_VHD_PATH="$CORE_DIR/vhdl/config.vhd"
 CORE_VERSION_RE='constant[[:space:]]+CORE_VERSION[[:space:]]*:[[:space:]]*string[[:space:]]*:=[[:space:]]*"([^"]+)"[[:space:]]*;'
 
-# CORE_VERSION is baked into the bitstream at synthesis time: it names the saved-settings file
-# and appears on the credits screen. A mismatch between it and the release name would silently
-# ship a core whose settings file and about screen disagree with the zip, so check before the
-# build loop rather than after four synthesis runs.
+# CORE_VERSION is baked into the bitstream at synthesis time: it appears on the credits screen.
+# A mismatch between it and the release name would silently ship a core whose about screen
+# disagrees with the zip, so check before the build loop rather than after four synthesis runs.
 check_core_version() {
   [[ -f "$CONFIG_VHD_PATH" ]] || die "config.vhd not found: $CONFIG_VHD_PATH"
 
@@ -72,7 +71,7 @@ check_core_version() {
 
   if [[ "$CORE_VERSION_VHDL" != "$VERSION_SLUG" ]]; then
     local msg="Version mismatch: config.vhd has CORE_VERSION=\"$CORE_VERSION_VHDL\" but this release is \"$VERSION_SLUG\".
-     Update CORE_VERSION in $CONFIG_VHD_PATH (and re-run make_rom.sh), or enter a matching release name."
+     Update CORE_VERSION in $CONFIG_VHD_PATH, or enter a matching release name."
     if [[ "${SKIP_VERSION_CHECK:-0}" == "1" ]]; then
       echo "WARNING: $msg" >&2
       echo "WARNING: continuing anyway because SKIP_VERSION_CHECK=1." >&2
@@ -101,29 +100,15 @@ echo
 
 [[ -x "$CORETOOL" ]] || die "coretool not found or not executable: $CORETOOL"
 
-if [[ ! -x "$ROOT_DIR/M2M/QNICE/assembler/qasm" ]]; then
-  die "QNICE assembler missing. Run: cd M2M/QNICE/tools && ./make-toolchain.sh"
-fi
-
 check_core_version
 
-# The menu only remembers its settings if a file of exactly OPTM_SIZE bytes sits at CFG_FILE
-# on the SD card, so the release has to carry it next to the .cor files.
-SETTINGS_FILE="$CORE_DIR/m2m-rom/c128mega65-${CORE_VERSION_VHDL}.cfg"
-[[ -f "$SETTINGS_FILE" ]] || die "Settings file missing: $SETTINGS_FILE
-     Create it with: cd M2M/tools && ./make_config.sh \"$SETTINGS_FILE\" auto"
-cp -f "$SETTINGS_FILE" "$STAGING_DIR/"
-echo "Settings file: $STAGING_DIR/$(basename "$SETTINGS_FILE")"
-
-# SwiftLink modem firmware. The Shell loads this from /c128/modem.bin on the SD card
-# at startup; without it the modem stays silent. Ship it next to the .cor files so it
-# can be copied onto the card with the rest of the release.
-MODEM_FW_FILE="$ROOT_DIR/sdcard/c128/modem.bin"
-[[ -f "$MODEM_FW_FILE" ]] || die "Modem firmware missing: $MODEM_FW_FILE
-     Build it with: cd CORE/modem-fw && make
-     then copy build/modem.bin to sdcard/c128/modem.bin."
-cp -f "$MODEM_FW_FILE" "$STAGING_DIR/modem.bin"
-echo "Modem firmware: $STAGING_DIR/modem.bin"
+# The system CPU's firmware goes on the SD card as /c128/firmware.bin; the cores only have
+# its boot loader. Ship the committed one, checked against the cores and its sources.
+FIRMWARE="$ROOT_DIR/sdcard/c128/firmware.bin"
+FW_VERSION="$(python3 -I "$ROOT_DIR/M2M/firmware/tools/check_image.py" "$FIRMWARE" \
+  "$ROOT_DIR/M2M/firmware/include/m2m_rv.h")" || die "firmware.bin is not fit to ship"
+"$SCRIPT_DIR/check_firmware_fresh.sh" || die "firmware.bin is older than its sources"
+echo "Firmware: $FW_VERSION"
 
 ask_run_testbenches() {
   local answer="${RUN_TESTBENCHES:-}"
@@ -144,11 +129,8 @@ else
   echo "Skipping simulation testbenches."
 fi
 
-echo "Building M2M shell ROM..."
-(
-  cd "$CORE_DIR/m2m-rom"
-  ./make_rom.sh
-) >/dev/null
+cp -f "$FIRMWARE" "$STAGING_DIR/"
+echo "Firmware: $STAGING_DIR/firmware.bin"
 
 find_bitstream() {
   local rev="$1"

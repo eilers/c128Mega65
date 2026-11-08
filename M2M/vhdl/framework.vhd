@@ -22,7 +22,8 @@ use xpm.vcomponents.all;
 
 entity framework is
 generic (
-   G_BOARD : string                                         -- Which platform are we running on.
+   G_BOARD : string;                                        -- Which platform are we running on.
+   G_SDRAM : boolean := true                                -- false: no SDRAM controller, as on R3
 );
 port (
    clk_i                   : in    std_logic;                  -- 100 MHz clock
@@ -191,7 +192,7 @@ port (
    main_rtc_o              : out   std_logic_vector(64 downto 0);
 
 
-   -- C128 core: the modem's 50 MHz clock (CPU and Ethernet)
+   -- C128 core: the network device's 50 MHz clock (Ethernet, the 6551's FIFOs)
    modem_clk_o             : out   std_logic;
    modem_rst_o             : out   std_logic;
 
@@ -227,6 +228,16 @@ port (
    sr_core_readdata_o      : out   std_logic_vector(15 downto 0);
    sr_core_readdatavalid_o : out   std_logic;
    sr_core_waitrequest_o   : out   std_logic;
+   -- The system CPU's SDRAM master (rv_soc.vhd, 0x50000000), for the core to share out with its own
+   sr_cpu_write_o          : out   std_logic;
+   sr_cpu_read_o           : out   std_logic;
+   sr_cpu_address_o        : out   std_logic_vector(31 downto 0);
+   sr_cpu_writedata_o      : out   std_logic_vector(15 downto 0);
+   sr_cpu_byteenable_o     : out   std_logic_vector(1 downto 0);
+   sr_cpu_burstcount_o     : out   std_logic_vector(7 downto 0);
+   sr_cpu_readdata_i       : in    std_logic_vector(15 downto 0) := (others => '0');
+   sr_cpu_readdatavalid_i  : in    std_logic := '0';
+   sr_cpu_waitrequest_i    : in    std_logic := '1';
 
    -- QNICE control signals
    qnice_dvi_i             : in    std_logic;
@@ -242,6 +253,7 @@ port (
    qnice_ascal_mode_i      : in    std_logic_vector(1 downto 0);
    qnice_ascal_polyphase_i : in    std_logic;
    qnice_ascal_triplebuf_i : in    std_logic;
+   qnice_hdmi_scanlines_i  : in    std_logic;     -- a scanline filter: scanline_fit on
    qnice_flip_joyports_i   : in    std_logic;
    qnice_osm_control_m_o   : out   std_logic_vector(255 downto 0);
    qnice_gp_reg_o          : out   std_logic_vector(255 downto 0);
@@ -342,6 +354,7 @@ signal main_csr_joy2_on       : std_logic;
 
 -- keyboard handling
 signal main_qnice_keys_n      : std_logic_vector(15 downto 0);
+signal main_qnice_matrix_n    : std_logic_vector(79 downto 0);
 
 --- control signals from QNICE in main's clock domain
 signal main_flip_joyports     : std_logic;
@@ -391,8 +404,9 @@ signal qnice_v_bp             : std_logic_vector(11 downto 0); -- horizontal bac
 signal qnice_v_fp             : std_logic_vector(11 downto 0); -- horizontal front porch width in pixels
 signal qnice_h_freq           : std_logic_vector(15 downto 0); -- horizontal sync frequency
 
--- m2m_keyb output for the firmware and the Shell; see also sysdef.asm
+-- m2m_keyb output for the firmware and the Shell; see also M2M/firmware/include/m2m_rv.h
 signal qnice_qnice_keys_n     : std_logic_vector(15 downto 0);
+signal qnice_qnice_matrix_n   : std_logic_vector(79 downto 0);
 
 -- Paddles in 50 MHz clock domain which happens to be QNICE's
 signal qnice_pot1_x_n         : unsigned(7 downto 0);
@@ -635,7 +649,8 @@ begin
          drive_led_col_i      => main_drive_led_col_i,
 
          -- interface to QNICE: used by the firmware and the Shell
-         qnice_keys_n_o       => main_qnice_keys_n
+         qnice_keys_n_o       => main_qnice_keys_n,
+         qnice_matrix_n_o     => main_qnice_matrix_n
       ); -- i_m2m_keyb
 
    ---------------------------------------------------------------------------------------------------------------
@@ -644,7 +659,8 @@ begin
 
    i_qnice_wrapper : entity work.qnice_wrapper
    generic map (
-      G_BOARD => G_BOARD
+      G_BOARD => G_BOARD,
+      G_SDRAM => G_SDRAM
    )
    port map (
       clk_i                     => qnice_clk,
@@ -703,6 +719,7 @@ begin
       qnice_vram_we_o           => qnice_vram_we,
       qnice_vram_attr_we_o      => qnice_vram_attr_we,
       qnice_qnice_keys_n_i      => qnice_qnice_keys_n,
+      qnice_qnice_matrix_n_i    => qnice_qnice_matrix_n,
       qnice_pot1_x_n_o          => qnice_pot1_x_n,
       qnice_pot1_y_n_o          => qnice_pot1_y_n,
       qnice_pot2_x_n_o          => qnice_pot2_x_n,
@@ -716,6 +733,16 @@ begin
       qnice_avm_readdata_i      => qnice_avm_readdata,
       qnice_avm_readdatavalid_i => qnice_avm_readdatavalid,
       qnice_avm_waitrequest_i   => qnice_avm_waitrequest,
+      hr_rst_i                  => hr_rst,
+      qnice_sr_write_o          => sr_cpu_write_o,
+      qnice_sr_read_o           => sr_cpu_read_o,
+      qnice_sr_address_o        => sr_cpu_address_o,
+      qnice_sr_writedata_o      => sr_cpu_writedata_o,
+      qnice_sr_byteenable_o     => sr_cpu_byteenable_o,
+      qnice_sr_burstcount_o     => sr_cpu_burstcount_o,
+      qnice_sr_readdata_i       => sr_cpu_readdata_i,
+      qnice_sr_readdatavalid_i  => sr_cpu_readdatavalid_i,
+      qnice_sr_waitrequest_i    => sr_cpu_waitrequest_i,
       qnice_pps_i               => qnice_pps,
       qnice_hdmi_clk_freq_i     => qnice_hdmi_clk_freq,
       qnice_hr_count_long_i     => qnice_hr_count_long,
@@ -826,6 +853,18 @@ begin
          dest_out(15 downto  0) => qnice_qnice_keys_n
       ); -- i_main2qnice
 
+   -- Every key, for the firmware's text entry: each bit on its own, as the keys above
+   i_main2qnice_matrix: xpm_cdc_array_single
+      generic map (
+         WIDTH => 80
+      )
+      port map (
+         src_clk                => main_clk_i,
+         src_in                 => main_qnice_matrix_n,
+         dest_clk               => qnice_clk,
+         dest_out               => qnice_qnice_matrix_n
+      ); -- i_main2qnice_matrix
+
    -- Clock domain crossing: CORE to AUDIO
    i_main2audio: entity work.cdc_stable
       generic map (
@@ -877,39 +916,37 @@ begin
          dest_out(614 downto 550)   => main_rtc_o
       ); -- i_qnice2main
 
-   -- Clock domain crossing: QNICE to HR
-   i_avm_fifo_qnice : entity work.avm_fifo
+   -- The system CPU's HyperRAM port is on hr_clk already. It yields to the HDMI scaler: in
+   -- 80 columns the scaler's reads at the top of a frame run late if the CPU's turns come
+   -- between them, and the scaler then shows memory below the picture.
+   i_avm_yield_qnice : entity work.avm_yield
       generic map (
-         G_WR_DEPTH     => 16,
-         G_RD_DEPTH     => 16,
-         G_FILL_SIZE    => 1,
-         G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_QUIET => 32,       -- 320 ns, longer than the scaler's gaps between its bursts
+         G_LIMIT => 16384     -- 164 us
       )
       port map (
-         s_clk_i               => qnice_clk,
-         s_rst_i               => qnice_rst,
-         s_avm_waitrequest_o   => qnice_avm_waitrequest,
+         clk_i                 => hr_clk,
+         rst_i                 => hr_rst,
+         p_avm_write_i         => hr_dig_write,
+         p_avm_read_i          => hr_dig_read,
+         p_avm_burstcount_i    => hr_dig_burstcount,
+         p_avm_waitrequest_i   => hr_dig_waitrequest,
+         p_avm_readdatavalid_i => hr_dig_readdatavalid,
          s_avm_write_i         => qnice_avm_write,
          s_avm_read_i          => qnice_avm_read,
-         s_avm_address_i       => qnice_avm_address,
-         s_avm_writedata_i     => qnice_avm_writedata,
-         s_avm_byteenable_i    => qnice_avm_byteenable,
          s_avm_burstcount_i    => qnice_avm_burstcount,
-         s_avm_readdata_o      => qnice_avm_readdata,
-         s_avm_readdatavalid_o => qnice_avm_readdatavalid,
-         m_clk_i               => hr_clk,
-         m_rst_i               => hr_rst,
-         m_avm_waitrequest_i   => hr_qnice_waitrequest,
+         s_avm_waitrequest_o   => qnice_avm_waitrequest,
          m_avm_write_o         => hr_qnice_write,
          m_avm_read_o          => hr_qnice_read,
-         m_avm_address_o       => hr_qnice_address,
-         m_avm_writedata_o     => hr_qnice_writedata,
-         m_avm_byteenable_o    => hr_qnice_byteenable,
-         m_avm_burstcount_o    => hr_qnice_burstcount,
-         m_avm_readdata_i      => hr_qnice_readdata,
-         m_avm_readdatavalid_i => hr_qnice_readdatavalid
-      ); -- i_avm_fifo_qnice
+         m_avm_waitrequest_i   => hr_qnice_waitrequest
+      ); -- i_avm_yield_qnice
+
+   hr_qnice_address        <= qnice_avm_address;
+   hr_qnice_writedata      <= qnice_avm_writedata;
+   hr_qnice_byteenable     <= qnice_avm_byteenable;
+   hr_qnice_burstcount     <= qnice_avm_burstcount;
+   qnice_avm_readdata      <= hr_qnice_readdata;
+   qnice_avm_readdatavalid <= hr_qnice_readdatavalid;
 
    -- Clock domain crossing: HR to QNICE
    i_hr2qnice: entity work.cdc_stable
@@ -989,6 +1026,7 @@ begin
          qnice_poly_a_i          => qnice_ramrom_addr_o(6+3 downto 0),
          qnice_poly_wr_i         => qnice_poly_wr,
          qnice_ascal_mode_i      => qnice_ascal_mode,
+         qnice_hdmi_scanlines_i  => qnice_hdmi_scanlines_i,
          qnice_hdmax_o           => qnice_hdmax,
          qnice_vdmax_o           => qnice_vdmax,
          qnice_h_pixels_o        => qnice_h_pixels,
@@ -1088,10 +1126,11 @@ begin
 
 
    ---------------------------------------------------------------------------------------------------------------
-   -- SDRAM controller (R4 and later), for the core alone, on the HyperRAM clock as in C64MEGA65
+   -- SDRAM controller (R4 and later), on the HyperRAM clock as in C64MEGA65. The core shares it
+   -- out between its own masters and the system CPU's (sr_cpu_*)
    ---------------------------------------------------------------------------------------------------------------
 
-   sdram_gen : if G_BOARD /= "MEGA65_R3" generate
+   sdram_gen : if G_BOARD /= "MEGA65_R3" and G_SDRAM generate
 
       sdram_inst : entity work.sdram
          generic map (

@@ -17,12 +17,15 @@ use work.video_modes_pkg.all;
 use work.globals.all;
 use work.vdrives_pkg.all;
 use work.sdhost_pkg.all;
+use work.input_inject_pkg.all;
 
 entity main is
    generic (
       G_BOARD                 : string;                     -- Which MEGA65 revision are we running on
       G_VDNUM                 : natural;                    -- amount of virtual drives
-      G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20   -- reset on a cartridge change: 50 ms
+      G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20;  -- reset on a cartridge change: 50 ms
+      G_REU_BASE              : std_logic_vector(31 downto 0) :=   -- word address of the REU's memory
+                                "0000000" & C_HMAP_REU(12 downto 0) & x"000"
    );
    port (
       clk_main_i              : in  std_logic;  -- Main core clock (~31.53 MHz PAL)
@@ -70,6 +73,18 @@ entity main is
       audio_left_o            : out signed(15 downto 0);
       audio_right_o           : out signed(15 downto 0);
 
+      -- His VIC stream (net.vhd): each pixel's colour index with its rasterX/rasterY, on the ce
+      stream_vic_ce_o         : out std_logic;
+      stream_vic_index_o      : out unsigned(3 downto 0);
+      stream_vic_x_o          : out unsigned(9 downto 0);
+      stream_vic_y_o          : out unsigned(8 downto 0);
+
+      -- The system CPU's reads of VDC RAM and registers (vdc_peek.vhd), on clk_vdc_i
+      vdc_dbg_rd_i            : in  std_logic := '0';
+      vdc_dbg_addr_i          : in  unsigned(15 downto 0) := (others => '0');
+      vdc_dbg_ram_o           : out unsigned(7 downto 0);
+      vdc_dbg_reg_o           : out unsigned(7 downto 0);
+
       -- Drive led (monochrome + RGB colour)
       drive_led_o             : out std_logic;
       drive_led_col_o         : out std_logic_vector(23 downto 0);
@@ -83,6 +98,9 @@ entity main is
      ram_data_i               : in unsigned(7 downto 0);      -- RAM data in
       sys_rom_addr_o           : out std_logic_vector(16 downto 0);
       sys_rom_data_i           : in  std_logic_vector(7 downto 0);
+      -- The internal function ROM, in the system ROM from 0x18000: 0 none, 1 16 KB (at $8000),
+      -- 2 32 KB (and at $C000)
+      func_rom_size_i          : in  std_logic_vector(1 downto 0) := "00";
 
       -- Expansion Port (aka Cartridge Port). The MEGA65's slot is electrically a C64
       -- expansion port, so it takes both C64 and C128 cartridges.
@@ -179,6 +197,8 @@ entity main is
       -- Drive ROM pull interface (clk_sd_i domain). The drives fetch their DOS ROM
       -- byte by byte out of the boot1.rom block RAM that mega65.vhd serves.
       drv_rom_loading_i       : in  std_logic;
+      drv_rom_reload_i        : in  std_logic_vector(1 downto 0) := "00";  -- a pulse: drive i's bank again
+      drv_rom_ready_o         : out std_logic_vector(1 downto 0);          -- drive i has its ROM
       drv_rom_req_o           : out std_logic;
       drv_rom_addr_o          : out std_logic_vector(18 downto 0);
       drv_rom_data_i          : in  std_logic_vector(7 downto 0);
@@ -221,7 +241,7 @@ entity main is
       qnice_p1581_data_i      : in  std_logic_vector(15 downto 0) := (others => '0');
       qnice_p1581_data_o      : out std_logic_vector(15 downto 0);
 
-      -- REU's HyperRAM port (clk_main_i domain; mega65.vhd crosses it to hr_clk)
+      -- REU's memory port, HyperRAM or SDRAM (clk_main_i domain; mega65.vhd crosses it to hr_clk)
       reu_avm_write_o         : out std_logic;
       reu_avm_read_o          : out std_logic;
       reu_avm_address_o       : out std_logic_vector(31 downto 0);
@@ -241,6 +261,36 @@ entity main is
       modem_data_o            : out std_logic_vector(7 downto 0);
       modem_data_i            : in  std_logic_vector(7 downto 0) := x"FF";
       modem_irq_i             : in  std_logic := '0';             -- to NMI, as on a SwiftLink
+
+      -- The REST API's keys, joysticks and POT lines (input_inject.vhd in mega65.vhd), and its
+      -- debug register at $D7FF
+      api_input_i             : in  t_api_input := C_API_INPUT_NONE;
+      dbg_we_o                : out std_logic;                    -- the C128 writes $D7FF
+      dbg_data_o              : out std_logic_vector(7 downto 0);
+      dbg_data_i              : in  std_logic_vector(7 downto 0) := x"00";
+
+      -- Ultimate Command Interface at $DF1C (clk_main_i domain); uci.vhd is in mega65.vhd
+      uci_rst_o               : out std_logic;                    -- C128 reset
+      uci_cs_o                : out std_logic;                    -- select strobe, CPU4-7
+      uci_we_o                : out std_logic;                    -- every write, $FF00 included
+      uci_addr_o              : out std_logic_vector(15 downto 0);
+      uci_data_o              : out std_logic_vector(7 downto 0);
+      uci_data_i              : in  std_logic_vector(7 downto 0) := x"FF";
+      uci_irq_i               : in  std_logic := '0';
+      uci_dma_i               : in  std_logic := '0';             -- hold the CPU, as /DMA does
+      uci_reboot_i            : in  std_logic := '0';             -- one clock: the firmware resets the C128 (REBOOT, REST)
+      uci_reu_keep_i          : in  std_logic := '0';             -- REU setting changes are LOAD_CONFIG's: no reset
+      reu_menu_o              : out std_logic_vector(1 downto 0); -- the REU setting: 0 off, 1-3 the size
+      reu_drop_i              : in  std_logic := '0';             -- one clock: the REU's memory changed behind it (reu_sd.vhd)
+
+      -- The system CPU's bus DMA (c128_dma.vhd in mega65.vhd), after a cartridge and the REU
+      fwdma_req_i             : in  std_logic := '0';             -- hold the CPU
+      fwdma_cycle_o           : out std_logic;                    -- the DMA window, when it is ours
+      fwdma_addr_i            : in  unsigned(15 downto 0) := (others => '0');
+      fwdma_dout_i            : in  unsigned( 7 downto 0) := (others => '0');
+      fwdma_we_i              : in  std_logic := '0';
+      fwdma_din_o             : out unsigned( 7 downto 0);
+      fwdma_z80_o             : out std_logic;                    -- the Z80 runs: no DMA
 
       -- Virtual cartridge: the .crt file and its bank cache (sw_cartridge_wrapper in mega65.vhd)
       crt_loaded_i            : in  std_logic := '0';
@@ -264,6 +314,7 @@ entity main is
       crt_vic_rd_o            : out std_logic;   -- SDRAM: the VIC fetches ROMH (Ultimax)
       crt_vic_addr_o          : out std_logic_vector(12 downto 0);
       crt_rfsh_ok_o           : out std_logic;   -- SDRAM: no cartridge read is due for a while
+      crt_reu_ok_o            : out std_logic;   -- SDRAM: the REU may start an access
       crt_reset_o             : out std_logic;   -- the C128 is in reset
       crt_phi2_o              : out std_logic;
       crt_flash_wr_o          : out std_logic;   -- a CPU write selects ROML or ROMH (Ultimax), one clock
@@ -289,6 +340,10 @@ signal core_ram_addr     : unsigned(17 downto 0);
 signal sysrom_cs         : std_logic;
 signal sysrom_bank       : unsigned(4 downto 0);
 signal sysrom_data       : unsigned(7 downto 0);
+signal core_romfl        : std_logic;   -- the MMU selects the internal function ROM, $8000-$BFFF
+signal core_romfh        : std_logic;   -- $C000-$FFFF
+signal funcrom_cs        : std_logic;   -- and that half is there
+signal funcrom_float     : std_logic;   -- or isn't: the bus floats, as on MiSTer
 -- MiSTer SDRAM latches addr at ce rise; hold BRAM addr during burst, always drive read data to CPU.
 signal sysrom_cs_d       : std_logic := '0';
 signal sysrom_data_r     : unsigned(7 downto 0) := (others => '0');
@@ -369,6 +424,14 @@ signal d4080_sel_s       : std_logic := '1';
 signal cpslk_sense_s     : std_logic := '1';
 -- RESTORE (key 75) -> NMI: latched on the RESTORE key edge, cleared by nmi_ack.
 signal restore_key_s     : std_logic := '0';
+-- The joysticks with the API's directions: fire, right, left, down, up, low active
+signal joy1_n, joy2_n    : std_logic_vector(4 downto 0);
+-- The API's keys, while the keyboard reaches the core
+signal api_keys          : std_logic_vector(87 downto 0);
+signal dbg_sel           : std_logic;                      -- $D7FF
+signal dbg_wr            : std_logic := '0';
+signal pot1_x, pot1_y    : std_logic_vector(7 downto 0);
+signal pot2_x, pot2_y    : std_logic_vector(7 downto 0);
 signal restore_key_d     : std_logic := '0';
 signal nmi_q             : std_logic := '0';
 signal core_nmi_n_s      : std_logic := '1';
@@ -452,12 +515,14 @@ signal cart_source          : t_cart_source;
 
 -- REU
 signal reu_menu             : std_logic_vector(1 downto 0);   -- the menu's choice, as reu.sv's cfg
-signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB
+signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB, "11" 16 MB
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
 signal reu_cs               : std_logic;                      -- reu_io's strobe, once per access
 signal io_phi2              : std_logic;                      -- PHI2 of an I/O access: CPU4-6
 signal modem_base           : std_logic_vector(1 downto 0);   -- "00" off, "01" $DE00, "10" $DF00, "11" $D700
 signal modem_sel            : std_logic;                      -- the 6551's 8 bytes at its base
+signal uci_on               : std_logic;                      -- switched on, and the cartridge leaves IO2 free
+signal uci_sel              : std_logic;                      -- $DF18-$DF1F
 signal reu_dma_req          : std_logic;
 signal reu_irq              : std_logic;
 signal reu_dout             : std_logic_vector(7 downto 0);
@@ -510,6 +575,9 @@ signal crt_bank_lo          : std_logic_vector(6 downto 0);
 signal crt_addr_9exx        : std_logic;
 signal crt_addr_9fxx        : std_logic;
 signal crt_rfsh_ok          : std_logic := '1';
+signal crt_reu_ok           : std_logic := '1';
+constant C_REU_FROM         : natural := 7;    -- SDRAM: the REU's window, clocks into PHI2 low
+constant C_REU_TO           : natural := 15;
 
 -- Hardware Expansion Port
 signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
@@ -587,6 +655,13 @@ signal iec_drive_ce  : std_logic;
 signal iec_dce_sum   : integer := 0;   -- 32-bit integer, initialized to 0
 
 signal iec_img_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
+signal iec_disk_ready   : std_logic;   -- every 1541/1571 out of reset has its disk
+-- The drives' power as the firmware sets it (vd_sd CSR 0x034, QNICE clock), and in this clock:
+-- bit 0 keeps a drive on with no disk, bit 1 holds it off with a disk (and wins)
+signal vd_sd_power      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0);
+signal iec_power_m      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
+signal iec_power        : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
+attribute ASYNC_REG of iec_power_m, iec_power : signal is "TRUE";
 signal iec_img_readonly : std_logic;
 signal iec_img_size     : std_logic_vector(31 downto 0);
 signal iec_img_type     : std_logic_vector(1 downto 0);
@@ -596,6 +671,7 @@ signal iec_img_type4    : std_logic_vector(3 downto 0);
 signal iec_img_type_latched : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0) := (others => "00");
 
 signal iec_drives_reset : std_logic_vector(G_VDNUM - 1 downto 0);
+signal iec_rom_ready    : std_logic_vector(G_VDNUM - 1 downto 0);
 signal vdrives_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drive_led    : std_logic_vector(G_VDNUM - 1 downto 0);
 
@@ -609,6 +685,8 @@ constant C_DRIVE_LED_IDLE : natural := CORE_CLK_SPEED / 2;   -- 0.5 s
 signal iec_out_track    : vd_vec_array(0 to G_VDNUM - 1)(7 downto 0);
 signal iec_out_we       : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_drv_mode     : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);
+signal iec_drv_id       : vd_vec_array(0 to G_VDNUM - 1)(1 downto 0);   -- bus ID - 8
+signal iec_drv_1581     : std_logic_vector(G_VDNUM - 1 downto 0);      -- its model is the 1581
 
 signal iec_sd_lba          : vd_vec_array(0 to G_VDNUM - 1)(31 downto 0);
 signal iec_sd_blk_cnt      : vd_vec_array(0 to G_VDNUM - 1)( 5 downto 0);
@@ -746,8 +824,8 @@ video_sync_vdc : entity work.video_sync_c128
     pause       => '0',
     hshift_r60  => std_logic_vector(to_unsigned(43, 12)),   -- centered, not wide
     hshift_l60  => std_logic_vector(to_unsigned(236, 12)),
-    hshift_r50  => std_logic_vector(to_unsigned(87, 12)),
-    hshift_l50  => std_logic_vector(to_unsigned(290, 12)),
+    hshift_r50  => std_logic_vector(to_unsigned(83, 12)),    -- MiSTer 87/290; 4 clocks later centers 80 col PAL
+    hshift_l50  => std_logic_vector(to_unsigned(294, 12)),
     hsync       => vdc_hs,
     vsync       => vdc_vs,
     hsync_out   => vdc_hs_out,
@@ -799,6 +877,8 @@ begin
 end process video_switch_blank_proc;
 
 -- Native-domain muxes: VIC on main_clk, VDC on vdc_clk. mega65 BUFGMUXes each port's clock to match.
+stream_vic_ce_o <= vic_pixel_ce;
+
 video_ce_o     <= vdc_dot_ce when hdmi_sel_vdc = '1' else vic_pixel_ce;
 video_hs_o     <= vdc_hs_out when hdmi_sel_vdc = '1' else vic_hs_out;
 video_vs_o     <= vdc_vs_out when hdmi_sel_vdc = '1' else vic_vs_out;
@@ -852,8 +932,10 @@ exp_port_hw <= '1' when cart_source = CART_HW else '0';
 
 reu_menu <= "01" when osm_control_i(C_MENU_REU_512K) = '1' else
             "10" when osm_control_i(C_MENU_REU_2M)   = '1' else
+            "11" when osm_control_i(C_MENU_REU_16M)  = '1' else
             "00";
 reu_cfg  <= "00" when crt_io2 = '1' or modem_base = "10" else reu_menu;
+reu_menu_o <= reu_menu;
 reu_io  <= '1' when core_iof = '1' and core_ram_addr(7 downto 5) = "000" else '0';
 
 -- In FAST mode the CPU has PHI1 too, and IOE/IOF/IO7 come up there as well as in CPU4-7. The REU
@@ -873,12 +955,43 @@ modem_sel  <= '1' when core_ram_addr(7 downto 3) = "00000" and
                         (modem_base = "10" and core_iof = '1') or
                         (modem_base = "11" and core_io7 = '1')) else '0';
 
+-- His U64's debug register at $D7FF (machine:debugreg), in input_inject.vhd. A write lands
+-- once, as the access ends, with the data of its last clock. C64 mode reads $D7xx from the
+-- SID mirror ahead of external I/O, so it reads back there only through the firmware.
+dbg_sel <= '1' when core_io7 = '1' and core_ram_addr(7 downto 0) = x"FF" else '0';
+
+dbg_write : process(clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      dbg_we_o <= '0';
+      if dbg_sel = '1' and io_phi2 = '1' and system_we = '1' then
+         dbg_wr     <= '1';
+         dbg_data_o <= std_logic_vector(core_ram_data_out);
+      elsif dbg_wr = '1' then
+         dbg_wr   <= '0';
+         dbg_we_o <= '1';
+      end if;
+   end if;
+end process dbg_write;
+
 modem_en_o   <= '0' when modem_base = "00" else '1';
 modem_rst_o  <= not reset_core_n;
 modem_cs_o   <= modem_sel and io_phi2;
 modem_we_o   <= system_we;
 modem_addr_o <= std_logic_vector(core_ram_addr(2 downto 0));
 modem_data_o <= std_logic_vector(core_ram_data_out);
+
+-- Ultimate Command Interface: $DF18-$DF1F, laid over the REU's unused $DF18-$DF1F (they read
+-- $FF there) as on the Ultimate. Off while the virtual cartridge uses IO2, as Gideon's firmware
+-- does for a cartridge that rules it out.
+uci_on  <= '1' when osm_control_i(C_MENU_UCI) = '1' and crt_io2 = '0' else '0';
+uci_sel <= '1' when uci_on = '1' and core_iof = '1' and core_ram_addr(7 downto 3) = "00011" else '0';
+
+uci_rst_o  <= not reset_core_n;
+uci_cs_o   <= uci_sel and io_phi2;
+uci_we_o   <= system_we;
+uci_addr_o <= std_logic_vector(core_ram_addr(15 downto 0));
+uci_data_o <= std_logic_vector(core_ram_data_out);
 
 -- Low-active chip selects as the expansion port expects them. The core reports these accesses
 -- active high. ROMH covers both the CPU's access to $A000-$BFFF / $E000-$FFFF and the VIC-II's
@@ -1035,15 +1148,25 @@ begin
    end if;
 end process cart_dma_proc;
 
--- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits. When only the
--- virtual cartridge's cache stalls the CPU, the DMA cycles read RAM at $0000.
+-- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits; the system
+-- CPU's DMA waits for both. When only the virtual cartridge's cache stalls the CPU, the DMA
+-- cycles read RAM at $0000.
 core_dma_addr <= cart_dma_addr   when cart_dma = '1' else
                  unsigned(reu_dma_addr) when reu_dma_req = '1' else
+                 fwdma_addr_i    when fwdma_req_i = '1' else
                  x"0000";
-core_dma_dout <= cart_dma_dout   when cart_dma = '1' else unsigned(reu_dma_dout);
-core_dma_we   <= not cart_dma_rd when cart_dma = '1' else reu_dma_we;
+core_dma_dout <= cart_dma_dout   when cart_dma = '1' else
+                 unsigned(reu_dma_dout) when reu_dma_req = '1' else
+                 fwdma_dout_i;
+core_dma_we   <= not cart_dma_rd when cart_dma = '1' else
+                 reu_dma_we      when reu_dma_req = '1' else
+                 fwdma_we_i      when fwdma_req_i = '1' else
+                 '0';
 reu_dma_cycle <= core_dma_cycle and not cart_dma;
 reu_dma_din   <= core_dma_din;
+fwdma_cycle_o <= core_dma_cycle and not cart_dma and not reu_dma_req;
+fwdma_din_o   <= core_dma_din;
+fwdma_z80_o   <= not core_z80_n;
 
 handle_hardware_expansion_proc : process (all)
 begin
@@ -1155,7 +1278,7 @@ begin
 end process handle_hardware_expansion_proc;
 
 --------------------------------------------------------------------------------------------------
--- REU (MiSTer reu.sv) in HyperRAM
+-- REU (MiSTer reu.sv) in HyperRAM, or SDRAM where the board has it
 --------------------------------------------------------------------------------------------------
 -- cpu_we must see I/O writes ($DF01-$DF0A) and $FF00, so it takes system_we, not ram_we.
 reu_inst : entity work.reu
@@ -1190,14 +1313,14 @@ reu_inst : entity work.reu
 -- reu.sv masks addr_ram only when a transfer starts. Mask here too, so that reu_mapper's
 -- prefetch of a freshly written $DF04-$DF06 stays inside the REU's window.
 reu_ram_addr_m <= reu_ram_addr and ("000000" & "111" & x"FFFF") when reu_cfg = "01" else
-                  reu_ram_addr and ("0000" & "11111" & x"FFFF");
+                  reu_ram_addr and ("0000" & "11111" & x"FFFF") when reu_cfg = "10" else
+                  reu_ram_addr and ('0' & x"FFFFFF");
 
--- HyperRAM path, as in C64MEGA65: reu_mapper prefetches and holds the REU's RAM cycle
--- until the data is there, avm_cache keeps sequential reads fast, and avm_fifo in
--- mega65.vhd crosses to hr_clk.
+-- As in C64MEGA65: reu_mapper prefetches and holds the REU's RAM cycle until the data is
+-- there, avm_cache keeps sequential reads fast, and avm_fifo in mega65.vhd crosses to hr_clk.
 reu_mapper_inst : entity work.reu_mapper
    generic map (
-      G_BASE_ADDRESS => "0000000000" & C_HMAP_REU(9 downto 0) & x"000"
+      G_BASE_ADDRESS => G_REU_BASE
    )
    port map (
       clk_i               => clk_main_i,
@@ -1229,6 +1352,7 @@ reu_avm_cache_inst : entity work.avm_cache
    port map (
       clk_i                 => clk_main_i,
       rst_i                 => not reset_core_n,
+      inval_i               => reu_drop_i,
       s_avm_waitrequest_o   => map_waitrequest,
       s_avm_write_i         => map_write,
       s_avm_read_i          => map_read,
@@ -1334,6 +1458,22 @@ end process crt_rfsh_proc;
 
 crt_rfsh_ok_o <= crt_rfsh_ok;
 
+-- The REU starts its SDRAM accesses in the second half of PHI2 low, after the FAST CPU's read at
+-- its start, and they are done before the refreshes in PHI2 high (tb_reu_sdram). Ending earlier
+-- would delay its read cache's refills past SWAP's next write.
+crt_reu_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      crt_reu_ok <= '0';
+      if crt_active = '0' or phi2_cnt = 31 or reset_core_n = '0' or
+         (core_phi2 = '0' and phi2_ph >= C_REU_FROM and phi2_ph <= C_REU_TO) then
+         crt_reu_ok <= '1';
+      end if;
+   end if;
+end process crt_reu_proc;
+
+crt_reu_ok_o <= crt_reu_ok;
+
 -- EasyFlash's flash chips see each CPU access to ROML/ROMH once, at its RAM strobe. As with
 -- the port's /ROML-/ROMH, only an Ultimax write selects a chip.
 crt_reset_o    <= not reset_core_n;
@@ -1404,6 +1544,18 @@ begin
       v_dma   := v_dma or reu_dma_req;
    end if;
 
+   -- The command interface answers over the REU's $DF18-$DF1F and a cartridge's
+   if uci_sel = '1' then
+      core_io_rom  <= '0';
+      core_io_ext  <= '1';
+      core_io_data <= unsigned(uci_data_i);
+   end if;
+   if uci_on = '1' then
+      v_irq_n := v_irq_n and not uci_irq_i;
+      v_dma   := v_dma or (uci_dma_i and core_z80_n);
+   end if;
+   v_dma := v_dma or (fwdma_req_i and core_z80_n);
+
    -- The SwiftLink answers its registers ahead of a cartridge, and its 6551 pulls NMI
    if modem_sel = '1' then
       core_io_rom  <= '0';
@@ -1412,6 +1564,13 @@ begin
    end if;
    if modem_irq_i = '1' then
       core_nmi_n <= '0';
+   end if;
+
+   -- The debug register at $D7FF
+   if dbg_sel = '1' then
+      core_io_rom  <= '0';
+      core_io_ext  <= '1';
+      core_io_data <= unsigned(dbg_data_i);
    end if;
 
    core_irq_n <= v_irq_n;
@@ -1528,9 +1687,11 @@ end process handle_hardware_iec_proc;
 -- Hard reset
 --------------------------------------------------------------------------------------------------
 
--- A changed REU or Cartridge setting, or a .crt file being loaded, resets the C128 and a hardware
--- cartridge, as soon as no write-back cache is dirty. A virtual cartridge's reset lasts until
--- the cache holds the banks it starts in.
+-- A changed REU or Cartridge setting, a .crt file being loaded, or the firmware's reset
+-- (uci_reboot_i) resets the C128 and a hardware cartridge, as soon as no write-back cache is
+-- dirty. A virtual cartridge's reset lasts until the cache holds the banks it starts in. A REU
+-- change that a program asked for with LOAD_CONFIG (uci_reu_keep_i) leaves it running, as an
+-- Ultimate does.
 exp_change_reset_proc : process (clk_main_i)
    variable v_cfg : std_logic_vector(3 downto 0);
 begin
@@ -1540,7 +1701,8 @@ begin
       if exp_reset_cnt > 1 or (exp_reset_cnt = 1 and crt_hold = '0') then
          exp_reset_cnt <= exp_reset_cnt - 1;
       end if;
-      if v_cfg /= exp_cfg_d then
+      if (v_cfg /= exp_cfg_d and not (uci_reu_keep_i = '1' and v_cfg(1 downto 0) = exp_cfg_d(1 downto 0))) or
+         uci_reboot_i = '1' then
          exp_reset_pend <= '1';
       elsif exp_reset_pend = '1' and prevent_reset = '0' then
          exp_reset_pend <= '0';
@@ -1661,7 +1823,9 @@ end process;
 -- SDRAM expects, latching addr at ce), so no address/data holding shim is needed here.
 -- What the C128 itself puts on the data bus. Deliberately free of any dependency on ram_data so
 -- that feeding it to the cartridge's data bus cannot create a combinational loop.
-machine_data <= unsigned(sys_rom_data_i) when sysrom_cs = '1' else ram_data_i;
+funcrom_cs    <= (core_romfl and (func_rom_size_i(0) or func_rom_size_i(1))) or (core_romfh and func_rom_size_i(1));
+funcrom_float <= (core_romfl or core_romfh) and not funcrom_cs;
+machine_data  <= unsigned(sys_rom_data_i) when sysrom_cs = '1' or funcrom_cs = '1' else ram_data_i;
 
 cpu_data_in_proc: process (all)
   begin
@@ -1669,7 +1833,10 @@ cpu_data_in_proc: process (all)
 
     -- We are emulating what is written here: https://www.c64-wiki.com/wiki/Reset_Button
     -- and avoid that the KERNAL ever sees the CBM80 signature during hard reset reset.
-    if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' then
+    -- Not a virtual cartridge's: a hard reset turns it off, so it is only on here when a file
+    -- was loaded since, the boot cartridge, which must start.
+    if hard_reset_n = '0' and core_ram_addr(15 downto 12) = x"8" and cold_start_done = '1' and
+       crt_active = '0' then
       ram_data <= x"00";
     -- A cartridge in the slot answers the read instead of RAM/ROM. The C128's bus logic routes
     -- ROML/ROMH reads (both the C64 cartridge windows and the C128's External Function ROM)
@@ -1700,13 +1867,24 @@ cpu_data_in_proc: process (all)
 -- ramCE here: Z80 latch writes miss the CE strobe.
 ram_we_o <= ram_we;
 ram_data_o <= core_ram_data_out;
-sys_rom_addr_o <= std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
+-- The function ROM's halves at 0x18000 and 0x1C000
+sys_rom_addr_o <= "11" & core_romfh & std_logic_vector(core_ram_addr(13 downto 0)) when core_romfl = '1' or core_romfh = '1' else
+                  std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= core_ram_addr;
 sysrom_data <= unsigned(sys_rom_data_i);
-joy_a <= '0' & (not joy_1_fire_n_i) & (not joy_1_right_n_i) & (not joy_1_left_n_i) &
-         (not joy_1_down_n_i) & (not joy_1_up_n_i) & '0';
-joy_b <= '0' & (not joy_2_fire_n_i) & (not joy_2_right_n_i) & (not joy_2_left_n_i) &
-         (not joy_2_down_n_i) & (not joy_2_up_n_i) & '0';
+-- The API's directions join the ports' lines (after Swap joystick ports, in the framework)
+joy1_n <= (joy_1_fire_n_i & joy_1_right_n_i & joy_1_left_n_i & joy_1_down_n_i & joy_1_up_n_i) and
+          not api_input_i.joy1;
+joy2_n <= (joy_2_fire_n_i & joy_2_right_n_i & joy_2_left_n_i & joy_2_down_n_i & joy_2_up_n_i) and
+          not api_input_i.joy2;
+joy_a <= '0' & (not joy1_n) & '0';
+joy_b <= '0' & (not joy2_n) & '0';
+-- A port's POT lines are the API's while it drives them (its mouse, fire2 and fire3). The
+-- core takes 255 minus the reading, as the framework gives it; the API's is the reading.
+pot1_x <= not api_input_i.pot1_x when api_input_i.pot1_en = '1' else pot1_x_i;
+pot1_y <= not api_input_i.pot1_y when api_input_i.pot1_en = '1' else pot1_y_i;
+pot2_x <= not api_input_i.pot2_x when api_input_i.pot2_en = '1' else pot2_x_i;
+pot2_y <= not api_input_i.pot2_y when api_input_i.pot2_en = '1' else pot2_y_i;
 audio_left_o <= signed(sid_audio_l(17 downto 2));
 audio_right_o <= signed(sid_audio_r(17 downto 2));
 
@@ -1762,9 +1940,15 @@ end process;
 f9_latched_o <= f9_latch;
 
 -- Default (ASCII/DIN menu bit clear): real Caps Lock is 40/80, F9 is Caps Lock.
--- The other choice swaps them. A pressed key reads as '0' on the sense line.
-d4080_sel_s   <= capslock_engaged_n when osm_control_i(C_MENU_KEYS_ASCII) = '0' else not f9_latch;
-cpslk_sense_s <= not f9_latch       when osm_control_i(C_MENU_KEYS_ASCII) = '0' else capslock_engaged_n;
+-- The other choice swaps them. A pressed key reads as '0' on the sense line. The API's 40/80
+-- and Caps Lock are down too while it holds them, menu or not, as the keys are.
+d4080_sel_s   <= capslock_engaged_n and not api_input_i.d4080 when osm_control_i(C_MENU_KEYS_ASCII) = '0' else
+                 not f9_latch and not api_input_i.d4080;
+cpslk_sense_s <= not f9_latch and not api_input_i.capslock when osm_control_i(C_MENU_KEYS_ASCII) = '0' else
+                 capslock_engaged_n and not api_input_i.capslock;
+
+-- The menu takes the API's keys as it takes the keyboard's (the firmware sends them there)
+api_keys <= api_input_i.keys when kb_key_enabled_i = '1' else (others => '0');
 
 keyboard_inst : entity work.keyboard
   port map (
@@ -1772,15 +1956,16 @@ keyboard_inst : entity work.keyboard
     reset_i              => not reset_core_n,
 
     trigger_run_i        => '0',
+    alt_crsr_i           => not core_z80_n,       -- CP/M: the arrows are the top-row keys
 
     key_num_i            => kb_key_num_i,
     key_pressed_n_i      => kb_key_pressed_n_i,
 
-    joy_1_up_n_i         => joy_1_up_n_i,
-    joy_1_down_n_i       => joy_1_down_n_i,
-    joy_1_left_n_i       => joy_1_left_n_i,
-    joy_1_right_n_i      => joy_1_right_n_i,
-    joy_1_fire_n_i       => joy_1_fire_n_i,
+    joy_1_up_n_i         => joy1_n(0),
+    joy_1_down_n_i       => joy1_n(1),
+    joy_1_left_n_i       => joy1_n(2),
+    joy_1_right_n_i      => joy1_n(3),
+    joy_1_fire_n_i       => joy1_n(4),
 
     joy_1_up_n_o         => open,
     joy_1_down_n_o       => open,
@@ -1788,11 +1973,11 @@ keyboard_inst : entity work.keyboard
     joy_1_right_n_o      => open,
     joy_1_fire_n_o       => open,
 
-    joy_2_up_n_i         => joy_2_up_n_i,
-    joy_2_down_n_i       => joy_2_down_n_i,
-    joy_2_left_n_i       => joy_2_left_n_i,
-    joy_2_right_n_i      => joy_2_right_n_i,
-    joy_2_fire_n_i       => joy_2_fire_n_i,
+    joy_2_up_n_i         => joy2_n(0),
+    joy_2_down_n_i       => joy2_n(1),
+    joy_2_left_n_i       => joy2_n(2),
+    joy_2_right_n_i      => joy2_n(3),
+    joy_2_fire_n_i       => joy2_n(4),
 
     joy_2_up_n_o         => open,
     joy_2_down_n_o       => open,
@@ -1801,6 +1986,9 @@ keyboard_inst : entity work.keyboard
     joy_2_fire_n_o       => open,
 
     vic_ko_i             => vic_ko_s,
+
+    api_keys_i           => api_keys,
+    api_restore_i        => api_input_i.restore and kb_key_enabled_i,
 
     cia1_pai_o           => cia1_pa_in,
     cia1_pao_i           => cia1_pa_out,
@@ -1873,8 +2061,8 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       ramWE         => ram_we,
       systemWe_o    => system_we,
       -- Reads answered by a hardware cartridge are substituted into ramDin (see cpu_data_in_proc),
-      -- so from the bus logic's point of view the data bus is never floating.
-      ramDinFloat   => '0',
+      -- so from the bus logic's point of view the data bus floats only for a missing function ROM.
+      ramDinFloat   => funcrom_float,
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
       ext_cycle     => core_ext_cycle, -- the REU's RAM slot in every C128 cycle
@@ -1894,6 +2082,9 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vicVsync      => core_vic_vs,
       vicR          => vic_r,
       vic_pixel_ce_o => vic_pixel_ce,
+      vic_index_o   => stream_vic_index_o,
+      vic_x_o       => stream_vic_x_o,
+      vic_y_o       => stream_vic_y_o,
       phi2_o        => core_phi2,      -- output. Expansion Port PHI2
       ba_o          => core_ba,        -- output. Expansion Port BA
       aec_o         => core_aec,       -- output. The VIC's AEC
@@ -1905,6 +2096,10 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       vdcHsync      => vdc_hs,
       vdcVsync      => vdc_vs,
       vdcR          => vdc_r,
+      vdc_dbg_rd_i   => vdc_dbg_rd_i,
+      vdc_dbg_addr_i => vdc_dbg_addr_i,
+      vdc_dbg_ram_o  => vdc_dbg_ram_o,
+      vdc_dbg_reg_o  => vdc_dbg_reg_o,
       vdcG          => vdc_g,
       vdcB          => vdc_b,
       vdcVersion    => '0',
@@ -1928,8 +2123,8 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       nmi_ack       => core_nmi_ack,   -- output
       -- Internal Function ROM selects. These live in a socket inside the C128, not on the
       -- expansion port, so a hardware cartridge never drives them.
-      romFL         => open,           -- output
-      romFH         => open,           -- output
+      romFL         => core_romfl,     -- output
+      romFH         => core_romfh,     -- output
       romL          => core_roml,      -- output. CPU access to 0x8000-0x9FFF
       romH          => core_romh,      -- output. CPU access to 0xA000-0xBFFF or 0xE000-0xFFFF (ultimax)
       UMAXromH      => core_umax_romh, -- output
@@ -1953,10 +2148,10 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
 
 
       -- paddle interface
-      pot1          => pot1_x_i,
-      pot2          => pot1_y_i,
-      pot3          => pot2_x_i,
-      pot4          => pot2_y_i,
+      pot1          => pot1_x,
+      pot2          => pot1_y,
+      pot3          => pot2_x,
+      pot4          => pot2_y,
 
       -- Joystick ports
       joyA          => joy_a,
@@ -2224,11 +2419,11 @@ begin
   end if;
 end process iec_drive_ce_proc;
 
--- The internal floppy is drive 8 or drive 9 or off (one menu group). Should a bad
--- config file set both, drive 8 wins.
+-- The internal floppy is drive A's or drive B's model, Internal 1581 (the fourth). Should a
+-- bad config file set both, drive A wins.
 phys_en_gen : for i in 0 to G_VDNUM - 1 generate
-  phys_en(i) <= osm_control_i(C_MENU_INT1581_D8) when i = 0 else
-                osm_control_i(C_MENU_INT1581_D9) and not osm_control_i(C_MENU_INT1581_D8) when i = 1 else
+  phys_en(i) <= osm_control_i(C_MENU_DRVA_1541 + 3) when i = 0 else
+                osm_control_i(C_MENU_DRVB_1541 + 3) and not osm_control_i(C_MENU_DRVA_1541 + 3) when i = 1 else
                 '0';
 end generate phys_en_gen;
 
@@ -2251,16 +2446,57 @@ begin
 end process phys_switch_proc;
 
 -- Drive enable is "If Mounted": a drive without a disk image stays in reset and is therefore
--- electrically silent on the IEC bus. MiSTer additionally offers "Always" and "Never".
--- The internal floppy runs without an image, and a drive is reset when it switches
--- between image and internal floppy.
-iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
-  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or
-                         (not vdrives_mounted(i) and not phys_en_q(i));
+-- electrically silent on the IEC bus. The firmware can also switch a drive on or off as
+-- MiSTer's "Always" and "Never" do (the UCI's drive power). The internal floppy runs without
+-- an image, and a drive is reset when it switches between image and internal floppy.
+-- The power bits cross as levels. A change of both passes through 00 or 11, which act as
+-- one of its two ends (00 is "If Mounted", 11 is off), so the drive sees no glitch.
+iec_power_sync : process (clk_main_i)
+begin
+  if rising_edge(clk_main_i) then
+    iec_power_m <= vd_sd_power;
+    iec_power   <= iec_power_m;
+  end if;
+end process iec_power_sync;
 
-  -- One shared menu group picks the 5.25" model for both drives. A mounted .D81
-  -- overrides this inside iec_drive (img_hd). A long reset drops the volume
-  -- (vdrives clears drive_mounted), so the remembered type goes with it.
+iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
+  -- Each drive's submenu (drive B's lies 23 items after drive A's): its bus ID, its model
+  constant C_ID     : natural := C_MENU_DRVA_ID8 + i * (C_MENU_DRVB_ID8 - C_MENU_DRVA_ID8);
+  constant C_MODEL  : natural := C_MENU_DRVA_1541 + i * (C_MENU_DRVB_1541 - C_MENU_DRVA_1541);
+  constant C_ID_RST : natural := CORE_CLK_SPEED / 1000;   -- 1 ms
+  signal id_d       : std_logic_vector(1 downto 0) := "00";
+  signal id_cnt     : natural range 0 to C_ID_RST := 0;
+  signal id_rst     : std_logic := '0';
+begin
+  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or iec_power(i)(1) or id_rst or
+                         (not vdrives_mounted(i) and not phys_en_q(i) and not iec_power(i)(0));
+
+  -- The ID jumpers: a drive reads them as it starts, so a new ID resets it. No bit set (a
+  -- bad config file): drive A 8, drive B 9.
+  iec_drv_id(i) <= "01" when osm_control_i(C_ID + 1) = '1' else
+                   "10" when osm_control_i(C_ID + 2) = '1' else
+                   "11" when osm_control_i(C_ID + 3) = '1' else
+                   "00" when osm_control_i(C_ID) = '1' else
+                   std_logic_vector(to_unsigned(i, 2));
+
+  id_reset_proc : process (clk_main_i)
+  begin
+    if rising_edge(clk_main_i) then
+      id_d   <= iec_drv_id(i);
+      id_rst <= '0';
+      if iec_drv_id(i) /= id_d then
+        id_cnt <= C_ID_RST;
+        id_rst <= '1';
+      elsif id_cnt /= 0 then
+        id_cnt <= id_cnt - 1;
+        id_rst <= '1';
+      end if;
+    end if;
+  end process id_reset_proc;
+
+  -- The model; the image may say otherwise. A D81 makes it a 1581 (iec_drive's img_hd), a D71
+  -- a 1571, a D64 in a 1581 a 1571 (a C128's drive). The 1581 without a 5.25" image is one.
+  -- A long reset drops the volume (vdrives clears drive_mounted), so the type goes with it.
   latch_img_type : process (clk_main_i)
   begin
     if rising_edge(clk_main_i) then
@@ -2272,9 +2508,10 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
     end if;
   end process latch_img_type;
 
-  iec_drv_mode(i) <= "10" when iec_img_type_latched(i) = "01" else
-                     "00" when osm_control_i(C_MENU_DRV_1541) = '1' else
+  iec_drv_mode(i) <= "00" when osm_control_i(C_MODEL) = '1' and
+                              not (vdrives_mounted(i) = '1' and iec_img_type_latched(i) = "01") else
                      "10";
+  iec_drv_1581(i) <= osm_control_i(C_MODEL + 2);
 
   vd_sd_lba(i)          <= iec_sd_lba(i);
   vd_sd_blk_cnt(i)      <= iec_sd_blk_cnt(i);
@@ -2291,6 +2528,12 @@ with iec_img_type select iec_img_type4 <=
   "1000" when "10",     -- D81: HD 3.5"
   "0010" when others;
 
+p_rom_ready : process (all)
+begin
+   drv_rom_ready_o <= (others => '0');
+   drv_rom_ready_o(G_VDNUM - 1 downto 0) <= iec_rom_ready;
+end process p_rom_ready;
+
 iec_drive_inst : entity work.iec_drive
   generic map (
     PARPORT => 0,       -- no parallel port (DolphinDOS speeder)
@@ -2303,6 +2546,8 @@ iec_drive_inst : entity work.iec_drive
     pause        => pause_i,
 
     drv_mode     => iec_drv_mode,
+    drv_id       => iec_drv_id,
+    drv_1581     => iec_drv_1581,
 
     -- IEC bus, wired-AND merged with the physical port (see the assignments further up)
     iec_atn_i    => core_iec_atn_o,
@@ -2320,7 +2565,7 @@ iec_drive_inst : entity work.iec_drive
     img_type     => iec_img_type4,
 
     led          => iec_drive_led,
-    disk_ready   => open,
+    disk_ready   => iec_disk_ready,   -- the firmware's MOUNT_DISK waits for it (vd_sd's CSR)
     -- The track-number display (MiSTer's drv_overlay.sv) is out of scope, but these two
     -- cannot be left open: xsim refuses a VHDL-to-Verilog binding with an unconnected
     -- vector or array output, even though synthesis accepts it.
@@ -2349,6 +2594,8 @@ iec_drive_inst : entity work.iec_drive
 
     -- DOS ROM, pulled out of boot1.rom by the server FSM in mega65.vhd
     rom_loading  => drv_rom_loading_i,
+    rom_reload   => drv_rom_reload_i(G_VDNUM - 1 downto 0),
+    rom_ready    => iec_rom_ready,
     rom_req      => drv_rom_req_o,
     rom_addr     => drv_rom_addr_o,
     rom_data     => drv_rom_data_i,
@@ -2792,6 +3039,9 @@ i_vd_sd : entity work.vd_sd
     sd_buff_din_i  => vd_sd_buf_data_out,
 
     dirty_o        => cache_dirty,
+    ready_i        => iec_disk_ready,
+    power_o        => vd_sd_power,
+    running_i      => not iec_drives_reset,
 
     eng_want_o     => qnice_sd_want_o,
     eng_o          => qnice_sd_eng_o,

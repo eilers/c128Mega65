@@ -1,0 +1,89 @@
+// The core's part of the firmware, in CORE/firmware/core.c: the callbacks of QNICE's
+// m2m-rom.asm, and hooks for the core's own modules. Groups are config.vhd's OPTM_G_* ids
+// (build/fw/config_ids.h).
+#pragma once
+#include <stdint.h>
+
+// What the file browser is for (CTX_* in QNICE's sysdef.asm), and the situations of
+// core_custom_msg (CMSG_*)
+#define CTX_MOUNT_DISKIMG  0x0100
+#define CTX_LOAD_ROM       0x0200
+#define CMSG_BROWSENOTHING 1
+#define CMSG_NEWFILE       2      // the tip on the frame while a new file is named
+
+// The submenu headline at menu index idx: a whole new line, or NULL for the standard one
+const char *core_submenu_summary(int idx);
+// A drive's line, given what it would show (its image's name, or OPTM_S_MOUNT): a whole new
+// text, or NULL for that
+const char *core_mount_text(int drive, const char *name);
+// Called before and after the Shell handles a selection in the menu
+void        core_sel_pre(int group, int item);
+void        core_sel_post(int group, int item);
+// File browser: 1 hides a file (name in upper case; folders are "<NAME>"), of size bytes
+int         core_filter_file(const char *name, int dir, int ctx, int group, uint32_t size);
+// The folder the browser starts in, or NULL for config.vhd's (also when the card lacks it)
+const char *core_browse_start(int ctx, int group);
+// A file about to be loaded: 0, or an error code and *msg. *type: the image type.
+int         core_prep_load(uint32_t size, int ctx, int group, int *type, const char **msg);
+// A message for a situation (CMSG_*) of the browser for a menu group, or NULL for the standard one
+const char *core_custom_msg(int situation, int ctx, int group);
+// File browser, F5: a new file for the item of group. Its kind as the browser shows it ("New
+// D71 disk") for the name typed so far, or NULL if the item has no new files.
+const char *core_new_file_label(int ctx, int group, const char *typed);
+// Make it in folder ("" the root): NULL and its name on the card in name, or why not (a line)
+const char *core_new_file(int ctx, int group, const char *folder, const char *typed, char *name, int size);
+// A menu item of the core's own type (C_CRTROMTYPE_CORE; dev is its second word in
+// C_CRTROMS_MAN): load the file picked for it, after core_prep_load, with roms.h's
+// crtrom_progress for the bar: 0, or an error code and *msg. And whether it holds a file.
+int         core_crtrom_load(int dev, const char *path, const char **msg);
+int         core_crtrom_loaded(int dev);
+// Its line's text in place of the file's name or <Load>, or NULL for the standard one
+const char *core_crtrom_text(int dev);
+// Space on a CRT/ROM line of the group, of either type: 1 if the core emptied it, 0 to
+// browse as Return does
+int         core_crtrom_clear(int group);
+// A file loaded from the browser for a drive or CRT/ROM item of the group, at path
+void        core_file_loaded(int group, const char *path);
+// Called right before the core leaves reset: NULL, or an error message. The settings are
+// config.vhd's defaults until then: the core's settings file can change them.
+const char *core_prep_start(void);
+// The menu closed with settings changed: keep them
+void        core_save_settings(void);
+// The key that opens the menu: M2M_KEY_HELP, or another one for a core that uses Help
+uint32_t    core_menu_key(void);
+// A line with a "%s" that isn't a drive's, a CRT/ROM's or a submenu's: its text, or NULL
+const char *core_item_text(int group);
+// A text item, typed in the menu: 1 and its text now (at most *max characters) for one
+int         core_text_item(int group, char *text, int *max);
+// The text typed for it: NULL once taken, or why not
+const char *core_text_done(int group, const char *text);
+// 1 when lines the core gives (a submenu's summary, core_item_text) changed by themselves
+int         core_menu_stale(void);
+// Called from the main loop, for the core's own modules; must not wait
+void        core_poll(void);
+// The core's network, from the main loop after core_poll; must not wait
+void        core_net(void);
+// Called during long disk work, about every sector, for what must not wait long (the
+// network); must not touch the card
+void        core_idle(void);
+
+// What the Shell offers the core
+int  shell_group(int idx);                    // menu item idx's group (0: text, line), or -1
+int  shell_item(int group, int pos);          // menu index of a group's item, or -1
+int  shell_setting(int group, int pos);       // that item's setting bit (M2M$GET_SETTING)
+void shell_force(int group, int pos, int on); // M2M$FORCE_MENU
+// ascal's polyphase coefficients: the horizontal and the vertical table, 256 words each
+void shell_polyphase(const uint16_t *h, const uint16_t *v);
+// A disk image (a path on the card) into drive d, or out of it, as the menu does it: 0,
+// or drive_mount's error and maybe *msg; -1 for a drive the menu doesn't have
+int  shell_mount(int d, const char *path, const char **msg);
+int  shell_mount_ro(int d, const char *path, int ro, const char **msg);   // ro: write protected
+void shell_unmount(int d);
+// The file of a CRT/ROM item of the group, taken without the browser (LOAD_CONFIG's REU
+// image): its name on the item's line, or NULL for none
+void shell_crtrom_named(int group, const char *path);
+void shell_open_menu(void);                   // as the Help key does, unless it is open
+// A message over the open menu, until Space (his popups); nothing while the menu is closed
+void shell_message(const char *text);
+void shell_menu_button(void);                 // opens or closes it (REST's menu_button)
+int  shell_menu_screen(uint8_t *out);         // REST's menu_screen: 2000 bytes, or 0 if closed

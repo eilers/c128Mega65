@@ -28,7 +28,8 @@
 --
 -- C128: copied from C64MEGA65 develop (61fdbb2). Added refresh_ok_i, so the user can keep
 -- refreshes out of the moments it needs a read on time. A due refresh waits for it, but no
--- longer than G_REFRESH_HOLD clocks.
+-- longer than G_REFRESH_HOLD clocks. A read burst that runs past the end of its row goes on
+-- in the next one: the chip's full-page bursts wrap within the row. Write bursts must not.
 
 library ieee;
    use ieee.std_logic_1164.all;
@@ -187,6 +188,7 @@ architecture synthesis of sdram is
    signal   timer_refresh : natural range 0 to C_TIME_REFRESH - 1;
    signal   refresh_wait  : natural range 0 to G_REFRESH_HOLD;
    signal   refresh_due   : std_logic;
+   signal   rd_rest       : std_logic_vector( 7 downto 0);     -- words of a read left for the next row
 
    signal   avm_address_debug : std_logic_vector(24 downto 2);
 
@@ -330,6 +332,7 @@ begin
    (avm_byteenable, avm_writedata) <= afs_m_data;
 
    avm_proc : process (clk_i)
+      variable v_next_row : std_logic_vector(14 downto 0);
    begin
       if rising_edge(clk_i) then
          avm_readdatavalid_o <= '0';
@@ -432,10 +435,20 @@ begin
                elsif avm_read_i = '1' or avm_write_i = '1' then
                   assert avm_read_i = '0' or avm_write_i = '0'
                      report "Simultaneous READ and WRITE not allowed";
+                  assert avm_read_i = '1' or
+                         to_integer(avm_address_i(9 downto 0)) + to_integer(avm_burstcount_i) <= 1024
+                     report "A write burst may not cross an SDRAM row";
                   avm_read       <= avm_read_i;
                   avm_write      <= avm_write_i;
                   avm_address    <= avm_address_i;
                   avm_burstcount <= avm_burstcount_i;
+                  rd_rest        <= (others => '0');
+                  if avm_read_i = '1' and
+                     to_integer(avm_address_i(9 downto 0)) + to_integer(avm_burstcount_i) > 1024 then
+                     avm_burstcount <= to_stdlogicvector(1024 - to_integer(avm_address_i(9 downto 0)), 8);
+                     rd_rest        <= to_stdlogicvector(to_integer(avm_address_i(9 downto 0)) +
+                                                         to_integer(avm_burstcount_i) - 1024, 8);
+                  end if;
                   sdram_cs_n     <= '0';
                   sdram_ras_n    <= C_BANK_ACTIVATE(2);
                   sdram_cas_n    <= C_BANK_ACTIVATE(1);
@@ -537,6 +550,21 @@ begin
             when PRECHARGE_ST =>
                if timer_cmd = 0 then
                   state <= IDLE_ST;
+                  if rd_rest /= 0 then
+                     -- The rest of the read, from the start of the next row
+                     v_next_row     := avm_address(24 downto 10) + 1;
+                     avm_address    <= avm_address(31 downto 25) & v_next_row & "0000000000";
+                     avm_burstcount <= rd_rest;
+                     rd_rest        <= (others => '0');
+                     sdram_cs_n     <= '0';
+                     sdram_ras_n    <= C_BANK_ACTIVATE(2);
+                     sdram_cas_n    <= C_BANK_ACTIVATE(1);
+                     sdram_we_n     <= C_BANK_ACTIVATE(0);
+                     sdram_a        <= v_next_row(12 downto 0);                         -- row address
+                     sdram_ba       <= v_next_row(14 downto 13);                        -- bank address
+                     timer_cmd      <= C_TIME_RCD - 1;
+                     state          <= ACTIVE_ST;
+                  end if;
                end if;
 
             when REFRESH_ST =>
@@ -568,6 +596,7 @@ begin
             sdram_dq_out        <= (others => '1');
             timer_cmd           <= C_TIME_INIT_POWER_ON - 1;
             refresh_wait        <= 0;
+            rd_rest             <= (others => '0');
             state               <= INIT_POWER_ON_ST;
          end if;
       end if;

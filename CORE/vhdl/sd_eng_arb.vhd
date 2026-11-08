@@ -6,8 +6,8 @@
 -- One client owns the port. The other sees it busy and no strobes, so it never starts a
 -- transfer. A client raises want_i before it starts anything and holds it for as long as
 -- it has transfers to do; the port changes hands only between transfers, when its owner
--- does not want it and the other client does. Client A (the virtual drives) gets the
--- port first when both ask at once.
+-- does not want it and the other client does. When both ask at once, the one that had it
+-- last keeps it (A after a reset). want_o lets one arbiter be a client of another.
 --
 -- QNICE clock. Done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -32,7 +32,8 @@ port (
    b_q2c_o    : out t_sd_q2c;
 
    c2q_o      : out t_sd_c2q;
-   q2c_i      : in  t_sd_q2c
+   q2c_i      : in  t_sd_q2c;
+   want_o     : out std_logic                -- either client wants the port
 );
 end entity sd_eng_arb;
 
@@ -53,6 +54,7 @@ architecture synthesis of sd_eng_arb is
 
 begin
 
+   want_o  <= a_want_i or b_want_i;
    c2q_o   <= b_c2q_i when owner = '1' else a_c2q_i;
    a_q2c_o <= q2c_i when owner = '0' else locked_out(q2c_i);
    b_q2c_o <= q2c_i when owner = '1' else locked_out(q2c_i);

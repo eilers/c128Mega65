@@ -36,8 +36,8 @@ entity clk_m2m is
       audio_clk_o       : out std_logic;   -- Audio's 12.288 MHz clock
       audio_rst_o       : out std_logic;   -- Audio's reset, synchronized
 
-      modem_clk_o       : out std_logic;   -- C128 core: the modem's 50 MHz clock (CPU and Ethernet)
-      modem_rst_o       : out std_logic;   -- the modem's reset, synchronized
+      modem_clk_o       : out std_logic;   -- C128 core: the network device's 50 MHz clock (Ethernet)
+      modem_rst_o       : out std_logic;   -- its reset, synchronized
 
       sys_pps_o         : out std_logic    -- One pulse per second (in sys_clk domain)
    );
@@ -88,7 +88,7 @@ begin
          CLKOUT3_DIVIDE       => 12,         -- HyperRAM @ 100 MHz phase delayed
          CLKOUT3_DUTY_CYCLE   => 0.500,
          CLKOUT3_PHASE        => 90.000,
-         CLKOUT4_DIVIDE       => 24,         -- Modem (CPU and Ethernet) @ 50 MHz
+         CLKOUT4_DIVIDE       => 24,         -- Network device (Ethernet) @ 50 MHz
          CLKOUT4_DUTY_CYCLE   => 0.500,
          CLKOUT4_PHASE        => 0.000,
          DIVCLK_DIVIDE        => 1,

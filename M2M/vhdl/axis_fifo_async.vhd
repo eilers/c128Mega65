@@ -348,6 +348,12 @@ begin
         -- Synchronize reset
         m_rst_meta     <= async_rst_i;
         m_rst          <= m_rst_meta;
+        -- The copy of the write pointer goes to 0 with the read pointer, so m_fill_o stays
+        -- in range while the two domains leave reset at different times
+        if m_rst = '1' then
+          m_gray_wr_meta <= (others => '0');
+          m_gray_wr      <= (others => '0');
+        end if;
       end if;
     end process async_m_proc;
 
@@ -363,6 +369,11 @@ begin
         -- Synchronize reset
         s_rst_meta     <= async_rst_i;
         s_rst          <= s_rst_meta;
+        -- The same for the copy of the read pointer and s_fill_o
+        if s_rst = '1' then
+          s_gray_rd_meta <= (others => '0');
+          s_gray_rd      <= (others => '0');
+        end if;
       end if;
     end process async_s_proc;
 

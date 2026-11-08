@@ -11,7 +11,9 @@
 --
 -- Two banks are loaded in sequence. The switch from the first to the second is what
 -- happens when the drive model changes in the menu, and it also covers the reload
--- path that a plain single-bank test would miss.
+-- path that a plain single-bank test would miss. Then REST's load_rom: new bytes in the
+-- bank and a reload pulse (to the server too, as mega65.vhd wires it), once while the
+-- drive runs, once in the middle of a load, once while the drive is in reset.
 --
 -- MEGA65 port done by Stefan Eilers in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -39,6 +41,9 @@ architecture sim of tb_drive_rom is
    signal running         : boolean   := true;
 
    signal rom_loading     : std_logic := '1';
+   signal rom_reload      : std_logic := '0';
+   signal srv_loading     : std_logic;
+   signal gen             : natural := 0;         -- the bank's contents: a new ROM each time
    signal rom_req         : std_logic;
    signal rom_offset      : std_logic_vector(14 downto 0);
    signal rom_addr        : std_logic_vector(18 downto 0);
@@ -56,9 +61,9 @@ architecture sim of tb_drive_rom is
    -- Contents of the stand-in boot1.rom, as a function of the absolute address.
    -- Deliberately not a plain ramp: mixing in the high address bytes means a wrong bank,
    -- an off-by-one and a stuck address bit all show up as a mismatch.
-   function rom_byte (addr : natural) return std_logic_vector is
+   function rom_byte (addr : natural; g : natural := 0) return std_logic_vector is
    begin
-      return std_logic_vector(to_unsigned((addr * 7 + (addr / 256) * 3 + 1) mod 256, 8));
+      return std_logic_vector(to_unsigned((addr * 7 + (addr / 256) * 3 + 1 + g * 41) mod 256, 8));
    end function rom_byte;
 
 begin
@@ -80,7 +85,7 @@ begin
          else
             a := to_integer(unsigned(rom_ram_addr));
             if a < C_NUM_BANKS * C_BANK_SIZE then
-               rom_data <= rom_byte(a);
+               rom_data <= rom_byte(a, gen);
             else
                -- boot1.rom holds exactly six banks; the server must never look past them
                rom_data <= (others => 'X');
@@ -92,13 +97,15 @@ begin
    ---------------------------------------------------------------------------------
    -- Device under test
    ---------------------------------------------------------------------------------
+   srv_loading <= rom_loading or rom_reload;
+
    i_server : entity work.drive_rom_server
       generic map (
          G_ROM_ADDR_WIDTH => 18
       )
       port map (
          clk_i          => clk,
-         rom_loading_i  => rom_loading,
+         rom_loading_i  => srv_loading,
          rom_req_i      => rom_req,
          rom_addr_i     => rom_addr,
          rom_wr_o       => rom_wr,
@@ -112,6 +119,7 @@ begin
          clk         => clk,
          reset       => drv_reset,
          rom_loading => rom_loading,
+         rom_reload  => rom_reload,
          empty8k     => empty8k,
          rom_valid   => rom_valid,
          rom_bank    => rom_bank,
@@ -157,7 +165,7 @@ begin
             end loop;
             wait for 1 ns;
 
-            expected := rom_byte(bank * C_BANK_SIZE + i);
+            expected := rom_byte(bank * C_BANK_SIZE + i, gen);
             if rom_do /= expected then
                if n < 8 then
                   write(ln, string'("MISMATCH bank "));
@@ -205,11 +213,51 @@ begin
 
       load_and_check(C_BANK_SECOND, errors);
 
+      -- load_rom: new bytes in the bank, then a reload pulse
+      gen        <= 1;
+      rom_reload <= '1';
+      wait until rising_edge(clk);
+      rom_reload <= '0';
+      wait until rising_edge(clk);
+      assert rom_valid = '0'
+         report "rom_valid stayed high after a reload: the new ROM is never loaded"
+         severity failure;
+      load_and_check(C_BANK_SECOND, errors);
+
+      -- another one in the middle of a load: it starts over, no stray byte
+      gen        <= 2;
+      rom_reload <= '1';
+      wait until rising_edge(clk);
+      rom_reload <= '0';
+      for w in 1 to 2 * C_BANK_SIZE + 3 loop
+         wait until rising_edge(clk);
+      end loop;
+      gen        <= 3;
+      rom_reload <= '1';
+      wait until rising_edge(clk);
+      rom_reload <= '0';
+      load_and_check(C_BANK_SECOND, errors);
+
+      -- in reset (a drive turned off): the load waits for the drive to come out of it
+      drv_reset  <= '1';
+      gen        <= 4;
+      rom_reload <= '1';
+      wait until rising_edge(clk);
+      rom_reload <= '0';
+      for w in 1 to 100 loop
+         wait until rising_edge(clk);
+      end loop;
+      assert rom_valid = '0' and rom_req = '0'
+         report "a reload in reset kept the old ROM, or loaded while in reset"
+         severity failure;
+      drv_reset <= '0';
+      load_and_check(C_BANK_SECOND, errors);
+
       write(l, string'("{""sessionId"":""drvrom"",""runId"":""sim-drvrom"","
                      & """location"":""tb_drive_rom:summary"",""message"":""simulation finished"",""data"":{""banks"":"));
-      write(l, 2);
+      write(l, 6);
       write(l, string'(",""bytes"":"));
-      write(l, 2 * C_BANK_SIZE);
+      write(l, 6 * C_BANK_SIZE);
       write(l, string'(",""errors"":"));
       write(l, errors);
       write(l, string'(",""pass"":"));

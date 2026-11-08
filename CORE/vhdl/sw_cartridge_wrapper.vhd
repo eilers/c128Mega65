@@ -62,6 +62,7 @@ port (
    main_vic_rd_i       : in  std_logic := '0';               -- SDRAM: the VIC fetches ROMH (Ultimax)
    main_vic_addr_i     : in  std_logic_vector(12 downto 0) := (others => '0');
    main_rfsh_ok_i      : in  std_logic := '1';               -- SDRAM: no read is due soon
+   main_reu_ok_i       : in  std_logic := '1';               -- SDRAM: the REU may start an access
    main_reset_i        : in  std_logic := '0';               -- the C128 is in reset
    main_phi2_i         : in  std_logic := '0';
    main_flash_wr_i     : in  std_logic := '0';               -- a write selects ROML or ROMH (Ultimax)
@@ -87,6 +88,7 @@ port (
 
    -- SDRAM (G_SDRAM), on the HyperRAM clock
    sr_refresh_ok_o     : out std_logic;
+   sr_reu_ok_o         : out std_logic;                      -- main_reu_ok_i, crossed
    sr_write_o          : out std_logic;
    sr_read_o           : out std_logic;
    sr_address_o        : out std_logic_vector(31 downto 0);
@@ -199,6 +201,15 @@ architecture synthesis of sw_cartridge_wrapper is
    -- Bank waits for the Shell's menu: count (low word) and longest (high word), CSR $021-$022
    signal qnice_stats             : std_logic_vector(31 downto 0);
    signal qnice_stats_clr         : std_logic;
+   signal qnice_erase             : std_logic_vector(6 downto 0);
+   signal qnice_erase_req         : std_logic;
+   signal qnice_erase_ack         : std_logic;
+   signal main_erase_sel          : std_logic_vector(7 downto 0);   -- the start toggle, then the sector
+   signal main_erase_ack          : std_logic := '0';
+   signal main_erase              : std_logic := '0';
+   signal main_erase_d            : std_logic := '0';
+   signal main_erase_on           : std_logic := '0';
+   signal main_flash_busy         : std_logic_vector(1 downto 0);
 
    -- EasyFlash's flash chips (index 0 ROML's, 1 ROMH's) and their jobs
    signal main_flash_rst          : std_logic;
@@ -267,7 +278,10 @@ begin
          qnice_sd_eng_o            => qnice_sd_eng_o,
          qnice_sd_eng_i            => qnice_sd_eng_i,
          qnice_stats_i             => qnice_stats,
-         qnice_stats_clr_o         => qnice_stats_clr
+         qnice_stats_clr_o         => qnice_stats_clr,
+         qnice_erase_o             => qnice_erase,
+         qnice_erase_req_o         => qnice_erase_req,
+         qnice_erase_ack_i         => qnice_erase_ack
       ); -- i_sw_cartridge_csr
 
    i_cdc_qnice2hr : entity work.cdc_stable
@@ -448,8 +462,66 @@ begin
          lo_job_o  => main_fl_lo_job,
          hi_job_o  => main_fl_hi_job,
          done_i    => main_fl_done,
-         fail_i    => main_fl_fail
+         fail_i    => main_fl_fail,
+         erase_i      => main_erase,
+         erase_hi_i   => main_erase_sel(6),
+         erase_bank_i => main_erase_sel(5 downto 0),
+         busy_o       => main_flash_busy
       ); -- i_crt_flash
+
+   ---------------------------------------------------
+   -- UCI's EASYFLASH erase (CSR $024, $025): once a start has come across, the sector of one
+   -- chip, as the chip's own erase command does it, after a job the chip is busy with. The
+   -- start is acknowledged when the chip is done, or at once with no EasyFlash to erase.
+   ---------------------------------------------------
+
+   p_erase : process (main_clk_i)
+      variable v_busy : std_logic;
+   begin
+      if rising_edge(main_clk_i) then
+         v_busy := main_flash_busy(0);
+         if main_erase_sel(6) = '1' then
+            v_busy := main_flash_busy(1);
+         end if;
+         main_erase   <= '0';
+         main_erase_d <= main_erase;
+         if main_erase_sel(7) /= main_erase_ack and main_erase_on = '0' then
+            if main_flash_rst = '1' then
+               main_erase_ack <= main_erase_sel(7);
+            elsif v_busy = '0' then
+               main_erase    <= '1';
+               main_erase_on <= '1';
+            end if;
+         elsif main_erase_on = '1' and main_erase = '0' and main_erase_d = '0' and v_busy = '0' then
+            main_erase_on  <= '0';
+            main_erase_ack <= main_erase_sel(7);
+         end if;
+      end if;
+   end process p_erase;
+
+   i_cdc_erase : entity work.cdc_stable
+      generic map (
+         G_REGISTER_SRC => false,
+         G_DATA_SIZE    => 8
+      )
+      port map (
+         src_clk_i  => qnice_clk_i,
+         src_data_i => qnice_erase_req & qnice_erase,
+         dst_clk_i  => main_clk_i,
+         dst_data_o => main_erase_sel
+      ); -- i_cdc_erase
+
+   i_cdc_erase_ack : entity work.cdc_stable
+      generic map (
+         G_REGISTER_SRC => false,
+         G_DATA_SIZE    => 1
+      )
+      port map (
+         src_clk_i     => main_clk_i,
+         src_data_i(0) => main_erase_ack,
+         dst_clk_i     => qnice_clk_i,
+         dst_data_o(0) => qnice_erase_ack
+      ); -- i_cdc_erase_ack
 
    main_lo_data_o <= main_flash_lo_data when main_flash_oe(0) = '1' else main_lo_mem;
    main_hi_data_o <= main_flash_hi_data when main_flash_oe(1) = '1' else main_hi_mem;
@@ -581,6 +653,7 @@ begin
       hr_mem_waitrequest <= hr_waitrequest_i;
 
       sr_refresh_ok_o    <= '1';
+      sr_reu_ok_o        <= '1';
       sr_write_o         <= '0';
       sr_read_o          <= '0';
       sr_address_o       <= (others => '0');
@@ -791,6 +864,8 @@ begin
       signal hr_vic_req           : std_logic_vector( 2 downto 0) := (others => '0');
       signal hr_rfsh_ok_d         : std_logic := '1';
       signal hr_rfsh_ok           : std_logic := '1';
+      signal hr_reu_ok_d          : std_logic := '1';
+      signal hr_reu_ok            : std_logic := '1';
       signal hr_cpu_data          : std_logic_vector( 7 downto 0);
       signal hr_vic_data          : std_logic_vector( 7 downto 0);
       signal hr_cpu_done          : std_logic_vector( 2 downto 0);
@@ -811,6 +886,7 @@ begin
       signal main_cpu_ok          : std_logic := '0';   -- main_cpu_key_r is this cartridge's
       signal main_vic_ok          : std_logic := '0';
       signal main_rfsh_ok_r       : std_logic := '1';
+      signal main_reu_ok_r        : std_logic := '1';
 
       attribute async_reg of hr_cpu_req_d : signal is "true";
       attribute async_reg of hr_cpu_req   : signal is "true";
@@ -818,6 +894,8 @@ begin
       attribute async_reg of hr_vic_req   : signal is "true";
       attribute async_reg of hr_rfsh_ok_d : signal is "true";
       attribute async_reg of hr_rfsh_ok   : signal is "true";
+      attribute async_reg of hr_reu_ok_d  : signal is "true";
+      attribute async_reg of hr_reu_ok    : signal is "true";
 
    begin
 
@@ -962,6 +1040,7 @@ begin
                main_vic_ok <= '0';
             end if;
             main_rfsh_ok_r <= main_rfsh_ok_i;
+            main_reu_ok_r  <= main_reu_ok_i;
             main_fl_done_q <= main_fl_done_s;
          end if;
       end process p_request;
@@ -975,10 +1054,13 @@ begin
             hr_vic_req   <= hr_vic_req_d;
             hr_rfsh_ok_d <= main_rfsh_ok_r;
             hr_rfsh_ok   <= hr_rfsh_ok_d;
+            hr_reu_ok_d  <= main_reu_ok_r;
+            hr_reu_ok    <= hr_reu_ok_d;
          end if;
       end process p_sync;
 
       sr_refresh_ok_o <= hr_rfsh_ok;
+      sr_reu_ok_o     <= hr_reu_ok;
 
       main_lo_mem     <= hr_cpu_data;
       main_hi_mem     <= hr_cpu_data;

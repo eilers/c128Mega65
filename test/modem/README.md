@@ -25,7 +25,7 @@ cartridge in VICE 3.9 `x128`, C64 mode, with its SwiftLink at `$D700` at 38400 b
 
 ## Setup
 
-1. `/c128/modem.bin` on the SD card (from `sdcard/c128/`), the MEGA65 on a network with DHCP.
+1. The MEGA65 on a network with DHCP. The modem is part of `/c128/firmware.bin`.
 2. In the menu, set **Modem** to `$DE00`.
 3. CCGMS is a C64 program: `GO64`, mount `modem-test.d64` on drive 8, `LOAD"CCGMS",8`, `RUN`.
    Or set **Modem** to `$D700` and load `ccgms-d700.crt` as the cartridge: the C128
@@ -39,16 +39,22 @@ then the BBS's screen. `+++`, wait a second, `ATH` hangs up; so does leaving CCG
 
 ## HyperRAM load and HDMI
 
-The modem's firmware shares HyperRAM with HDMI's scaler. Two test commands load it for
-15 seconds (`AT*H1=60` makes it a minute), ignoring the network meanwhile, then print
-`HYPERRAM READS n/S`:
+The system firmware runs from HyperRAM, which HDMI's scaler shares. Two test commands load
+it for 15 seconds (`AT*H1=60` makes it a minute), with the whole firmware waiting meanwhile
+(no network, no menu), then print `HYPERRAM READS n/S`:
 
-- `AT*H1`: every instruction misses the cache, so the modem reads cache line after cache line.
+- `AT*H1`: every instruction misses the cache, so the CPU reads cache line after cache line.
 - `AT*H2`: uncached reads of the firmware image, 4 bytes at a time.
 
-Run them on the 80-column screen and watch HDMI: it must stay clean. On an R6, `AT*H1`
-reads about 335,000 lines a second and `AT*H2` about 1,350,000 words. When a cache line
-was one 64-word HyperRAM burst, `AT*H1` filled HDMI with sparkles.
+Run them on the 80-column screen and watch HDMI: it must stay clean. When a cache line was
+one 64-word HyperRAM burst, `AT*H1` filled HDMI with sparkles.
+
+## A fault and a hang
+
+`AT*T` reads from an address with nothing there; the firmware stops on its trap screen
+(`trap` and the cause in the menu's bottom row). `AT*W` loops for good; a second later the
+watchdog stops the firmware the same way, marked `stuck`, with the address of the loop.
+Either way the core needs a reset (a long press).
 
 ## Automated transfer test
 

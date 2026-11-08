@@ -27,9 +27,17 @@
 --     0x030  R: 0x5D4D (the Shell maps disk images instead of loading them)
 --     0x031  W: 1 = on (mount, after the table), 0 = off (writes back, then forgets)
 --            R: bit 0 on, 1 dirty, 2 busy (off or write-back pending), 3 fault (a
---               write failed and was dropped), 4 lost (the card changed)
+--               write failed and was dropped), 4 lost (the card changed), 5 ready:
+--               every 1541/1571 that is out of reset has its disk (iec_drive's
+--               disk_ready; low while one acts out a disk change, 2.1 s after a mount)
 --     0x032  W: size of the image in 512-byte blocks
 --     0x033  W: write back now
+--     0x034  W: the drive's power, bits 1-0: 0 automatic (on with a disk or the internal
+--               floppy), 1 on (with no disk too), 2 off (with a disk too); kept over a C128
+--               reset, automatic again after a QNICE reset
+--            R: bits 1-0 as written, bit 2 the drive runs (is out of reset)
+--     0x035  W/R: bit 0 hold: the drive's requests wait (REST's unlink moves a drive to a
+--            copy of its image: hold, write back, copy, new table, release)
 --
 -- QNICE clock. Done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -70,6 +78,9 @@ port (
    sd_buff_din_i  : in  vd_vec_array(G_VDNUM - 1 downto 0)(7 downto 0);  -- one clock after the address
 
    dirty_o        : out std_logic_vector(G_VDNUM - 1 downto 0);         -- writes not on the card yet
+   ready_i        : in  std_logic := '1';                               -- iec_drive's disk_ready, core clock
+   power_o        : out vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0); -- CSR 0x034, QNICE clock
+   running_i      : in  std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');  -- core clock
 
    eng_want_o     : out std_logic;
    eng_o          : out t_sd_c2q;
@@ -125,10 +136,18 @@ architecture synthesis of vd_sd is
    type t_card_arr is array (0 to G_VDNUM - 1) of std_logic_vector(7 downto 0);
    type t_nblk_arr is array (0 to G_VDNUM - 1) of unsigned(11 downto 0);
    signal d_on           : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+   signal hold           : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
    signal d_card         : t_card_arr := (others => (others => '0'));
    signal d_nblk         : t_nblk_arr := (others => (others => '0'));
    signal d_fault        : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
    signal d_lost         : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+   signal ready_m        : std_logic := '1';
+   signal ready_s        : std_logic := '1';
+   attribute ASYNC_REG : string;
+   signal running_m      : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+   signal running_s      : std_logic_vector(G_VDNUM - 1 downto 0) := (others => '0');
+   attribute ASYNC_REG of ready_m, ready_s, running_m, running_s : signal is "TRUE";
+   signal power          : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
    signal d_dirty        : std_logic_vector(G_VDNUM - 1 downto 0);
 
    -- commands from QNICE: toggles written on the falling edge, seen on the rising edge
@@ -295,6 +314,19 @@ begin
    -- QNICE
    ------------------------------------------------------------------------------------
 
+   -- From the core's clock: levels, so two flip-flops do
+   p_ready : process (clk_i)
+   begin
+      if rising_edge(clk_i) then
+         ready_m   <= ready_i;
+         ready_s   <= ready_m;
+         running_m <= running_i;
+         running_s <= running_m;
+      end if;
+   end process p_ready;
+
+   power_o <= power;
+
    p_qnice_wr : process (clk_i)
    begin
       if falling_edge(clk_i) then
@@ -310,8 +342,16 @@ begin
                   d_nblk(qnice_drive_i) <= unsigned(qnice_data_i(11 downto 0));
                when x"033" =>
                   q_fl_req(qnice_drive_i) <= not q_fl_req(qnice_drive_i);
+               when x"034" =>
+                  power(qnice_drive_i) <= qnice_data_i(1 downto 0);
+               when x"035" =>
+                  hold(qnice_drive_i) <= qnice_data_i(0);
                when others => null;
             end case;
+         end if;
+         if rst_i = '1' then
+            power <= (others => "00");
+            hold  <= (others => '0');
          end if;
       end if;
    end process p_qnice_wr;
@@ -334,6 +374,12 @@ begin
                                   (q_fl_req(d) xor fl_seen(d));
                qnice_data_o(3) <= d_fault(d);
                qnice_data_o(4) <= d_lost(d);
+               qnice_data_o(5) <= ready_s;
+            when x"034" =>
+               qnice_data_o(1 downto 0) <= power(d);
+               qnice_data_o(2)          <= running_s(d);
+            when x"035" =>
+               qnice_data_o(0) <= hold(d);
             when others => null;
          end case;
       end if;
@@ -455,7 +501,7 @@ begin
                -- the next drive request, round robin
                for n in 0 to G_VDNUM - 1 loop
                   d := (rr + n) mod G_VDNUM;
-                  if sel < 0 and (sd_rd_i(d) = '1' or sd_wr_i(d) = '1') then
+                  if sel < 0 and (sd_rd_i(d) = '1' or sd_wr_i(d) = '1') and hold(d) = '0' then
                      sel := d;
                   end if;
                end loop;

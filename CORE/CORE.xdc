@@ -132,6 +132,32 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##                   (physical_1581_rdfifo/_wfifo). The FIFO resets and the diag
 ##                   device's event toggles go through async_reg 2-FF pairs.
 ##
+##   vd_sd ready     iec_drive's disk_ready, a level, through an ASYNC_REG 2-FF pair; the
+##                   drives' power bits (main.vhd iec_power) and running state the same way.
+##
+##   UCI             uci.vhd: register accesses cross as toggles whose address, data and
+##                   answer are stable before the toggle flips, through ASYNC_REG pairs; the
+##                   C128-reset flag and the firmware's reset request the same way; the
+##                   buffer is a dual-clock RAM.
+##
+##   bus DMA         c128_dma.vhd: a job's address, length and direction are stable before
+##                   its toggle flips; the toggles, hold, done and status bits through ASYNC_REG
+##                   pairs; the buffer is a dual-clock RAM.
+##
+##   REST input      input_inject.vhd: a commit copies the words, which stay put until the
+##                   C128 side has taken them, then flips a toggle; the toggles and their
+##                   answers through ASYNC_REG pairs. The debug register's value comes back
+##                   through an ASYNC_REG pair, taken when two samples agree.
+##
+##   every key       m2m_keyb's 80-key matrix to the CPU through xpm_cdc_array_single, a bit
+##                   each, as the menu keys.
+##
+##   REU SD DMA      reu_sd.vhd: the REU cache's drop request, a toggle there and back through
+##                   ASYNC_REG pairs.
+##
+##   function ROM    its size (mega65.vhd) through cdc_stable, written while the 8502 is held,
+##                   and the C128 is reset after.
+##
 ## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
 ## logic of all of the above is still fully analysed.
 ##
@@ -140,6 +166,15 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ## block, which is precisely the failure mode a name-based exception invites.
 set_false_path -from [get_clocks qnice_clk] -to [get_clocks main_clk]
 set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
+
+## ---------------------------------------------------------------------------
+## qnice_clk <-> vdc_clk: the system CPU's reads of the VDC (vdc_peek.vhd)
+## ---------------------------------------------------------------------------
+## A read crosses as a toggle through ASYNC_REG pairs and comes back the same way. The address
+## and the byte are stable from before their toggle flips until it has crossed, at least two
+## destination clocks; one QNICE period bounds their paths.
+set_max_delay -datapath_only 20 -from [get_clocks qnice_clk] -to [get_clocks vdc_clk]
+set_max_delay -datapath_only 20 -from [get_clocks vdc_clk]   -to [get_clocks qnice_clk]
 
 
 
@@ -150,7 +185,8 @@ set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
 ## A request crosses as a key and a Gray count, the count through two flip-flops. The reader
 ## takes the key once the count has arrived, two hr_clk or more after both were set. The byte
 ## comes back unsynchronized: the reader has it about 140 ns after the request, 80 ns before
-## the C128 latches it in FAST mode, and it holds until the next request.
+## the C128 latches it in FAST mode, and it holds until the next request. The refresh and REU
+## windows (main_rfsh_ok_r, main_reu_ok_r) cross through two flip-flops.
 set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.main_*_r_reg*"}] -to [get_clocks hr_clk]
 set_max_delay -datapath_only 30 -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/sdram_gen.i_crt_reader/*_data_o_reg*"}] -to [get_clocks main_clk]
 ## EasyFlash flash jobs, on R3 too, cross the same way: a job held until done, a toggle through
@@ -160,18 +196,20 @@ set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {N
 set_max_delay -datapath_only 8  -from [get_cells -quiet -hierarchical -filter {NAME =~ "*i_sw_cartridge_wrapper/*fl_pre_reg*" || NAME =~ "*i_sw_cartridge_wrapper/*pre_req_reg*"}] -to [get_clocks main_clk]
 
 ## ---------------------------------------------------------------------------
-## SwiftLink modem (CORE/vhdl/modem): its own 50 MHz clock for the NEORV32 and Ethernet
+## Network (CORE/vhdl/net): the 6551's FIFOs, the Ethernet MAC, on its own 50 MHz clock
 ## ---------------------------------------------------------------------------
-## It meets the C128 (main_clk) and HyperRAM (hr_clk) only through axis_fifo_async FIFOs
-## (Gray pointers, LUTRAM read data) and two-flip-flop synchronizers. A datapath-only limit
-## of one destination period keeps the Gray bits within a clock of each other.
+## It meets the C128 (main_clk) only through axis_fifo_async FIFOs (Gray pointers, LUTRAM
+## read data) and two-flip-flop synchronizers. A datapath-only limit of one destination
+## period keeps the Gray bits within a clock of each other. Its device bus comes from
+## qnice_clk, the same MMCM's 50 MHz with phase 0, and is timed as one clock.
+## His streams (stream_tx.vhd) cross the same way: a slot's LUTRAM and its tags are written
+## on main_clk and read on modem_clk only after its full toggle has crossed two flip-flops;
+## the sent toggles and the enables come back through ASYNC_REG pairs.
 create_generated_clock -name modem_clk [get_pins i_framework/i_clk_m2m/i_clk_qnice/CLKOUT4]
 set_max_delay -datapath_only 15 -from [get_clocks main_clk]  -to [get_clocks modem_clk]
 set_max_delay -datapath_only 15 -from [get_clocks modem_clk] -to [get_clocks main_clk]
-set_max_delay -datapath_only 10 -from [get_clocks hr_clk]    -to [get_clocks modem_clk]
-set_max_delay -datapath_only 10 -from [get_clocks modem_clk] -to [get_clocks hr_clk]
 
 ## RMII receive inputs in the IOBs, as in C64MEGA65
-set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxd_reg[*]]
-set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxdv_reg]
-set_property IOB TRUE [get_cells CORE/i_modem/i_eth/eth_rxer_reg]
+set_property IOB TRUE [get_cells CORE/i_net/i_eth/eth_rxd_reg[*]]
+set_property IOB TRUE [get_cells CORE/i_net/i_eth/eth_rxdv_reg]
+set_property IOB TRUE [get_cells CORE/i_net/i_eth/eth_rxer_reg]

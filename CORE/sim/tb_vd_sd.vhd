@@ -10,7 +10,8 @@
 -- 1581-style 512-byte reads, a track write (the blocks at its ends are read first and
 -- merged), reading it back from the cache, the write-back after the quiet time, a full
 -- cache that has to write back to take more, a drive switched off (its changes reach the
--- card first, then it reads zeros), and a changed card (nothing reaches it).
+-- card first, then it reads zeros), a changed card (nothing reaches it), the drives'
+-- disk_ready in every drive's CSR, and each drive's power (0x034) and hold (0x035).
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -55,6 +56,9 @@ architecture sim of tb_vd_sd is
    signal buff_wr      : std_logic;
    signal buff_din     : vd_vec_array(1 downto 0)(7 downto 0);
    signal dirty        : std_logic_vector(1 downto 0);
+   signal ready        : std_logic := '1';
+   signal power        : vd_vec_array(1 downto 0)(1 downto 0);
+   signal run          : std_logic_vector(1 downto 0) := "00";
 
    type t_dbuf is array (0 to 16383) of std_logic_vector(7 downto 0);
    type t_dbufs is array (0 to 1) of t_dbuf;
@@ -121,6 +125,9 @@ begin
          sd_buff_wr_o   => buff_wr,
          sd_buff_din_i  => buff_din,
          dirty_o        => dirty,
+         ready_i        => ready,
+         power_o        => power,
+         running_i      => run,
          eng_want_o     => want,
          eng_o          => c2q,
          eng_i          => q2c
@@ -239,6 +246,19 @@ begin
          q_ce    <= '0';
          wait until rising_edge(clk);
       end procedure status;
+
+      procedure csr(d : natural; ofs : natural; st : out std_logic_vector(15 downto 0)) is
+      begin
+         q_drive <= d;
+         q_addr  <= x"FFFF" & std_logic_vector(to_unsigned(ofs, 12));
+         q_ce    <= '1';
+         q_we    <= '0';
+         wait until falling_edge(clk);
+         st      := q_rdata;
+         wait until rising_edge(clk);
+         q_ce    <= '0';
+         wait until rising_edge(clk);
+      end procedure csr;
 
       procedure wait_idle(d : natural) is
          variable st : std_logic_vector(15 downto 0);
@@ -430,6 +450,90 @@ begin
          report "5a card change: drive lost: ok";
       end if;
       check_card("5b nothing written to the other card");
+
+      -- 6. iec_drive's disk_ready, from the core's clock, in bit 5 of both drives' CSR
+      for want in std_logic range '0' to '1' loop
+         ready <= want;
+         wait for 5 * C_CLK;
+         for d in 0 to 1 loop
+            status(d, st);
+            if st(5) /= want then
+               report "6: drive " & integer'image(8 + d) & " shows ready " & std_logic'image(st(5)) &
+                      ", not " & std_logic'image(want) severity error;
+               errors := errors + 1;
+            end if;
+         end loop;
+      end loop;
+      report "6 disk_ready in the CSR: done";
+
+      -- 7. Each drive's power (CSR 0x034): out as written, the other drive's untouched; the
+      -- running state read back from the core's clock; automatic again after a reset
+      for d in 0 to 1 loop
+         for m in 1 to 3 loop
+            qwrite(d, x"FFFF", 16#034#, m mod 3);
+            csr(d, 16#034#, st);
+            if to_integer(unsigned(power(d))) /= m mod 3 or to_integer(unsigned(st(1 downto 0))) /= m mod 3 or
+               power(1 - d) /= "00" then
+               report "7: drive " & integer'image(8 + d) & " power " & integer'image(m mod 3) & " reads " &
+                      integer'image(to_integer(unsigned(st(1 downto 0)))) severity error;
+               errors := errors + 1;
+            end if;
+         end loop;
+         run    <= (others => '0');
+         run(d) <= '1';
+         wait for 5 * C_CLK;
+         for e in 0 to 1 loop
+            csr(e, 16#034#, st);
+            if st(2) /= run(e) then
+               report "7: drive " & integer'image(8 + e) & " running reads " & std_logic'image(st(2)) severity error;
+               errors := errors + 1;
+            end if;
+         end loop;
+      end loop;
+      qwrite(1, x"FFFF", 16#034#, 2);
+      rst <= '1';
+      wait for 3 * C_CLK;
+      rst <= '0';
+      wait for 3 * C_CLK;
+      if power(0) /= "00" or power(1) /= "00" then
+         report "7: power not automatic after a reset" severity error;
+         errors := errors + 1;
+      end if;
+      report "7 drive power: done";
+
+      -- 8. Hold (CSR 0x035): a held drive's request waits, the other drive's doesn't; it is
+      -- served once released; a reset releases it
+      mount(0);
+      mount(1);
+      qwrite(0, x"FFFF", 16#035#, 1);
+      csr(0, 16#035#, st);
+      sd_lba(0)     <= std_logic_vector(to_unsigned(8, 32));
+      sd_blk_cnt(0) <= std_logic_vector(to_unsigned(1, 6));
+      sd_rd(0)      <= '1';
+      request(1, false, 0, 2);                     -- drive 9 meanwhile
+      wait for 2000 * C_CLK;
+      if st(0) /= '1' or sd_ack(0) = '1' then
+         report "8a: a held drive was served (hold reads " & std_logic'image(st(0)) & ")" severity error;
+         errors := errors + 1;
+      end if;
+      check_read(1, 0, 2, "8a the other drive while one is held");
+      qwrite(0, x"FFFF", 16#035#, 0);
+      wait until rising_edge(clk) and sd_ack(0) = '1';
+      sd_rd(0) <= '0';
+      wait until rising_edge(clk) and sd_ack(0) = '0';
+      wait until rising_edge(clk);
+      check_read(0, 8, 2, "8b served once released");
+      qwrite(1, x"FFFF", 16#035#, 1);
+      rst <= '1';
+      wait for 3 * C_CLK;
+      rst <= '0';
+      wait for 3 * C_CLK;
+      csr(1, 16#035#, st);
+      if st(0) /= '0' then
+         report "8c: hold not released by a reset" severity error;
+         errors := errors + 1;
+      end if;
+      report "8 hold: done";
 
       if errors = 0 then
          report "ALL CHECKS PASSED";

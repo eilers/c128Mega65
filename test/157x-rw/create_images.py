@@ -136,15 +136,21 @@ class Disk:
                 for sector in free:
                     self.image[bam2 + (track - 36) * 3 + sector // 8] |= 1 << (sector % 8)
 
+    # Eight entries a sector, chained on track 18 as the DOS lays them out: 1, 4, 7 ... The
+    # sectors past the first are taken here, so call it before write_bam.
     def write_directory(self) -> None:
-        directory = self.offset(18, 1)
-        self.image[directory:directory + 2] = b"\0\xFF"
-        for index, (kind, track, sector, name, blocks) in enumerate(self.entries):
-            base = directory + 2 + index * 32
-            self.image[base] = kind
-            self.image[base + 1:base + 3] = bytes((track, sector))
-            self.image[base + 3:base + 19] = name.encode("ascii").ljust(16, b"\xA0")
-            self.image[base + 28:base + 30] = blocks.to_bytes(2, "little")
+        sectors = [1 + 3 * n for n in range(max(1, (len(self.entries) + 7) // 8))]
+        self.used.update((18, sector) for sector in sectors)
+        for n, sector in enumerate(sectors):
+            directory = self.offset(18, sector)
+            link = (18, sectors[n + 1]) if n + 1 < len(sectors) else (0, 0xFF)
+            self.image[directory:directory + 2] = bytes(link)
+            for index, (kind, track, first, name, blocks) in enumerate(self.entries[n * 8:n * 8 + 8]):
+                base = directory + 2 + index * 32
+                self.image[base] = kind
+                self.image[base + 1:base + 3] = bytes((track, first))
+                self.image[base + 3:base + 19] = name.encode("ascii").ljust(16, b"\xA0")
+                self.image[base + 28:base + 30] = blocks.to_bytes(2, "little")
 
 
 def build(tracks: int, program: bytes) -> bytes:
@@ -163,8 +169,8 @@ def build(tracks: int, program: bytes) -> bytes:
     else:
         disk.add_file("SIDE1DAT", side_data, file_type=0x81,
                       candidates=disk.free_sectors(range(1, 36)))
-    disk.write_bam()
     disk.write_directory()
+    disk.write_bam()
     return bytes(disk.image)
 
 

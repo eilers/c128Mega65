@@ -2,12 +2,18 @@
 
 * Sound
 * Mega65 Keyboard
-* Joystick Port
+* Joystick ports, paddles and 1351 mice. **Swap joystick ports** in the Help menu
+  (default off) swaps the two ports, paddles too.
 * IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
   defaults to on; turn it off to isolate the physical DIN from the virtual drives.
 * The Help menu occupies the MEGA65 Help key, which is also the C128 Help key.
-  Enable **Help menu on F13** (default off) to open the menu with F13 instead,
+  Enable **Keyboard > Help menu on F13** (default off) to open the menu with F13 instead,
   so C128 software can use Help. Close the menu with F13, Help, or Close Menu.
+* Settings are kept in `/c128/settings.cfg` on the SD card, in the Ultimate's text format
+  (`[store]`, then `item=value` lines), and survive core updates. **Load settings** in
+  the menu loads any `.cfg` file of that format: the lines that are right take effect and
+  are kept, and a file with errors shows them. A `.crt` loaded from the menu brings
+  `NAME.cfg` from its folder, as on an Ultimate, until the next start.
 * Virtual drives: device 8 and 9, mountable from `/c128` on the SD card. Standard linear
   `.D64`, `.D71`, and `.D81` images have FPGA-side sector paths. The menu picks 1541 or
   1571 for the 5.25" formats; mounting a `.D81` turns that drive into a 1581 regardless
@@ -25,7 +31,8 @@
   Turbo 2000. Other types are refused with "Unsupported type". Action Replay, Final
   Cartridge III, Super Games, Mikro Assembler and EasyFlash use the REU's registers at
   $DF00-$DF1F, so the REU is off while one of them runs, as on an Ultimate.
-* REU (RAM Expansion Unit) of 512 KB or 2 MB, set in the menu (off by default)
+* REU (RAM Expansion Unit) of 512 KB, 2 MB or 16 MB, set in the menu (off by default). R3
+  boards offer 512 KB only
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
   (default), 40 columns and 80 columns put the same picture on both ports. HDMI 40, VGA 80
@@ -66,8 +73,6 @@
 
 * Video:
   * "Flicker-free" has no effect in 80-column mode.
-  * A smooth HDMI filter without scanlines for 80 columns. CRT emulation's polyphase
-      filter does the smoothing, but its coefficients are hard-coded in the framework.
   * "HDMI: Zoom-in": removed from the menu, `qnice_zoom_crop_o` is hardwired to
       '0' in `mega65.vhd`. `crop.vhd` uses fixed VIC-II geometry (border 33/35,
       image 320x200), so it has to become source-aware before the menu item can

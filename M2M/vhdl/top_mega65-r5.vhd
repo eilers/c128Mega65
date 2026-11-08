@@ -433,6 +433,15 @@ architecture synthesis of mega65_r5 is
    signal sr_core_readdata       : std_logic_vector(15 downto 0);
    signal sr_core_readdatavalid  : std_logic;
    signal sr_core_waitrequest    : std_logic;
+   signal sr_cpu_write           : std_logic;
+   signal sr_cpu_read            : std_logic;
+   signal sr_cpu_address         : std_logic_vector(31 downto 0);
+   signal sr_cpu_writedata       : std_logic_vector(15 downto 0);
+   signal sr_cpu_byteenable      : std_logic_vector(1 downto 0);
+   signal sr_cpu_burstcount      : std_logic_vector(7 downto 0);
+   signal sr_cpu_readdata        : std_logic_vector(15 downto 0);
+   signal sr_cpu_readdatavalid   : std_logic;
+   signal sr_cpu_waitrequest     : std_logic;
    signal hr_high                : std_logic;
 
    ---------------------------------------------------------------------------------------------
@@ -451,6 +460,7 @@ architecture synthesis of mega65_r5 is
    signal qnice_ascal_mode       : std_logic_vector(1 downto 0);
    signal qnice_ascal_polyphase  : std_logic;
    signal qnice_ascal_triplebuf  : std_logic;
+   signal qnice_hdmi_scanlines   : std_logic;
    signal qnice_retro15kHz       : std_logic;
    signal qnice_osm_cfg_scaling  : std_logic_vector(8 downto 0);
 
@@ -589,7 +599,7 @@ begin
    dbg_io_11             <= 'Z';
 
    eth_led2_o            <= '0';
-   -- The other Ethernet pins belong to the C128 core's modem
+   -- The other Ethernet pins belong to the C128 core's network device (net.vhd)
 
    -- Drive A of the internal floppy connector goes to the core (the
    -- internal drive as a 1581); drive B stays inactive.
@@ -784,6 +794,15 @@ begin
       sr_core_readdata_o      => sr_core_readdata,
       sr_core_readdatavalid_o => sr_core_readdatavalid,
       sr_core_waitrequest_o   => sr_core_waitrequest,
+      sr_cpu_write_o          => sr_cpu_write,
+      sr_cpu_read_o           => sr_cpu_read,
+      sr_cpu_address_o        => sr_cpu_address,
+      sr_cpu_writedata_o      => sr_cpu_writedata,
+      sr_cpu_byteenable_o     => sr_cpu_byteenable,
+      sr_cpu_burstcount_o     => sr_cpu_burstcount,
+      sr_cpu_readdata_i       => sr_cpu_readdata,
+      sr_cpu_readdatavalid_i  => sr_cpu_readdatavalid,
+      sr_cpu_waitrequest_i    => sr_cpu_waitrequest,
 
       -- Audio
       audio_clk_o             => audio_clk,
@@ -807,6 +826,7 @@ begin
       qnice_ascal_mode_i      => qnice_ascal_mode,
       qnice_ascal_polyphase_i => qnice_ascal_polyphase,
       qnice_ascal_triplebuf_i => qnice_ascal_triplebuf,
+      qnice_hdmi_scanlines_i  => qnice_hdmi_scanlines,
       qnice_flip_joyports_i   => qnice_flip_joyports,
       qnice_osm_control_m_o   => qnice_osm_control_m,
       qnice_gp_reg_o          => qnice_gp_reg,
@@ -870,6 +890,7 @@ begin
          qnice_ascal_mode_o      => qnice_ascal_mode,
          qnice_ascal_polyphase_o => qnice_ascal_polyphase,
          qnice_ascal_triplebuf_o => qnice_ascal_triplebuf,
+         qnice_hdmi_scanlines_o  => qnice_hdmi_scanlines,
          qnice_retro15kHz_o      => qnice_retro15kHz,
          qnice_osm_cfg_scaling_o => qnice_osm_cfg_scaling,
 
@@ -1004,6 +1025,15 @@ begin
          sr_core_readdata_i      => sr_core_readdata,
          sr_core_readdatavalid_i => sr_core_readdatavalid,
          sr_core_waitrequest_i   => sr_core_waitrequest,
+         sr_cpu_write_i          => sr_cpu_write,
+         sr_cpu_read_i           => sr_cpu_read,
+         sr_cpu_address_i        => sr_cpu_address,
+         sr_cpu_writedata_i      => sr_cpu_writedata,
+         sr_cpu_byteenable_i     => sr_cpu_byteenable,
+         sr_cpu_burstcount_i     => sr_cpu_burstcount,
+         sr_cpu_readdata_o       => sr_cpu_readdata,
+         sr_cpu_readdatavalid_o  => sr_cpu_readdatavalid,
+         sr_cpu_waitrequest_o    => sr_cpu_waitrequest,
 
          --------------------------------------------------------------------
          -- C64 specific ports that are not supported by the M2M framework
