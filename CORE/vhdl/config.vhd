@@ -100,9 +100,10 @@ constant SCR_CREDITS : string :=
    "   sy2002 and MJoergen\n\n" &
 
    " Licensed under GPL v3\n\n" &
-   " ROM files required on SD card:\n" &
+   " Files required on SD card:\n" &
    "   /c128/boot0.rom\n" &
-   "   /c128/boot1.rom\n\n" &
+   "   /c128/boot1.rom\n" &
+   "   /c128/firmware.bin\n\n" &
    " Press Space to close this screen.";
 
 
