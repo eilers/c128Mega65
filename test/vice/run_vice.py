@@ -320,6 +320,13 @@ def already_scored(path: Path) -> set[tuple[str, str]]:
     return done
 
 
+def drives_off(core: Core) -> None:
+    """A powered drive with no disk keeps C128 BASIC from READY, so run_prg answers 423."""
+    for name in ("a", "b"):
+        status, body = core.call("PUT", f"drives/{name}:off", timeout=20)
+        print(f"drive {name} off: {status} {body[:80]!r}")
+
+
 def probe(core: Core) -> None:
     try:
         status, body = core.info()
@@ -360,6 +367,8 @@ def main() -> int:
     out = results_path(version)
     core = Core(args.host, args.password)
     probe(core)
+    if args.all_exitcode:
+        drives_off(core)
 
     if args.all_exitcode:
         modes = [args.mode] if args.mode else ["go64", "c128"]
