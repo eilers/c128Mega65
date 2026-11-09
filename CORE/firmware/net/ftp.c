@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+#include "cmdhd.h"
 #include "dmem.h"
 #include "drives.h"
 #include "ff.h"
@@ -202,7 +203,7 @@ static bool in_use(const char *c)
    for (int d = 0; d < drives_count(); d++)
       if (drive_mounted(d) && first_cluster(drive_path(d)) == cl)
          return true;
-   return false;
+   return *cmdhd_path() && first_cluster(cmdhd_path()) == cl;   // the CMD HD's image
 }
 
 // Wildcards * and ?, case ignored (his pattern_match)

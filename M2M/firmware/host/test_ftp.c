@@ -43,6 +43,8 @@ enum sdcard_state sdcard_state(void) { return card_in ? SDCARD_OK : SDCARD_NONE;
 int drives_count(void) { return 2; }
 int drive_mounted(int d) { return mounted[d][0] != 0; }
 const char *drive_path(int d) { return mounted[d]; }
+static char hd_mounted[256];
+const char *cmdhd_path(void) { return hd_mounted; }
 
 // --- the loopback ---
 struct netif eth_netif;
@@ -714,6 +716,13 @@ static void files(void)
    ask(c, "DELE /SD/c128/settings.cfg", "250 Requested file action okay, completed.\r\n");
    mounted[1][0] = 0;
    ask(c, "DELE disk.d64", "250 Requested file action okay, completed.\r\n");
+   put_file("/ftp/hd.dhd", "hd", 2);                  // the CMD HD's image
+   strcpy(hd_mounted, "/ftp/hd.dhd");
+   ask(c, "DELE hd.dhd", "450 File in use.\r\n");
+   cmd(c, "RNFR hd.dhd");
+   ask(c, "RNTO other.dhd", "450 File in use.\r\n");
+   hd_mounted[0] = 0;
+   ask(c, "DELE hd.dhd", "250 Requested file action okay, completed.\r\n");
    cl_free(c);
 }
 
