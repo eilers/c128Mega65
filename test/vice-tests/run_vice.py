@@ -14,6 +14,10 @@ Results go to test/vice-tests/vice-results/<CORE_VERSION>.json. CORE_VERSION is 
 CORE/vhdl/config.vhd. The programs are the test/vice-tests/vice-testprogs submodule
 (https://github.com/libsidplayfp/VICE-testprogs, commit 21b802f).
 Rows that mount a disk, a cartridge, or a RAM Expansion Unit are skipped.
+
+Before the first program, the runner enables the network REST interface (the Web Remote
+Control Service) and clears every ROM pick, so the core runs its stock ROMs. The change
+stays in memory until the settings are saved.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -53,6 +58,35 @@ MEDIA_TOKENS = (
     "mountreu",
     "reu:",
 )
+
+# Empty names are the stock ROMs. Drive defaults such as 1541.rom are a file when one
+# of that name is on the card, so those are cleared too.
+PREPARE = {
+    "Network Settings": {
+        "Web Remote Control Service": "Enabled",
+    },
+    "C128 ROM Settings": {
+        "C128 Kernal ROM": "",
+        "C128 Basic ROM": "",
+        "C64 Basic ROM": "",
+        "Char ROM": "",
+        "Internal Function ROM": "",
+    },
+    "C64 and Cartridge Settings": {
+        "Cartridge": "",
+        "Alternate Kernal": "",
+    },
+    "Drive A Settings": {
+        "ROM for 1541 mode": "",
+        "ROM for 1571 mode": "",
+        "ROM for 1581 mode": "",
+    },
+    "Drive B Settings": {
+        "ROM for 1541 mode": "",
+        "ROM for 1571 mode": "",
+        "ROM for 1581 mode": "",
+    },
+}
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -320,6 +354,25 @@ def already_scored(path: Path) -> set[tuple[str, str]]:
     return done
 
 
+def prepare(core: Core) -> None:
+    """REST on, and no ROM file in place of a stock ROM. Checked by reading the stores back."""
+    status, body = core.call(
+        "POST", "configs", json.dumps(PREPARE).encode(), "application/json", timeout=60
+    )
+    if status != 200:
+        raise SystemExit(f"POST /v1/configs {status} {body[:300]!r}")
+    for category, items in PREPARE.items():
+        status, body = core.call("GET", "configs/" + urllib.parse.quote(category), timeout=20)
+        if status != 200:
+            raise SystemExit(f"GET /v1/configs/{category} {status} {body[:300]!r}")
+        got = json.loads(body).get(category, {})
+        bad = [name for name, want in items.items() if got.get(name) != want]
+        if bad:
+            shown = ", ".join(f"{name}={got.get(name)!r}" for name in bad)
+            raise SystemExit(f"{category} still has {shown}")
+        print(f"config {category}: " + ", ".join(f"{name}={got[name]!r}" for name in items))
+
+
 def drives_off(core: Core) -> None:
     """A powered drive with no disk keeps C128 BASIC from READY, so run_prg answers 423."""
     for name in ("a", "b"):
@@ -367,6 +420,7 @@ def main() -> int:
     out = results_path(version)
     core = Core(args.host, args.password)
     probe(core)
+    prepare(core)
     if args.all_exitcode:
         drives_off(core)
 
