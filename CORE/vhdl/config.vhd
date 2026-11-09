@@ -81,8 +81,8 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 -- No Welcome Screen is used (WELCOME_ACTIVE is false), therefore WHS array position 0 stays empty.
 
--- Version of this core. CORE/scripts/build_release.sh refuses to build unless this matches the
--- release name that is being packaged.
+-- Version of this core. CORE/scripts/build_release.sh names the release with this string
+-- and rebuilds sdcard/c128/firmware.bin when that image has a different one.
 constant CORE_VERSION : string := "V2.0_Beta1";
 
 constant SCR_CREDITS : string :=
