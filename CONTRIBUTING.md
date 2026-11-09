@@ -75,6 +75,11 @@ What goes where
   Make changes to the MiSTer core there, on a branch off `Mega65_main`, and
   update the submodule in your c128Mega65 PR.
 
+* `test/vice-tests/vice-testprogs` is a submodule
+  (https://github.com/libsidplayfp/VICE-testprogs.git). It is the full VICE
+  (Versatile Commodore Emulator) test suite. The exitcode runner reads its
+  programs from there.
+
 * The RISC-V firmware is committed as `sdcard/c128/firmware.bin`, so the core
   builds without a RISC-V toolchain. If you change its sources, rebuild it
   with `make -C M2M/firmware`, copy `M2M/firmware/build/firmware.bin` to
