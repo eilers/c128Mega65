@@ -73,6 +73,7 @@ port (
    qnice_ce_i    : in  std_logic;
    qnice_we_i    : in  std_logic;
    qnice_data_o  : out std_logic_vector(15 downto 0);
+   qnice_wait_o  : out std_logic;
    eng_want_o    : out std_logic;
    eng_o         : out t_sd_c2q;
    eng_i         : in  t_sd_q2c
@@ -144,6 +145,7 @@ architecture synthesis of cmdhd is
    signal eng_start       : std_logic := '0';
 
    signal win_rom, win_buf, win_csr : std_logic;
+   signal rd_held         : std_logic := '0';
 
 begin
 
@@ -257,6 +259,16 @@ begin
    win_csr <= '1' when qnice_addr_i(27 downto 12) = x"FFFF" else '0';
 
    q_rom_we <= qnice_ce_i and qnice_we_i and win_rom;
+
+   -- A read of the ROM or the buffer waits a clock: their RAMs answer at the next rising
+   -- edge, and the bus takes the data at the first one without wait
+   p_wait : process (clk_qnice_i)
+   begin
+      if rising_edge(clk_qnice_i) then
+         rd_held <= qnice_ce_i and not qnice_we_i;
+      end if;
+   end process p_wait;
+   qnice_wait_o <= qnice_ce_i and not qnice_we_i and (win_rom or win_buf) and not rd_held;
 
    -- port B of the buffer: the engine while it moves a block, else the firmware
    p_qbuf : process (all)

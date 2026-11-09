@@ -247,6 +247,7 @@ entity main is
       qnice_hd_addr_i         : in  std_logic_vector(27 downto 0) := (others => '0');
       qnice_hd_data_i         : in  std_logic_vector(15 downto 0) := (others => '0');
       qnice_hd_data_o         : out std_logic_vector(15 downto 0);
+      qnice_hd_wait_o         : out std_logic;
       qnice_hd_ce_i           : in  std_logic := '0';
       qnice_hd_we_i           : in  std_logic := '0';
       qnice_hd_want_o         : out std_logic;
@@ -2701,12 +2702,14 @@ cmdhd_gen : if G_CMDHD generate
       qnice_ce_i   => qnice_hd_ce_i,
       qnice_we_i   => qnice_hd_we_i,
       qnice_data_o => qnice_hd_data_o,
+      qnice_wait_o => qnice_hd_wait_o,
       eng_want_o   => qnice_hd_want_o,
       eng_o        => qnice_hd_eng_o,
       eng_i        => qnice_hd_eng_i
     );
 else generate
   qnice_hd_data_o <= (others => '0');
+  qnice_hd_wait_o <= '0';
   qnice_hd_want_o <= '0';
   qnice_hd_eng_o  <= (others => '0');
 end generate cmdhd_gen;
@@ -3168,6 +3171,7 @@ begin
   qnice_sd_want_o   <= '0';
   qnice_sd_eng_o    <= (others => '0');
   qnice_hd_data_o   <= (others => '0');
+  qnice_hd_wait_o   <= '0';
   qnice_hd_want_o   <= '0';
   qnice_hd_eng_o    <= (others => '0');
   drv_rom_req_o     <= '0';

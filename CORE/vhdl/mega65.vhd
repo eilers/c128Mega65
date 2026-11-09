@@ -463,6 +463,7 @@ signal qnice_p1581_data       : std_logic_vector(15 downto 0);
 signal qnice_hd_ce            : std_logic;
 signal qnice_hd_we            : std_logic;
 signal qnice_hd_data          : std_logic_vector(15 downto 0);
+signal qnice_hd_wait          : std_logic;
 signal qnice_hd_eng_want      : std_logic;
 signal qnice_hd_eng_c2q       : t_sd_c2q;
 signal qnice_hd_eng_q2c       : t_sd_q2c;
@@ -972,6 +973,7 @@ begin
          qnice_hd_addr_i      => qnice_dev_addr_i,
          qnice_hd_data_i      => qnice_dev_data_i,
          qnice_hd_data_o      => qnice_hd_data,
+         qnice_hd_wait_o      => qnice_hd_wait,
          qnice_hd_ce_i        => qnice_hd_ce,
          qnice_hd_we_i        => qnice_hd_we,
          qnice_hd_want_o      => qnice_hd_eng_want,
@@ -1269,6 +1271,7 @@ begin
             qnice_hd_ce       <= qnice_dev_ce_i;
             qnice_hd_we       <= qnice_dev_we_i;
             qnice_dev_data_o  <= qnice_hd_data;
+            qnice_dev_wait_o  <= qnice_hd_wait;
 
          when others => null;
       end case;

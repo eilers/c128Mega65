@@ -46,6 +46,7 @@ architecture sim of tb_cmdhd is
    signal qn_addr   : std_logic_vector(27 downto 0) := (others => '0');
    signal qn_wdata  : std_logic_vector(15 downto 0) := (others => '0');
    signal qn_rdata  : std_logic_vector(15 downto 0);
+   signal qn_wait        : std_logic;
    signal qn_ce     : std_logic := '0';
    signal qn_we     : std_logic := '0';
    signal eng_want  : std_logic;
@@ -100,6 +101,7 @@ begin
          qnice_ce_i   => qn_ce,
          qnice_we_i   => qn_we,
          qnice_data_o => qn_rdata,
+         qnice_wait_o => qn_wait,
          eng_want_o   => eng_want,
          eng_o        => eng_c2q,
          eng_i        => eng_q2c
@@ -189,10 +191,13 @@ begin
       begin
          qn_addr <= std_logic_vector(to_unsigned(a, 28));
          qn_ce   <= '1';
-         wait until rising_edge(clk_qn);
-         wait until rising_edge(clk_qn);
+         wait until rising_edge(clk_qn);        -- as rv_soc: the first edge without wait
+         while qn_wait = '1' loop
+            wait until rising_edge(clk_qn);
+         end loop;
          d       := qn_rdata;
          qn_ce   <= '0';
+         wait until rising_edge(clk_qn);        -- ce low between two accesses
       end procedure;
 
       constant CSR : natural := 16#FFFF000#;
