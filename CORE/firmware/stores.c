@@ -3,12 +3,13 @@
 // has his name and type; its choices are the core's, under his names where he has the same.
 // The menu's settings his U64 has are in his U64 Specific Settings. The C128's own ROMs are in
 // a store of ours, C128 ROM Settings, and the menu's settings he has nothing like in another,
-// MEGA65 Settings.
+// MEGA65 Settings. The CMD HD (an Ultimate has none) is in CMD HD Settings.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "cmdhd.h"
 #include "config_ids.h"
 #include "core.h"
 #include "drives.h"
@@ -22,13 +23,14 @@
 #include "uci.h"
 
 // I_GROUP: a menu group (item_t's group); an on_off item is its single-select line
-enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED, I_SCAN,
+enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_HD_IMAGE, I_UCI, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED, I_SCAN,
        I_MOUSE, I_GROUP = I_MOUSE + MS_COUNT, I_NET };      // I_MOUSE + MS_*: the mouse's                                    // I_FIXED: one choice, nothing to set                        // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
 static const char *const names[ST_COUNT] = {
    "U64 Specific Settings", "C64 and Cartridge Settings", "Drive A Settings", "Drive B Settings", "Modem Settings",
-   "Ethernet Settings", "Network Settings", "Data Streams", "C128 ROM Settings", "MEGA65 Settings"
+   "Ethernet Settings", "Network Settings", "Data Streams", "C128 ROM Settings", "MEGA65 Settings",
+   "CMD HD Settings"
 };
 
 static const char *const en_dis[]      = { "Disabled", "Enabled", NULL };
@@ -48,6 +50,7 @@ static const char *const hdmi_filters[] = { "No Filter", "Sharp Bilinear", "Bicu
                                            "Scanlines", "CRT (S-Video)", "CRT (Composite)", NULL };   // HF_*
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
+static const char *const hd_ids[]      = { "8", "9", "10", "11", "12", NULL };   // the menu's Bus ID
 // His U64's
 static const char *const sys_modes[]   = { "PAL", NULL };                     // System Mode
 static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };       // Joystick Swapper
@@ -131,6 +134,11 @@ const item_t stores_items[] = {
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "256 KB RAM",                 en_dis,      0, 0, 0, NULL, OPTM_G_RAM256 },
+   // Ours: the CMD HD
+   { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, OPTM_G_HD_ON },
+   { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive Bus ID",               hd_ids,      0, 0, 4, NULL, OPTM_G_HD_ID },
+   { ST_CMDHD,   I_HD_IMAGE,     IT_STRING, "Disk Image",                 NULL, 0, UCI_PATH_MAX - 1, 0, "", 0 },
+   { ST_CMDHD,   I_ROM + RP_HD,  IT_FILE,   "Boot ROM",                   NULL, 0, PICK_MAX - 1, 0, "", 0 },
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
@@ -141,13 +149,14 @@ _Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.
 // items it names.
 static uint8_t wanted[ITEMS_MAX];
 static struct {
-   int8_t reu, size, image, uci, scan, model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
+   int8_t reu, size, image, hd_image, uci, scan, model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
    int8_t mouse[MS_COUNT];
    int8_t group[ITEMS_MAX];          // an I_GROUP item's, by its index
 } want;
 static char    want_str[NC_COUNT][NC_LEN];
 static char    want_rom[RP_COUNT][PICK_MAX];
 static char    want_image[UCI_PATH_MAX];
+static char    want_hd_image[UCI_PATH_MAX];
 static char    shown[UCI_PATH_MAX + 4];   // item_text's
 static int8_t  reu_kept;                  // the REU's size while it is off, as his REU Size
 static int8_t  mouse[MS_COUNT] = { -1, -1, -1, -1, -1 };   // -1: the item's default
@@ -368,6 +377,13 @@ const char *item_text(const item_t *it)
       strcat(shown, reu_file());
       return shown;
    }
+   if (it->id == I_HD_IMAGE) {
+      if (!*cmdhd_path())
+         return "";
+      strcpy(shown, "/SD");
+      strcat(shown, cmdhd_path());
+      return shown;
+   }
    return netcfg[it->id - I_NET];
 }
 
@@ -463,6 +479,16 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
          return WANT_CHOICE;
       memmove(want_image, card, strlen(card) + 1);   // the card's path, from the buffer's start
       want.image = 1;
+      return WANT_OK;
+   case I_HD_IMAGE:
+      if (!*v) {
+         want.hd_image = 0;                      // none
+         return WANT_OK;
+      }
+      if (!(card = uci_card_path(v, want_hd_image)))
+         return WANT_CHOICE;
+      memmove(want_hd_image, card, strlen(card) + 1);
+      want.hd_image = 1;
       return WANT_OK;
    default: {
       // A pick's path, as the REU image's: the card's
@@ -607,6 +633,13 @@ static int apply(void)
    if (want.image >= 0) {
       reu_file_set(want.image ? want_image : NULL);
       shell_crtrom_named(OPTM_G_REU_FILE, want.image ? want_image : NULL);
+   }
+   // The CMD HD's image: mounted, or out; one that won't mount is left out
+   if (want.hd_image >= 0 && strcmp(cmdhd_path(), want.hd_image ? want_hd_image : "")) {
+      const char *msg;
+      if (!want.hd_image || cmdhd_mount(want_hd_image, &msg))
+         cmdhd_unmount();
+      shell_crtrom_named(OPTM_G_HD_IMAGE, *cmdhd_path() ? cmdhd_path() : NULL);
    }
    for (int k = 0; k < NC_COUNT; k++)
       if (want.net[k] >= 0) {

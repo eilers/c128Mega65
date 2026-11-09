@@ -277,19 +277,19 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 198; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 220; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 28 rows, the HDMI submenu 25 and the
+-- tallest page. The main menu is the tallest at 29 rows, the HDMI submenu 25 and the
 -- drive submenus 23 (headline through Back to main menu; the "%s" opener is hidden
 -- inside the submenu); they leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 28;
+constant OPTM_DY           : natural := 29;
 
 -- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
@@ -345,6 +345,28 @@ constant OPTM_ITEMS_ALL    : string :=
    " 1571 ROM:%s\n"         &
    " 1581 ROM:%s\n"         &    -- also the internal floppy's
    " Space: back to stock\n" &
+   "\n"                     &
+   " Back to main menu\n"   &
+   " %s\n"                  &    -- the CMD HD: its ID and image (core.c); its submenu
+   " CMD HD\n"              &
+   "\n"                     &
+   " Image:%s\n"            &    -- a disk image (.dhd, .hda); Space takes it out, F5 makes one
+   " Drive enabled\n"       &    -- on the bus; a mount turns it on (core.c)
+   "\n"                     &
+   " Bus ID\n"              &    -- patched into the disk's configuration as it is read
+   " 8\n"                   &
+   " 9\n"                   &
+   " 10\n"                  &
+   " 11\n"                  &
+   " 12\n"                  &    -- default, as CMD's
+   "\n"                     &
+   " Boot ROM:%s\n"         &    -- 16 or 32 KB, from /c128/roms; Space takes it out
+   "\n"                     &
+   " Press SWAP 8\n"        &    -- the front panel's buttons, for a moment (core.c)
+   " Press SWAP 9\n"        &
+   " Press WRITE PROTECT\n" &
+   " Reset: config mode\n"  &    -- WRITE PROTECT held: device 30, for HD-TOOLS
+   " Reset: install mode\n" &    -- SWAP 8 and SWAP 9 held: device 30, for CREATE SYS
    "\n"                     &
    " Back to main menu\n"   &
    "\n"                     &
@@ -564,6 +586,15 @@ constant OPTM_G_NET_ATO    : integer := 51;   -- its target
 constant OPTM_G_DRVA_ON    : integer := 52;   -- Drive A on the bus (his Drive A Settings' Drive)
 constant OPTM_G_DRVB_ON    : integer := 53;   -- Drive B's
 constant OPTM_G_RAM256     : integer := 54;   -- 256 KB RAM: banks 2 and 3
+constant OPTM_G_HD_IMAGE   : integer := 55;   -- the CMD HD's Image:%s
+constant OPTM_G_HD_ON      : integer := 56;   -- its Drive enabled
+constant OPTM_G_HD_ID      : integer := 57;   -- its bus ID: 8, 9, 10, 11, 12
+constant OPTM_G_ROM_HD     : integer := 58;   -- its Boot ROM:%s
+constant OPTM_G_HD_SWAP8   : integer := 59;   -- the front panel, pressed for a moment (core.c turns them off)
+constant OPTM_G_HD_SWAP9   : integer := 60;
+constant OPTM_G_HD_WP      : integer := 61;
+constant OPTM_G_HD_CONFIG  : integer := 62;   -- a reset with WRITE PROTECT held
+constant OPTM_G_HD_INSTALL : integer := 63;   -- a reset with SWAP 8 and SWAP 9 held
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -620,6 +651,29 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_ROM_D9_71 + OPTM_G_LOAD_ROM,                  -- 1571 ROM:%s
                                              OPTM_G_ROM_D9_81 + OPTM_G_LOAD_ROM,                  -- 1581 ROM:%s
                                              OPTM_G_TEXT,                                         -- Space: back to stock
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
+
+                                             OPTM_G_SUBMENU,                                      -- CMD HD submenu START, its line
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- CMD HD
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_HD_IMAGE + OPTM_G_LOAD_ROM,                   -- Image:%s
+                                             OPTM_G_HD_ON + OPTM_G_SINGLESEL + OPTM_G_STDSEL,     -- Drive enabled (default on)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Bus ID
+                                             OPTM_G_HD_ID,                                        -- 8
+                                             OPTM_G_HD_ID,                                        -- 9
+                                             OPTM_G_HD_ID,                                        -- 10
+                                             OPTM_G_HD_ID,                                        -- 11
+                                             OPTM_G_HD_ID + OPTM_G_STDSEL,                        -- 12
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_ROM_HD + OPTM_G_LOAD_ROM,                     -- Boot ROM:%s
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_HD_SWAP8 + OPTM_G_SINGLESEL,                  -- Press SWAP 8
+                                             OPTM_G_HD_SWAP9 + OPTM_G_SINGLESEL,                  -- Press SWAP 9
+                                             OPTM_G_HD_WP + OPTM_G_SINGLESEL,                     -- Press WRITE PROTECT
+                                             OPTM_G_HD_CONFIG + OPTM_G_SINGLESEL,                 -- Reset: config mode
+                                             OPTM_G_HD_INSTALL + OPTM_G_SINGLESEL,                -- Reset: install mode
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
 

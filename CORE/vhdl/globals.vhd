@@ -57,53 +57,53 @@ constant C_MENU_DRVA_1541        : natural := 15;  -- Drive A's model: 1541, 157
 constant C_MENU_DRVB_ON          : natural := 30;  -- Drive B's (default off)
 constant C_MENU_DRVB_ID8         : natural := 33;  -- Drive B's (default 9)
 constant C_MENU_DRVB_1541        : natural := 39;  -- Drive B's
-constant C_MENU_VIDEO_FOLLOW     : natural := 56;  -- Video Output: Follow 40/80 on both ports
-constant C_MENU_VIDEO_40         : natural := 57;  -- Video Output: 40 columns on both ports
-constant C_MENU_VIDEO_80         : natural := 58;  -- Video Output: 80 columns on both ports
-constant C_MENU_VIDEO_H40_V80    : natural := 62;  -- Dual screen: HDMI 40, VGA 80
-constant C_MENU_VIDEO_H80_V40    : natural := 63;  -- Dual screen: HDMI 80, VGA 40
-constant C_MENU_VIDEO_SWAP       : natural := 64;  -- Dual screen: HDMI follows 40/80, VGA shows the other
-constant C_MENU_JAILBARS_OFF     : natural := 68;
-constant C_MENU_JAILBARS_LOW     : natural := 69;
-constant C_MENU_JAILBARS_MEDIUM  : natural := 70;
-constant C_MENU_JAILBARS_HIGH    : natural := 71;
-constant C_MENU_HDMI_720p_50     : natural := 78;
-constant C_MENU_HDMI_720p_60     : natural := 79;
-constant C_MENU_HDMI_576p_50     : natural := 80;
-constant C_MENU_HDMI_576p_50_5_4 : natural := 81;
-constant C_MENU_HDMI_640_60      : natural := 82;
-constant C_MENU_HDMI_720_5994    : natural := 83;
-constant C_MENU_HDMI_800_60      : natural := 84;
-constant C_MENU_HDMI_FF          : natural := 96;  -- HDMI: Flicker-free
-constant C_MENU_HDMI_AUDIO       : natural := 97;  -- HDMI audio (default on); off selects DVI
-constant C_MENU_FLT_NONE         : natural := 87;  -- HDMI filter: No Filter: nearest neighbour
-constant C_MENU_FLT_SHARP        : natural := 88;  -- HDMI filter: Sharp Bilinear (default)
-constant C_MENU_FLT_BICUBIC      : natural := 89;  -- HDMI filter: Bicubic
-constant C_MENU_FLT_SMOOTH       : natural := 90;  -- HDMI filter: Smooth (polyphase)
-constant C_MENU_FLT_LANCZOS      : natural := 91;  -- HDMI filter: Lanczos (polyphase)
-constant C_MENU_FLT_SCANLINES    : natural := 92;  -- HDMI filter: Scanlines (polyphase), the old CRT emulation
-constant C_MENU_FLT_SVIDEO       : natural := 93;  -- HDMI filter: CRT (S-Video) (polyphase, scanlines)
-constant C_MENU_FLT_COMPOSITE    : natural := 94;  -- HDMI filter: CRT (Composite) (polyphase, scanlines)
-constant C_MENU_VGA_STD          : natural := 103; -- VGA: Standard, scandoubled ~31 kHz (default)
-constant C_MENU_VGA_15KHZHSVS    : natural := 107; -- VGA: native 15 kHz, separate HS/VS
-constant C_MENU_VGA_15KHZCS      : natural := 108; -- VGA: native 15 kHz, composite sync on pin 13
-constant C_MENU_IEC              : natural := 114; -- IEC: Use hardware port
-constant C_MENU_JOY_SWAP         : natural := 115; -- Swap joystick ports (default off)
-constant C_MENU_REU_OFF          : natural := 119; -- REU: off (default)
-constant C_MENU_REU_512K         : natural := 120; -- REU: 512 KB
-constant C_MENU_REU_2M           : natural := 121; -- REU: 2 MB, not on R3-memory builds
-constant C_MENU_REU_16M          : natural := 122; -- REU: 16 MB, not on R3-memory builds
+constant C_MENU_VIDEO_FOLLOW     : natural := 78;  -- Video Output: Follow 40/80 on both ports
+constant C_MENU_VIDEO_40         : natural := 79;  -- Video Output: 40 columns on both ports
+constant C_MENU_VIDEO_80         : natural := 80;  -- Video Output: 80 columns on both ports
+constant C_MENU_VIDEO_H40_V80    : natural := 84;  -- Dual screen: HDMI 40, VGA 80
+constant C_MENU_VIDEO_H80_V40    : natural := 85;  -- Dual screen: HDMI 80, VGA 40
+constant C_MENU_VIDEO_SWAP       : natural := 86;  -- Dual screen: HDMI follows 40/80, VGA shows the other
+constant C_MENU_JAILBARS_OFF     : natural := 90;
+constant C_MENU_JAILBARS_LOW     : natural := 91;
+constant C_MENU_JAILBARS_MEDIUM  : natural := 92;
+constant C_MENU_JAILBARS_HIGH    : natural := 93;
+constant C_MENU_HDMI_720p_50     : natural := 100;
+constant C_MENU_HDMI_720p_60     : natural := 101;
+constant C_MENU_HDMI_576p_50     : natural := 102;
+constant C_MENU_HDMI_576p_50_5_4 : natural := 103;
+constant C_MENU_HDMI_640_60      : natural := 104;
+constant C_MENU_HDMI_720_5994    : natural := 105;
+constant C_MENU_HDMI_800_60      : natural := 106;
+constant C_MENU_HDMI_FF          : natural := 118;  -- HDMI: Flicker-free
+constant C_MENU_HDMI_AUDIO       : natural := 119;  -- HDMI audio (default on); off selects DVI
+constant C_MENU_FLT_NONE         : natural := 109;  -- HDMI filter: No Filter: nearest neighbour
+constant C_MENU_FLT_SHARP        : natural := 110;  -- HDMI filter: Sharp Bilinear (default)
+constant C_MENU_FLT_BICUBIC      : natural := 111;  -- HDMI filter: Bicubic
+constant C_MENU_FLT_SMOOTH       : natural := 112;  -- HDMI filter: Smooth (polyphase)
+constant C_MENU_FLT_LANCZOS      : natural := 113;  -- HDMI filter: Lanczos (polyphase)
+constant C_MENU_FLT_SCANLINES    : natural := 114;  -- HDMI filter: Scanlines (polyphase), the old CRT emulation
+constant C_MENU_FLT_SVIDEO       : natural := 115;  -- HDMI filter: CRT (S-Video) (polyphase, scanlines)
+constant C_MENU_FLT_COMPOSITE    : natural := 116;  -- HDMI filter: CRT (Composite) (polyphase, scanlines)
+constant C_MENU_VGA_STD          : natural := 125; -- VGA: Standard, scandoubled ~31 kHz (default)
+constant C_MENU_VGA_15KHZHSVS    : natural := 129; -- VGA: native 15 kHz, separate HS/VS
+constant C_MENU_VGA_15KHZCS      : natural := 130; -- VGA: native 15 kHz, composite sync on pin 13
+constant C_MENU_IEC              : natural := 136; -- IEC: Use hardware port
+constant C_MENU_JOY_SWAP         : natural := 137; -- Swap joystick ports (default off)
+constant C_MENU_REU_OFF          : natural := 141; -- REU: off (default)
+constant C_MENU_REU_512K         : natural := 142; -- REU: 512 KB
+constant C_MENU_REU_2M           : natural := 143; -- REU: 2 MB, not on R3-memory builds
+constant C_MENU_REU_16M          : natural := 144; -- REU: 16 MB, not on R3-memory builds
 constant C_MENU_R3_DROP          : natural := 2;   -- R3-memory builds have neither
-constant C_MENU_CART_HW          : natural := 131; -- Cartridge: hardware slot (default)
-constant C_MENU_CART_CRT         : natural := 132; -- Cartridge: virtual cartridge (.crt)
-constant C_MENU_MODEM_DE00       : natural := 142; -- Modem: SwiftLink at $DE00 (Off at 128 is the default)
-constant C_MENU_MODEM_DF00       : natural := 143; -- Modem: SwiftLink at $DF00, REU off
-constant C_MENU_MODEM_D700       : natural := 144; -- Modem: SwiftLink at $D700
-constant C_MENU_UCI              : natural := 147; -- UCI at $DF1C: Ultimate Command Interface (default off)
-constant C_MENU_KEYS_4080        : natural := 186; -- Keyboard: real Caps Lock is the 40/80 key (default)
-constant C_MENU_KEYS_ASCII       : natural := 187; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
-constant C_MENU_HELP_F13         : natural := 190; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
-constant C_MENU_RAM256           : natural := 193; -- 256 KB RAM: banks 2 and 3 (default off)
+constant C_MENU_CART_HW          : natural := 153; -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 154; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 164; -- Modem: SwiftLink at $DE00 (Off at 128 is the default)
+constant C_MENU_MODEM_DF00       : natural := 165; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 166; -- Modem: SwiftLink at $D700
+constant C_MENU_UCI              : natural := 169; -- UCI at $DF1C: Ultimate Command Interface (default off)
+constant C_MENU_KEYS_4080        : natural := 208; -- Keyboard: real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 209; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
+constant C_MENU_HELP_F13         : natural := 212; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_RAM256           : natural := 215; -- 256 KB RAM: banks 2 and 3 (default off)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
@@ -178,6 +178,7 @@ constant C_DEV_NET            : std_logic_vector(15 downto 0) := x"010B"; -- net
 constant C_DEV_DMA            : std_logic_vector(15 downto 0) := x"010C"; -- the system CPU's bus DMA into C128 memory (c128_dma.vhd)
 constant C_DEV_INPUT          : std_logic_vector(15 downto 0) := x"010D"; -- REST machine:input and debugreg: keys, joysticks, POT lines, $D7FF (input_inject.vhd)
 constant C_DEV_VDC            : std_logic_vector(15 downto 0) := x"010E"; -- the VDC's RAM and registers, read without side effects (vdc_peek.vhd)
+constant C_DEV_CMDHD          : std_logic_vector(15 downto 0) := x"010F"; -- the CMD HD: boot ROM, SCSI buffer, controls (cmdhd/cmdhd.vhd)
 
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)
@@ -245,13 +246,15 @@ constant C_CRTROMTYPE_OPTIONAL   : std_logic_vector(15 downto 0) := x"0004";
 -- In the order of their menu items.
 -- The core's own (C_CRTROMTYPE_CORE): the firmware loads them (CORE/firmware/core.c), the second
 -- word says which.
-constant C_CRTROMS_MAN_NUM       : natural := 16;                                      -- amount of manually loadable ROMs and carts; maximum is 16
+constant C_CRTROMS_MAN_NUM       : natural := 18;                                      -- amount of manually loadable ROMs and carts (the firmware's CRTROM_MAX)
 constant C_CRTROMS_MAN           : crtrom_buf_array := ( C_CRTROMTYPE_CORE, x"0016",      -- the Drive A submenu: 1541 ROM:%s
                                                          C_CRTROMTYPE_CORE, x"0017",      -- 1571 ROM:%s
                                                          C_CRTROMTYPE_CORE, x"0018",      -- 1581 ROM:%s
                                                          C_CRTROMTYPE_CORE, x"0019",      -- the Drive B submenu: 1541 ROM:%s
                                                          C_CRTROMTYPE_CORE, x"001A",      -- 1571 ROM:%s
                                                          C_CRTROMTYPE_CORE, x"001B",      -- 1581 ROM:%s
+                                                         C_CRTROMTYPE_CORE, x"0003",      -- the CMD HD submenu: Image:%s
+                                                         C_CRTROMTYPE_CORE, x"001D",      -- Boot ROM:%s
                                                          C_CRTROMTYPE_CORE, x"0000",      -- the REU's File:%s menu item
                                                          C_CRTROMTYPE_DEVICE, C_DEV_CRT,  -- the CRT:%s menu item
                                                          C_CRTROMTYPE_CORE, x"0001",      -- Boot:%s, the .crt loaded at every start

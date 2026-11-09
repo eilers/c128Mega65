@@ -14,7 +14,7 @@
 #define SETTINGS_FILE "/c128/settings.cfg"
 #define SETTINGS_TMP  "/c128/settings.tmp"   // written first, then renamed over it
 
-enum { ST_U64, ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_STREAMS, ST_ROMS, ST_MEGA65, ST_COUNT };
+enum { ST_U64, ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_STREAMS, ST_ROMS, ST_MEGA65, ST_CMDHD, ST_COUNT };
 // His CFG_TYPE_ENUM, _VALUE, _STRING, _STRPASS, _STRFUNC (here a file of rompick.c's folder)
 enum { IT_ENUM, IT_VALUE, IT_STRING, IT_PASS, IT_FILE };
 

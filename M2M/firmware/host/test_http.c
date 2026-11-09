@@ -308,8 +308,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65 (Ultimate 64 compatible)\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"110\",\n" \
-                  "  \"core_version\" : \"1.10\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"111\",\n" \
+                  "  \"core_version\" : \"1.11\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -962,7 +962,7 @@ static void streams(void)
 // --- the configs routes ---
 
 #define CATEGORIES "\"U64 Specific Settings\", \"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", \"Modem Settings\", " \
-                   "\"Ethernet Settings\", \"Network Settings\", \"Data Streams\", \"C128 ROM Settings\", \"MEGA65 Settings\""
+                   "\"Ethernet Settings\", \"Network Settings\", \"Data Streams\", \"C128 ROM Settings\", \"MEGA65 Settings\", \"CMD HD Settings\""
 #define DRIVE_ROMS ",\n  \"ROM for 1541 mode\" : \"1541.rom\",\n  \"ROM for 1571 mode\" : \"1571.rom\",\n" \
                    "  \"ROM for 1581 mode\" : \"1581.rom\""
 #define DRIVE_ROMS_FILE "ROM for 1541 mode=1541.rom\nROM for 1571 mode=1571.rom\nROM for 1581 mode=1581.rom\n"
@@ -1095,7 +1095,8 @@ static void configs(void)
          "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
          "HDMI Flicker-free=Disabled\nHDMI Filter=Sharp Bilinear\nVGA Display Mode=Standard\n"
-         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n256 KB RAM=Disabled\n"), cfg);
+         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n256 KB RAM=Disabled\n"
+         "[CMD HD Settings]\nDrive=Enabled\nDrive Bus ID=12\nDisk Image=\nBoot ROM=\n"), cfg);
    check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
    expect("save again: nothing", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
