@@ -103,6 +103,7 @@ constant C_MENU_UCI              : natural := 147; -- UCI at $DF1C: Ultimate Com
 constant C_MENU_KEYS_4080        : natural := 186; -- Keyboard: real Caps Lock is the 40/80 key (default)
 constant C_MENU_KEYS_ASCII       : natural := 187; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
 constant C_MENU_HELP_F13         : natural := 190; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_RAM256           : natural := 193; -- 256 KB RAM: banks 2 and 3 (default off)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode

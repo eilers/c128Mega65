@@ -515,6 +515,7 @@ signal cart_source          : t_cart_source;
 
 -- REU
 signal reu_menu             : std_logic_vector(1 downto 0);   -- the menu's choice, as reu.sv's cfg
+signal sys256k              : std_logic := '0';               -- RAM banks 2 and 3: the menu's, taken in reset
 signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB, "11" 16 MB
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
 signal reu_cs               : std_logic;                      -- reu_io's strobe, once per access
@@ -551,9 +552,9 @@ signal map_readdata         : std_logic_vector(15 downto 0);
 signal map_readdatavalid    : std_logic;
 signal map_waitrequest      : std_logic;
 
--- Reset the C128 when the REU or Cartridge setting changes (C64MEGA65 #225, #226), and when a
--- .crt file is loaded
-signal exp_cfg_d            : std_logic_vector(3 downto 0) := "0010";   -- REU off, hardware slot, no .crt
+-- Reset the C128 when the REU, 256 KB RAM or Cartridge setting changes (C64MEGA65 #225, #226),
+-- and when a .crt file is loaded
+signal exp_cfg_d            : std_logic_vector(4 downto 0) := "00010";  -- REU off, 128 KB, hardware slot, no .crt
 signal exp_reset_pend       : std_logic := '0';
 signal exp_reset_cnt        : natural range 0 to G_EXP_RESET_LEN := 0;
 
@@ -1681,21 +1682,21 @@ end process handle_hardware_iec_proc;
 -- Hard reset
 --------------------------------------------------------------------------------------------------
 
--- A changed REU or Cartridge setting, a .crt file being loaded, or the firmware's reset
+-- A changed REU, 256 KB RAM or Cartridge setting, a .crt file being loaded, or the firmware's reset
 -- (uci_reboot_i) resets the C128 and a hardware cartridge, as soon as no write-back cache is
 -- dirty. A virtual cartridge's reset lasts until the cache holds the banks it starts in. A REU
 -- change that a program asked for with LOAD_CONFIG (uci_reu_keep_i) leaves it running, as an
 -- Ultimate does.
 exp_change_reset_proc : process (clk_main_i)
-   variable v_cfg : std_logic_vector(3 downto 0);
+   variable v_cfg : std_logic_vector(4 downto 0);
 begin
    if rising_edge(clk_main_i) then
-      v_cfg     := reu_menu & exp_port_hw & crt_loaded_i;
+      v_cfg     := reu_menu & osm_control_i(C_MENU_RAM256) & exp_port_hw & crt_loaded_i;
       exp_cfg_d <= v_cfg;
       if exp_reset_cnt > 1 or (exp_reset_cnt = 1 and crt_hold = '0') then
          exp_reset_cnt <= exp_reset_cnt - 1;
       end if;
-      if (v_cfg /= exp_cfg_d and not (uci_reu_keep_i = '1' and v_cfg(1 downto 0) = exp_cfg_d(1 downto 0))) or
+      if (v_cfg /= exp_cfg_d and not (uci_reu_keep_i = '1' and v_cfg(2 downto 0) = exp_cfg_d(2 downto 0))) or
          uci_reboot_i = '1' then
          exp_reset_pend <= '1';
       elsif exp_reset_pend = '1' and prevent_reset = '0' then
@@ -1704,6 +1705,16 @@ begin
       end if;
    end if;
 end process exp_change_reset_proc;
+
+-- The MMU sees a new 256 KB RAM setting only in reset, so banks never move under a running program
+ram256_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      if reset_core_n = '0' then
+         sys256k <= osm_control_i(C_MENU_RAM256);
+      end if;
+   end if;
+end process ram256_proc;
 
 hard_reset_proc: process (clk_main_i)
   begin
@@ -2206,7 +2217,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       d7port_trig   => open,
 
       -- System mode
-      sys256k       => '0', -- We have 128k memory
+      sys256k       => sys256k, -- the 256 KB RAM menu item: banks 2 and 3
       force64       => '0',
       pure64        => '0',
       d4080_sel     => d4080_sel_s, -- 40/80 sense: real Caps Lock, or latched F9 (see d4080_sel_s)

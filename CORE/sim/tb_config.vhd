@@ -188,6 +188,7 @@ begin
       named(C_MENU_KEYS_4080,     " 40/80");
       named(C_MENU_KEYS_ASCII,    " ASCII/DIN");
       named(C_MENU_HELP_F13,      " Help menu on F13");
+      named(C_MENU_RAM256,        " 256 KB RAM");
 
       -- R3 item i is full item i, or i + 2 from the 2 MB item on, in text and in every selector
       for i in 0 to n_r - 1 loop
