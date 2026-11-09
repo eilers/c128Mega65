@@ -54,8 +54,10 @@ cp M2M/firmware/build/firmware.bin sdcard/c128/
 ```
 
 Build the firmware from a clean tree and commit it: it carries the commit it was
-built from, and the release scripts refuse one built from uncommitted sources or
-older than its sources (`CORE/scripts/check_firmware_fresh.sh`).
+built from. `build_release.sh` rebuilds `sdcard/c128/firmware.bin` when that copy
+was built with another `CORE_VERSION` or from an older commit, and refuses one
+built from uncommitted firmware sources. `check_firmware_fresh.sh` reports a firmware that
+is older than its sources; `release-check.sh` stops on that report.
 
 ### C128 boot ROM files
 
@@ -538,8 +540,10 @@ Place a 73 728-byte `boot0.rom` at `sdcard/c128/boot0.rom`.
 
 ### `firmware.bin is older than its sources`
 
-The firmware's sources changed after `sdcard/c128/firmware.bin` was built. Rebuild it
-from a clean tree (see "System CPU firmware" above) and commit it.
+The firmware's sources changed after `sdcard/c128/firmware.bin` was built.
+`build_release.sh` rebuilds it from the current tree. `release-check.sh` only
+reports it: rebuild from a clean tree (see "System CPU firmware" above) and
+commit the new `sdcard/c128/firmware.bin`.
 
 ### Flatpak Vivado cannot see the repo
 
