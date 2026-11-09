@@ -328,7 +328,7 @@ begin
          port_b_o => v10_pb_o,
          port_b_t => v10_pb_t,
          port_b_i => v10_pb_i and (v10_pb_o or not v10_pb_t),
-         ca1_i    => not iec_atn_i,
+         ca1_i    => iec_atn_i,                   -- the ATN line itself: it falls as ATN comes (VICE)
          ca2_o    => open,
          ca2_i    => '1',
          ca2_t    => open,
