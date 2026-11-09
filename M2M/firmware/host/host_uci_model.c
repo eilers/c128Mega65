@@ -28,15 +28,18 @@ int drives_ready(void)
    return drive_reads <= 3 || drive_reads > 3 + drive_low || !drive_low;
 }
 
-// What the control target uses: vd_sd's drive power, the menu's settings, the menu
-int     drive_pow[2], mounted_type, menu_opens;
+// What the control target uses: the menu's settings (a drive runs while its Drive enabled
+// is on), the menu
+int     mounted_type, menu_opens;
 uint8_t settings[64][8];
 int  drive_image_type(int d) { return mounted_d == d ? mounted_type : -1; }
-void drive_power(int d, enum drive_power p) { drive_pow[d] = p; }
-int  drive_running(int d)
+int  drive_is_on(int d) { return settings[d ? OPTM_G_DRVB_ON : OPTM_G_DRVA_ON][0]; }
+void drives_on(int a, int b)
 {
-   return drive_pow[d] == DRIVE_ON || (drive_pow[d] == DRIVE_AUTO && mounted_d == d);
+   settings[OPTM_G_DRVA_ON][0] = a;
+   settings[OPTM_G_DRVB_ON][0] = b;
 }
+int  drive_running(int d) { return drive_is_on(d); }
 int  shell_setting(int group, int pos) { return settings[group][pos]; }
 
 // The menu for LOAD_CONFIG: how many REU items it has (2 on R3 memory: Off, 512 KB), and the
@@ -132,7 +135,6 @@ void shell_unmount(int d) { mounted_d = -(d + 10); }
 int  shell_mount_ro(int d, const char *path, int ro, const char **msg) { (void)ro; return shell_mount(d, path, msg); }
 int  drive_mounted(int d) { return mounted_d == d; }
 const char *drive_path(int d) { return mounted_d == d ? mounted_path : ""; }
-enum drive_power drive_power_of(int d) { return drive_pow[d]; }
 void drive_hold(int d, int on) { (void)d, (void)on; }
 void drive_flush(int d) { (void)d; }
 int  drive_quiet(int d) { (void)d; return 1; }
@@ -304,5 +306,6 @@ void uci_model_init(void)
    settings[OPTM_G_REU][0]       = 1;   // REU: Off
    settings[OPTM_G_DRVA_MODEL][0] = settings[OPTM_G_DRVB_MODEL][0] = 1;   // 1541
    settings[OPTM_G_DRVA_ID][0] = settings[OPTM_G_DRVB_ID][1] = 1;         // 8, 9
+   drives_on(1, 0);                     // as config.vhd: A on, B off
    um.reu_mem = 0x8800;                 // SDRAM, window 0x0800 (C_SMAP_REU), as on the R6
 }

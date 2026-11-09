@@ -123,7 +123,7 @@ static void drive_info(rest_t *r, int d)
    obj_open(r, NULL);
    obj_open(r, d ? "b" : "a");
    key(r, "enabled");
-   put(r, drive_running(d) ? "true" : "false");
+   put(r, stores_drive_on(d) ? "true" : "false");
    add_int(r, "bus_id", stores_drive_id(d));
    add_str(r, "type", types[stores_drive_type(d)]);
    // The pick for its model, as his current_drive_rom: the stock one under his default name
@@ -310,8 +310,8 @@ static int mount_now(rest_t *r, const char *card, int ro)
    int d = r->d, err = shell_mount_ro(d, card, ro, &msg);
    if (err)
       return mount_ss(err);
-   if (drive_image_type(d) == 2 || drive_power_of(d) == DRIVE_OFF)
-      r->phase = -1;                            // a 1581 flags it at once; an off drive never
+   if (drive_image_type(d) == 2)
+      r->phase = -1;                            // a 1581 flags it at once
    else {
       r->phase = M_TAKE;
       r->t0 = net_millis();
@@ -506,14 +506,14 @@ static void put_remove(rest_t *r)
    subsys_response(r, SS_OK);
 }
 
-// On; one that was on already is reset
+// His Turn On, kept in the settings; one that was on already is reset
 static void put_on(rest_t *r)
 {
    int d = drive_or_answer(r);
    if (d < 0)
       return;
-   int was = drive_running(d);
-   drive_power(d, DRIVE_ON);
+   int was = stores_drive_on(d);
+   stores_drive_set_on(d, 1);
    if (was)
       after_reload(r, d, SS_OK);
    else
@@ -525,7 +525,7 @@ static void put_off(rest_t *r)
    int d = drive_or_answer(r);
    if (d < 0)
       return;
-   drive_power(d, DRIVE_OFF);
+   stores_drive_set_on(d, 0);
    subsys_response(r, SS_OK);
 }
 

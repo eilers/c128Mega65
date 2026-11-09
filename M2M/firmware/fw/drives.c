@@ -30,7 +30,7 @@
 #define MAP_READY     0x20         // every 1541/1571 out of reset has its disk (iec_drive)
 #define MAP_CSR_NBLK  0x032        // blocks of the image
 #define MAP_CSR_FLUSH 0x033        // W: write back now
-#define MAP_CSR_POWER 0x034        // bits 1-0 enum drive_power; R: bit 2 the drive runs
+#define MAP_CSR_RUNS  0x034        // R: bit 2 the drive runs
 #define MAP_CSR_HOLD  0x035        // bit 0: the drive's requests wait
 #define MAP_BUSY      0x04
 #define MAP_DIRTY     0x02
@@ -106,20 +106,9 @@ int drive_image_type(int d)
    return drive_mounted(d) ? img_type[d] : -1;
 }
 
-void drive_power(int d, enum drive_power p)
-{
-   if (d < num)
-      crtrom_csr_set(map_dev[d], MAP_CSR_POWER, p);
-}
-
-enum drive_power drive_power_of(int d)
-{
-   return d < num ? crtrom_csr_get(map_dev[d], MAP_CSR_POWER) & 3 : DRIVE_AUTO;
-}
-
 int drive_running(int d)
 {
-   return d < num && (crtrom_csr_get(map_dev[d], MAP_CSR_POWER) & 4);
+   return d < num && (crtrom_csr_get(map_dev[d], MAP_CSR_RUNS) & 4);
 }
 
 int drives_changed(void)

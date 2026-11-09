@@ -32,9 +32,11 @@ extern int  mounted_d, mount_err;
 // drives_ready() after a mount: high for 3 reads, low for drive_low (0: never), then high
 extern int  drive_low, drive_reads;
 extern char mounted_path[300];
-// The control target's: each drive's power (enum drive_power), the mounted image's type
-// (drive_image_type), how often the menu was opened, shell_setting's bits by group and item
-extern int     drive_pow[2], mounted_type, menu_opens;
+// The control target's: the mounted image's type (drive_image_type), how often the menu was
+// opened, shell_setting's bits by group and item; a drive's Drive enabled, and both set
+extern int     mounted_type, menu_opens;
+int            drive_is_on(int d);
+void           drives_on(int a, int b);
 // The cartridge's CSR (crtrom_csr_get/set) for EASYFLASH's erase: the last sector written,
 // the starts, and how many more reads of its busy bit read 1
 extern int     ef_sector, ef_starts, ef_busy;

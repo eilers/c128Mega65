@@ -12,7 +12,8 @@ extern uint16_t input_dev[16];     // the input device's words (input.c)
 extern uint32_t csr_reg;           // M2M_CSR
 extern uint32_t host_heap_free;    // what heap_free says
 extern uint8_t settings[64][8];   // the menu's bits by group and item
-extern int     drive_on[2];
+int            drive_is_on(int d);         // its Drive enabled
+void           drive_set(int d, int on);
 extern char    reu_path[256];
 
 // The drives: an image (a card path), write protect, type (0 D64, 1 D71, 2 D81), the internal

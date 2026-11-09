@@ -20,7 +20,9 @@
 // 12: his video and audio streams (C_DEV_NET words 0x20-0x7F), stream lines in Network
 // 13: the VDC's RAM and registers, read without side effects (C_DEV_VDC)
 // 14: the HDMI Filter submenu in place of the CRT emulation line
-#define M2M_RV_HW_VERSION    14u
+// 15: each drive's Drive enabled line; vd_sd's power register (0x034) only reads
+// 16: the 256 KB RAM menu item
+#define M2M_RV_HW_VERSION    16u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

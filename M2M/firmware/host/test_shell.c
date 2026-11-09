@@ -684,11 +684,11 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 29), "menu window 25x29 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 30), "menu window 25x30 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
-   check(find_row(" 9:1571 <Mount Drive>") == 4 && find_row("Drive A") < 0, "drive B's line; no lines of their own for the submenus");
+   check(find_row(" 9:Off") == 4 && find_row("Drive A") < 0, "drive B's line, off as config.vhd has it; no lines of their own for the submenus");
    check(find_row(" Video: Follow 40/80") > 0, "video summary");
    check(find_row(" Cartridge: Hardware") > 0, "cartridge summary");
    check(find_row(" REU: Off") > 0, "REU summary");
@@ -699,6 +699,7 @@ int main(int argc, char **argv)
    check(find_row(" Drive A") == 1 && find_row(" Bus ID") > 0 && find_row(" Model") > 0 &&
          find_row(" 1571 ROM:") > 0, "submenu: its headline, disk, ID, model, ROMs");
    check(cursor_on(" Disk:<Mount Drive>"), "cursor on its Disk line");
+   check(find_row("=Drive enabled") > 0 && setting_get(item(" Drive enabled")), "Drive enabled: on");
    check(find_row("*8") > 0 && find_row("*1571") > 0 && find_row("*1541") < 0, "8 and 1571 marked");
    go_to_line("1541");
    press(M2M_KEY_RETURN);
@@ -712,12 +713,12 @@ int main(int argc, char **argv)
    go_to_line("10");
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
-   check(find_row(" 10:1571 <Mount Drive>") == 4, "drive B at 10");
+   check(find_row(" 10:Off") == 4, "drive B at 10");
    press(M2M_KEY_RETURN);
    go_to_line("8");
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
-   check(find_row(" 10:1541 <Mount Drive>") == 3 && find_row(" 8:1571 <Mount Drive>") == 4,
+   check(find_row(" 10:1541 <Mount Drive>") == 3 && find_row(" 8:Off") == 4,
          "drive B at 8: drive A takes its 10");
    press(M2M_KEY_RETURN);
    go_to_line("9");
@@ -728,15 +729,28 @@ int main(int argc, char **argv)
    go_to_line("8");
    press(M2M_KEY_RETURN);
    press(M2M_KEY_RUNSTOP);
-   check(find_row(" 8:1541 <Mount Drive>") == 3 && find_row(" 9:1571 <Mount Drive>") == 4 && cursor_on("8:1541"),
+   check(find_row(" 8:1541 <Mount Drive>") == 3 && find_row(" 9:Off") == 4 && cursor_on("8:1541"),
          "drives at 8 and 9 again");
+   // Drive enabled off: the drive's line says so; on again
+   press(M2M_KEY_RETURN);
+   go_to_line("Drive enabled");
+   press(M2M_KEY_RETURN);
+   check(!setting_get(item(" Drive enabled")) && !stores_drive_on(0), "drive A off at once");
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:Off") == 3, "drive A off: its line says so");
+   press(M2M_KEY_RETURN);
+   go_to_line("Drive enabled");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 8:1541 <Mount Drive>") == 3 && stores_drive_on(0), "drive A on again");
 
    // Close: saved, keyboard back after a moment
    press(M2M_KEY_HELP);
    check(!(M2M_CSR & M2M_CSR_OSM), "Help closes the menu");
    idle();
    check(M2M_CSR & M2M_CSR_KBD, "keyboard back after closing");
-   check(setting_line("[Drive A Settings]\nDrive Type=1541\nDrive Bus ID=8\n") &&
+   check(setting_line("[Drive A Settings]\nDrive=Enabled\nDrive Type=1541\nDrive Bus ID=8\n") &&
+         setting_line("[Drive B Settings]\nDrive=Disabled\nDrive Type=1571\nDrive Bus ID=9\n") &&
          setting_line("[U64 Specific Settings]\nSystem Mode=PAL\nHDMI Scan Resolution=720p 50 Hz 16:9\n") &&
          setting_line("Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=All Connected\n") &&
          setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Flicker-free=Disabled\n"),
@@ -809,6 +823,18 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    press(M2M_KEY_RETURN);
    check(cursor_on("Swap joystick ports") && !setting_get(item(" Swap joystick ports")), "joystick ports back");
+
+   // 256 KB RAM: the main menu's line under Keyboard, kept in MEGA65 Settings
+   check(find_row(" 256 KB RAM") == find_row(" Keyboard: Stock") + 1, "256 KB RAM: under Keyboard");
+   go_to("256 KB RAM");
+   press(M2M_KEY_RETURN);
+   check(find_row("=256 KB RAM") > 0 && setting_get(item(" 256 KB RAM")), "256 KB RAM on");
+   press(M2M_KEY_HELP);
+   idle();
+   check(setting_line("Help Menu on F13=Disabled\n256 KB RAM=Enabled\n"), "kept: 256 KB RAM=Enabled");
+   press(M2M_KEY_HELP);
+   press(M2M_KEY_RETURN);
+   check(cursor_on("256 KB RAM") && !setting_get(item(" 256 KB RAM")), "256 KB RAM off");
 
    // A .crt file: the browser, filtered and sorted, starts in /c128; the CPU copies it in
    // (the device says it has no DMA), the device parses it, the menu shows its name
@@ -1094,13 +1120,21 @@ int main(int argc, char **argv)
    check(find_row(" 9:1571 <Mount Drive>") == 4 && !setting_get(mount_item(1)), "unmount by a reset followed");
 
    // A mount from a C128 program (the UCI's DOS target) while the menu is open: the
-   // drive's line and setting follow at once
+   // drive's line and setting follow at once. It turns an off drive on; taking the image
+   // out leaves it on.
+   go_to("9:");
+   press(M2M_KEY_RETURN);
+   go_to_line("Drive enabled");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" 9:Off") == 4 && !stores_drive_on(1), "drive B off");
    const char *msg;
    check(shell_mount(1, "/c128/game.d64", &msg) == 0 && (vd_reg(VD_DRV_MOUNT) & 2) &&
          find_row(" 9:1571 game.d64") == 4 && setting_get(mount_item(1)), "shell_mount: drive 9, shown");
+   check(stores_drive_on(1), "shell_mount: drive 9 on");
    shell_unmount(1);
-   check(!(vd_reg(VD_DRV_MOUNT) & 2) && find_row(" 9:1571 <Mount Drive>") == 4 && !setting_get(mount_item(1)),
-         "shell_unmount: drive 9, shown");
+   check(!(vd_reg(VD_DRV_MOUNT) & 2) && find_row(" 9:1571 <Mount Drive>") == 4 && !setting_get(mount_item(1)) &&
+         stores_drive_on(1), "shell_unmount: drive 9, shown, still on");
 
    // F5 in a drive's browser: a new, empty disk of the type the drive runs, made in the
    // folder and mounted. A name's extension picks another type; a taken name is refused.
@@ -1465,7 +1499,7 @@ int main(int argc, char **argv)
 
    // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
    // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
-   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 25, "Load settings: the main menu's last line but two");
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 26, "Load settings: the main menu's last line but two");
    go_to("Load settings");
    press(M2M_KEY_RETURN);
    dump("Load settings browser");
@@ -1529,7 +1563,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    press(M2M_KEY_HELP);
    idle();
-   check(setting_line("[Drive A Settings]\nDrive Type=1571\n") && setting_line("Serial Bus Mode=C64 <-> Internal\n"),
+   check(setting_line("[Drive A Settings]\nDrive=Enabled\nDrive Type=1571\n") && setting_line("Serial Bus Mode=C64 <-> Internal\n"),
          "saved for the next run");
    // What the next run should start with
    uint8_t b[MENU_MAX];

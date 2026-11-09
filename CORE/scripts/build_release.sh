@@ -45,17 +45,17 @@ sanitize_version_slug() {
   local raw="$1"
   local slug
   slug="$(printf '%s' "$raw" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]+/_/g; s/[^A-Za-z0-9._-]+/_/g; s/_+/_/g; s/^_|_$//g')"
-  [[ -n "$slug" ]] || die "Release name must contain at least one letter or digit."
+  [[ "$slug" =~ [0-9A-Za-z] ]] || die "CORE_VERSION must contain at least one letter or digit."
   printf '%s' "$slug"
 }
 
 CONFIG_VHD_PATH="$CORE_DIR/vhdl/config.vhd"
 CORE_VERSION_RE='constant[[:space:]]+CORE_VERSION[[:space:]]*:[[:space:]]*string[[:space:]]*:=[[:space:]]*"([^"]+)"[[:space:]]*;'
 
-# CORE_VERSION is baked into the bitstream at synthesis time: it appears on the credits screen.
-# A mismatch between it and the release name would silently ship a core whose about screen
-# disagrees with the zip, so check before the build loop rather than after four synthesis runs.
-check_core_version() {
+# The release name is CORE_VERSION from config.vhd. Synthesis bakes that string into the
+# bitstream (the credits screen) and the firmware build bakes it into firmware.bin (the
+# network info page), so the zip, the core file and those two screens stay the same text.
+read_core_version() {
   [[ -f "$CONFIG_VHD_PATH" ]] || die "config.vhd not found: $CONFIG_VHD_PATH"
 
   local matches
@@ -68,47 +68,73 @@ check_core_version() {
   esac
 
   CORE_VERSION_VHDL="${matches[0]}"
-
-  if [[ "$CORE_VERSION_VHDL" != "$VERSION_SLUG" ]]; then
-    local msg="Version mismatch: config.vhd has CORE_VERSION=\"$CORE_VERSION_VHDL\" but this release is \"$VERSION_SLUG\".
-     Update CORE_VERSION in $CONFIG_VHD_PATH, or enter a matching release name."
-    if [[ "${SKIP_VERSION_CHECK:-0}" == "1" ]]; then
-      echo "WARNING: $msg" >&2
-      echo "WARNING: continuing anyway because SKIP_VERSION_CHECK=1." >&2
-      return 0
-    fi
-    die "$msg"
-  fi
-  echo "CORE_VERSION check: config.vhd matches \"$VERSION_SLUG\"."
+  VERSION_SLUG="$(sanitize_version_slug "$CORE_VERSION_VHDL")"
+  [[ "$CORE_VERSION_VHDL" == "$VERSION_SLUG" ]] || die "CORE_VERSION \"$CORE_VERSION_VHDL\" is not a usable release name.
+     Use only letters, digits, dots, underscores and hyphens, with no spaces."
 }
 
-read -r -p "Release name (e.g. Alpha 1): " RELEASE_NAME
-[[ -n "${RELEASE_NAME//[[:space:]]/}" ]] || die "Release name cannot be empty."
+# firmware.bin stores CORE_VERSION as its own C string in the payload after the 512-byte
+# header (include/fw_image.h): a zero byte, then the text, then a zero byte. The byte before
+# the text has to be zero too, so a shorter name cannot match the tail of a longer one.
+firmware_has_core_version() {
+  local image="$1"
+  python3 -I - "$image" "$CORE_VERSION_VHDL" <<'PY'
+import sys
+path, version = sys.argv[1:]
+try:
+    data = open(path, "rb").read()
+except OSError:
+    sys.exit(1)
+needle = version.encode("ascii") + b"\0"
+start = 512
+while True:
+    i = data.find(needle, start)
+    if i < 0:
+        sys.exit(1)
+    if data[i - 1] == 0:
+        sys.exit(0)
+    start = i + 1
+PY
+}
 
-VERSION_SLUG="$(sanitize_version_slug "$RELEASE_NAME")"
+# Check the rebuilt image before replacing the committed one, so a firmware that is not
+# fit to ship (for example from uncommitted sources) leaves sdcard/c128/firmware.bin alone.
+rebuild_firmware() {
+  local built="$ROOT_DIR/M2M/firmware/build/firmware.bin"
+  echo "Firmware does not contain CORE_VERSION \"$CORE_VERSION_VHDL\"; rebuilding."
+  make -C "$ROOT_DIR/M2M/firmware" build/firmware.bin || die "Firmware rebuild failed."
+  firmware_has_core_version "$built" \
+    || die "Rebuilt firmware still has no CORE_VERSION \"$CORE_VERSION_VHDL\"."
+  python3 -I "$ROOT_DIR/M2M/firmware/tools/check_image.py" "$built" \
+    "$ROOT_DIR/M2M/firmware/include/m2m_rv.h" >/dev/null \
+    || die "Rebuilt firmware.bin is not fit to ship."
+  cp -f "$built" "$FIRMWARE"
+  echo "Updated $FIRMWARE"
+}
+
+read_core_version
 PREFIX="C128Core_${VERSION_SLUG}"
 TS="$(date +%Y%m%d-%H%M%S)"
 STAGING_DIR="$ROOT_DIR/artifacts/release-${VERSION_SLUG}-${TS}"
 ZIP_PATH="$ROOT_DIR/artifacts/${PREFIX}.zip"
 
-mkdir -p "$STAGING_DIR"
-
-echo "Release: $RELEASE_NAME"
+echo "Release: $CORE_VERSION_VHDL"
 echo "Artifact prefix: ${PREFIX}_R<n>"
-echo "Staging directory: $STAGING_DIR"
 echo
 
 [[ -x "$CORETOOL" ]] || die "coretool not found or not executable: $CORETOOL"
 
-check_core_version
-
 # The system CPU's firmware goes on the SD card as /c128/firmware.bin; the cores only have
-# its boot loader. Ship the committed one, checked against the cores and its sources.
+# its boot loader. Rebuild it when it was built with a different CORE_VERSION, then check
+# the image against the cores and that it is newer than its sources.
 FIRMWARE="$ROOT_DIR/sdcard/c128/firmware.bin"
+if ! firmware_has_core_version "$FIRMWARE"; then
+  rebuild_firmware
+fi
 FW_VERSION="$(python3 -I "$ROOT_DIR/M2M/firmware/tools/check_image.py" "$FIRMWARE" \
   "$ROOT_DIR/M2M/firmware/include/m2m_rv.h")" || die "firmware.bin is not fit to ship"
 "$SCRIPT_DIR/check_firmware_fresh.sh" || die "firmware.bin is older than its sources"
-echo "Firmware: $FW_VERSION"
+echo "Firmware: $FW_VERSION (CORE_VERSION $CORE_VERSION_VHDL)"
 
 ask_run_testbenches() {
   local answer="${RUN_TESTBENCHES:-}"
@@ -128,6 +154,9 @@ if ask_run_testbenches; then
 else
   echo "Skipping simulation testbenches."
 fi
+
+mkdir -p "$STAGING_DIR"
+echo "Staging directory: $STAGING_DIR"
 
 cp -f "$FIRMWARE" "$STAGING_DIR/"
 echo "Firmware: $STAGING_DIR/firmware.bin"
@@ -183,7 +212,7 @@ for rev in "${BOARDS[@]}"; do
   "$CORETOOL" -B "$core_out" \
     -b "$bit_out" \
     -n "C128" \
-    -v "$RELEASE_NAME" \
+    -v "$CORE_VERSION_VHDL" \
     -t "mega65r${rev}" \
     --caps "$CORE_CAPS" \
     --flags "$CORE_FLAGS"

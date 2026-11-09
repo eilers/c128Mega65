@@ -70,7 +70,7 @@ static void drives_watch(void)
 {
    for (int dr = 0; dr < 2; dr++) {
       int on = drive_running(dr);
-      if (on && !was_on[dr] && drive_pow[dr] == DRIVE_ON)
+      if (on && !was_on[dr])
          held_until[dr] = cycles + DATA_HELD_CYCLES;
       was_on[dr] = on;
    }
@@ -449,6 +449,8 @@ int main(int argc, char **argv)
    host_init();
    host_net_init();
    uci_model_init();
+   for (int dr = 0; dr < 2; dr++)
+      was_on[dr] = drive_running(dr);              // on from the start: no DATA held
    host_reu_sd(dma);
    if (reu) {
       settings[OPTM_G_REU][0] = 0;                    // REU: 512 KB, or 16 MB
