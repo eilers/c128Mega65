@@ -591,8 +591,8 @@ static void check_stores(void)
       char text[64];
       if (g == OPTM_G_NET_VSTREAM || g == OPTM_G_NET_ASTREAM)
          continue;                                    // his streams: none at power-up
-      if (g >= OPTM_G_HD_SWAP8 && g <= OPTM_G_HD_INSTALL)
-         continue;                                    // the CMD HD's buttons: pressed, not kept
+      if (g == OPTM_G_HD_CONFIG || g == OPTM_G_HD_INSTALL)
+         continue;                                    // the CMD HD's resets: done, not kept
       if (g > 0 && g < 255 && !cfg_get(CFG_OPTM_MOUNT, i) && !cfg_get(CFG_OPTM_CRTROM, i) &&
           !cfg_get(CFG_OPTM_HELP, i) && !core_text_item(g, text, &max) && !kept(i)) {
          printf("not in the settings file: \"%s\"\n", menu.line[i]);

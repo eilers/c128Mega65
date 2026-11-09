@@ -24,9 +24,10 @@ const char *cmdhd_path(void);             // "" without one
 void        cmdhd_set_on(int on);
 void        cmdhd_set_id(int id);
 int         cmdhd_running(void);
-// The front panel: a button pressed for a moment, or a reset with buttons held
-void        cmdhd_press(int buttons);
+// A reset with the front panel's buttons held, as VICE's; the mode it started in, until
+// HD DOS runs (the boot ROM answers at device 30 until then)
 void        cmdhd_reset(int mode);
+int         cmdhd_mode(void);
 // New, empty image of size bytes (a multiple of 512): FR_* of FatFs
 int         cmdhd_create(const char *path, uint32_t size);
 // From the main loop and from FatFs's disk work: never waits

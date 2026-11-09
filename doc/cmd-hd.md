@@ -14,7 +14,8 @@ the disk image. One SCSI disk, at ID 0, is the image file on the SD card.
 
 ## The menu
 
-**CMD HD** on the main menu shows the bus ID and the image, as the drive lines do. Its submenu:
+**CMD HD** on the main menu shows the bus ID and the image, as the drive lines do; 30 while the
+drive is in config or install mode, until HD DOS runs. Its submenu:
 
 - **Image**: pick an image; Space takes it out; F5 in the browser makes a new one (below).
   Picking an image turns the drive on.
@@ -23,9 +24,9 @@ the disk image. One SCSI disk, at ID 0, is the image file on the SD card.
   core puts the menu's into it as the DOS reads it, so the menu is always right. Two drives never
   share an ID: the menu moves the other one.
 - **Boot ROM**: the boot ROM file; Space takes it out.
-- **Press SWAP 8 / SWAP 9 / WRITE PROTECT**: the front panel's buttons, pressed for a moment.
 - **Reset: config mode** (WRITE PROTECT held) and **Reset: install mode** (SWAP 8 and SWAP 9
-  held): both put the drive at device 30 for CMD's tools.
+  held): both put the drive at device 30 for CMD's tools. As in VICE, the front panel's buttons
+  are only these resets.
 
 The settings file keeps all of it in `CMD HD Settings` (`Drive`, `Drive Bus ID`, `Disk Image`,
 `Boot ROM`).

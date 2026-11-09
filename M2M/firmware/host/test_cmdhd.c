@@ -46,6 +46,7 @@ static struct {
    int      status, done;
    unsigned sd_reads, sd_writes;
    int      sd_fail;                   // the next transfer fails
+   uint16_t pc;                        // the drive CPU's
 } m;
 
 static void hw(void)
@@ -58,7 +59,7 @@ static void hw(void)
       m.events |= 8;                    // the RAM cleared at once
    m.ctl = ctl;
    d[CSR(2)] = (ctl & 1) | m.len << 8;
-   d[CSR(9)] = 0xF880;                  // in HD DOS's idle loop
+   d[CSR(9)] = m.pc;
 
    if (d[CSR(3)] != 0xFFFF) {           // go
       int ph = d[CSR(3)], n = d[CSR(4)], base = d[CSR(5)];
@@ -102,6 +103,7 @@ static void model_on(void)
 {
    volatile uint16_t *d = host_dev_at(DEV);
    memset(&m, 0, sizeof m);
+   m.pc         = 0xF880;               // in HD DOS's idle loop
    d[CSR(0)]    = 0x5D48;
    d[CSR(1)]    = MARK;
    d[CSR(3)]    = 0xFFFF;
@@ -246,6 +248,7 @@ int main(int argc, char **argv)
       cmdhd_poll();
    check(m.ctl & 1, "it runs, after the RAM was cleared");
    check(!(m.ctl & 0x0E), "no button held for a disk with a system");
+   check(cmdhd_mode() == HD_RESET_NORMAL, "normal mode");
 
    uint8_t tur[6] = { 0 };
    check(scsi(tur, 6, NULL) == 0, "TEST UNIT READY: good");
@@ -319,10 +322,30 @@ int main(int argc, char **argv)
    for (int k = 0; k < 1100; k++)
       f_write(&f, data, 512, &put);
    f_close(&f);
+   m.pc = 0xD000;                       // the boot ROM's: no DOS on the disk
    check(!cmdhd_mount("/c128/hd/new.dhd", &msg), "mount it");
    for (int k = 0; k < 1000; k++)
       cmdhd_poll();
    check((m.ctl & 0x0D) == 0x0D, "install mode: running, SWAP 8 and SWAP 9 held");
+   check(cmdhd_mode() == HD_RESET_INSTALL, "install mode until the DOS runs");
+   m.pc = 0xF880;
+   for (int k = 0; k < 10; k++)
+      cmdhd_poll();
+   check(cmdhd_mode() == HD_RESET_NORMAL, "the DOS runs: normal mode");
+
+   // A reset with WRITE PROTECT held: config mode until the DOS runs; off, it is over
+   m.pc = 0xD000;
+   cmdhd_reset(HD_RESET_CONFIG);
+   for (int k = 0; k < 10; k++)
+      cmdhd_poll();
+   check((m.ctl & 0x0F) == 0x03 && cmdhd_mode() == HD_RESET_CONFIG, "config mode: WRITE PROTECT held");
+   cmdhd_set_on(0);
+   for (int k = 0; k < 10; k++)
+      cmdhd_poll();
+   check(!(host_dev_at(DEV)[CSR(8)] & 1), "off: held in reset");
+   check(cmdhd_mode() == HD_RESET_NORMAL, "off: config mode is over");
+   cmdhd_set_on(1);
+   m.pc = 0xF880;
 
    check(cmdhd_create("/c128/hd/made.dhd", 16u << 20) == FR_OK, "F5: a 16 MB image");
    FILINFO fi;

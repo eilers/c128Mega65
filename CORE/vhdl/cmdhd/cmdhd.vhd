@@ -20,7 +20,7 @@
 --     0x004  W: bytes of the data phase (1-1024)
 --     0x005  W: where in the buffer it starts (0-1023)
 --     0x006  W: the status byte
---     0x008  W/R: bit 0 run (else held in reset), 1 WRITE PROTECT, 2 SWAP 8, 3 SWAP 9 pressed,
+--     0x008  W/R: bit 0 run (else held in reset), 1 WRITE PROTECT, 2 SWAP 8, 3 SWAP 9 held,
 --               4 clear the RAM (power-up): set it while held in reset, wait for event 3
 --     0x009  R: the drive CPU's program counter
 --     0x010  W: SD block, low word   0x011  high word

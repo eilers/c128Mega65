@@ -74,6 +74,7 @@ static int      on = 1, bus_id = 12;
 static enum { P_OFF, P_CLEAR, P_RUN } power;
 static int      cold;              // the next start clears the RAM first
 static int      want_mode;         // HD_RESET_* for the next start
+static int      mode;              // the one it started in; normal once the DOS runs
 static int      held;              // buttons held now (CSR bits)
 static uint32_t held_since, hold_for;
 static int      dos_seen;          // the DOS ran since the RAM was cleared (a warm reset then)
@@ -511,6 +512,7 @@ static void start(void)
 {
    static const int mode_buttons[] = { 0, HD_BTN_WP, HD_BTN_SWAP8 | HD_BTN_SWAP9 };
    held       = mode_buttons[want_mode];
+   mode       = want_mode;
    want_mode  = HD_RESET_NORMAL;
    hold_for   = dos_seen ? CPU_HZ / 4 : 4 * CPU_HZ;
    held_since = MTIME_LO;
@@ -526,6 +528,7 @@ static void power_poll(void)
          power = P_OFF;
          st    = S_IDLE;
       }
+      mode = HD_RESET_NORMAL;
       return;
    }
    switch (power) {
@@ -552,22 +555,15 @@ static void power_poll(void)
          held = 0;
          ctl(CTL_RUN);
       }
-      if (!dos_seen) {               // HD DOS's idle loop
+      if (!dos_seen || mode != HD_RESET_NORMAL) {   // HD DOS's idle loop (no boot ROM code)
          uint16_t pc = get(CSR(R_PC));
-         dos_seen = pc >= 0xF870 && pc < 0xF8C0;
+         if (pc >= 0xF870 && pc < 0xF8C0) {
+            dos_seen = 1;
+            mode     = HD_RESET_NORMAL;
+         }
       }
       break;
    }
-}
-
-void cmdhd_press(int buttons)
-{
-   if (power != P_RUN)
-      return;
-   held       = buttons;
-   hold_for   = CPU_HZ / 4;
-   held_since = MTIME_LO;
-   ctl(CTL_RUN | held);
 }
 
 void cmdhd_reset(int mode)
@@ -730,6 +726,11 @@ void cmdhd_set_id(int id)
    bus_id = id;
    if (power == P_RUN)
       cmdhd_reset(HD_RESET_NORMAL);  // the DOS reads it at its start
+}
+
+int cmdhd_mode(void)
+{
+   return mode;
 }
 
 int cmdhd_running(void)

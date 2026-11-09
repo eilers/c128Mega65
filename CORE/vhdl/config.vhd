@@ -277,7 +277,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 220; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 217; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
@@ -362,9 +362,6 @@ constant OPTM_ITEMS_ALL    : string :=
    "\n"                     &
    " Boot ROM:%s\n"         &    -- 16 or 32 KB, from /c128/roms; Space takes it out
    "\n"                     &
-   " Press SWAP 8\n"        &    -- the front panel's buttons, for a moment (core.c)
-   " Press SWAP 9\n"        &
-   " Press WRITE PROTECT\n" &
    " Reset: config mode\n"  &    -- WRITE PROTECT held: device 30, for HD-TOOLS
    " Reset: install mode\n" &    -- SWAP 8 and SWAP 9 held: device 30, for CREATE SYS
    "\n"                     &
@@ -590,11 +587,8 @@ constant OPTM_G_HD_IMAGE   : integer := 55;   -- the CMD HD's Image:%s
 constant OPTM_G_HD_ON      : integer := 56;   -- its Drive enabled
 constant OPTM_G_HD_ID      : integer := 57;   -- its bus ID: 8, 9, 10, 11, 12
 constant OPTM_G_ROM_HD     : integer := 58;   -- its Boot ROM:%s
-constant OPTM_G_HD_SWAP8   : integer := 59;   -- the front panel, pressed for a moment (core.c turns them off)
-constant OPTM_G_HD_SWAP9   : integer := 60;
-constant OPTM_G_HD_WP      : integer := 61;
-constant OPTM_G_HD_CONFIG  : integer := 62;   -- a reset with WRITE PROTECT held
-constant OPTM_G_HD_INSTALL : integer := 63;   -- a reset with SWAP 8 and SWAP 9 held
+constant OPTM_G_HD_CONFIG  : integer := 59;   -- a reset with WRITE PROTECT held (core.c turns it off)
+constant OPTM_G_HD_INSTALL : integer := 60;   -- a reset with SWAP 8 and SWAP 9 held
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -669,9 +663,6 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_ROM_HD + OPTM_G_LOAD_ROM,                     -- Boot ROM:%s
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_HD_SWAP8 + OPTM_G_SINGLESEL,                  -- Press SWAP 8
-                                             OPTM_G_HD_SWAP9 + OPTM_G_SINGLESEL,                  -- Press SWAP 9
-                                             OPTM_G_HD_WP + OPTM_G_SINGLESEL,                     -- Press WRITE PROTECT
                                              OPTM_G_HD_CONFIG + OPTM_G_SINGLESEL,                 -- Reset: config mode
                                              OPTM_G_HD_INSTALL + OPTM_G_SINGLESEL,                -- Reset: install mode
                                              OPTM_G_LINE,                                         -- Line

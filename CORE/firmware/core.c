@@ -69,7 +69,8 @@ static const char *drive_line(int d)
    return line;
 }
 
-// The CMD HD's line on the main menu, as a drive's: " 12:HD image.dhd", " 12:Off"
+// The CMD HD's line on the main menu, as a drive's: " 12:HD image.dhd", " 12:Off"; " 30:HD ..."
+// in config or install mode, where the boot ROM answers at 30
 static int hd_id(void)
 {
    for (int i = 0; i < 5; i++)
@@ -90,7 +91,8 @@ static const char *hd_line(void)
       cfg_str(CFG_OPTM_MSTR, none, sizeof none);
       name = none;
    }
-   int n = fmt_snprintf(line, sizeof line, " %d:%s%s%s", hd_id(), on ? "HD" : "Off", *name ? " " : "", name);
+   int id = cmdhd_mode() != HD_RESET_NORMAL ? 30 : hd_id();
+   int n = fmt_snprintf(line, sizeof line, " %d:%s%s%s", id, on ? "HD" : "Off", *name ? " " : "", name);
    if (n > MENU_WIDTH)
       strcpy(line + MENU_WIDTH - 3, "...");
    return line;
@@ -194,16 +196,10 @@ void core_sel_post(int group, int item)
                   to = id;
             stores_drive_set_id(d, to);
          }
-   // The CMD HD's front panel: pressed for a moment, then the line is off again
-   if (shell_setting(group, 0)) {
-      int btn = group == OPTM_G_HD_SWAP8 ? HD_BTN_SWAP8 : group == OPTM_G_HD_SWAP9 ? HD_BTN_SWAP9 :
-                group == OPTM_G_HD_WP ? HD_BTN_WP : 0;
-      if (btn)
-         cmdhd_press(btn);
-      if (group == OPTM_G_HD_CONFIG || group == OPTM_G_HD_INSTALL)
-         cmdhd_reset(group == OPTM_G_HD_CONFIG ? HD_RESET_CONFIG : HD_RESET_INSTALL);
-      if (btn || group == OPTM_G_HD_CONFIG || group == OPTM_G_HD_INSTALL)
-         shell_force(group, 0, 0);
+   // The CMD HD's resets with buttons held, as VICE's: done, then the line is off again
+   if ((group == OPTM_G_HD_CONFIG || group == OPTM_G_HD_INSTALL) && shell_setting(group, 0)) {
+      cmdhd_reset(group == OPTM_G_HD_CONFIG ? HD_RESET_CONFIG : HD_RESET_INSTALL);
+      shell_force(group, 0, 0);
    }
    // A drive's model is always one its image runs: a model it can't run ejects the image
    if (group == OPTM_G_DRVA_MODEL || group == OPTM_G_DRVB_MODEL) {
