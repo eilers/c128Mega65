@@ -67,6 +67,7 @@ static FATFS   *fs;
 static uint8_t  card;
 static uint32_t blocks;            // the image's, at most MAX_BLOCKS
 static DWORD   *runs;              // FatFs's link map: length, then cluster, of each run
+static uint32_t r_first, r_idx = 1;   // block_at's run: its first cluster in the file, its entry
 static int      on = 1, bus_id = 12;
 
 // power: off, clearing the RAM, running; buttons held until held_until
@@ -145,7 +146,6 @@ static void din(int n)
 // The SD block of image block b: the run it is in (the last one asked, first)
 static uint32_t block_at(uint32_t b)
 {
-   static uint32_t r_first, r_idx = 1;
    uint32_t per = fs->csize, c = b / per;
    if (r_idx < 1 || c < r_first) {
       r_first = 0;
@@ -251,7 +251,7 @@ static void command(void)
    case 0x12: {                    // INQUIRY
       static const char id[] = "C128M65 CMD HD Image    1.0 ";   // vendor, product, revision
       n = cdb[4];
-      buf_zero(n > 96 ? 96 : n);
+      buf_zero(n);
       set(HD_BUF + 0, cap ? 0x00 : 0x60);
       set(HD_BUF + 2, 0x01);       // SCSI 1
       set(HD_BUF + 3, 0x02);
@@ -675,6 +675,7 @@ int cmdhd_mount(const char *p, const char **msg)
    FRESULT r = f_lseek(&f, CREATE_LINKMAP);
    f.cltbl = 0;
    int empty = r == FR_OK && blank(&f);
+   FATFS *vol = f.obj.fs;            // f_close forgets it
    f_close(&f);
    busy = 0;
    if (r != FR_OK) {
@@ -684,7 +685,9 @@ int cmdhd_mount(const char *p, const char **msg)
       return 1;
    }
    cmdhd_unmount();
-   fs       = f.obj.fs;
+   fs       = vol;
+   r_first  = 0;
+   r_idx    = 1;
    card     = get(CSR(R_SD_CARD)) & 0xFF;
    set(CSR(R_SD_CARD), card);
    blocks   = size / 512 > MAX_BLOCKS ? MAX_BLOCKS : size / 512;

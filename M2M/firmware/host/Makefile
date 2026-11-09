@@ -15,7 +15,7 @@ NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(NET)/ftp.c $(REST_SRC) $
 NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
 
 TESTS := build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon \
-         build/test_modem build/test_http build/test_ftp
+         build/test_modem build/test_http build/test_ftp build/test_cmdhd
 
 all: $(TESTS)
 	./run.sh build
@@ -89,6 +89,12 @@ build/test_ftp: test_ftp.c diskio_file.c $(NET)/ftp.c $(NET)/log.c ../../../CORE
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -DMEMP_NUM_TCP_PCB=48 \
 	          $(filter %.c,$^) -o $@
+
+# The CMD HD's disk (CORE/firmware/cmdhd.c) against a model of its device, on a card image
+build/test_cmdhd: test_cmdhd.c host_m2m.c diskio_file.c ../../../CORE/firmware/cmdhd.c ../fw/heap.c \
+                  ../fatfs/ff.c ../fatfs/ffunicode.c ../../../CORE/firmware/cmdhd.h host_m2m.h ../fw/ffconf.h
+	@mkdir -p build
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware -include host_m2m.h $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build
