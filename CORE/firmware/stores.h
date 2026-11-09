@@ -47,6 +47,9 @@ enum { MS_MODE, MS_SENS, MS_ACCEL, MS_WHEEL, MS_WHEEL_DIR, MS_COUNT };
 int         stores_mouse(int k);
 
 enum { DM_1541, DM_1571, DM_1581, DM_INTERNAL };
+// Drive enabled: on the bus, with a disk or without (his Drive). A mount turns it on.
+int         stores_drive_on(int d);
+void        stores_drive_set_on(int d, int on);
 int         stores_drive_model(int d);
 void        stores_drive_set_model(int d, int m);
 int         stores_drive_id(int d);

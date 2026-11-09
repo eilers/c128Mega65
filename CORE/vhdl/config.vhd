@@ -277,14 +277,14 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 195; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 197; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
 -- tallest page. The main menu is the tallest at 27 rows, the HDMI submenu 25 and the
--- drive submenus 22 (headline through Back to main menu; the "%s" opener is hidden
+-- drive submenus 23 (headline through Back to main menu; the "%s" opener is hidden
 -- inside the submenu); they leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
@@ -303,6 +303,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " Drive A\n"            &    -- bus ID, model and ROMs, as Gideon's Drive A Settings
    "\n"                     &
    " Disk:%s\n"             &    -- OPTM_S_MOUNT or the image; Enter picks one, Space takes it out
+   " Drive enabled\n"       &    -- on the bus, with a disk or without; a mount turns it on (core.c)
    "\n"                     &
    " Bus ID\n"              &    -- its ID jumpers: a change resets the drive
    " 8\n"                   &
@@ -326,6 +327,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " Drive B\n"            &    -- bus ID, model and ROMs, as Gideon's Drive B Settings
    "\n"                     &
    " Disk:%s\n"             &    -- OPTM_S_MOUNT or the image; Enter picks one, Space takes it out
+   " Drive enabled\n"       &    -- on the bus, with a disk or without; a mount turns it on (core.c)
    "\n"                     &
    " Bus ID\n"              &    -- its ID jumpers: a change resets the drive
    " 8\n"                   &
@@ -558,6 +560,8 @@ constant OPTM_G_NET_VSTREAM: integer := 48;   -- Video stream: his VIC stream on
 constant OPTM_G_NET_VTO    : integer := 49;   -- its target, to:%s
 constant OPTM_G_NET_ASTREAM: integer := 50;   -- Audio stream
 constant OPTM_G_NET_ATO    : integer := 51;   -- its target
+constant OPTM_G_DRVA_ON    : integer := 52;   -- Drive A on the bus (his Drive A Settings' Drive)
+constant OPTM_G_DRVB_ON    : integer := 53;   -- Drive B's
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -571,6 +575,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drive A
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_MOUNT_D8 + OPTM_G_MOUNT_DRV,                  -- Disk:%s (virtual drive 0)
+                                             OPTM_G_DRVA_ON + OPTM_G_SINGLESEL + OPTM_G_STDSEL,   -- Drive enabled (default on, as his Drive A)
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT,                                         -- Bus ID
                                              OPTM_G_DRVA_ID + OPTM_G_STDSEL,                      -- 8
@@ -595,6 +600,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Drive B
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_MOUNT_D9 + OPTM_G_MOUNT_DRV,                  -- Disk:%s (virtual drive 1)
+                                             OPTM_G_DRVB_ON + OPTM_G_SINGLESEL,                   -- Drive enabled (default off, as his Drive B)
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_TEXT,                                         -- Bus ID
                                              OPTM_G_DRVB_ID,                                      -- 8

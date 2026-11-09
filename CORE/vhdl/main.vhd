@@ -656,12 +656,6 @@ signal iec_dce_sum   : integer := 0;   -- 32-bit integer, initialized to 0
 
 signal iec_img_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_disk_ready   : std_logic;   -- every 1541/1571 out of reset has its disk
--- The drives' power as the firmware sets it (vd_sd CSR 0x034, QNICE clock), and in this clock:
--- bit 0 keeps a drive on with no disk, bit 1 holds it off with a disk (and wins)
-signal vd_sd_power      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0);
-signal iec_power_m      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
-signal iec_power        : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
-attribute ASYNC_REG of iec_power_m, iec_power : signal is "TRUE";
 signal iec_img_readonly : std_logic;
 signal iec_img_size     : std_logic_vector(31 downto 0);
 signal iec_img_type     : std_logic_vector(1 downto 0);
@@ -2445,22 +2439,13 @@ begin
   end if;
 end process phys_switch_proc;
 
--- Drive enable is "If Mounted": a drive without a disk image stays in reset and is therefore
--- electrically silent on the IEC bus. The firmware can also switch a drive on or off as
--- MiSTer's "Always" and "Never" do (the UCI's drive power). The internal floppy runs without
--- an image, and a drive is reset when it switches between image and internal floppy.
--- The power bits cross as levels. A change of both passes through 00 or 11, which act as
--- one of its two ends (00 is "If Mounted", 11 is off), so the drive sees no glitch.
-iec_power_sync : process (clk_main_i)
-begin
-  if rising_edge(clk_main_i) then
-    iec_power_m <= vd_sd_power;
-    iec_power   <= iec_power_m;
-  end if;
-end process iec_power_sync;
-
+-- A drive runs while its menu line Drive enabled is on, with a disk or without (as an
+-- Ultimate's Drive setting); off, it stays in reset, silent on the IEC bus. A drive is also
+-- reset when it switches between image and internal floppy.
 iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
-  -- Each drive's submenu (drive B's lies 23 items after drive A's): its bus ID, its model
+  -- Each drive's submenu (drive B's lies 24 items after drive A's): on or off, its bus ID,
+  -- its model
+  constant C_ON     : natural := C_MENU_DRVA_ON + i * (C_MENU_DRVB_ON - C_MENU_DRVA_ON);
   constant C_ID     : natural := C_MENU_DRVA_ID8 + i * (C_MENU_DRVB_ID8 - C_MENU_DRVA_ID8);
   constant C_MODEL  : natural := C_MENU_DRVA_1541 + i * (C_MENU_DRVB_1541 - C_MENU_DRVA_1541);
   constant C_ID_RST : natural := CORE_CLK_SPEED / 1000;   -- 1 ms
@@ -2468,8 +2453,7 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
   signal id_cnt     : natural range 0 to C_ID_RST := 0;
   signal id_rst     : std_logic := '0';
 begin
-  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or iec_power(i)(1) or id_rst or
-                         (not vdrives_mounted(i) and not phys_en_q(i) and not iec_power(i)(0));
+  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or id_rst or not osm_control_i(C_ON);
 
   -- The ID jumpers: a drive reads them as it starts, so a new ID resets it. No bit set (a
   -- bad config file): drive A 8, drive B 9.
@@ -3040,7 +3024,6 @@ i_vd_sd : entity work.vd_sd
 
     dirty_o        => cache_dirty,
     ready_i        => iec_disk_ready,
-    power_o        => vd_sd_power,
     running_i      => not iec_drives_reset,
 
     eng_want_o     => qnice_sd_want_o,

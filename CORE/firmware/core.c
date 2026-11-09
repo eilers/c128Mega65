@@ -43,22 +43,25 @@
 #define CRT_CSR_STATS     0x023    // R: 1 = show them in the menu
 
 // A drive's line on the main menu: its ID and what it runs as, then its image, e.g.
-// " 8:1571 game.d64", cut to the menu's width (OPTM_DX) as the Shell cuts an image's name
+// " 8:1571 game.d64", cut to the menu's width (OPTM_DX) as the Shell cuts an image's name.
+// A drive that is off says so in place of its model: " 9:Off", " 9:Off game.d64".
 static const char *drive_line(int d)
 {
    static const char *const types[] = { "1541", "1571", "1581" };
    static char line[64];
    char none[32];
+   int on = stores_drive_on(d);
    const char *name = drive_path(d), *slash = strrchr(name, '/');
    if (stores_drive_internal(d))
       name = "Internal";
    else if (*name)
       name = slash ? slash + 1 : name;
-   else {
+   else if (on) {
       cfg_str(CFG_OPTM_MSTR, none, sizeof none);
       name = none;
    }
-   int n = fmt_snprintf(line, sizeof line, " %d:%s %s", stores_drive_id(d), types[stores_drive_type(d)], name);
+   int n = fmt_snprintf(line, sizeof line, " %d:%s%s%s", stores_drive_id(d),
+                        on ? types[stores_drive_type(d)] : "Off", *name ? " " : "", name);
    if (n > MENU_WIDTH)
       strcpy(line + MENU_WIDTH - 3, "...");
    return line;
@@ -154,11 +157,18 @@ void core_sel_post(int group, int item)
       // One drive at a time is the internal floppy: the other one becomes a 1581 of images
       else if (item == DM_INTERNAL && stores_drive_model(!d) == DM_INTERNAL)
          stores_drive_set_model(!d, stores_drive_fit(!d, DM_1581));
+      // The internal floppy is a disk in the drive: it turns the drive on, as a mount does
+      if (item == DM_INTERNAL)
+         stores_drive_set_on(d, 1);
    }
-   // A mount moves the model to one its image runs
+   // A mount moves the model to one its image runs and turns the drive on; taking the
+   // image out leaves it on
    for (int d = 0; d < 2; d++)
-      if (group == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8))
+      if (group == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8)) {
          stores_drive_set_model(d, stores_drive_fit(d, stores_drive_model(d)));
+         if (drive_mounted(d))
+            stores_drive_set_on(d, 1);
+      }
    if (group == OPTM_G_NET_DHCP || group == OPTM_G_NET_REST || group == OPTM_G_NET_FTP)
       netcfg_apply();
    // His F5 menu's stream start and stop, to the target on the line below (stream.c)

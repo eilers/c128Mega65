@@ -78,11 +78,10 @@ REU item, waits until `main.vhd` has the new setting, and clears keep. The setti
 menu's bits, priority-encoded, so once it shows the new one the bits still on their way
 can't change it again.
 
-Drive power, for the control target: `vd_sd.vhd`'s CSR word `0x034`, one per drive, holds
-0 automatic (on while it has a disk or is the internal floppy), 1 on (with no disk too,
-MiSTer's "Always") or 2 off (with a disk too). It survives a C128 reset and goes back to
-automatic with an M2M reset. `main.vhd` brings it into the drives' clock and their reset;
-bit 2 reads whether the drive runs.
+Drive power, for the control target: each drive's menu line Drive enabled (`config.vhd`),
+on with a disk or without, as his Drive setting. Off, `main.vhd` holds the drive in reset.
+A mount turns it on; taking the image out leaves it on. Bit 2 of `vd_sd.vhd`'s CSR word
+`0x034` reads whether the drive runs.
 
 ## Firmware
 
@@ -160,8 +159,8 @@ closed connection and closes the socket.
 | `$20` EASYFLASH | Subcommand 0 with a bank and an address, or `81,INVALID PARAMS`. His clears the 8 banks of the bank's sector (bank & `$38`) of ROMH's chip if the address has bit 5, else of ROML's. Here the virtual EasyFlash's flash model erases that sector as the chip's own erase command does (`crt_flash.vhd`, through the cartridge's CSR words `0x024` and `0x025`), so its cache follows; `00,OK` once it is done (about 2 ms). With no EasyFlash in, nothing is erased and the answer comes at once. |
 | `$28` GET_HWINFO | 0: `C128 for MEGA65`; 1: the cartridge's own SIDs (an Ultimate's UltiSIDs): none; else `81,INVALID PARAMS`. |
 | `$29` GET_DRVINFO | 2, then type (0 1541, 1 1571, 2 1581), address (8-11) and power of each drive. The type is its model, which a mount moves to one the image runs (a D81 a 1581, a D71 a 1571, a D64 in a 1581 a 1571); the internal floppy is a 1581. |
-| `$30`-`$33` ENABLE/DISABLE_DISK_A/B | Drive power on or off (see Hardware); there is no command back to automatic. |
-| `$34`, `$35` DISK_A/B_POWER | `on ` while the drive runs, else `off`. |
+| `$30`-`$33` ENABLE/DISABLE_DISK_A/B | The drive's Drive enabled on or off (see Hardware). It is the menu's setting, so the settings file keeps it; his only switch the drive. |
+| `$34`, `$35` DISK_A/B_POWER | `on ` while the drive's Drive enabled is on, else `off`. |
 | `$40` GET_RAMDISKINFO | 8 zeros: no RAM disks. |
 | `$50` LOAD_CONFIG | A settings file named from the root (`/temp/uci_config.cfg` without a name, which isn't on the card), read as his `ConfigIO::S_read_from_file` reads it: see below. `88,CANNOT OPEN CONFIG FILE` if it can't be opened. |
 | Others: READ_RTC, ENCODE_TRACK, the Ultimate 64's palettes and SAVEMEM | `21,UNKNOWN COMMAND`, as on an Ultimate II. |
@@ -180,7 +179,7 @@ items and choices than an Ultimate:
 | | `Cartridge` | a `.crt` in `/c128/carts`, or a card path `/SD/...`, the boot cartridge, loaded at the next start; empty: none |
 | | `Alternate Kernal` | a file in `/c128/roms` or a card path `/SD/...`: 8 KB (the C64 KERNAL) or 16 KB (with C64 BASIC); empty: stock |
 | `C128 ROM Settings` (the core's own) | `C128 Kernal ROM`, `C128 Basic ROM`, `C64 Basic ROM`, `Char ROM`, `Internal Function ROM` | a file in `/c128/roms` or a card path `/SD/...`, of the right size (16, 32, 8, 8, 16 or 32 KB); empty: stock, or no function ROM |
-| `Drive A Settings`, `Drive B Settings` | `Drive` | `Disabled`, `Enabled`: drive power off or on |
+| `Drive A Settings`, `Drive B Settings` | `Drive` | `Disabled`, `Enabled`: the menu's Drive enabled (A on, B off by default, as his) |
 | | `Drive Type` | `1541`, `1571`, `1581`: the drive's model; an image it can't run is ejected, as the menu does (his keeps it, unread); the internal floppy's drive stays it for `1581` |
 | | `Drive Bus ID` | `8` to `11`; a new one resets the drive, as its jumpers would. Two drives may share one, as his (the menu swaps them instead) |
 | | `ROM for 1541 mode`, `ROM for 1571 mode`, `ROM for 1581 mode` | a file in `/c128/roms` or a card path `/SD/...`, 16 or 32 KB; `1541.rom` etc.: stock. A drive running that model reloads it and resets |

@@ -671,8 +671,8 @@ int shell_mount_ro(int d, const char *path, int ro, const char **msg)
    const char *name = strrchr(path, '/');
    strncpy(drv_name[d], name ? name + 1 : path, menu.dx - 1);
    drv_name[d][menu.dx - 1] = 0;
+   core_sel_post(group, 0);           // first, so the menu shows what it changed (model, on)
    mount_shown(i, 1);
-   core_sel_post(group, 0);
    return 0;
 }
 

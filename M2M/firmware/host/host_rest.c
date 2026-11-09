@@ -36,12 +36,10 @@ int     rom_reloads[2], crt_loads, crt_parsed;
 char    crt_shown[256];
 int     c128_basic, c128_c64, boot_never, c64_cart, typed_run;
 char    typed[64];
-static enum drive_power power[2];
 static int ready_calls[2], rom_wait[2], reset_pend, z80_left, boot_left;
 static uint32_t ramrom;
 int     menu_buttons, menu_open, reboots, net_applies;
 uint8_t settings[64][8];
-int     drive_on[2] = { 1, 1 };
 char    reu_path[256];
 char    netcfg[NC_COUNT][NC_LEN];
 uint16_t net_dev[0x80];           // C_DEV_NET's words: the streams' (0x20-0x7F)
@@ -222,9 +220,10 @@ int  drives_count(void) { return 2; }
 int  drive_mounted(int d) { return drv_mounted[d]; }
 const char *drive_path(int d) { return drv_mounted[d] ? drv_card[d] : ""; }
 int  drive_image_type(int d) { return drv_mounted[d] ? drv_type[d] : -1; }
-int  drive_running(int d) { return drive_on[d]; }
-void drive_power(int d, enum drive_power p) { power[d] = p; drive_on[d] = p == DRIVE_ON; }
-enum drive_power drive_power_of(int d) { return power[d]; }
+// A drive runs while its menu line Drive enabled is on
+int  drive_is_on(int d) { return settings[d ? OPTM_G_DRVB_ON : OPTM_G_DRVA_ON][0]; }
+void drive_set(int d, int on) { settings[d ? OPTM_G_DRVB_ON : OPTM_G_DRVA_ON][0] = on; }
+int  drive_running(int d) { return drive_is_on(d); }
 void drive_hold(int d, int on) { drv_held[d] = on; }
 void drive_flush(int d) { (void)d; }
 int  drive_quiet(int d) { return drv_held[d]; }
@@ -239,7 +238,7 @@ int drives_ready(void)
 }
 
 // As the menu: an image for the internal floppy's drive turns it off first; a size the core
-// takes; not the other drive's; then the model one the image runs
+// takes; not the other drive's; then the model one the image runs, and the drive on
 int shell_mount_ro(int d, const char *path, int ro, const char **msg)
 {
    FILINFO fi;
@@ -258,8 +257,9 @@ int shell_mount_ro(int d, const char *path, int ro, const char **msg)
    drv_ro[d] = ro;
    drv_type[d] = t;
    stores_drive_set_model(d, stores_drive_fit(d, stores_drive_model(d)));
+   stores_drive_set_on(d, 1);
    mounts++;
-   ready_calls[d] = t == 2 || power[d] == DRIVE_OFF ? 0 : 3;
+   ready_calls[d] = t == 2 ? 0 : 3;
    return 0;
 }
 
@@ -455,6 +455,7 @@ void host_rest_init(void)
    settings[OPTM_G_NET_REST][0] = settings[OPTM_G_NET_FTP][0] = settings[OPTM_G_NET_DHCP][0] = 1;
    settings[OPTM_G_DRVA_MODEL][1] = settings[OPTM_G_DRVB_MODEL][1] = 1;   // 1571
    settings[OPTM_G_DRVA_ID][0] = settings[OPTM_G_DRVB_ID][1] = 1;         // 8, 9
+   settings[OPTM_G_DRVA_ON][0] = 1;                                       // A on, B off
    settings[OPTM_G_HDMI_AUDIO][0] = settings[OPTM_G_IEC][0] = 1;          // on, as config.vhd has them
    settings[OPTM_G_HDMI_FILTER][1] = 1;                                   // Sharp Bilinear
 }
