@@ -77,7 +77,7 @@ choices are the core's, under his names where he has the same.
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | Data Streams | Stream VIC to, Stream Audio to (`host[:port]`, 36 characters; his defaults `239.0.1.64:11000`, `239.0.1.65:11001`). A change takes effect at the stream's next start, as his |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
-| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, HDMI Filter, VGA Display Mode, Caps Lock Key, Help Menu on F13 |
+| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, HDMI Filter, VGA Display Mode, Caps Lock Key, Help Menu on F13, 256 KB RAM |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
 or ours only, a card path (`/SD/...`) for a file the menu picked elsewhere; GET with an item

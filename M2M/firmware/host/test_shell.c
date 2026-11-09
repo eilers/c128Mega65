@@ -684,7 +684,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 29), "menu window 25x29 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 30), "menu window 25x30 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
@@ -823,6 +823,18 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    press(M2M_KEY_RETURN);
    check(cursor_on("Swap joystick ports") && !setting_get(item(" Swap joystick ports")), "joystick ports back");
+
+   // 256 KB RAM: the main menu's line under Keyboard, kept in MEGA65 Settings
+   check(find_row(" 256 KB RAM") == find_row(" Keyboard: Stock") + 1, "256 KB RAM: under Keyboard");
+   go_to("256 KB RAM");
+   press(M2M_KEY_RETURN);
+   check(find_row("=256 KB RAM") > 0 && setting_get(item(" 256 KB RAM")), "256 KB RAM on");
+   press(M2M_KEY_HELP);
+   idle();
+   check(setting_line("Help Menu on F13=Disabled\n256 KB RAM=Enabled\n"), "kept: 256 KB RAM=Enabled");
+   press(M2M_KEY_HELP);
+   press(M2M_KEY_RETURN);
+   check(cursor_on("256 KB RAM") && !setting_get(item(" 256 KB RAM")), "256 KB RAM off");
 
    // A .crt file: the browser, filtered and sorted, starts in /c128; the CPU copies it in
    // (the device says it has no DMA), the device parses it, the menu shows its name
@@ -1487,7 +1499,7 @@ int main(int argc, char **argv)
 
    // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
    // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
-   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 25, "Load settings: the main menu's last line but two");
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 26, "Load settings: the main menu's last line but two");
    go_to("Load settings");
    press(M2M_KEY_RETURN);
    dump("Load settings browser");
