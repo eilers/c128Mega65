@@ -576,6 +576,7 @@ begin
         signal shift_tick_f  : std_logic;
         signal shift_timer_tick : std_logic;
         signal cb2_c         : std_logic := '0';
+        signal cb2_q         : std_logic := '1';   -- the bit on CB2 while shifting out
         signal bit_cnt       : integer range 0 to 7;
         signal shift_pulse   : std_logic;
     begin
@@ -642,7 +643,7 @@ begin
 
         cb1_t_int <= '0' when shift_clk_sel="11" else serport_en;
         cb1_o_int <= shift_clock_d;
-        ser_cb2_o <= shift_reg(7);
+        ser_cb2_o <= cb2_q;   -- each bit from the fall of CB1 to its next fall, bit 7 first, as a 6522
 
         serport_en <= shift_dir or shift_clk_sel(1) or shift_clk_sel(0);
         trigger_serial <= '1' when (ren='1' or wen='1') and addr=x"A" else '0';
@@ -654,10 +655,12 @@ begin
             if rising_edge(clock) then
                 if reset = '1' then
                     shift_reg <= X"FF";
+                    cb2_q     <= '1';
                 elsif falling = '1' then
                     if wen = '1' and addr = X"A" then
                         shift_reg <= data_in;
                     elsif shift_dir='1' and shift_tick_f = '1' then -- output
+                        cb2_q     <= shift_reg(7);
                         shift_reg <= shift_reg(6 downto 0) & shift_reg(7);
                     elsif shift_dir='0' and shift_tick_r = '1' then -- input
                         shift_reg <= shift_reg(6 downto 0) & cb2_c;
