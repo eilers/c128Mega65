@@ -142,8 +142,10 @@ begin
       check(items_f(f1 to f2) = " CRT file", "full item C_MENU_CART_CRT is """ & items_f(f1 to f2) & """");
 
       -- Every line the hardware reads by its index
+      named(C_MENU_DRVA_ON,       " Drive enabled");
       named(C_MENU_DRVA_ID8,      " 8");
       named(C_MENU_DRVA_1541,     " 1541");
+      named(C_MENU_DRVB_ON,       " Drive enabled");
       named(C_MENU_DRVB_ID8,      " 8");
       named(C_MENU_DRVB_1541,     " 1541");
       named(C_MENU_VIDEO_FOLLOW,  " Follow 40/80");
