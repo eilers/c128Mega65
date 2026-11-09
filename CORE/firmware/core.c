@@ -626,7 +626,10 @@ const char *core_new_file(int ctx, int group, const char *folder, const char *ty
       int len, mb = hd_size(typed, &len);
       if (!mb)
          return "The size after the comma: 16 to 4000 (MB).";
-      fmt_snprintf(name, size, "%.*s", len < 60 ? len : 60, typed);
+      if (len > 60)
+         len = 60;                      // fmt has no "%.*s"
+      memcpy(name, typed, len);
+      name[len] = 0;
       if (len < 4 || strcasecmp(name + strlen(name) - 4, ".dhd"))
          strcat(name, ".dhd");
       for (char *c = name; *c; c++)

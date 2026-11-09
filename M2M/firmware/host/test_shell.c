@@ -591,6 +591,8 @@ static void check_stores(void)
       char text[64];
       if (g == OPTM_G_NET_VSTREAM || g == OPTM_G_NET_ASTREAM)
          continue;                                    // his streams: none at power-up
+      if (g >= OPTM_G_HD_SWAP8 && g <= OPTM_G_HD_INSTALL)
+         continue;                                    // the CMD HD's buttons: pressed, not kept
       if (g > 0 && g < 255 && !cfg_get(CFG_OPTM_MOUNT, i) && !cfg_get(CFG_OPTM_CRTROM, i) &&
           !cfg_get(CFG_OPTM_HELP, i) && !core_text_item(g, text, &max) && !kept(i)) {
          printf("not in the settings file: \"%s\"\n", menu.line[i]);
@@ -684,7 +686,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 30), "menu window 25x30 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 31), "menu window 25x31 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
@@ -1198,6 +1200,13 @@ int main(int argc, char **argv)
    check(find_row(" 8:1541 <Mount Drive>") == 3 && f_unlink("/c128/blank_01.d64") == FR_OK &&
          f_unlink("/c128/blank.d81") == FR_OK, "drive A a 1541 without a disk again, the new disks gone");
 
+   // The CMD HD's F5: "name,MB" makes name.dhd of that size
+   char hd[FF_MAX_LFN + 1];
+   FILINFO hd_fi;
+   check(!core_new_file(CTX_LOAD_ROM, OPTM_G_HD_IMAGE, "/c128", "test,16", hd, sizeof hd) &&
+         !strcmp(hd, "test.dhd") && f_stat("/c128/test.dhd", &hd_fi) == FR_OK && hd_fi.fsize == 16u << 20 &&
+         f_unlink("/c128/test.dhd") == FR_OK, "the CMD HD's F5: test,16 makes test.dhd, 16 MB");
+
    // R3-memory builds have no 2 MB and 16 MB REU
    go_to("REU");
    press(M2M_KEY_RETURN);
@@ -1499,7 +1508,7 @@ int main(int argc, char **argv)
 
    // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
    // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
-   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 26, "Load settings: the main menu's last line but two");
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 27, "Load settings: the main menu's last line but two");
    go_to("Load settings");
    press(M2M_KEY_RETURN);
    dump("Load settings browser");
