@@ -34,6 +34,12 @@ make_img() {   # image name, file system
 make_img fat32.img "MS-DOS FAT32"
 make_img fat16.img "MS-DOS FAT16"
 head -c 1048576 /dev/zero > "$files/blank.img"
+# Cards FatFs won't mount, for the boot ROM's diagnosis (lib/sd_diag.c)
+hdiutil create -quiet -size 64m -fs ExFAT -volname TESTEX -layout MBRSPUD "$files/exfat.dmg"
+mv "$files/exfat.dmg" "$files/exfat.img"
+hdiutil create -quiet -size 64m -fs "MS-DOS FAT32" -volname TESTGPT -layout GPTSPUD "$files/gpt.dmg"
+mv "$files/gpt.dmg" "$files/gpt.img"
+python3 -I "$here/patch_img.py" "$files/fat32.img" "$files"
 
 "$out/test_boot" "$files"
 "$out/test_fw" "$files/fat32.img"

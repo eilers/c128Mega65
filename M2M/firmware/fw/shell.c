@@ -63,13 +63,27 @@ static void wait(uint32_t t)
       keys_poll();
 }
 
+// The SD card's diagnosis (lib/sd_diag.c), one line each
+static int put_why(char *text, int size)
+{
+   const sd_diag_t *d = sdcard_why();
+   int n = 0;
+   for (int i = 0; d && i < d->n; i++)
+      n += fmt_snprintf(text + n, size - n, "%s\n", d->line[i]);
+   return n;
+}
+
 void shell_fatal(const char *msg, uint32_t code)
 {
-   char text[512];
+   char text[1024];
    int n = fmt_snprintf(text, sizeof text, "\nFATAL ERROR:\n\n%s", msg);
    if (code)
-      n += fmt_snprintf(text + n, sizeof text - n, "Error code: %04X", (unsigned)code);
-   fmt_snprintf(text + n, sizeof text - n, "\n\nCore stopped. Please reset the machine.\n");
+      n += fmt_snprintf(text + n, sizeof text - n, "Error code: %04X\n", (unsigned)code);
+   if (sdcard_why()) {
+      n += fmt_snprintf(text + n, sizeof text - n, "\nSD card in the %s:\n", sdcard_slot());
+      n += put_why(text + n, sizeof text - n);
+   }
+   fmt_snprintf(text + n, sizeof text - n, "\nCore stopped. Please reset the machine.\n");
    scr_full_on();
    scr_clear();
    scr_print(0, 0, 1, text);
@@ -508,8 +522,10 @@ static void load_poll(uint32_t key)
       }
       frame_full();
       if (sdcard_state() != SDCARD_OK) {
-         fmt_snprintf(text, sizeof text, "Error: Cannot mount SD card!\nError code: %04X"
-                      "\n\nPress Return to retry", sdcard_result());
+         int n = fmt_snprintf(text, sizeof text, "Error: Cannot mount SD card!\n"
+                              "SD card in the %s:\n\n", sdcard_slot());
+         n += put_why(text + n, sizeof text - n);
+         fmt_snprintf(text + n, sizeof text - n, "\nPress Return to retry");
          scr_print(1, 1, 1, text);
          load.step = L_MOUNT_ERR;
          break;

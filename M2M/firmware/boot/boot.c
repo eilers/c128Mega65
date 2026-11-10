@@ -5,10 +5,12 @@
 #include "console.h"
 #include "load.h"
 #include "m2m_rv.h"
+#include "sd_diag.h"
 
 #define CARD_BITS (M2M_CSR_SD_ACTIVE | M2M_CSR_SD_DET_INT | M2M_CSR_SD_DET_EXT)
 
 static fw_block_t hdr;
+static sd_diag_t  diag;
 
 static void show_error(const char *why)
 {
@@ -29,6 +31,14 @@ static void show_error(const char *why)
    if (hdr.h.magic == FW_MAGIC) {
       osm_print(24, 12, M2M_SA_COL_STD, "firmware's:");
       osm_hex(36, 12, M2M_SA_COL_STD, hdr.h.hw_ver, 2);
+   }
+   // What the card and the SD controller said (lib/sd_diag.c)
+   sd_diag(&diag, fw_fr);
+   for (int i = 0; i < diag.n; i++) {
+      osm_print(1, 14 + i, M2M_SA_COL_STD, diag.line[i]);
+      uart_puts("boot: ");
+      uart_puts(diag.line[i]);
+      uart_puts("\n");
    }
    M2M_CSR = M2M_CSR | M2M_CSR_OSM;
 }
@@ -64,7 +74,7 @@ int main(void)
       const char *why = fw_load(FW_PATH, &hdr);
       if (!why)
          break;
-      if (why == fw_err_mount && !(M2M_CSR & (M2M_CSR_SD_DET_INT | M2M_CSR_SD_DET_EXT)))
+      if (fw_mount_failed && !(M2M_CSR & (M2M_CSR_SD_DET_INT | M2M_CSR_SD_DET_EXT)))
          why = "No SD card";
       show_error(why);
       wait_retry();

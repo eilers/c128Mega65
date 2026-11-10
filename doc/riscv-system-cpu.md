@@ -78,6 +78,10 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   a read-only FatFs (8.3 names), loads it into HyperRAM, reads it back to check its
   CRC-32, and jumps to it. If there's no card, no file, or a bad one, it says why on the
   menu and the serial port, and tries again when the cards change or Return is pressed.
+  Below the reason, `lib/sd_diag.c` lists FatFs's result, the SD controller's last error
+  and its block, the controller's mode before and after it (`lib/sd_diag.h` decodes it),
+  and when there's no file system FatFs takes, the partition table and the likely reason
+  (the Shell's mount error and FATAL screens show the same lines).
 - **The file** (`include/fw_image.h`, made by `tools/fw_image.py`): a 512-byte header
   block, then the image. The header holds a magic number, the load address (inside
   `0x40400000`–`0x407FE000`), the entry, the size, the image's CRC-32, a version string,

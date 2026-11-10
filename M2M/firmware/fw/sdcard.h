@@ -2,6 +2,7 @@
 #pragma once
 #include <stdint.h>
 #include "ff.h"
+#include "sd_diag.h"
 
 enum sdcard_state {
    SDCARD_NONE,      // no card in either slot
@@ -16,3 +17,6 @@ enum sdcard_state sdcard_state(void);
 FRESULT           sdcard_result(void);   // of the last mount
 uint32_t          sdcard_changes(void);  // counts every change of state
 const char       *sdcard_slot(void);     // the card in use: "back slot" or "bottom tray"
+// What went wrong (lib/sd_diag.c): why the last mount failed, or with the card mounted the
+// SD controller's last error; 0 if there's nothing to say
+const sd_diag_t  *sdcard_why(void);
