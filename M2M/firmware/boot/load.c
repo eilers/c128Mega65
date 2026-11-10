@@ -13,6 +13,8 @@ static FATFS fs;
 static FIL   file;
 
 const char fw_err_mount[] = "Can't read the SD card";
+int fw_fr;
+int fw_mount_failed;
 
 const char *fw_load(const char *path, fw_block_t *hdr)
 {
@@ -20,12 +22,17 @@ const char *fw_load(const char *path, fw_block_t *hdr)
    UINT n;
 
    h->magic = 0;
-   if (f_mount(&fs, "", 1) != FR_OK)
-      return fw_err_mount;
-   if (f_open(&file, path, FA_READ) != FR_OK)
-      return "The firmware file is missing";
-   if (f_read(&file, hdr->block, FW_HEADER_SIZE, &n) != FR_OK || n != FW_HEADER_SIZE ||
-       h->magic != FW_MAGIC || h->header_ver != FW_HEADER_VER)
+   fw_mount_failed = 1;
+   if ((fw_fr = f_mount(&fs, "", 1)) != FR_OK)
+      return fw_fr == FR_NOT_READY     ? "The SD card doesn't answer" :
+             fw_fr == FR_NO_FILESYSTEM ? "No FAT32 file system on the SD card" : fw_err_mount;
+   fw_mount_failed = 0;
+   if ((fw_fr = f_open(&file, path, FA_READ)) != FR_OK)
+      return fw_fr == FR_NO_FILE ? "The firmware file is missing" :
+             fw_fr == FR_NO_PATH ? "The firmware's folder is missing" : fw_err_mount;
+   if ((fw_fr = f_read(&file, hdr->block, FW_HEADER_SIZE, &n)) != FR_OK)
+      return "Can't read the firmware";
+   if (n != FW_HEADER_SIZE || h->magic != FW_MAGIC || h->header_ver != FW_HEADER_VER)
       return "The firmware file is no firmware";
    if (h->hw_ver != M2M_RV_HW_VERSION)
       return "The firmware doesn't fit this core";
@@ -34,7 +41,7 @@ const char *fw_load(const char *path, fw_block_t *hdr)
       return "The firmware's header is broken";
 
    // Whole blocks go straight from the card to HyperRAM
-   if (f_read(&file, FW_MEM(h->load_addr), h->size, &n) != FR_OK)
+   if ((fw_fr = f_read(&file, FW_MEM(h->load_addr), h->size, &n)) != FR_OK)
       return "Can't read the firmware";
    if (n != h->size)
       return "The firmware file is cut short";

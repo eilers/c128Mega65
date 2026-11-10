@@ -10,6 +10,24 @@
 #define SD_ERROR      0x4000u
 #define SD_TIMEOUT    (2 * CPU_HZ)   // 2 s; a card switch alone holds the controller 100 ms
 
+sd_log_t sd_log;
+
+uint32_t sd_mode(void)
+{
+   return (M2M_SD_STATUS & 0xFFFF) | ((M2M_SD_CSR >> 12) & 3) << 16;
+}
+
+static int logged(int err, uint32_t block)
+{
+   if (err) {
+      sd_log.err   = err;
+      sd_log.block = block;
+   } else {
+      sd_log.mode = sd_mode();
+   }
+   return err;
+}
+
 static int sd_wait(void)
 {
    uint32_t start = MTIME_LO;
@@ -33,8 +51,10 @@ static int sd_command(uint32_t block, uint32_t cmd)
 
 int sd_init(void)
 {
+   sd_log.err  = 0;
+   sd_log.mode = 0;
    M2M_SD_CSR = SD_CMD_RESET;
-   return sd_wait();
+   return logged(sd_wait(), SD_AT_INIT);
 }
 
 // Whole words where it can: a word to HyperRAM is one access, a byte is one too
@@ -44,7 +64,7 @@ int sd_read(uint32_t block, void *buf)
    if (!err)
       err = sd_command(block, SD_CMD_READ);
    if (err)
-      return err;
+      return logged(err, block);
    if (((uintptr_t)buf & 3) == 0) {
       uint32_t *w = buf;
       for (uint32_t i = 0; i < 512; i += 4) {
@@ -62,18 +82,18 @@ int sd_read(uint32_t block, void *buf)
          p[i] = M2M_SD_DATA;
       }
    }
-   return 0;
+   return logged(0, block);
 }
 
 int sd_write(uint32_t block, const void *buf)
 {
    int err = sd_wait();
    if (err)
-      return err;
+      return logged(err, block);
    const uint8_t *p = buf;
    for (uint32_t i = 0; i < 512; i++) {
       M2M_SD_POS = i;
       M2M_SD_DATA = p[i];
    }
-   return sd_command(block, SD_CMD_WRITE);
+   return logged(sd_command(block, SD_CMD_WRITE), block);
 }
