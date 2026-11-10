@@ -62,6 +62,7 @@ run_tcl "Disk images from the SD card (tb_vd_sd)" CORE/scripts/run_vd_sd_sim.tcl
 run_tcl "REU in HyperRAM (tb_reu)" CORE/scripts/run_reu_sim.tcl
 run_tcl "REU in SDRAM (tb_reu_sdram)" CORE/scripts/run_reu_sdram_sim.tcl
 run_tcl "VIA Timer 1 (tb_via_timer)" CORE/scripts/run_via_timer_sim.tcl
+run_tcl "CIA serial port, JiffyDOS fast send (tb_cia_sp)" CORE/scripts/run_cia_sp_sim.tcl
 run_tcl "VGA scandoubler (tb_vga_scandoubler)" CORE/scripts/run_vga_scandoubler_sim.tcl
 run_tcl "HDMI CRT emulation fit (tb_scanline_fit)" CORE/scripts/run_scanline_fit_sim.tcl
 run_tcl "HDMI after a reset (tb_ascal_reset)" CORE/scripts/run_ascal_reset_sim.tcl
