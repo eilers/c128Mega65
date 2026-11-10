@@ -158,6 +158,11 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 ##   function ROM    its size (mega65.vhd) through cdc_stable, written while the 8502 is held,
 ##                   and the C128 is reset after.
 ##
+##   CMD HD          cmdhd.vhd: the firmware's controls and the go toggle (its values stable
+##                   before it flips) through ASYNC_REG pairs; the drive's events back as toggles
+##                   and its status levels the same way, its program counter when two samples
+##                   agree; the boot ROM and the SCSI buffer are dual-clock RAMs.
+##
 ## A clock-to-clock false path can never exempt a same-clock path, so the intra-domain
 ## logic of all of the above is still fully analysed.
 ##

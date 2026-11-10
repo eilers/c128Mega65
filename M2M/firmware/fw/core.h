@@ -16,6 +16,9 @@ const char *core_submenu_summary(int idx);
 // A drive's line, given what it would show (its image's name, or OPTM_S_MOUNT): a whole new
 // text, or NULL for that
 const char *core_mount_text(int drive, const char *name);
+// A selection the core won't make (alt: Space): why, as a message, or NULL. item is the
+// line's place in its group; a single-select line: 1 when it is being ticked.
+const char *core_sel_refused(int group, int item, int alt);
 // Called before and after the Shell handles a selection in the menu
 void        core_sel_pre(int group, int item);
 void        core_sel_post(int group, int item);

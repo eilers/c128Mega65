@@ -12,8 +12,9 @@
 #define PICK_NAME  33                // a name in its folder, as his longest (32) and its 0
 #define PICK_MAX   128               // that, or a path on the card ('/' first) and its 0
 
-// The picks, in the order of the ROMs submenu's lines; then the boot cartridge
-enum { RP_K128, RP_B128, RP_K64, RP_B64, RP_CHAR, RP_FUNC, RP_DRIVE, RP_BOOT = RP_DRIVE + 6, RP_COUNT };
+// The picks, in the order of the ROMs submenu's lines; then the boot cartridge, and the CMD
+// HD's boot ROM (no stock one: without a file the HD stays off)
+enum { RP_K128, RP_B128, RP_K64, RP_B64, RP_CHAR, RP_FUNC, RP_DRIVE, RP_BOOT = RP_DRIVE + 6, RP_HD, RP_COUNT };
 #define RP_DRV(d, t) (RP_DRIVE + 3 * (d) + (t))   // drive d (0 is drive 8), t 0 1541, 1 1571, 2 1581
 
 enum { RS_STOCK, RS_FILE, RS_FAILED };            // what a pick did, last time it was applied

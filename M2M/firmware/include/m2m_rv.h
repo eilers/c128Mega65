@@ -22,7 +22,8 @@
 // 14: the HDMI Filter submenu in place of the CRT emulation line
 // 15: each drive's Drive enabled line; vd_sd's power register (0x034) only reads
 // 16: the 256 KB RAM menu item
-#define M2M_RV_HW_VERSION    16u
+// 17: the CMD HD (C_DEV_CMDHD) and its submenu; 18 CRT/ROM menu items
+#define M2M_RV_HW_VERSION    17u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

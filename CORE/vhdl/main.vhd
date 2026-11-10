@@ -24,6 +24,7 @@ entity main is
       G_BOARD                 : string;                     -- Which MEGA65 revision are we running on
       G_VDNUM                 : natural;                    -- amount of virtual drives
       G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20;  -- reset on a cartridge change: 50 ms
+      G_CMDHD                 : boolean := true;            -- a CMD HD on the bus (cmdhd/cmdhd.vhd)
       G_REU_BASE              : std_logic_vector(31 downto 0) :=   -- word address of the REU's memory
                                 "0000000" & C_HMAP_REU(12 downto 0) & x"000"
    );
@@ -240,6 +241,19 @@ entity main is
       qnice_p1581_addr_i      : in  std_logic_vector(7 downto 0) := (others => '0');
       qnice_p1581_data_i      : in  std_logic_vector(15 downto 0) := (others => '0');
       qnice_p1581_data_o      : out std_logic_vector(15 downto 0);
+
+      -- The CMD HD (cmdhd/cmdhd.vhd): its device (C_DEV_CMDHD) and its SD engine client,
+      -- clk_sd_i domain; the MEGA65's clock for its RTC (M2M's vector, clk_main_i domain)
+      qnice_hd_addr_i         : in  std_logic_vector(27 downto 0) := (others => '0');
+      qnice_hd_data_i         : in  std_logic_vector(15 downto 0) := (others => '0');
+      qnice_hd_data_o         : out std_logic_vector(15 downto 0);
+      qnice_hd_wait_o         : out std_logic;
+      qnice_hd_ce_i           : in  std_logic := '0';
+      qnice_hd_we_i           : in  std_logic := '0';
+      qnice_hd_want_o         : out std_logic;
+      qnice_hd_eng_o          : out t_sd_c2q;
+      qnice_hd_eng_i          : in  t_sd_q2c := (others => '0');
+      main_rtc_i              : in  std_logic_vector(64 downto 0) := (others => '0');
 
       -- REU's memory port, HyperRAM or SDRAM (clk_main_i domain; mega65.vhd crosses it to hr_clk)
       reu_avm_write_o         : out std_logic;
@@ -715,6 +729,15 @@ signal core_iec_srq_n_o : std_logic;
 signal drv_iec_clk_raw  : std_logic;
 signal drv_iec_data_raw : std_logic;
 signal drv_iec_srq_raw  : std_logic;
+-- iec_drive's and the CMD HD's outputs, merged into the above
+signal fdd_iec_clk      : std_logic;
+signal fdd_iec_data     : std_logic;
+signal fdd_iec_srq      : std_logic;
+signal hd_iec_clk       : std_logic := '1';
+signal hd_iec_data      : std_logic := '1';
+signal hd_iec_srq       : std_logic := '1';
+signal hd_led_act       : std_logic := '0';
+signal hd_led_err       : std_logic := '0';
 signal drv_iec_clk_o    : std_logic;
 signal drv_iec_data_o   : std_logic;
 signal drv_iec_srq_o    : std_logic;
@@ -2549,9 +2572,9 @@ iec_drive_inst : entity work.iec_drive
     iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
     iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
     iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
-    iec_clk_o    => drv_iec_clk_raw,
-    iec_data_o   => drv_iec_data_raw,
-    iec_fclk_o   => drv_iec_srq_raw,
+    iec_clk_o    => fdd_iec_clk,
+    iec_data_o   => fdd_iec_data,
+    iec_fclk_o   => fdd_iec_srq,
 
     -- disk image status
     img_mounted  => iec_img_mounted,
@@ -2646,6 +2669,54 @@ iec_drive_inst : entity work.iec_drive
     phys_dbg_wr_wp_tgl     => p1581_dbg_tgl(6),
     phys_dbg_wr_drop_tgl   => p1581_dbg_tgl(7)
   ); -- iec_drive_inst
+
+--------------------------------------------------------------------------------------------------
+-- The CMD HD: a third device on the bus, with its own image (cmdhd/cmdhd.vhd). The firmware
+-- runs it (on, ID, image, buttons) through its device; the C128's reset is a warm reset.
+--------------------------------------------------------------------------------------------------
+cmdhd_gen : if G_CMDHD generate
+  i_cmdhd : entity work.cmdhd
+    generic map (
+      G_CLK_HZ => CORE_CLK_SPEED
+    )
+    port map (
+      clk_main_i   => clk_main_i,
+      rst_main_i   => not reset_core_n,
+      ce_i         => iec_drive_ce,
+      pause_i      => pause_i,
+      iec_atn_i    => core_iec_atn_o,
+      iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
+      iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
+      iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
+      iec_clk_o    => hd_iec_clk,
+      iec_data_o   => hd_iec_data,
+      iec_fclk_o   => hd_iec_srq,
+      rtc_i        => main_rtc_i,
+      running_o    => open,
+      led_act_o    => hd_led_act,
+      led_err_o    => hd_led_err,
+      clk_qnice_i  => clk_sd_i,
+      rst_qnice_i  => rst_sd_i,
+      qnice_addr_i => qnice_hd_addr_i,
+      qnice_data_i => qnice_hd_data_i,
+      qnice_ce_i   => qnice_hd_ce_i,
+      qnice_we_i   => qnice_hd_we_i,
+      qnice_data_o => qnice_hd_data_o,
+      qnice_wait_o => qnice_hd_wait_o,
+      eng_want_o   => qnice_hd_want_o,
+      eng_o        => qnice_hd_eng_o,
+      eng_i        => qnice_hd_eng_i
+    );
+else generate
+  qnice_hd_data_o <= (others => '0');
+  qnice_hd_wait_o <= '0';
+  qnice_hd_want_o <= '0';
+  qnice_hd_eng_o  <= (others => '0');
+end generate cmdhd_gen;
+
+drv_iec_clk_raw  <= fdd_iec_clk  and hd_iec_clk;
+drv_iec_data_raw <= fdd_iec_data and hd_iec_data;
+drv_iec_srq_raw  <= fdd_iec_srq  and hd_iec_srq;
 
 --------------------------------------------------------------------------------------------------
 -- The MEGA65's internal 3.5" drive as a 1581 (CORE/vhdl/physical_1581, from C64MEGA65)
@@ -3043,7 +3114,7 @@ i_vd_sd : entity work.vd_sd
   ); -- i_vd_sd
 
 drives_dirty <= '1' when unsigned(cache_dirty)    /= 0 else '0';
-drives_busy  <= '1' when unsigned(iec_drive_led)  /= 0 else '0';
+drives_busy  <= '1' when unsigned(iec_drive_led) /= 0 or hd_led_act = '1' or hd_led_err = '1' else '0';
 
 -- Let the computer see the emulated drive's lines about half a microsecond late,
 -- the way it sees a real drive on the cable.
@@ -3099,6 +3170,10 @@ begin
   qnice_vdsd_data_o <= (others => '0');
   qnice_sd_want_o   <= '0';
   qnice_sd_eng_o    <= (others => '0');
+  qnice_hd_data_o   <= (others => '0');
+  qnice_hd_wait_o   <= '0';
+  qnice_hd_want_o   <= '0';
+  qnice_hd_eng_o    <= (others => '0');
   drv_rom_req_o     <= '0';
   drv_rom_addr_o    <= (others => '0');
 

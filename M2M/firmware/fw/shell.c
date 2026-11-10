@@ -28,7 +28,7 @@ static uint8_t is_mount[MENU_MAX];   // drive number + 1, or 0
 static uint8_t is_crtrom[MENU_MAX];  // CRT/ROM number + 1, or 0
 static uint8_t is_help[MENU_MAX];    // help screen (WHS record) number, or 0
 
-#define CRTROM_MAX   16              // CRT/ROM items in the menu (C_CRTROMS_MAN's most)
+#define CRTROM_MAX   24              // CRT/ROM items in the menu (C_CRTROMS_MAN_NUM at most)
 #define NAME_MAX     32              // a file's name as the menu shows it, cut
 
 static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_MSG, UI_CLOSING } ui;
@@ -381,6 +381,15 @@ static void select(uint16_t group, int item, enum menu_key key)
 {
    int idx = menu.cursor;
 
+   // One the core won't make: the menu's toggle undone, and why
+   const char *why = core_sel_refused(group & MENU_ID, item, key == MENU_KEY_SELALT);
+   if (why) {
+      for (int i = 0; i < menu.n; i++)
+         if (menu.group[i] == group)
+            menu.sel[i] = setting_get(i);
+      shell_message(why);
+      return;
+   }
    core_sel_pre(group & MENU_ID, item);
    // Space on a mounted drive unmounts it; otherwise a drive gets an image, or another
    // one in place of its image

@@ -15,7 +15,7 @@ NET_SRC  := host_net.c $(NET)/uci_net.c $(NET)/http.c $(NET)/ftp.c $(REST_SRC) $
 NET_FLAGS := -I$(NET) -I$(NET)/lwip/include
 
 TESTS := build/test_boot build/test_fw build/test_shell build/test_uci build/test_prg build/test_mon \
-         build/test_modem build/test_http build/test_ftp
+         build/test_modem build/test_http build/test_ftp build/test_cmdhd
 
 all: $(TESTS)
 	./run.sh build
@@ -46,7 +46,7 @@ build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/conf
 UCI_SRC := test_uci.c host_uci_model.c host_m2m.c host_reu_sd.c diskio_file.c ../../../CORE/firmware/uci.c \
            ../../../CORE/firmware/uci_dos.c ../../../CORE/firmware/dos_path.c ../../../CORE/firmware/fr_text.c ../../../CORE/firmware/uci_ctrl.c ../../../CORE/firmware/reu.c \
            ../../../CORE/firmware/stores.c ../../../CORE/firmware/rompick.c ../../../CORE/firmware/c128dma.c \
-           ../../../CORE/firmware/vdc.c \
+           ../../../CORE/firmware/vdc.c ../../../CORE/firmware/cmdhd.c \
            ../../../CORE/firmware/diskimg.c ../../../CORE/firmware/input.c ../../../CORE/firmware/mouse.c \
            ../fw/keys.c ../fw/heap.c ../lib/fmt.c ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
 build/test_uci: $(UCI_SRC) host_uci.h host_uci_model.h host_m2m.h host_reu_sd.h host_net.h ../../../CORE/firmware/uci.h \
@@ -75,7 +75,7 @@ build/test_modem: test_modem.c $(NET)/modem.c $(NET)/log.c ../lib/fmt.c $(LWIP) 
 # The routes on host_rest.c's fakes, with the real stores.c and FatFs on a card image
 build/test_http: test_http.c host_rest.c diskio_file.c $(NET)/http.c $(REST_SRC) ../../../CORE/firmware/stores.c \
                  ../../../CORE/firmware/rompick.c ../../../CORE/firmware/diskimg.c \
-                 ../../../CORE/firmware/fr_text.c ../../../CORE/firmware/input.c \
+                 ../../../CORE/firmware/cmdhd.c ../../../CORE/firmware/fr_text.c ../../../CORE/firmware/input.c \
                  ../../../CORE/firmware/mouse.c ../fw/keys.c ../fatfs/ff.c ../fatfs/ffunicode.c \
                  $(NET)/log.c ../lib/fmt.c $(LWIP) $(wildcard $(NET)/*.h) host_rest.h host_rest_regs.h \
                  ../build/fw/config_ids.h ../build/fw/version.h ../fw/ffconf.h
@@ -89,6 +89,12 @@ build/test_ftp: test_ftp.c diskio_file.c $(NET)/ftp.c $(NET)/log.c ../../../CORE
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -DMEMP_NUM_TCP_PCB=48 \
 	          $(filter %.c,$^) -o $@
+
+# The CMD HD's disk (CORE/firmware/cmdhd.c) against a model of its device, on a card image
+build/test_cmdhd: test_cmdhd.c host_m2m.c diskio_file.c ../../../CORE/firmware/cmdhd.c ../fw/heap.c \
+                  ../fatfs/ff.c ../fatfs/ffunicode.c ../../../CORE/firmware/cmdhd.h host_m2m.h ../fw/ffconf.h
+	@mkdir -p build
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware -include host_m2m.h $(filter %.c,$^) -o $@
 
 clean:
 	rm -rf build

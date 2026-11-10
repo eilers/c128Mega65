@@ -458,4 +458,5 @@ void host_rest_init(void)
    settings[OPTM_G_DRVA_ON][0] = 1;                                       // A on, B off
    settings[OPTM_G_HDMI_AUDIO][0] = settings[OPTM_G_IEC][0] = 1;          // on, as config.vhd has them
    settings[OPTM_G_HDMI_FILTER][1] = 1;                                   // Sharp Bilinear
+   settings[OPTM_G_HD_ON][0] = settings[OPTM_G_HD_ID][4] = 1;            // the CMD HD on, at 12
 }
