@@ -82,9 +82,11 @@ reg        sp_pending;
 reg        sp_transmit;
 reg [ 7:0] sp_shiftreg;
 reg        icr3;
+reg        icr3_out;   // output mode: the flag 2 cycles after the 8th CNT fall, as VICE
 
 reg        cnt_in_prev;
 reg        cnt_in_r;
+reg        sp_in_r;    // SP latched with CNT, so a bit is read as it was at the CNT rise
 reg        cnt_out_r;
 reg [ 2:0] cnt_pulsecnt;
 
@@ -485,6 +487,7 @@ always @(posedge clk) begin
     sp_transmit <= 1'b0;
     icr[3]      <= 1'b0;
     icr3        <= 1'b0;
+    icr3_out    <= 1'b0;
   end
   else begin
     if (wr)
@@ -499,11 +502,12 @@ always @(posedge clk) begin
     if (phi2_p) begin
       if(int_reset) icr[3] <= 1'b0;
       if(icr3) icr[3] <= 1'b1;
-      icr3 <= 1'b0;
+      icr3 <= icr3_out;
+      icr3_out <= 1'b0;
 
       if (!cra[6]) begin // input
         if (cnt_in_r && !cnt_in_prev) begin
-          sp_shiftreg = { sp_shiftreg[6:0], sp_in };
+          sp_shiftreg = { sp_shiftreg[6:0], sp_in_r };
           if (cnt_pulsecnt == 3'h0) begin
             sdr  <= sp_shiftreg;
             icr3 <= 1'b1;
@@ -519,7 +523,7 @@ always @(posedge clk) begin
         end
         else if (!cnt_out_r && cnt_out) begin
           if (cnt_pulsecnt == 3'h7) begin
-            icr3        <= 1'b1;
+            icr3_out    <= 1'b1;
             sp_transmit <= 1'b0;
           end
           { sp_out_reg, sp_shiftreg } = { sp_shiftreg, 1'b0 };
@@ -534,6 +538,7 @@ always @(posedge clk) begin
   reg cra6_prev;
   if (!res_n) begin
     cnt_in_r     <= 1'b1;
+    sp_in_r      <= 1'b1;
     cnt_in_prev  <= 1'b1;
     cnt_out_r    <= 1'b1;
     cnt_out      <= 1'b1;
@@ -543,6 +548,7 @@ always @(posedge clk) begin
   else if (phi2_p) begin
     cra6_prev <= cra[6];
     cnt_in_r <= cnt_in;
+    sp_in_r <= sp_in;
     cnt_in_prev <= cnt_in_r;
     cnt_out <= cnt_out_r;
 
