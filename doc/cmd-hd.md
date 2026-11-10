@@ -31,6 +31,9 @@ drive is in config or install mode, until HD DOS runs. Its submenu:
 The settings file keeps all of it in `CMD HD Settings` (`Drive`, `Drive Bus ID`, `Disk Image`,
 `Boot ROM`).
 
+If the SD card comes out, even for a moment, the drive stops using it: each disk access gives
+`40,SCSI ERROR` and nothing is written. Pick the image again to go on.
+
 ## A new image
 
 1. In the Image browser press F5 and type a name; `name,128` makes 128 MB (16 to 4000, default
