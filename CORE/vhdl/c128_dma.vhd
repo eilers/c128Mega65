@@ -2,9 +2,10 @@
 -- Commodore 128 for MEGA65
 --
 -- The system CPU's bus DMA: it takes the C128's bus on the core's DMA port, as the REU
--- does, to read or write C128 memory as the CPU sees it (the MMU's banks, ROMs, I/O). The
--- REST API's readmem, writemem, pause and resume use it, as an Ultimate's do over the
--- cartridge port.
+-- does, to read or write C128 memory as a DMA sees it: in C128 mode RAM in the VIC's bank
+-- ($D506 bits 6-7), ROMs and I/O as $FF00 selects them, no MMU registers; in C64 mode as
+-- the CPU sees it. The REST API's readmem, writemem, pause and resume use it, as an
+-- Ultimate's do over the cartridge port.
 --
 -- Device words (C_DEV_DMA), one byte each in the low half:
 --   0x000  bit 0 hold: the bus stays the firmware's between jobs (machine:pause); a C128
