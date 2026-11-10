@@ -654,13 +654,15 @@ int main(int argc, char **argv)
       f_rename("/c128/roms", "/roms-away");
       f_rename("/c128/carts", "/carts-away");
    }
-   int want = 1;
+   int want = 1, hd_on = shell_item(OPTM_G_HD_ON, 0);
    for (int i = 0; i < menu.n; i++)
-      want &= cfg_get(CFG_OPTM_CRTROM, i) || (second && (i == item(" Hardware") || i == item(" CRT file"))) ||
+      want &= cfg_get(CFG_OPTM_CRTROM, i) || (second && (i == item(" Hardware") || i == item(" CRT file") || i == hd_on)) ||
               setting_get(i) == (second && kept(i) ? bits[i] : cfg_get(CFG_OPTM_STDSEL, i));
    check(want, second ? "settings from the settings file" : "settings are config.vhd's defaults (no settings file)");
-   if (second)
+   if (second) {
       check(!setting_get(item(" Use IEC port")), "IEC port off, as the first run left it");
+      check(bits[hd_on] && !setting_get(hd_on), "start: the CMD HD off without a boot ROM, though the file has it on");
+   }
    check_stores();
    // The HDMI filter's coefficients (hdmi_filter.c): a polyphase choice's once its poll in the
    // main loop sees it, however it was set, and the device bus left as it was
@@ -1206,6 +1208,31 @@ int main(int argc, char **argv)
    check(!core_new_file(CTX_LOAD_ROM, OPTM_G_HD_IMAGE, "/c128", "test,16", hd, sizeof hd) &&
          !strcmp(hd, "test.dhd") && f_stat("/c128/test.dhd", &hd_fi) == FR_OK && hd_fi.fsize == 16u << 20 &&
          f_unlink("/c128/test.dhd") == FR_OK, "the CMD HD's F5: test,16 makes test.dhd, 16 MB");
+
+   // The CMD HD without a boot ROM: Drive enabled goes off but not on, Image doesn't browse
+   // (Space without an image neither); both say to load one
+   go_to("12:");
+   press(M2M_KEY_RETURN);
+   go_to_line("Drive enabled");
+   if (setting_get(hd_on))
+      press(M2M_KEY_RETURN);
+   check(!setting_get(hd_on) && find_row("Load a boot ROM first,") < 0, "the CMD HD's Drive enabled: off");
+   press(M2M_KEY_RETURN);
+   dump("CMD HD on without a boot ROM");
+   check(find_row("Load a boot ROM first,") > 0, "Drive enabled without a boot ROM: load one first");
+   press(M2M_KEY_SPACE);
+   check(find_row(" Drive enabled") > 0 && find_row("=Drive enabled") < 0 && !setting_get(hd_on) && !menu.sel[hd_on],
+         "Drive enabled: still off");
+   go_to("Image:");
+   press(M2M_KEY_RETURN);
+   check(find_row("Load a boot ROM first,") > 0 && find_row("<..>") < 0, "Image without a boot ROM: the same, no browser");
+   press(M2M_KEY_SPACE);
+   press(M2M_KEY_SPACE);
+   check(find_row("Load a boot ROM first,") > 0 && find_row("<..>") < 0, "Space on Image: the same");
+   press(M2M_KEY_SPACE);
+   check(cursor_on("Image:") && find_row("<..>") < 0, "the CMD HD's submenu again");
+   shell_force(OPTM_G_HD_ON, 0, 1);                     // as it was, for what follows
+   press(M2M_KEY_RUNSTOP);
 
    // R3-memory builds have no 2 MB and 16 MB REU
    go_to("REU");

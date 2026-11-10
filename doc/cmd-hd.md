@@ -19,7 +19,9 @@ drive is in config or install mode, until HD DOS runs. Its submenu:
 
 - **Image**: pick an image; Space takes it out; F5 in the browser makes a new one (below).
   Picking an image turns the drive on.
-- **Drive enabled**: on the bus or not (default on; without an image or boot ROM it stays off).
+- **Drive enabled**: on the bus or not (default on; without an image it stays off the bus).
+- Without a boot ROM, Image and Drive enabled only say to load one first, and the drive is off
+  (as in VICE, which has no CMD HD without its ROM).
 - **Bus ID**: 8 to 12 (default 12, as CMD's). The DOS keeps its device number on the disk; the
   core puts the menu's into it as the DOS reads it, so the menu is always right. Two drives never
   share an ID: the menu moves the other one.

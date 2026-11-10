@@ -156,6 +156,17 @@ const char *core_mount_text(int drive, const char *name)
    return drive <= 1 && stores_drive_internal(drive) ? "Internal 1581" : NULL;
 }
 
+// The CMD HD can't start without its boot ROM: no image and no Drive enabled until it has
+// one (as VICE's, which has no CMD HD without it). Space still takes an image out.
+const char *core_sel_refused(int group, int item, int alt)
+{
+   if (rompick_state(RP_HD) == RS_FILE)
+      return NULL;
+   if ((group == OPTM_G_HD_ON && item) || (group == OPTM_G_HD_IMAGE && !(alt && *cmdhd_path())))
+      return "Load a boot ROM first,\non the Boot ROM line below.";
+   return NULL;
+}
+
 static int id_was[3];   // a drive's ID before the menu changed it: A, B, the CMD HD
 
 void core_sel_pre(int group, int item)
@@ -860,9 +871,11 @@ uint32_t core_menu_key(void)
 // Command Interface (uci.c), the REST API (net/http.c), its input's timing (input.c), the
 // FTP server (net/ftp.c) and the HDMI filter's coefficients (hdmi_filter.c)
 // The CMD HD: the menu's Drive enabled and Bus ID (whatever set them: the menu, a settings
-// file, REST), then its disk's commands
+// file, REST), then its disk's commands. Without a boot ROM it is off, whatever set it.
 static void hd_poll(void)
 {
+   if (shell_setting(OPTM_G_HD_ON, 0) && rompick_state(RP_HD) != RS_FILE)
+      shell_force(OPTM_G_HD_ON, 0, 0);
    cmdhd_set_on(shell_setting(OPTM_G_HD_ON, 0));
    cmdhd_set_id(hd_id());
    cmdhd_poll();

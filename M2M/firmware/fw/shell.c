@@ -381,6 +381,15 @@ static void select(uint16_t group, int item, enum menu_key key)
 {
    int idx = menu.cursor;
 
+   // One the core won't make: the menu's toggle undone, and why
+   const char *why = core_sel_refused(group & MENU_ID, item, key == MENU_KEY_SELALT);
+   if (why) {
+      for (int i = 0; i < menu.n; i++)
+         if (menu.group[i] == group)
+            menu.sel[i] = setting_get(i);
+      shell_message(why);
+      return;
+   }
    core_sel_pre(group & MENU_ID, item);
    // Space on a mounted drive unmounts it; otherwise a drive gets an image, or another
    // one in place of its image
