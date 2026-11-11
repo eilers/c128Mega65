@@ -80,6 +80,11 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/c128_dma.vhd"] \
     [file join $repo_dir "CORE/vhdl/input_inject.vhd"] \
     [file join $repo_dir "CORE/vhdl/vdc_peek.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_i8255.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_rtc.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_scsi.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_drive.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iecdrv_misc.sv"] \

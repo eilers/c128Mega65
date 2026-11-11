@@ -11,12 +11,10 @@ Current target hardware
 
 - MEGA65 R3, R4, R5, and R6 boards
 
-Build prerequisites
--------------------
+Building
+--------
 
-1. Initialize submodules:
-   - `git submodule update --init --recursive`
-2. Build the bitstreams: `CORE/scripts/build_boards.sh` (see [doc/build-and-sim.md](doc/build-and-sim.md)).
+Build the bitstreams with `CORE/scripts/build_boards.sh` (see [doc/build-and-sim.md](doc/build-and-sim.md)).
 
 The on-screen menu, the drives and the ROM loading run on a RISC-V system CPU (see
 [doc/riscv-system-cpu.md](doc/riscv-system-cpu.md)). Its boot ROM is in the bitstream; its

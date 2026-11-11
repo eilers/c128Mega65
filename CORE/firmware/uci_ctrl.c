@@ -70,7 +70,7 @@ static void drive_info(uci_reply_t *r)
    for (int d = 0; d < n; d++) {
       uci_data[1 + 3 * d] = stores_drive_type(d);
       uci_data[2 + 3 * d] = stores_drive_id(d);
-      uci_data[3 + 3 * d] = drive_running(d);
+      uci_data[3 + 3 * d] = stores_drive_on(d);
    }
    r->data = uci_data;
    r->len  = 1 + 3 * n;
@@ -280,11 +280,11 @@ static void command(uint8_t *c, int len, uci_reply_t *r)
    case CTRL_ENABLE_DISK_A + 1:
    case CTRL_ENABLE_DISK_A + 2:
    case CTRL_DISABLE_DISK_B:
-      drive_power((c[1] - CTRL_ENABLE_DISK_A) >> 1, c[1] & 1 ? DRIVE_OFF : DRIVE_ON);
+      stores_drive_set_on((c[1] - CTRL_ENABLE_DISK_A) >> 1, !(c[1] & 1));   // the menu's Drive enabled
       break;
    case CTRL_DISK_A_POWER:
    case CTRL_DISK_B_POWER:
-      r->data = (const uint8_t *)(drive_running(c[1] - CTRL_DISK_A_POWER) ? "on " : "off");
+      r->data = (const uint8_t *)(stores_drive_on(c[1] - CTRL_DISK_A_POWER) ? "on " : "off");
       r->len  = 3;
       break;
    case CTRL_GET_RAMDISKINFO:

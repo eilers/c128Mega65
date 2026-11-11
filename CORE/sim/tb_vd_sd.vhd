@@ -11,7 +11,7 @@
 -- merged), reading it back from the cache, the write-back after the quiet time, a full
 -- cache that has to write back to take more, a drive switched off (its changes reach the
 -- card first, then it reads zeros), a changed card (nothing reaches it), the drives'
--- disk_ready in every drive's CSR, and each drive's power (0x034) and hold (0x035).
+-- disk_ready in every drive's CSR, whether each drive runs (0x034) and hold (0x035).
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -57,7 +57,6 @@ architecture sim of tb_vd_sd is
    signal buff_din     : vd_vec_array(1 downto 0)(7 downto 0);
    signal dirty        : std_logic_vector(1 downto 0);
    signal ready        : std_logic := '1';
-   signal power        : vd_vec_array(1 downto 0)(1 downto 0);
    signal run          : std_logic_vector(1 downto 0) := "00";
 
    type t_dbuf is array (0 to 16383) of std_logic_vector(7 downto 0);
@@ -126,7 +125,6 @@ begin
          sd_buff_din_i  => buff_din,
          dirty_o        => dirty,
          ready_i        => ready,
-         power_o        => power,
          running_i      => run,
          eng_want_o     => want,
          eng_o          => c2q,
@@ -466,40 +464,21 @@ begin
       end loop;
       report "6 disk_ready in the CSR: done";
 
-      -- 7. Each drive's power (CSR 0x034): out as written, the other drive's untouched; the
-      -- running state read back from the core's clock; automatic again after a reset
+      -- 7. Whether each drive runs (CSR 0x034 bit 2), read back from the core's clock, the
+      -- other drive's apart
       for d in 0 to 1 loop
-         for m in 1 to 3 loop
-            qwrite(d, x"FFFF", 16#034#, m mod 3);
-            csr(d, 16#034#, st);
-            if to_integer(unsigned(power(d))) /= m mod 3 or to_integer(unsigned(st(1 downto 0))) /= m mod 3 or
-               power(1 - d) /= "00" then
-               report "7: drive " & integer'image(8 + d) & " power " & integer'image(m mod 3) & " reads " &
-                      integer'image(to_integer(unsigned(st(1 downto 0)))) severity error;
-               errors := errors + 1;
-            end if;
-         end loop;
          run    <= (others => '0');
          run(d) <= '1';
          wait for 5 * C_CLK;
          for e in 0 to 1 loop
             csr(e, 16#034#, st);
-            if st(2) /= run(e) then
+            if st(2) /= run(e) or st(1 downto 0) /= "00" then
                report "7: drive " & integer'image(8 + e) & " running reads " & std_logic'image(st(2)) severity error;
                errors := errors + 1;
             end if;
          end loop;
       end loop;
-      qwrite(1, x"FFFF", 16#034#, 2);
-      rst <= '1';
-      wait for 3 * C_CLK;
-      rst <= '0';
-      wait for 3 * C_CLK;
-      if power(0) /= "00" or power(1) /= "00" then
-         report "7: power not automatic after a reset" severity error;
-         errors := errors + 1;
-      end if;
-      report "7 drive power: done";
+      report "7 drive runs: done";
 
       -- 8. Hold (CSR 0x035): a held drive's request waits, the other drive's doesn't; it is
       -- served once released; a reset releases it

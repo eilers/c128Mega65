@@ -460,6 +460,16 @@ signal qnice_crt_data         : std_logic_vector(15 downto 0);
 signal qnice_p1581_ce         : std_logic;
 signal qnice_p1581_we         : std_logic;
 signal qnice_p1581_data       : std_logic_vector(15 downto 0);
+signal qnice_hd_ce            : std_logic;
+signal qnice_hd_we            : std_logic;
+signal qnice_hd_data          : std_logic_vector(15 downto 0);
+signal qnice_hd_wait          : std_logic;
+signal qnice_hd_eng_want      : std_logic;
+signal qnice_hd_eng_c2q       : t_sd_c2q;
+signal qnice_hd_eng_q2c       : t_sd_q2c;
+signal qnice_fdd_eng_want     : std_logic;   -- the floppies' and the HD's, for i_sd_eng_arb
+signal qnice_fdd_eng_c2q      : t_sd_c2q;
+signal qnice_fdd_eng_q2c      : t_sd_q2c;
 signal qnice_crt_wait         : std_logic;
 signal main_crt_loaded        : std_logic;
 signal main_crt_loading       : std_logic;
@@ -960,6 +970,17 @@ begin
          qnice_p1581_data_i   => qnice_dev_data_i,
          qnice_p1581_data_o   => qnice_p1581_data,
 
+         qnice_hd_addr_i      => qnice_dev_addr_i,
+         qnice_hd_data_i      => qnice_dev_data_i,
+         qnice_hd_data_o      => qnice_hd_data,
+         qnice_hd_wait_o      => qnice_hd_wait,
+         qnice_hd_ce_i        => qnice_hd_ce,
+         qnice_hd_we_i        => qnice_hd_we,
+         qnice_hd_want_o      => qnice_hd_eng_want,
+         qnice_hd_eng_o       => qnice_hd_eng_c2q,
+         qnice_hd_eng_i       => qnice_hd_eng_q2c,
+         main_rtc_i           => main_rtc_i,
+
          reu_avm_write_o         => main_reu_write,
          reu_avm_read_o          => main_reu_read,
          reu_avm_address_o       => main_reu_address,
@@ -1149,6 +1170,8 @@ begin
       qnice_input_ce       <= '0';
       qnice_vdc_ce         <= '0';
       qnice_input_we       <= '0';
+      qnice_hd_ce          <= '0';
+      qnice_hd_we          <= '0';
 
       case qnice_dev_id_i is
          -- Device numbers need to be >= 0x0100
@@ -1243,6 +1266,13 @@ begin
             qnice_dev_data_o  <= qnice_vdc_data;
             qnice_dev_wait_o  <= qnice_vdc_wait;
 
+        -- The CMD HD: its boot ROM, its disk's buffer and its controls (cmdhd.vhd in main.vhd)
+        when C_DEV_CMDHD =>
+            qnice_hd_ce       <= qnice_dev_ce_i;
+            qnice_hd_we       <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_hd_data;
+            qnice_dev_wait_o  <= qnice_hd_wait;
+
          when others => null;
       end case;
    end process core_specific_devices;
@@ -1255,9 +1285,9 @@ begin
       port map (
          clk_i    => qnice_clk_i,
          rst_i    => qnice_rst_i,
-         a_want_i => qnice_drv_eng_want,
-         a_c2q_i  => qnice_drv_eng_c2q,
-         a_q2c_o  => qnice_drv_eng_q2c,
+         a_want_i => qnice_fdd_eng_want,
+         a_c2q_i  => qnice_fdd_eng_c2q,
+         a_q2c_o  => qnice_fdd_eng_q2c,
          b_want_i => qnice_dma_eng_want,
          b_c2q_i  => qnice_dma_eng_c2q,
          b_q2c_o  => qnice_dma_eng_q2c,
@@ -1265,6 +1295,22 @@ begin
          q2c_i    => qnice_sd_eng_i,
          want_o   => open
       ); -- i_sd_eng_arb
+
+   -- The floppies and the CMD HD share the drives' turn
+   i_sd_eng_arb_drv : entity work.sd_eng_arb
+      port map (
+         clk_i    => qnice_clk_i,
+         rst_i    => qnice_rst_i,
+         a_want_i => qnice_drv_eng_want,
+         a_c2q_i  => qnice_drv_eng_c2q,
+         a_q2c_o  => qnice_drv_eng_q2c,
+         b_want_i => qnice_hd_eng_want,
+         b_c2q_i  => qnice_hd_eng_c2q,
+         b_q2c_o  => qnice_hd_eng_q2c,
+         c2q_o    => qnice_fdd_eng_c2q,
+         q2c_i    => qnice_fdd_eng_q2c,
+         want_o   => qnice_fdd_eng_want
+      ); -- i_sd_eng_arb_drv
 
    i_sd_eng_arb_dma : entity work.sd_eng_arb
       port map (

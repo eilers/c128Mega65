@@ -41,13 +41,14 @@ FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv
 COMMON  := build/common/lib/console.o build/common/lib/trap.o build/common/lib/crc32.o \
            build/common/lib/sd.o build/crt0.o
 # FatFs and its disk layer are built twice, once with each ffconf.h
-BOOT    := build/rom/boot/boot.o build/rom/boot/load.o build/rom/fatfs/ff.o build/rom/lib/diskio.o
+BOOT    := build/rom/boot/boot.o build/rom/boot/load.o build/rom/fatfs/ff.o build/rom/lib/diskio.o \
+           build/rom/lib/sd_diag.o
 # The core's other sources (CORE_SRC, paths in CORE_DIR) and their flags (CORE_CFLAGS)
 -include $(CORE_DIR)/core.mk
 CORE_OBJ := $(patsubst $(CORE_DIR)/%.c,build/fw/core/%.o,$(wildcard $(CORE_DIR)/*.c) \
             $(addprefix $(CORE_DIR)/,$(CORE_SRC)))
 FW      := $(patsubst %.c,build/fw/%.o,$(wildcard fw/*.c)) $(CORE_OBJ) build/fw/lib/fmt.o \
-           build/fw/fatfs/ff.o build/fw/fatfs/ffunicode.o build/fw/lib/diskio.o
+           build/fw/fatfs/ff.o build/fw/fatfs/ffunicode.o build/fw/lib/diskio.o build/fw/lib/sd_diag.o
 
 all: boot.rom build/firmware.bin test/selftest.rom test/fwboot.rom
 

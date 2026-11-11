@@ -25,11 +25,11 @@ byte, because tools parse his answers. Where it differs, "Not his" below says so
 | Route | Answer |
 |---|---|
 | `GET /v1/version` | `0.1`, as his |
-| `GET /v1/info` | product `C128MEGA65` (a name, as his `Ultimate II+L`), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`108`), `core_version` "1." and the same number (`1.08`; his U64's form), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. With `core_version` his tests and clients take it for a U64; no `wifi_mac` (no Wi-Fi) |
+| `GET /v1/info` | product `C128MEGA65 (Ultimate 64 compatible)` (network scans in ultraView and c64stream look for "Ultimate" or "Ultimate 64" in it), firmware version = config.vhd's `CORE_VERSION`, the firmware's git hash, `fpga_version` "1" and the hardware interface's number in two hex digits (`108`), `core_version` "1." and the same number (`1.08`; his U64's form), host name, `unique_id` (24 bits from the FPGA's DNA, as his from his flash's serial), the Ethernet MAC. With `core_version` his tests and clients take it for a U64; no `wifi_mac` (no Wi-Fi) |
 | `GET /v1/help?command=` | his fixed page |
 | `PUT /v1/machine:reset`, `:reboot` | the reset button, as UCI's REBOOT; a pause ends with it |
 | `PUT /v1/machine:pause`, `:resume` | the C128's CPU held by bus DMA, as his `stop()`; answered at once |
-| `GET /v1/machine:readmem?address=&length=` | memory as the C128's CPU sees it then (the MMU's banks, ROMs, I/O), read by bus DMA with the CPU held for the whole request; 1 µs a byte, 64 KB in about 70 ms |
+| `GET /v1/machine:readmem?address=&length=` | memory as a DMA sees it then: in C128 mode RAM in the VIC's bank (`$D506` bits 6-7), ROMs and I/O as `$FF00` selects them, no MMU registers; in C64 mode as the CPU sees it. Read by bus DMA with the CPU held for the whole request; 1 µs a byte, 64 KB in about 70 ms |
 | `PUT /v1/machine:writemem?address=&data=`, `POST` | the same, written: up to 128 bytes in the URL, or a POST's body (raw, or a multipart file part: the first part, up to 64 KB) |
 | `PUT /v1/machine:menu_button` | opens the On-Screen-Menu, or closes it (not while a file is being picked) |
 | `GET /v1/machine:vdcmem?address=&length=` | readmem's form and answers, for the VDC's 64 KB: the bytes a program reads through R18/R19 and R31 (16K or 64K, as R28 bit 4 has it), without moving the update address. No bus DMA: the C128 keeps running, also while the Z80 runs (CP/M's screen reads; readmem answers 423 then). 0.7 µs a byte, 64 KB in about 50 ms; sending 64 KB takes about 0.4 s, as readmem's. Pause first for a still snapshot |
@@ -47,7 +47,7 @@ byte, because tools parse his answers. Where it differs, "Not his" below says so
 | `PUT /v1/configs[/CATEGORY]:save_to_flash`, `:load_from_flash`, `:reset_to_default` | once a matching category has changes, `/c128/settings.cfg`, written whole (`written` names the changed categories); back from it (the defaults for what it doesn't name); the defaults |
 | `GET /v1/drives` | `a` and `b`: power, bus id (8-11, its submenu's), what it runs as, `rom` the ROM picked for its model (his default name, `1571.rom`, for the stock one; `Unable to load!` for a file that won't), the image as his: a REST mount shows the path it was given as `image_file` with an empty `image_path`, a menu or UCI mount its folder and name. The internal floppy, when it is a drive's model, is that drive: a 1581 with no image. No `softiec` |
 | `PUT /v1/drives/D:mount?image=&type=&mode=`, `POST` | the image into the drive, answered once a 1541/1571 has it (as UCI's MOUNT_DISK). `type` (default: the extension) only picks his command and Ftype; the core takes D64, D71 and D81 by their size, G64/G71 answer 501. `readonly` write protects the disk. `unlinked` mounts a copy in `/c128/temp`: writes go to the copy, the file stays as it was. On the internal floppy's drive the floppy is turned off first, as the menu does. POST: the body goes to `/c128/temp/NAME` (NAME from the part's file name, `temp0000` and up without one; `_1`, `_2` while that name is in a drive) |
-| `PUT /v1/drives/D:reset`, `:on`, `:off`, `:remove` | the drive's ROM reloaded (a reset), its power, the image out |
+| `PUT /v1/drives/D:reset`, `:on`, `:off`, `:remove` | the drive's ROM reloaded (a reset); its Drive enabled on or off, as his Turn On/Off (`:on` resets a drive that was on); the image out, the drive left on |
 | `PUT /v1/drives/D:unlink` | the drive moves onto a copy of its image in `/c128/temp` without a disk change: its requests wait (vd_sd's hold) while its changes go to the card and the copy is made, then its table points at the copy. GET drives still shows the file it came from |
 | `PUT /v1/drives/D:load_rom?file=`, `POST` | 16 or 32 KB into the drive's bank of `boot1.rom` for its model (a 16 KB image twice), then the bank reloaded into the drive, which resets it; another size is written anyway and answers his 412. Lasts until the drive runs another model (then the bank gets its configured ROM again, as his set_drive_type loads it) or a long reset loads `boot1.rom` again |
 | `PUT /v1/drives/D:set_mode?mode=` | 1541, 1571 or 1581: the drive's model, as his set_drive_type and its config; the internal floppy's drive stays it as a 1581. A model its image can't run ejects the image, as the menu does. A mount moves the model to one its image runs: a D81 a 1581, a D71 a 1571, a D64 in a 1581 a 1571 |
@@ -71,13 +71,13 @@ choices are the core's, under his names where he has the same.
 |---|---|
 | U64 Specific Settings | his U64's, for the menu's lines: System Mode (PAL, the core's only), HDMI Scan Resolution (the menu's HDMI modes), Joystick Swapper (Normal, Swapped), Digital Video Mode (HDMI, DVI: the menu's HDMI audio on or off), HDMI Scan lines (Enabled while the HDMI filter has scan lines: Scanlines or a CRT one; set Enabled, it picks Scanlines for a filter without them, set Disabled the default filter for one with them), Serial Bus Mode (All Connected: the IEC port on; C64 <-> Internal: off); and his for machine:input's mouse, with no menu lines: Mouse Mode (Cursor, Mouse, Mouse + Cursor, Mouse + Wheel), Mouse Sensitivity (1-16), Mouse Acceleration (Off, Adaptive), Mouse Wheel Sensitivity (1-16), Mouse Wheel Direction (Normal, Reversed) |
 | C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, or a card path `/SD/...`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
-| Drive A Settings, Drive B Settings | Drive (its power), Drive Type (1541, 1571, 1581, Internal 1581: its model, as set_mode; the internal floppy one drive at a time), Drive Bus ID (8-11; two drives may share one, as his; the menu swaps them instead), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
+| Drive A Settings, Drive B Settings | Drive (the menu's Drive enabled: on the bus with a disk or without; A Enabled, B Disabled by default, as his), Drive Type (1541, 1571, 1581, Internal 1581: its model, as set_mode; the internal floppy one drive at a time), Drive Bus ID (8-11; two drives may share one, as his; the menu swaps them instead), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | Data Streams | Stream VIC to, Stream Audio to (`host[:port]`, 36 characters; his defaults `239.0.1.64:11000`, `239.0.1.65:11001`). A change takes effect at the stream's next start, as his |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
-| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, HDMI Filter, VGA Display Mode, Caps Lock Key, Help Menu on F13 |
+| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, HDMI Filter, VGA Display Mode, Caps Lock Key, Help Menu on F13, 256 KB RAM |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
 or ours only, a card path (`/SD/...`) for a file the menu picked elsewhere; GET with an item
@@ -86,8 +86,7 @@ drive's default name with no such file, is the stock ROM. A system ROM changes w
 reset (it isn't written under a running CPU), a drive's with a reload of the drive if it
 runs that model. The cartridge loads at the next start.
 
-Every item is kept in `/c128/settings.cfg`, his settings format; drive power only once it
-was set here or by LOAD_CONFIG.
+Every item is kept in `/c128/settings.cfg`, his settings format.
 
 A change made here stays in memory until `save_to_flash`, unless the menu saves first: it
 writes `settings.cfg` whole when it closes after a change, when a ROM or the REU's file is
@@ -139,7 +138,7 @@ core's own ROMs, 40 and 80 columns.
 
 Hardware interface 4: `C_DEV_DRIVE_ROM`'s CSR (register 0: R bit i drive i has its ROM, W
 bit i reloads drive i's bank, its `iecdrv_rom` and the ROM server starting over) and vd_sd's
-hold (CSR `0x035`). iec_drive's per-drive `rom_reload` is in the C128_MiSTer submodule.
+hold (CSR `0x035`). iec_drive's per-drive `rom_reload` is in `CORE/C128_MiSTer`.
 
 Hardware interface 5: the internal function ROM in `C_DEV_SYSTEM_ROM` from `0x18000`
 (boot0.rom's BRAM has 128 KB), its size in that device's CSR register 0 (0 none, 1 16 KB,
@@ -155,7 +154,7 @@ Hardware interface 12: his video and audio streams in `C_DEV_NET` (words `0x20`-
 
 Hardware interface 13: `C_DEV_VDC` (`vdc_peek.vhd`), the VDC's RAM (words `0x0000`-`0xFFFF`)
 and registers (its CSR window), read through a second port of the VDC's own RAM and a copy
-of its register read, on its clock. The VDC is in the C128_MiSTer submodule.
+of its register read, on its clock. The VDC is in `CORE/C128_MiSTer`.
 
 ## Settings
 
@@ -192,6 +191,8 @@ here or by REST. A start that fails shows his popup's text until Space.
   cartridge always starts C64 mode (on a C128 too) and prints LOAD/SEARCHING/LOADING lines first.
 - A D64 mounted in a 1581 makes the drive a 1571 (a C128's drive; Jeff, 2026-11-02); his
   makes it a 1541.
+- A mount turns the drive on (Jeff, 2026-11-08); his leaves a disabled drive off with the disk
+  in it.
 - A model a drive's image can't run (set_mode, Drive Type) ejects the image; his keeps it
   mounted, unread. main.vhd runs an image as its own type, so keeping it would run another
   model than the one set.

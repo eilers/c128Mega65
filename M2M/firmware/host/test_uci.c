@@ -469,11 +469,13 @@ static void ctrl_tests(void)
    dos(4, 0x28, "\2", 1, NULL);
    want_data("GET_HWINFO 2", "81,INVALID PARAMS", "");
 
-   // Drives: type, address, power; a D71 in 9; then switched on and off
+   // Drives: type, address, power (Drive enabled); a D71 in 9; then switched on and off
+   drives_on(0, 0);
    dos(4, 0x29, NULL, 0, NULL);
    want_bytes("GET_DRVINFO, no disks", "00,OK", (uint8_t[]){ 2, 0, 8, 0, 0, 9, 0 }, 7);
    mounted_d    = 1;
    mounted_type = 1;
+   drives_on(0, 1);                                  // the mount turned B on (core.c)
    memset(settings[OPTM_G_DRVA_MODEL], 0, sizeof settings[OPTM_G_DRVA_MODEL]);
    settings[OPTM_G_DRVA_MODEL][1] = 1;
    dos(4, 0x29, "\1", 1, NULL);
@@ -488,14 +490,14 @@ static void ctrl_tests(void)
    memset(settings[OPTM_G_DRVA_MODEL], 0, sizeof settings[OPTM_G_DRVA_MODEL]);
    settings[OPTM_G_DRVA_MODEL][0] = 1;
    dos(4, 0x34, NULL, 0, NULL);
-   want_data("DISK_A_POWER, no disk", "00,OK", "off");
+   want_data("DISK_A_POWER, off", "00,OK", "off");
    dos(4, 0x35, NULL, 0, NULL);
-   want_data("DISK_B_POWER, a disk", "00,OK", "on ");
+   want_data("DISK_B_POWER, on", "00,OK", "on ");
    dos(4, 0x30, NULL, 0, NULL);
    want_data("ENABLE_DISK_A", "00,OK", "");
    dos(4, 0x33, NULL, 0, NULL);
    want_data("DISABLE_DISK_B", "00,OK", "");
-   check(drive_pow[0] == DRIVE_ON && drive_pow[1] == DRIVE_OFF, "the drives' power set as asked");
+   check(drive_is_on(0) && !drive_is_on(1), "the drives' Drive enabled set as asked");
    dos(4, 0x34, NULL, 0, NULL);
    want_data("DISK_A_POWER, switched on", "00,OK", "on ");
    dos(4, 0x35, NULL, 0, NULL);
@@ -504,8 +506,8 @@ static void ctrl_tests(void)
    want_bytes("GET_DRVINFO after", "00,OK", (uint8_t[]){ 2, 0, 8, 1, 2, 9, 0 }, 7);
    dos(4, 0x31, NULL, 0, NULL);
    dos(4, 0x32, NULL, 0, NULL);
-   check(drive_pow[0] == DRIVE_OFF && drive_pow[1] == DRIVE_ON, "DISABLE_DISK_A, ENABLE_DISK_B");
-   drive_pow[0] = drive_pow[1] = DRIVE_AUTO;
+   check(!drive_is_on(0) && drive_is_on(1), "DISABLE_DISK_A, ENABLE_DISK_B");
+   drives_on(1, 0);
    mounted_d = -1;
 
    dos(4, 0x40, NULL, 0, NULL);
@@ -560,7 +562,7 @@ static void cfg_tests(void)
    memset(settings[OPTM_G_DRVB_MODEL], 0, sizeof settings[OPTM_G_DRVB_MODEL]);
    settings[OPTM_G_DRVA_MODEL][1] = settings[OPTM_G_DRVB_MODEL][1] = 1;
    mounted_d = -1;
-   drive_pow[0] = drive_pow[1] = DRIVE_AUTO;
+   drives_on(1, 0);
    reu_sync();
 
    cfg("# a comment\r\n; another\r\n\r\n[Nonexistent Store]\r\nSomething=1\r\n"
@@ -617,13 +619,13 @@ static void cfg_tests(void)
        "[Drive B Settings]\nDrive=Enabled\nDrive Bus ID= 9\nROM for 1541 mode=1541.rom\nExtra RAM=Disabled\n");
    want_data("LOAD_CONFIG: drives (his ROM item, not his Extra RAM)", "00,OK",
              "Line 9: Item 'Extra RAM' not found in this store [Drive B Settings]; ignored.\n");
-   check(drive_pow[0] == DRIVE_OFF && drive_pow[1] == DRIVE_ON, "drive A off, B on");
+   check(!drive_is_on(0) && drive_is_on(1), "drive A off, B on");
    check(settings[OPTM_G_DRVA_MODEL][0] && settings[OPTM_G_DRVB_MODEL][1], "A's model is 1541, B's stays 1571");
    cfg("[Drive A Settings]\nDrive Type=1571\n[Drive B Settings]\nDrive Type=1541\nDrive Bus ID=10\n"
        "[Drive A Settings]\nDrive Type=1581\nDrive Bus ID=12\n");
    want_data("LOAD_CONFIG: address 12", "89,CONFIG FILE HAD ERRORS",
              "Line 8: Value '12' is not a valid choice for item Drive Bus ID\n");
-   check(settings[OPTM_G_DRVA_MODEL][0] && settings[OPTM_G_DRVB_ID][1] && drive_pow[0] == DRIVE_OFF, "nothing changed");
+   check(settings[OPTM_G_DRVA_MODEL][0] && settings[OPTM_G_DRVB_ID][1] && !drive_is_on(0), "nothing changed");
    cfg("[Drive A Settings]\nDrive Type=1571\n[Drive B Settings]\nDrive Type=1541\nDrive Bus ID=10\n"
        "[Drive A Settings]\nDrive Type=1581\n");
    want_data("LOAD_CONFIG: two models, B at 10, a 1581", "00,OK", "");
@@ -644,9 +646,9 @@ static void cfg_tests(void)
    cfg("[Drive B Settings]\nDrive Type=1581\nDrive Bus ID=9\n[Drive A Settings]\nDrive Type=1571\nDrive=Enabled\n");
    want_data("LOAD_CONFIG: B holds a D81, A 1571", "00,OK", "");
    check(settings[OPTM_G_DRVA_MODEL][1] && settings[OPTM_G_DRVB_MODEL][2] && settings[OPTM_G_DRVB_ID][1] &&
-         drive_pow[0] == DRIVE_ON, "A a 1571, B a 1581 at 9, A is on");
+         drive_is_on(0), "A a 1571, B a 1581 at 9, A is on");
    mounted_d = -1;
-   drive_pow[0] = drive_pow[1] = DRIVE_AUTO;
+   drives_on(1, 0);
 
    // The modem, a SwiftLink with NMI at $DE00 or $DF00
    cfg("[Modem Settings]\nModem Interface=ACIA / SwiftLink\nACIA (6551) Mapping=DF00/NMI\n"

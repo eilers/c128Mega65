@@ -5,6 +5,7 @@
 #include "sdcard.h"
 #include "dmem.h"
 #include "m2m_rv.h"
+#include "sd.h"
 
 #define CARD_BITS (M2M_CSR_SD_ACTIVE | M2M_CSR_SD_DET_INT | M2M_CSR_SD_DET_EXT)
 #define PRESENT   (M2M_CSR_SD_DET_INT | M2M_CSR_SD_DET_EXT)
@@ -17,6 +18,7 @@ static uint32_t          cards;
 static uint32_t          changed_at;
 static uint32_t          changes;
 static int               started;
+static sd_diag_t         diag;
 
 static void set_state(enum sdcard_state s)
 {
@@ -41,10 +43,12 @@ DMEM_CODE void sdcard_poll(void)
       set_state(SDCARD_WAIT);
    } else if (state == SDCARD_WAIT && MTIME_LO - changed_at >= SETTLE) {
       result = f_mount(&fs, "", 1);
-      if (result == FR_OK)
+      if (result == FR_OK) {
          set_state(SDCARD_OK);
-      else
+      } else {
+         sd_diag(&diag, result);
          set_state(cards & PRESENT ? SDCARD_FAIL : SDCARD_NONE);
+      }
    }
 }
 
@@ -73,4 +77,13 @@ uint32_t sdcard_changes(void)
 const char *sdcard_slot(void)
 {
    return cards & M2M_CSR_SD_ACTIVE ? "back slot" : "bottom tray";
+}
+
+const sd_diag_t *sdcard_why(void)
+{
+   if (state == SDCARD_WAIT || (state == SDCARD_OK && !sd_log.err))
+      return 0;
+   if (state == SDCARD_OK)
+      sd_diag(&diag, 0);
+   return &diag;
 }

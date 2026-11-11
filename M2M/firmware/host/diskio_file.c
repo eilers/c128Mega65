@@ -3,6 +3,17 @@
 #include <stdio.h>
 #include "ff.h"
 #include "diskio.h"
+#include "sd.h"
+
+// lib/sd.c's log and mode for lib/sd_diag.c: a card in SD mode, 4-bit at 50 MHz, SDHC, that
+// never failed
+sd_log_t sd_log = { 0, 0, 0x30035 };
+uint32_t host_sd_now = 0x30035;
+
+uint32_t sd_mode(void)
+{
+   return host_sd_now;
+}
 
 static FILE *img;
 

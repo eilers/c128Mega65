@@ -2,6 +2,7 @@
 #include <string.h>
 #include <strings.h>
 #include "c128dma.h"
+#include "cmdhd.h"
 #include "config_ids.h"
 #include "core.h"
 #include "dmem.h"
@@ -52,10 +53,11 @@ const char *rompick_default(int p) { return p >= RP_DRIVE && p < RP_BOOT ? drive
 int         rompick_state(int p)   { return state[p]; }
 const char *rompick_dir(int p)     { return p == RP_BOOT ? CARTS_DIR : ROMS_DIR; }
 
-// A 1541 also takes 8 KB: its $E000 half, as JiffyDOS for the original 1541
+// A 1541 also takes 8 KB: its $E000 half, as JiffyDOS for the original 1541. The CMD HD's
+// boot ROM is 16 KB, or a 32 KB dump of it twice.
 int rompick_fits(int p, uint32_t size)
 {
-   int sizes = p == RP_BOOT ? 0 : p < RP_DRIVE ? sys_part[p].sizes :
+   int sizes = p == RP_BOOT ? 0 : p == RP_HD ? K16 | K32 : p < RP_DRIVE ? sys_part[p].sizes :
                (p - RP_DRIVE) % 3 == 0 ? K8 | K16 | K32 : K16 | K32;
    return p == RP_BOOT ? size > 0 :
           (size == 8192 && (sizes & K8)) || (size == 16384 && (sizes & K16)) || (size == 32768 && (sizes & K32));
@@ -165,10 +167,32 @@ static uint32_t put_file(int p)
    return ok ? size : 0;
 }
 
+// The CMD HD's boot ROM: the file's first 16 KB into the HD, or none
+static void apply_hd(void)
+{
+   char path[PICK_PATH];
+   FIL f;
+   state[RP_HD] = RS_STOCK;
+   cmdhd_rom_clear();
+   if (stock(RP_HD))
+      return;
+   path_of(RP_HD, path);
+   state[RP_HD] = RS_FAILED;
+   if (f_open(&f, path, FA_READ) != FR_OK)
+      return;
+   if (rompick_fits(RP_HD, f_size(&f)) && !cmdhd_rom_load(&f))
+      state[RP_HD] = RS_FILE;
+   f_close(&f);
+}
+
 // One pick into its part: stock, the file, or stock again for a file that won't load
 static void apply_one(int p)
 {
    uint32_t size = 0;
+   if (p == RP_HD) {
+      apply_hd();
+      return;
+   }
    if (stock(p))
       state[p] = RS_STOCK;
    else
@@ -222,7 +246,8 @@ static void show(int p)
 {
    char path[PICK_PATH];
    path_of(p, path);
-   shell_crtrom_named(p == RP_BOOT ? OPTM_G_CRT_BOOT : OPTM_G_ROM_K128 + p, state[p] == RS_FILE ? path : NULL);
+   shell_crtrom_named(p == RP_BOOT ? OPTM_G_CRT_BOOT : p == RP_HD ? OPTM_G_ROM_HD : OPTM_G_ROM_K128 + p,
+                      state[p] == RS_FILE ? path : NULL);
 }
 
 void rompick_set(int p, const char *name)
@@ -293,6 +318,8 @@ void rompick_apply(uint32_t changed)
    }
    if (changed & 1u << RP_BOOT)
       check_cart();
+   if (changed & 1u << RP_HD)
+      apply_hd();
    for (int p = 0; p < RP_COUNT; p++)
       if (changed & 1u << p)
          show(p);
@@ -303,6 +330,7 @@ void rompick_boot(void)
    // boot0.rom and boot1.rom are fresh; the drives fetch their banks once the C128 starts
    for (int p = 0; p < RP_BOOT; p++)
       apply_one(p);
+   apply_hd();
    check_cart();
    cart_due = state[RP_BOOT] == RS_FILE;
    started = 1;

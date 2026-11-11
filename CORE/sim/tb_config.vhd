@@ -142,8 +142,10 @@ begin
       check(items_f(f1 to f2) = " CRT file", "full item C_MENU_CART_CRT is """ & items_f(f1 to f2) & """");
 
       -- Every line the hardware reads by its index
+      named(C_MENU_DRVA_ON,       " Drive enabled");
       named(C_MENU_DRVA_ID8,      " 8");
       named(C_MENU_DRVA_1541,     " 1541");
+      named(C_MENU_DRVB_ON,       " Drive enabled");
       named(C_MENU_DRVB_ID8,      " 8");
       named(C_MENU_DRVB_1541,     " 1541");
       named(C_MENU_VIDEO_FOLLOW,  " Follow 40/80");
@@ -186,6 +188,7 @@ begin
       named(C_MENU_KEYS_4080,     " 40/80");
       named(C_MENU_KEYS_ASCII,    " ASCII/DIN");
       named(C_MENU_HELP_F13,      " Help menu on F13");
+      named(C_MENU_RAM256,        " 256 KB RAM");
 
       -- R3 item i is full item i, or i + 2 from the 2 MB item on, in text and in every selector
       for i in 0 to n_r - 1 loop

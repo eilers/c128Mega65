@@ -14,7 +14,7 @@
 #define SETTINGS_FILE "/c128/settings.cfg"
 #define SETTINGS_TMP  "/c128/settings.tmp"   // written first, then renamed over it
 
-enum { ST_U64, ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_STREAMS, ST_ROMS, ST_MEGA65, ST_COUNT };
+enum { ST_U64, ST_C64, ST_DRIVE_A, ST_DRIVE_B, ST_MODEM, ST_ETH, ST_NET, ST_STREAMS, ST_ROMS, ST_MEGA65, ST_CMDHD, ST_COUNT };
 // His CFG_TYPE_ENUM, _VALUE, _STRING, _STRPASS, _STRFUNC (here a file of rompick.c's folder)
 enum { IT_ENUM, IT_VALUE, IT_STRING, IT_PASS, IT_FILE };
 
@@ -47,6 +47,9 @@ enum { MS_MODE, MS_SENS, MS_ACCEL, MS_WHEEL, MS_WHEEL_DIR, MS_COUNT };
 int         stores_mouse(int k);
 
 enum { DM_1541, DM_1571, DM_1581, DM_INTERNAL };
+// Drive enabled: on the bus, with a disk or without (his Drive). A mount turns it on.
+int         stores_drive_on(int d);
+void        stores_drive_set_on(int d, int on);
 int         stores_drive_model(int d);
 void        stores_drive_set_model(int d, int m);
 int         stores_drive_id(int d);

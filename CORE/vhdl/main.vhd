@@ -24,6 +24,8 @@ entity main is
       G_BOARD                 : string;                     -- Which MEGA65 revision are we running on
       G_VDNUM                 : natural;                    -- amount of virtual drives
       G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20;  -- reset on a cartridge change: 50 ms
+      G_CMDHD                 : boolean := true;            -- a CMD HD on the bus (cmdhd/cmdhd.vhd)
+      G_PHYS1581_DIAG         : boolean := false;           -- internal floppy diagnostics (physical_1581_diag)
       G_REU_BASE              : std_logic_vector(31 downto 0) :=   -- word address of the REU's memory
                                 "0000000" & C_HMAP_REU(12 downto 0) & x"000"
    );
@@ -234,12 +236,26 @@ entity main is
       f_wgate_o               : out std_logic;
       f_wdata_o               : out std_logic;
 
-      -- Its QNICE diagnostic device (physical_1581_diag, C_DEV_PHYS1581, clk_sd_i domain)
+      -- Its QNICE diagnostic device (physical_1581_diag, C_DEV_PHYS1581, clk_sd_i domain),
+      -- only with G_PHYS1581_DIAG; else it reads 0
       qnice_p1581_ce_i        : in  std_logic := '0';
       qnice_p1581_we_i        : in  std_logic := '0';
       qnice_p1581_addr_i      : in  std_logic_vector(7 downto 0) := (others => '0');
       qnice_p1581_data_i      : in  std_logic_vector(15 downto 0) := (others => '0');
       qnice_p1581_data_o      : out std_logic_vector(15 downto 0);
+
+      -- The CMD HD (cmdhd/cmdhd.vhd): its device (C_DEV_CMDHD) and its SD engine client,
+      -- clk_sd_i domain; the MEGA65's clock for its RTC (M2M's vector, clk_main_i domain)
+      qnice_hd_addr_i         : in  std_logic_vector(27 downto 0) := (others => '0');
+      qnice_hd_data_i         : in  std_logic_vector(15 downto 0) := (others => '0');
+      qnice_hd_data_o         : out std_logic_vector(15 downto 0);
+      qnice_hd_wait_o         : out std_logic;
+      qnice_hd_ce_i           : in  std_logic := '0';
+      qnice_hd_we_i           : in  std_logic := '0';
+      qnice_hd_want_o         : out std_logic;
+      qnice_hd_eng_o          : out t_sd_c2q;
+      qnice_hd_eng_i          : in  t_sd_q2c := (others => '0');
+      main_rtc_i              : in  std_logic_vector(64 downto 0) := (others => '0');
 
       -- REU's memory port, HyperRAM or SDRAM (clk_main_i domain; mega65.vhd crosses it to hr_clk)
       reu_avm_write_o         : out std_logic;
@@ -515,6 +531,7 @@ signal cart_source          : t_cart_source;
 
 -- REU
 signal reu_menu             : std_logic_vector(1 downto 0);   -- the menu's choice, as reu.sv's cfg
+signal sys256k              : std_logic := '0';               -- RAM banks 2 and 3: the menu's, taken in reset
 signal reu_cfg              : std_logic_vector(1 downto 0);   -- reu.sv cfg: "00" off, "01" 512 KB, "10" 2 MB, "11" 16 MB
 signal reu_io               : std_logic;                      -- $DF00-$DF1F
 signal reu_cs               : std_logic;                      -- reu_io's strobe, once per access
@@ -551,9 +568,9 @@ signal map_readdata         : std_logic_vector(15 downto 0);
 signal map_readdatavalid    : std_logic;
 signal map_waitrequest      : std_logic;
 
--- Reset the C128 when the REU or Cartridge setting changes (C64MEGA65 #225, #226), and when a
--- .crt file is loaded
-signal exp_cfg_d            : std_logic_vector(3 downto 0) := "0010";   -- REU off, hardware slot, no .crt
+-- Reset the C128 when the REU, 256 KB RAM or Cartridge setting changes (C64MEGA65 #225, #226),
+-- and when a .crt file is loaded
+signal exp_cfg_d            : std_logic_vector(4 downto 0) := "00010";  -- REU off, 128 KB, hardware slot, no .crt
 signal exp_reset_pend       : std_logic := '0';
 signal exp_reset_cnt        : natural range 0 to G_EXP_RESET_LEN := 0;
 
@@ -656,12 +673,6 @@ signal iec_dce_sum   : integer := 0;   -- 32-bit integer, initialized to 0
 
 signal iec_img_mounted  : std_logic_vector(G_VDNUM - 1 downto 0);
 signal iec_disk_ready   : std_logic;   -- every 1541/1571 out of reset has its disk
--- The drives' power as the firmware sets it (vd_sd CSR 0x034, QNICE clock), and in this clock:
--- bit 0 keeps a drive on with no disk, bit 1 holds it off with a disk (and wins)
-signal vd_sd_power      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0);
-signal iec_power_m      : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
-signal iec_power        : vd_vec_array(G_VDNUM - 1 downto 0)(1 downto 0) := (others => "00");
-attribute ASYNC_REG of iec_power_m, iec_power : signal is "TRUE";
 signal iec_img_readonly : std_logic;
 signal iec_img_size     : std_logic_vector(31 downto 0);
 signal iec_img_type     : std_logic_vector(1 downto 0);
@@ -720,6 +731,15 @@ signal core_iec_srq_n_o : std_logic;
 signal drv_iec_clk_raw  : std_logic;
 signal drv_iec_data_raw : std_logic;
 signal drv_iec_srq_raw  : std_logic;
+-- iec_drive's and the CMD HD's outputs, merged into the above
+signal fdd_iec_clk      : std_logic;
+signal fdd_iec_data     : std_logic;
+signal fdd_iec_srq      : std_logic;
+signal hd_iec_clk       : std_logic := '1';
+signal hd_iec_data      : std_logic := '1';
+signal hd_iec_srq       : std_logic := '1';
+signal hd_led_act       : std_logic := '0';
+signal hd_led_err       : std_logic := '0';
 signal drv_iec_clk_o    : std_logic;
 signal drv_iec_data_o   : std_logic;
 signal drv_iec_srq_o    : std_logic;
@@ -1687,21 +1707,21 @@ end process handle_hardware_iec_proc;
 -- Hard reset
 --------------------------------------------------------------------------------------------------
 
--- A changed REU or Cartridge setting, a .crt file being loaded, or the firmware's reset
+-- A changed REU, 256 KB RAM or Cartridge setting, a .crt file being loaded, or the firmware's reset
 -- (uci_reboot_i) resets the C128 and a hardware cartridge, as soon as no write-back cache is
 -- dirty. A virtual cartridge's reset lasts until the cache holds the banks it starts in. A REU
 -- change that a program asked for with LOAD_CONFIG (uci_reu_keep_i) leaves it running, as an
 -- Ultimate does.
 exp_change_reset_proc : process (clk_main_i)
-   variable v_cfg : std_logic_vector(3 downto 0);
+   variable v_cfg : std_logic_vector(4 downto 0);
 begin
    if rising_edge(clk_main_i) then
-      v_cfg     := reu_menu & exp_port_hw & crt_loaded_i;
+      v_cfg     := reu_menu & osm_control_i(C_MENU_RAM256) & exp_port_hw & crt_loaded_i;
       exp_cfg_d <= v_cfg;
       if exp_reset_cnt > 1 or (exp_reset_cnt = 1 and crt_hold = '0') then
          exp_reset_cnt <= exp_reset_cnt - 1;
       end if;
-      if (v_cfg /= exp_cfg_d and not (uci_reu_keep_i = '1' and v_cfg(1 downto 0) = exp_cfg_d(1 downto 0))) or
+      if (v_cfg /= exp_cfg_d and not (uci_reu_keep_i = '1' and v_cfg(2 downto 0) = exp_cfg_d(2 downto 0))) or
          uci_reboot_i = '1' then
          exp_reset_pend <= '1';
       elsif exp_reset_pend = '1' and prevent_reset = '0' then
@@ -1710,6 +1730,16 @@ begin
       end if;
    end if;
 end process exp_change_reset_proc;
+
+-- The MMU sees a new 256 KB RAM setting only in reset, so banks never move under a running program
+ram256_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      if reset_core_n = '0' then
+         sys256k <= osm_control_i(C_MENU_RAM256);
+      end if;
+   end if;
+end process ram256_proc;
 
 hard_reset_proc: process (clk_main_i)
   begin
@@ -2212,7 +2242,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       d7port_trig   => open,
 
       -- System mode
-      sys256k       => '0', -- We have 128k memory
+      sys256k       => sys256k, -- the 256 KB RAM menu item: banks 2 and 3
       force64       => '0',
       pure64        => '0',
       d4080_sel     => d4080_sel_s, -- 40/80 sense: real Caps Lock, or latched F9 (see d4080_sel_s)
@@ -2445,22 +2475,13 @@ begin
   end if;
 end process phys_switch_proc;
 
--- Drive enable is "If Mounted": a drive without a disk image stays in reset and is therefore
--- electrically silent on the IEC bus. The firmware can also switch a drive on or off as
--- MiSTer's "Always" and "Never" do (the UCI's drive power). The internal floppy runs without
--- an image, and a drive is reset when it switches between image and internal floppy.
--- The power bits cross as levels. A change of both passes through 00 or 11, which act as
--- one of its two ends (00 is "If Mounted", 11 is off), so the drive sees no glitch.
-iec_power_sync : process (clk_main_i)
-begin
-  if rising_edge(clk_main_i) then
-    iec_power_m <= vd_sd_power;
-    iec_power   <= iec_power_m;
-  end if;
-end process iec_power_sync;
-
+-- A drive runs while its menu line Drive enabled is on, with a disk or without (as an
+-- Ultimate's Drive setting); off, it stays in reset, silent on the IEC bus. A drive is also
+-- reset when it switches between image and internal floppy.
 iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
-  -- Each drive's submenu (drive B's lies 23 items after drive A's): its bus ID, its model
+  -- Each drive's submenu (drive B's lies 24 items after drive A's): on or off, its bus ID,
+  -- its model
+  constant C_ON     : natural := C_MENU_DRVA_ON + i * (C_MENU_DRVB_ON - C_MENU_DRVA_ON);
   constant C_ID     : natural := C_MENU_DRVA_ID8 + i * (C_MENU_DRVB_ID8 - C_MENU_DRVA_ID8);
   constant C_MODEL  : natural := C_MENU_DRVA_1541 + i * (C_MENU_DRVB_1541 - C_MENU_DRVA_1541);
   constant C_ID_RST : natural := CORE_CLK_SPEED / 1000;   -- 1 ms
@@ -2468,8 +2489,7 @@ iec_drives_reset_gen : for i in 0 to G_VDNUM - 1 generate
   signal id_cnt     : natural range 0 to C_ID_RST := 0;
   signal id_rst     : std_logic := '0';
 begin
-  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or iec_power(i)(1) or id_rst or
-                         (not vdrives_mounted(i) and not phys_en_q(i) and not iec_power(i)(0));
+  iec_drives_reset(i) <= (not reset_core_n) or phys_changed(i) or id_rst or not osm_control_i(C_ON);
 
   -- The ID jumpers: a drive reads them as it starts, so a new ID resets it. No bit set (a
   -- bad config file): drive A 8, drive B 9.
@@ -2554,9 +2574,9 @@ iec_drive_inst : entity work.iec_drive
     iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
     iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
     iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
-    iec_clk_o    => drv_iec_clk_raw,
-    iec_data_o   => drv_iec_data_raw,
-    iec_fclk_o   => drv_iec_srq_raw,
+    iec_clk_o    => fdd_iec_clk,
+    iec_data_o   => fdd_iec_data,
+    iec_fclk_o   => fdd_iec_srq,
 
     -- disk image status
     img_mounted  => iec_img_mounted,
@@ -2651,6 +2671,54 @@ iec_drive_inst : entity work.iec_drive
     phys_dbg_wr_wp_tgl     => p1581_dbg_tgl(6),
     phys_dbg_wr_drop_tgl   => p1581_dbg_tgl(7)
   ); -- iec_drive_inst
+
+--------------------------------------------------------------------------------------------------
+-- The CMD HD: a third device on the bus, with its own image (cmdhd/cmdhd.vhd). The firmware
+-- runs it (on, ID, image, buttons) through its device; the C128's reset is a warm reset.
+--------------------------------------------------------------------------------------------------
+cmdhd_gen : if G_CMDHD generate
+  i_cmdhd : entity work.cmdhd
+    generic map (
+      G_CLK_HZ => CORE_CLK_SPEED
+    )
+    port map (
+      clk_main_i   => clk_main_i,
+      rst_main_i   => not reset_core_n,
+      ce_i         => iec_drive_ce,
+      pause_i      => pause_i,
+      iec_atn_i    => core_iec_atn_o,
+      iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
+      iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
+      iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
+      iec_clk_o    => hd_iec_clk,
+      iec_data_o   => hd_iec_data,
+      iec_fclk_o   => hd_iec_srq,
+      rtc_i        => main_rtc_i,
+      running_o    => open,
+      led_act_o    => hd_led_act,
+      led_err_o    => hd_led_err,
+      clk_qnice_i  => clk_sd_i,
+      rst_qnice_i  => rst_sd_i,
+      qnice_addr_i => qnice_hd_addr_i,
+      qnice_data_i => qnice_hd_data_i,
+      qnice_ce_i   => qnice_hd_ce_i,
+      qnice_we_i   => qnice_hd_we_i,
+      qnice_data_o => qnice_hd_data_o,
+      qnice_wait_o => qnice_hd_wait_o,
+      eng_want_o   => qnice_hd_want_o,
+      eng_o        => qnice_hd_eng_o,
+      eng_i        => qnice_hd_eng_i
+    );
+else generate
+  qnice_hd_data_o <= (others => '0');
+  qnice_hd_wait_o <= '0';
+  qnice_hd_want_o <= '0';
+  qnice_hd_eng_o  <= (others => '0');
+end generate cmdhd_gen;
+
+drv_iec_clk_raw  <= fdd_iec_clk  and hd_iec_clk;
+drv_iec_data_raw <= fdd_iec_data and hd_iec_data;
+drv_iec_srq_raw  <= fdd_iec_srq  and hd_iec_srq;
 
 --------------------------------------------------------------------------------------------------
 -- The MEGA65's internal 3.5" drive as a 1581 (CORE/vhdl/physical_1581, from C64MEGA65)
@@ -2860,6 +2928,7 @@ end process p1581_sync_proc;
 
 -- Observational QNICE register bank (doc/1581_dd_debug_device.md in C64MEGA65).
 -- The one writable word, WR_CTRL, overrides write precompensation.
+p1581_diag_gen : if G_PHYS1581_DIAG generate
 i_physical_1581_diag : entity work.physical_1581_diag
   port map (
     clk_i             => clk_sd_i,
@@ -2967,6 +3036,10 @@ i_physical_1581_diag : entity work.physical_1581_diag
     qnice_data_i      => qnice_p1581_data_i,
     qnice_data_o      => qnice_p1581_data_o
   ); -- i_physical_1581_diag
+else generate
+  p1581_wr_precomp_mode <= "00";   -- WR_CTRL's reset value: precompensation as the controller decides
+  qnice_p1581_data_o    <= (others => '0');
+end generate p1581_diag_gen;
 
 vdrives_inst : entity work.vdrives
   generic map (
@@ -3040,7 +3113,6 @@ i_vd_sd : entity work.vd_sd
 
     dirty_o        => cache_dirty,
     ready_i        => iec_disk_ready,
-    power_o        => vd_sd_power,
     running_i      => not iec_drives_reset,
 
     eng_want_o     => qnice_sd_want_o,
@@ -3049,7 +3121,7 @@ i_vd_sd : entity work.vd_sd
   ); -- i_vd_sd
 
 drives_dirty <= '1' when unsigned(cache_dirty)    /= 0 else '0';
-drives_busy  <= '1' when unsigned(iec_drive_led)  /= 0 else '0';
+drives_busy  <= '1' when unsigned(iec_drive_led) /= 0 or hd_led_act = '1' or hd_led_err = '1' else '0';
 
 -- Let the computer see the emulated drive's lines about half a microsecond late,
 -- the way it sees a real drive on the cable.
@@ -3105,6 +3177,10 @@ begin
   qnice_vdsd_data_o <= (others => '0');
   qnice_sd_want_o   <= '0';
   qnice_sd_eng_o    <= (others => '0');
+  qnice_hd_data_o   <= (others => '0');
+  qnice_hd_wait_o   <= '0';
+  qnice_hd_want_o   <= '0';
+  qnice_hd_eng_o    <= (others => '0');
   drv_rom_req_o     <= '0';
   drv_rom_addr_o    <= (others => '0');
 

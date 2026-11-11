@@ -3,12 +3,13 @@
 // has his name and type; its choices are the core's, under his names where he has the same.
 // The menu's settings his U64 has are in his U64 Specific Settings. The C128's own ROMs are in
 // a store of ours, C128 ROM Settings, and the menu's settings he has nothing like in another,
-// MEGA65 Settings.
+// MEGA65 Settings. The CMD HD (an Ultimate has none) is in CMD HD Settings.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include "cmdhd.h"
 #include "config_ids.h"
 #include "core.h"
 #include "drives.h"
@@ -22,13 +23,14 @@
 #include "uci.h"
 
 // I_GROUP: a menu group (item_t's group); an on_off item is its single-select line
-enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_UCI, I_DRIVE, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED, I_SCAN,
+enum { I_REU, I_REU_SIZE, I_REU_IMAGE, I_HD_IMAGE, I_UCI, I_DRIVE_TYPE, I_DRIVE_ID, I_FIXED, I_SCAN,
        I_MOUSE, I_GROUP = I_MOUSE + MS_COUNT, I_NET };      // I_MOUSE + MS_*: the mouse's                                    // I_FIXED: one choice, nothing to set                        // I_NET + NC_*: netcfg's strings
 #define I_ROM (I_NET + NC_COUNT)                            // I_ROM + RP_*: rompick.h's picks
 
 static const char *const names[ST_COUNT] = {
    "U64 Specific Settings", "C64 and Cartridge Settings", "Drive A Settings", "Drive B Settings", "Modem Settings",
-   "Ethernet Settings", "Network Settings", "Data Streams", "C128 ROM Settings", "MEGA65 Settings"
+   "Ethernet Settings", "Network Settings", "Data Streams", "C128 ROM Settings", "MEGA65 Settings",
+   "CMD HD Settings"
 };
 
 static const char *const en_dis[]      = { "Disabled", "Enabled", NULL };
@@ -48,6 +50,7 @@ static const char *const hdmi_filters[] = { "No Filter", "Sharp Bilinear", "Bicu
                                            "Scanlines", "CRT (S-Video)", "CRT (Composite)", NULL };   // HF_*
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
+static const char *const hd_ids[]      = { "8", "9", "10", "11", "12", NULL };   // the menu's Bus ID
 // His U64's
 static const char *const sys_modes[]   = { "PAL", NULL };                     // System Mode
 static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };       // Joystick Swapper
@@ -89,13 +92,13 @@ const item_t stores_items[] = {
    { ST_C64,     I_REU_SIZE,     IT_ENUM,   "REU Size",                   reu_sizes,   0, 0, 1, NULL, 0 },
    { ST_C64,     I_REU_IMAGE,    IT_STRING, "REU Preload Image",          NULL, 0, UCI_PATH_MAX - 1, 0, "", 0 },
    { ST_C64,     I_UCI,          IT_ENUM,   "Command Interface",          en_dis,      0, 0, 0, NULL, 0 },
-   { ST_DRIVE_A, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, 0 },
+   { ST_DRIVE_A, I_GROUP,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, OPTM_G_DRVA_ON },
    { ST_DRIVE_A, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL, 0 },
    { ST_DRIVE_A, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 8, NULL, 0 },
    { ST_DRIVE_A, I_ROM + RP_DRV(0, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom", 0 },
    { ST_DRIVE_A, I_ROM + RP_DRV(0, 1), IT_FILE, "ROM for 1571 mode",      NULL, 0, PICK_MAX - 1, 0, "1571.rom", 0 },
    { ST_DRIVE_A, I_ROM + RP_DRV(0, 2), IT_FILE, "ROM for 1581 mode",      NULL, 0, PICK_MAX - 1, 0, "1581.rom", 0 },
-   { ST_DRIVE_B, I_DRIVE,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, 0 },
+   { ST_DRIVE_B, I_GROUP,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 0, NULL, OPTM_G_DRVB_ON },
    { ST_DRIVE_B, I_DRIVE_TYPE,   IT_ENUM,   "Drive Type",                 drive_types, 0, 0, 1, NULL, 0 },
    { ST_DRIVE_B, I_DRIVE_ID,     IT_VALUE,  "Drive Bus ID",               NULL,        8, 11, 9, NULL, 0 },
    { ST_DRIVE_B, I_ROM + RP_DRV(1, 0), IT_FILE, "ROM for 1541 mode",      NULL, 0, PICK_MAX - 1, 0, "1541.rom", 0 },
@@ -130,6 +133,12 @@ const item_t stores_items[] = {
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VGA Display Mode",           vga_modes,   0, 0, 0, NULL, OPTM_G_VGA_MODES },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "256 KB RAM",                 en_dis,      0, 0, 0, NULL, OPTM_G_RAM256 },
+   // Ours: the CMD HD
+   { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, OPTM_G_HD_ON },
+   { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive Bus ID",               hd_ids,      0, 0, 4, NULL, OPTM_G_HD_ID },
+   { ST_CMDHD,   I_HD_IMAGE,     IT_STRING, "Disk Image",                 NULL, 0, UCI_PATH_MAX - 1, 0, "", 0 },
+   { ST_CMDHD,   I_ROM + RP_HD,  IT_FILE,   "Boot ROM",                   NULL, 0, PICK_MAX - 1, 0, "", 0 },
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
@@ -140,14 +149,14 @@ _Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.
 // items it names.
 static uint8_t wanted[ITEMS_MAX];
 static struct {
-   int8_t reu, size, image, uci, scan, power[2], model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
+   int8_t reu, size, image, hd_image, uci, scan, model[2], id[2], net[NC_COUNT], rom[RP_COUNT];
    int8_t mouse[MS_COUNT];
    int8_t group[ITEMS_MAX];          // an I_GROUP item's, by its index
 } want;
 static char    want_str[NC_COUNT][NC_LEN];
 static char    want_rom[RP_COUNT][PICK_MAX];
-static int8_t  power_kept[2] = { -1, -1 };   // Drive as REST or LOAD_CONFIG set it, -1 never: in the file
 static char    want_image[UCI_PATH_MAX];
+static char    want_hd_image[UCI_PATH_MAX];
 static char    shown[UCI_PATH_MAX + 4];   // item_text's
 static int8_t  reu_kept;                  // the REU's size while it is off, as his REU Size
 static int8_t  mouse[MS_COUNT] = { -1, -1, -1, -1, -1 };   // -1: the item's default
@@ -158,7 +167,6 @@ static int     starting;                  // stores_load: the C128 held in reset
 // The items a program's or cartridge's .cfg changed (stores_apply_session): what the file
 // would have kept for them, and a hash of their value then, to see if they changed since
 #define KEPT_MAX   (UCI_PATH_MAX + 4)        // item_text's longest
-#define KEPT_NONE  "\x01"                    // nothing: drive power never set
 static uint8_t  session[ITEMS_MAX];
 static uint32_t session_hash[ITEMS_MAX];
 static char    *kept;                         // ITEMS_MAX of KEPT_MAX, in the heap
@@ -201,6 +209,25 @@ void stores_drive_set_model(int d, int m)
 {
    if (stores_drive_model(d) != m)
       shell_force(model_group(d), m, 1);
+}
+
+static int on_group(int d)
+{
+   return d ? OPTM_G_DRVB_ON : OPTM_G_DRVA_ON;
+}
+
+int stores_drive_on(int d)
+{
+   return shell_setting(on_group(d), 0);
+}
+
+// As his Turn On/Off: the setting, kept in the settings file
+void stores_drive_set_on(int d, int on)
+{
+   if (stores_drive_on(d) != on) {
+      shell_force(on_group(d), 0, on);
+      stale[d ? ST_DRIVE_B : ST_DRIVE_A] = 1;
+   }
 }
 
 int stores_drive_id(int d)
@@ -306,7 +333,6 @@ int item_get(const item_t *it)
       return r - 1 < item_choices(it) ? r - 1 : 0;
    case I_UCI:        return shell_setting(OPTM_G_UCI, 0);
    case I_SCAN:       return group_pos(OPTM_G_HDMI_FILTER, HF_COUNT) >= HF_SCANLINES;
-   case I_DRIVE:      return drive_running(d) != 0;
    case I_DRIVE_TYPE: return stores_drive_model(d);
    case I_DRIVE_ID:   return stores_drive_id(d);
    case I_MOUSE + MS_MODE: case I_MOUSE + MS_SENS: case I_MOUSE + MS_ACCEL:
@@ -349,6 +375,13 @@ const char *item_text(const item_t *it)
          return "";
       strcpy(shown, "/SD");
       strcat(shown, reu_file());
+      return shown;
+   }
+   if (it->id == I_HD_IMAGE) {
+      if (!*cmdhd_path())
+         return "";
+      strcpy(shown, "/SD");
+      strcat(shown, cmdhd_path());
       return shown;
    }
    return netcfg[it->id - I_NET];
@@ -412,7 +445,6 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
    case I_REU:      want.reu = c;      return WANT_OK;
    case I_UCI:      want.uci = c;      return WANT_OK;
    case I_SCAN:     want.scan = c;     return WANT_OK;
-   case I_DRIVE:    want.power[d] = c; return WANT_OK;
    case I_GROUP:    want.group[it - stores_items] = c; return WANT_OK;
    case I_FIXED:                       return WANT_OK;
    case I_REU_SIZE: want.size = c + 1; return WANT_OK;
@@ -447,6 +479,16 @@ static int want_item(const item_t *it, const char *v, int loadcfg, int *n)
          return WANT_CHOICE;
       memmove(want_image, card, strlen(card) + 1);   // the card's path, from the buffer's start
       want.image = 1;
+      return WANT_OK;
+   case I_HD_IMAGE:
+      if (!*v) {
+         want.hd_image = 0;                      // none
+         return WANT_OK;
+      }
+      if (!(card = uci_card_path(v, want_hd_image)))
+         return WANT_CHOICE;
+      memmove(want_hd_image, card, strlen(card) + 1);
+      want.hd_image = 1;
       return WANT_OK;
    default: {
       // A pick's path, as the REU image's: the card's
@@ -502,13 +544,12 @@ void stores_net_defaults(void)
          strcpy(netcfg[stores_items[i].id - I_NET], stores_items[i].sdef);
 }
 
-// Drive power only with power: the file's says nothing unless REST or LOAD_CONFIG set it
-static void want_defaults(int s, int power)
+static void want_defaults(int s)
 {
    int n;
    for (int i = 0; i < stores_count; i++) {
       const item_t *it = &stores_items[i];
-      if (it->store != s || (it->id == I_DRIVE && !power))
+      if (it->store != s)
          continue;
       if (it->type == IT_ENUM)
          stores_want(it, it->choices[it->id == I_REU_SIZE && item_choices(it) <= it->def ? 0 : it->def], 0, &n);
@@ -525,13 +566,13 @@ static void want_defaults(int s, int power)
 
 void stores_want_defaults(int s)
 {
-   want_defaults(s, 1);
+   want_defaults(s);
 }
 
 void stores_want_saved(int s)
 {
    FIL f;
-   want_defaults(s, 0);
+   want_defaults(s);
    // A file from before the HDMI Filter has no line for it: then it keeps the scan lines
    // his HDMI Scan lines, read before it, left
    int f0 = group_pos(OPTM_G_HDMI_FILTER, HF_COUNT);
@@ -560,11 +601,6 @@ static int apply(void)
    else if (to != now && uci_reu_set(to))
       done = 0;
 
-   for (int d = 0; d < 2; d++)
-      if (want.power[d] >= 0) {
-         drive_power(d, want.power[d] ? DRIVE_ON : DRIVE_OFF);
-         power_kept[d] = want.power[d];
-      }
    for (int d = 0; d < 2; d++) {
       if (want.model[d] >= 0)
          stores_drive_ask_model(d, want.model[d]);
@@ -598,6 +634,13 @@ static int apply(void)
       reu_file_set(want.image ? want_image : NULL);
       shell_crtrom_named(OPTM_G_REU_FILE, want.image ? want_image : NULL);
    }
+   // The CMD HD's image: mounted, or out; one that won't mount is left out
+   if (want.hd_image >= 0 && strcmp(cmdhd_path(), want.hd_image ? want_hd_image : "")) {
+      const char *msg;
+      if (!want.hd_image || cmdhd_mount(want_hd_image, &msg))
+         cmdhd_unmount();
+      shell_crtrom_named(OPTM_G_HD_IMAGE, *cmdhd_path() ? cmdhd_path() : NULL);
+   }
    for (int k = 0; k < NC_COUNT; k++)
       if (want.net[k] >= 0) {
          strcpy(netcfg[k], want_str[k]);
@@ -620,14 +663,6 @@ static int apply(void)
 }
 
 static const char *value_text(const item_t *it);
-
-// What the settings file holds for an item: NULL for drive power never set
-static const char *saved_text(const item_t *it)
-{
-   if (it->id == I_DRIVE && power_kept[it->store == ST_DRIVE_B] < 0)
-      return NULL;
-   return value_text(it);
-}
 
 static uint32_t hash(const char *s)
 {
@@ -652,14 +687,13 @@ int stores_apply_session(void)
       kept = heap_alloc(ITEMS_MAX * KEPT_MAX);
    for (int i = 0; i < stores_count; i++)
       if (wanted[i] && !session[i]) {
-         const char *v = saved_text(&stores_items[i]);
-         strncpy(kept + i * KEPT_MAX, v ? v : KEPT_NONE, KEPT_MAX - 1);
+         strncpy(kept + i * KEPT_MAX, value_text(&stores_items[i]), KEPT_MAX - 1);
          session[i] = 1;
       }
    int done = apply();
    for (int i = 0; i < stores_count; i++)
       if (wanted[i])
-         session_hash[i] = hash(saved_text(&stores_items[i]));
+         session_hash[i] = hash(value_text(&stores_items[i]));
    return done;
 }
 
@@ -815,8 +849,6 @@ int stores_load(void)
 static const char *value_text(const item_t *it)
 {
    static char num[8];
-   if (it->id == I_DRIVE)
-      return en_dis[power_kept[it->store == ST_DRIVE_B]];
    if (it->type == IT_ENUM)
       return it->choices[item_get(it)];
    if (it->type == IT_VALUE) {
@@ -838,15 +870,13 @@ int stores_save(void)
       return -1;
    for (int i = 0; i < stores_count && ok; i++) {
       const item_t *it = &stores_items[i];
-      const char *v = saved_text(it);
+      const char *v = value_text(it);
       int n = 0;
       // A program's or cartridge's value: what the file had, unless it changed since
       if (session[i] && hash(v) != session_hash[i])
          session[i] = 0;
       if (session[i])
-         v = strcmp(kept + i * KEPT_MAX, KEPT_NONE) ? kept + i * KEPT_MAX : NULL;
-      if (!v)
-         continue;
+         v = kept + i * KEPT_MAX;
       if (it->store != last)
          n = fmt_snprintf(line, sizeof line, "[%s]\n", names[it->store]);
       last = it->store;

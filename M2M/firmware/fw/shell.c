@@ -28,7 +28,7 @@ static uint8_t is_mount[MENU_MAX];   // drive number + 1, or 0
 static uint8_t is_crtrom[MENU_MAX];  // CRT/ROM number + 1, or 0
 static uint8_t is_help[MENU_MAX];    // help screen (WHS record) number, or 0
 
-#define CRTROM_MAX   16              // CRT/ROM items in the menu (C_CRTROMS_MAN's most)
+#define CRTROM_MAX   24              // CRT/ROM items in the menu (C_CRTROMS_MAN_NUM at most)
 #define NAME_MAX     32              // a file's name as the menu shows it, cut
 
 static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_MSG, UI_CLOSING } ui;
@@ -63,13 +63,27 @@ static void wait(uint32_t t)
       keys_poll();
 }
 
+// The SD card's diagnosis (lib/sd_diag.c), one line each
+static int put_why(char *text, int size)
+{
+   const sd_diag_t *d = sdcard_why();
+   int n = 0;
+   for (int i = 0; d && i < d->n; i++)
+      n += fmt_snprintf(text + n, size - n, "%s\n", d->line[i]);
+   return n;
+}
+
 void shell_fatal(const char *msg, uint32_t code)
 {
-   char text[512];
+   char text[1024];
    int n = fmt_snprintf(text, sizeof text, "\nFATAL ERROR:\n\n%s", msg);
    if (code)
-      n += fmt_snprintf(text + n, sizeof text - n, "Error code: %04X", (unsigned)code);
-   fmt_snprintf(text + n, sizeof text - n, "\n\nCore stopped. Please reset the machine.\n");
+      n += fmt_snprintf(text + n, sizeof text - n, "Error code: %04X\n", (unsigned)code);
+   if (sdcard_why()) {
+      n += fmt_snprintf(text + n, sizeof text - n, "\nSD card in the %s:\n", sdcard_slot());
+      n += put_why(text + n, sizeof text - n);
+   }
+   fmt_snprintf(text + n, sizeof text - n, "\nCore stopped. Please reset the machine.\n");
    scr_full_on();
    scr_clear();
    scr_print(0, 0, 1, text);
@@ -381,6 +395,15 @@ static void select(uint16_t group, int item, enum menu_key key)
 {
    int idx = menu.cursor;
 
+   // One the core won't make: the menu's toggle undone, and why
+   const char *why = core_sel_refused(group & MENU_ID, item, key == MENU_KEY_SELALT);
+   if (why) {
+      for (int i = 0; i < menu.n; i++)
+         if (menu.group[i] == group)
+            menu.sel[i] = setting_get(i);
+      shell_message(why);
+      return;
+   }
    core_sel_pre(group & MENU_ID, item);
    // Space on a mounted drive unmounts it; otherwise a drive gets an image, or another
    // one in place of its image
@@ -499,8 +522,10 @@ static void load_poll(uint32_t key)
       }
       frame_full();
       if (sdcard_state() != SDCARD_OK) {
-         fmt_snprintf(text, sizeof text, "Error: Cannot mount SD card!\nError code: %04X"
-                      "\n\nPress Return to retry", sdcard_result());
+         int n = fmt_snprintf(text, sizeof text, "Error: Cannot mount SD card!\n"
+                              "SD card in the %s:\n\n", sdcard_slot());
+         n += put_why(text + n, sizeof text - n);
+         fmt_snprintf(text + n, sizeof text - n, "\nPress Return to retry");
          scr_print(1, 1, 1, text);
          load.step = L_MOUNT_ERR;
          break;
@@ -671,8 +696,8 @@ int shell_mount_ro(int d, const char *path, int ro, const char **msg)
    const char *name = strrchr(path, '/');
    strncpy(drv_name[d], name ? name + 1 : path, menu.dx - 1);
    drv_name[d][menu.dx - 1] = 0;
+   core_sel_post(group, 0);           // first, so the menu shows what it changed (model, on)
    mount_shown(i, 1);
-   core_sel_post(group, 0);
    return 0;
 }
 

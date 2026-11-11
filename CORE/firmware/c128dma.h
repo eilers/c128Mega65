@@ -1,6 +1,6 @@
-// The C128's bus DMA (CORE/vhdl/c128_dma.vhd): C128 memory as the CPU sees it, a job of
-// up to DMA_MAX bytes at a time, and the CPU held between jobs (REST's pause). A job takes
-// about 1 us a byte; nothing here waits for one.
+// The C128's bus DMA (CORE/vhdl/c128_dma.vhd): C128 memory as a DMA sees it (see there), a
+// job of up to DMA_MAX bytes at a time, and the CPU held between jobs (REST's pause). A job
+// takes about 1 us a byte; nothing here waits for one.
 #pragma once
 #include <stdint.h>
 

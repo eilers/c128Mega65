@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <string.h>
 #include "cfg.h"
+#include "cmdhd.h"
 #include "config_ids.h"
 #include "core.h"
 #include "diskimg.h"
@@ -34,6 +35,7 @@
 #define DEV_REU     0x0000
 #define DEV_BOOT    0x0001
 #define DEV_CFG     0x0002         // Load settings
+#define DEV_HD      0x0003         // the CMD HD's Image:%s
 #define DEV_ROM     0x0010         // + the pick
 
 #define CRT_DEVICE        0x0106   // C_DEV_CRT (globals.vhd), its CSR (sw_cartridge_csr.vhd):
@@ -43,22 +45,54 @@
 #define CRT_CSR_STATS     0x023    // R: 1 = show them in the menu
 
 // A drive's line on the main menu: its ID and what it runs as, then its image, e.g.
-// " 8:1571 game.d64", cut to the menu's width (OPTM_DX) as the Shell cuts an image's name
+// " 8:1571 game.d64", cut to the menu's width (OPTM_DX) as the Shell cuts an image's name.
+// A drive that is off says so in place of its model: " 9:Off", " 9:Off game.d64".
 static const char *drive_line(int d)
 {
    static const char *const types[] = { "1541", "1571", "1581" };
    static char line[64];
    char none[32];
+   int on = stores_drive_on(d);
    const char *name = drive_path(d), *slash = strrchr(name, '/');
    if (stores_drive_internal(d))
       name = "Internal";
    else if (*name)
       name = slash ? slash + 1 : name;
-   else {
+   else if (on) {
       cfg_str(CFG_OPTM_MSTR, none, sizeof none);
       name = none;
    }
-   int n = fmt_snprintf(line, sizeof line, " %d:%s %s", stores_drive_id(d), types[stores_drive_type(d)], name);
+   int n = fmt_snprintf(line, sizeof line, " %d:%s%s%s", stores_drive_id(d),
+                        on ? types[stores_drive_type(d)] : "Off", *name ? " " : "", name);
+   if (n > MENU_WIDTH)
+      strcpy(line + MENU_WIDTH - 3, "...");
+   return line;
+}
+
+// The CMD HD's line on the main menu, as a drive's: " 12:HD image.dhd", " 12:Off"; " 30:HD ..."
+// in config or install mode, where the boot ROM answers at 30
+static int hd_id(void)
+{
+   for (int i = 0; i < 5; i++)
+      if (shell_setting(OPTM_G_HD_ID, i))
+         return 8 + i;
+   return 12;
+}
+
+static const char *hd_line(void)
+{
+   static char line[64];
+   char none[32];
+   int on = shell_setting(OPTM_G_HD_ON, 0);
+   const char *name = cmdhd_path(), *slash = strrchr(name, '/');
+   if (*name)
+      name = slash ? slash + 1 : name;
+   else if (on) {
+      cfg_str(CFG_OPTM_MSTR, none, sizeof none);
+      name = none;
+   }
+   int id = cmdhd_mode() != HD_RESET_NORMAL ? 30 : hd_id();
+   int n = fmt_snprintf(line, sizeof line, " %d:%s%s%s", id, on ? "HD" : "Off", *name ? " " : "", name);
    if (n > MENU_WIDTH)
       strcpy(line + MENU_WIDTH - 3, "...");
    return line;
@@ -79,6 +113,8 @@ const char *core_submenu_summary(int idx)
       ;
    if (g == OPTM_G_MOUNT_D8 || g == OPTM_G_MOUNT_D9)
       return drive_line(g == OPTM_G_MOUNT_D9);
+   if (g == OPTM_G_HD_IMAGE)
+      return hd_line();
    if (g == OPTM_G_KEYS)   // Stock: Caps Lock is 40/80 and Help opens the menu
       return shell_setting(OPTM_G_KEYS, 0) && !shell_setting(OPTM_G_HELP_F13, 0) ?
              " Keyboard: Stock" : " Keyboard: Custom";
@@ -120,13 +156,26 @@ const char *core_mount_text(int drive, const char *name)
    return drive <= 1 && stores_drive_internal(drive) ? "Internal 1581" : NULL;
 }
 
-static int id_was[2];   // a drive's ID before the menu changed it
+// The CMD HD can't start without its boot ROM: no image and no Drive enabled until it has
+// one (as VICE's, which has no CMD HD without it). Space still takes an image out.
+const char *core_sel_refused(int group, int item, int alt)
+{
+   if (rompick_state(RP_HD) == RS_FILE)
+      return NULL;
+   if ((group == OPTM_G_HD_ON && item) || (group == OPTM_G_HD_IMAGE && !(alt && *cmdhd_path())))
+      return "Load a boot ROM first,\non the Boot ROM line below.";
+   return NULL;
+}
+
+static int id_was[3];   // a drive's ID before the menu changed it: A, B, the CMD HD
 
 void core_sel_pre(int group, int item)
 {
    (void)item;
    if (group == OPTM_G_DRVA_ID || group == OPTM_G_DRVB_ID)
       id_was[group == OPTM_G_DRVB_ID] = stores_drive_id(group == OPTM_G_DRVB_ID);
+   if (group == OPTM_G_HD_ID)
+      id_was[2] = hd_id();
    // Choosing an image for the drive that is the internal floppy gives the drive back
    // to images first, as a 1581
    for (int d = 0; d < 2; d++)
@@ -140,11 +189,28 @@ void core_sel_pre(int group, int item)
 
 void core_sel_post(int group, int item)
 {
-   // Never two drives on one ID: the other one takes this one's old ID
+   // Never two drives on one ID: the other one takes this one's old ID. The CMD HD has 12 as
+   // well, which a floppy can't: then the floppy takes the first ID that is free.
    if (group == OPTM_G_DRVA_ID || group == OPTM_G_DRVB_ID) {
       int d = group == OPTM_G_DRVB_ID;
       if (stores_drive_id(!d) == 8 + item)
          stores_drive_set_id(!d, id_was[d]);
+      if (hd_id() == 8 + item)
+         shell_force(OPTM_G_HD_ID, id_was[d] - 8, 1);
+   }
+   if (group == OPTM_G_HD_ID)
+      for (int d = 0; d < 2; d++)
+         if (stores_drive_id(d) == 8 + item) {
+            int to = id_was[2];
+            for (int id = 8; to > 11 && id <= 11; id++)
+               if (id != 8 + item && stores_drive_id(!d) != id)
+                  to = id;
+            stores_drive_set_id(d, to);
+         }
+   // The CMD HD's resets with buttons held, as VICE's: done, then the line is off again
+   if ((group == OPTM_G_HD_CONFIG || group == OPTM_G_HD_INSTALL) && shell_setting(group, 0)) {
+      cmdhd_reset(group == OPTM_G_HD_CONFIG ? HD_RESET_CONFIG : HD_RESET_INSTALL);
+      shell_force(group, 0, 0);
    }
    // A drive's model is always one its image runs: a model it can't run ejects the image
    if (group == OPTM_G_DRVA_MODEL || group == OPTM_G_DRVB_MODEL) {
@@ -154,11 +220,18 @@ void core_sel_post(int group, int item)
       // One drive at a time is the internal floppy: the other one becomes a 1581 of images
       else if (item == DM_INTERNAL && stores_drive_model(!d) == DM_INTERNAL)
          stores_drive_set_model(!d, stores_drive_fit(!d, DM_1581));
+      // The internal floppy is a disk in the drive: it turns the drive on, as a mount does
+      if (item == DM_INTERNAL)
+         stores_drive_set_on(d, 1);
    }
-   // A mount moves the model to one its image runs
+   // A mount moves the model to one its image runs and turns the drive on; taking the
+   // image out leaves it on
    for (int d = 0; d < 2; d++)
-      if (group == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8))
+      if (group == (d ? OPTM_G_MOUNT_D9 : OPTM_G_MOUNT_D8)) {
          stores_drive_set_model(d, stores_drive_fit(d, stores_drive_model(d)));
+         if (drive_mounted(d))
+            stores_drive_set_on(d, 1);
+      }
    if (group == OPTM_G_NET_DHCP || group == OPTM_G_NET_REST || group == OPTM_G_NET_FTP)
       netcfg_apply();
    // His F5 menu's stream start and stop, to the target on the line below (stream.c)
@@ -282,6 +355,8 @@ static int pick_of_group(int group)
 {
    if (group == OPTM_G_CRT_BOOT)
       return RP_BOOT;
+   if (group == OPTM_G_ROM_HD)
+      return RP_HD;
    return group >= OPTM_G_ROM_K128 && group <= OPTM_G_ROM_D9_81 ? group - OPTM_G_ROM_K128 : -1;
 }
 
@@ -289,6 +364,8 @@ static int pick_of_dev(int dev)
 {
    if (dev == DEV_BOOT)
       return RP_BOOT;
+   if (dev == DEV_ROM + RP_HD)
+      return RP_HD;
    return dev >= DEV_ROM && dev < DEV_ROM + RP_BOOT ? dev - DEV_ROM : -1;
 }
 
@@ -303,6 +380,8 @@ const char *core_browse_start(int ctx, int group)
       return NULL;
    if (group == OPTM_G_MOUNT_CRT)
       return CARTS_DIR;
+   if (group == OPTM_G_HD_IMAGE)
+      return HD_DIR;
    return p >= 0 ? rompick_dir(p) : NULL;
 }
 
@@ -314,7 +393,7 @@ const char *core_crtrom_text(int dev)
       return NULL;
    if (rompick_state(p) == RS_FAILED)
       return "<Error>";
-   return p == RP_BOOT ? "<None>" : p == RP_FUNC ? "None" : "Stock";
+   return p == RP_BOOT || p == RP_HD ? "<None>" : p == RP_FUNC ? "None" : "Stock";
 }
 
 // Space on a line: a pick back to stock and kept at once; the virtual cartridge out, the
@@ -333,6 +412,13 @@ int core_crtrom_clear(int group)
       if (!reu_file_picked())
          return 0;
       reu_file_set(NULL);
+      stores_save();
+      return 1;
+   }
+   if (group == OPTM_G_HD_IMAGE) {
+      if (!*cmdhd_path())
+         return 0;
+      cmdhd_unmount();
       stores_save();
       return 1;
    }
@@ -364,10 +450,12 @@ static const char *sizes(int p)
 int core_filter_file(const char *name, int dir, int ctx, int group, uint32_t size)
 {
    static const char *const disk[] = { ".D64", ".D71", ".D81", NULL }, *const crt[] = { ".CRT", NULL },
-                     *const reu[] = { ".REU", NULL }, *const cfg[] = { ".CFG", NULL };
+                     *const reu[] = { ".REU", NULL }, *const cfg[] = { ".CFG", NULL },
+                     *const hd[] = { ".DHD", ".HDA", ".HDD", NULL };
    const char *const *ext = ctx == CTX_MOUNT_DISKIMG ? disk :
                             ctx != CTX_LOAD_ROM ? NULL :
-                            group == OPTM_G_REU_FILE ? reu : group == OPTM_G_LOAD_CFG ? cfg : crt;
+                            group == OPTM_G_REU_FILE ? reu : group == OPTM_G_LOAD_CFG ? cfg :
+                            group == OPTM_G_HD_IMAGE ? hd : crt;
    int len = strlen(name), p = pick_of_group(group);
 
    if (dir || !ext)
@@ -397,8 +485,8 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
       { 819200, 2 },   // D81: 1581
    };
    *type = 0;
-   if (ctx == CTX_LOAD_ROM && group == OPTM_G_LOAD_CFG)
-      return 0;
+   if (ctx == CTX_LOAD_ROM && (group == OPTM_G_LOAD_CFG || group == OPTM_G_HD_IMAGE))
+      return 0;                        // a CMD HD image: cmdhd_mount checks it
    if (ctx == CTX_MOUNT_DISKIMG) {
       for (unsigned i = 0; i < sizeof disks / sizeof disks[0]; i++)
          if (size == disks[i].size) {
@@ -438,7 +526,8 @@ const char *core_custom_msg(int situation, int ctx, int group)
    static char m[200];
    int p = pick_of_group(group);
    if (situation == CMSG_NEWFILE)
-      return ".d64, .d71 or .d81 picks the type";
+      return group == OPTM_G_HD_IMAGE ? "name,MB sets the size: 16 to 4000" :
+             ".d64, .d71 or .d81 picks the type";
    if (situation != CMSG_BROWSENOTHING)
       return NULL;
    if (ctx == CTX_LOAD_ROM && p >= 0 && p != RP_BOOT) {
@@ -453,6 +542,9 @@ const char *core_custom_msg(int situation, int ctx, int group)
    if (ctx == CTX_LOAD_ROM && group == OPTM_G_LOAD_CFG)
       return "No .cfg settings files here.\n\nA settings file has the format of\n"
              "/c128/settings.cfg, an Ultimate's.\n\nPress Space to continue.";
+   if (ctx == CTX_LOAD_ROM && group == OPTM_G_HD_IMAGE)
+      return "No CMD HD images here.\n\nCopy CMD HD disk images (.dhd, .hda)\nto /c128/hd on this SD card, or press\n"
+             "F5 to make a new one.\n\nPress Space to continue.";
    if (ctx == CTX_LOAD_ROM)
       return "No .crt cartridge files here.\n\nCopy C64 or C128 .crt files to any\n"
              "folder of this SD card, for example\n/c128/carts.\n\nPress Space to continue.";
@@ -488,10 +580,46 @@ static int disk_kind(int d, const char *typed)
    return stores_drive_type(d);
 }
 
+// --- F5 in the CMD HD's browser: a new image, "name,MB" -----------------------------------
+
+#define HD_NEW_MB  256                  // the size of a new image, if the name says none
+#define HD_MIN_MB  16
+#define HD_MAX_MB  4000                 // FAT32 files stop short of 4 GB
+
+static int hd_new(int ctx, int group)
+{
+   return ctx == CTX_LOAD_ROM && group == OPTM_G_HD_IMAGE;
+}
+
+// The size a typed name asks for, in MB (0: not a size), and the name's length without it
+static int hd_size(const char *typed, int *len)
+{
+   const char *comma = strrchr(typed, ',');
+   int mb = 0;
+   *len = strlen(typed);
+   if (!comma)
+      return HD_NEW_MB;
+   for (const char *c = comma + 1; *c; c++) {
+      if (*c < '0' || *c > '9' || mb > HD_MAX_MB)
+         return 0;
+      mb = mb * 10 + *c - '0';
+   }
+   *len = comma - typed;
+   return mb >= HD_MIN_MB && mb <= HD_MAX_MB ? mb : 0;
+}
+
 const char *core_new_file_label(int ctx, int group, const char *typed)
 {
    static const char *const label[] = { "New D64 disk", "New D71 disk", "New D81 disk" };
-   int d = disk_drive(ctx, group);
+   static char hd_label[32];
+   int d = disk_drive(ctx, group), len, mb;
+   if (hd_new(ctx, group)) {
+      mb = hd_size(typed, &len);
+      if (!mb)
+         return "New CMD HD: 16 to 4000 MB";
+      fmt_snprintf(hd_label, sizeof hd_label, "New CMD HD, %d MB", mb);
+      return hd_label;
+   }
    return d < 0 ? NULL : label[disk_kind(d, typed)];
 }
 
@@ -501,6 +629,32 @@ const char *core_new_file(int ctx, int group, const char *folder, const char *ty
 {
    static char m[64];
    char header[32], path[UCI_PATH_MAX + 40];
+   if (hd_new(ctx, group)) {
+      int len, mb = hd_size(typed, &len);
+      if (!mb)
+         return "The size after the comma: 16 to 4000 (MB).";
+      if (len > 60)
+         len = 60;                      // fmt has no "%.*s"
+      memcpy(name, typed, len);
+      name[len] = 0;
+      if (len < 4 || strcasecmp(name + strlen(name) - 4, ".dhd"))
+         strcat(name, ".dhd");
+      for (char *c = name; *c; c++)
+         if (strchr("\"*:/<>\\?|,", *c))
+            *c = '_';
+      fmt_snprintf(path, sizeof path, "%s/%s", folder, name);
+      FRESULT r = cmdhd_create(path, (uint32_t)mb << 20);
+      if (r == FR_OK)
+         return NULL;
+      if (r == FR_EXIST)
+         return "There is a file of that name here already.";
+      if (r == FR_DENIED)
+         return "There is no room for it on the SD card.";
+      if (r == FR_WRITE_PROTECTED)
+         return "The SD card is write protected.";
+      fmt_snprintf(m, sizeof m, "It could not be made: %s", uci_fr_text(r));
+      return m;
+   }
    int kind = disk_kind(disk_drive(ctx, group), typed), n = strlen(typed);
    if (n > 4 && !strcasecmp(typed + n - 4, disk_ext[kind]))
       n -= 4;
@@ -638,6 +792,14 @@ int core_crtrom_load(int dev, const char *path, const char **msg)
    int p = pick_of_dev(dev), err = 0;
    if (dev == DEV_CFG)
       return settings_load(path, msg);
+   if (dev == DEV_HD) {
+      // A mount turns the drive on, as a floppy's does
+      if ((err = cmdhd_mount(path, msg)))
+         return err;
+      shell_force(OPTM_G_HD_ON, 0, 1);
+      stores_save();
+      return 0;
+   }
    if (p < 0)
       err = reu_load(path, 1, msg);
    else {
@@ -670,6 +832,8 @@ int core_crtrom_loaded(int dev)
    int p = pick_of_dev(dev);
    if (dev == DEV_CFG)
       return 0;
+   if (dev == DEV_HD)
+      return *cmdhd_path() != 0;
    return p < 0 ? reu_file_picked() : rompick_state(p) == RS_FILE;
 }
 
@@ -680,6 +844,7 @@ const char *core_prep_start(void)
 {
    const char *msg;
    input_release_all();               // the input device as the firmware starts: nothing held
+   cmdhd_init();
    stores_load();
    rompick_boot();
    if (reu_file_picked() && reu_size()) {
@@ -705,8 +870,20 @@ uint32_t core_menu_key(void)
 // The menu's stream lines (net/stream.c), the boot cartridge's load (rompick.c), the Ultimate
 // Command Interface (uci.c), the REST API (net/http.c), its input's timing (input.c), the
 // FTP server (net/ftp.c) and the HDMI filter's coefficients (hdmi_filter.c)
+// The CMD HD: the menu's Drive enabled and Bus ID (whatever set them: the menu, a settings
+// file, REST), then its disk's commands. Without a boot ROM it is off, whatever set it.
+static void hd_poll(void)
+{
+   if (shell_setting(OPTM_G_HD_ON, 0) && rompick_state(RP_HD) != RS_FILE)
+      shell_force(OPTM_G_HD_ON, 0, 0);
+   cmdhd_set_on(shell_setting(OPTM_G_HD_ON, 0));
+   cmdhd_set_id(hd_id());
+   cmdhd_poll();
+}
+
 DMEM_CODE void core_poll(void)
 {
+   hd_poll();
    hdmi_filter_poll();
    if (stream_dirty)
       stream_menu_sync();

@@ -307,9 +307,9 @@ static const char *html(int code, const char *text, const char *body)
 
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
-#define INFO      "{ \n  \"product\" : \"C128MEGA65\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"10e\",\n" \
-                  "  \"core_version\" : \"1.0e\",\n" \
+#define INFO      "{ \n  \"product\" : \"C128MEGA65 (Ultimate 64 compatible)\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"111\",\n" \
+                  "  \"core_version\" : \"1.11\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -962,7 +962,7 @@ static void streams(void)
 // --- the configs routes ---
 
 #define CATEGORIES "\"U64 Specific Settings\", \"C64 and Cartridge Settings\", \"Drive A Settings\", \"Drive B Settings\", \"Modem Settings\", " \
-                   "\"Ethernet Settings\", \"Network Settings\", \"Data Streams\", \"C128 ROM Settings\", \"MEGA65 Settings\""
+                   "\"Ethernet Settings\", \"Network Settings\", \"Data Streams\", \"C128 ROM Settings\", \"MEGA65 Settings\", \"CMD HD Settings\""
 #define DRIVE_ROMS ",\n  \"ROM for 1541 mode\" : \"1541.rom\",\n  \"ROM for 1571 mode\" : \"1571.rom\",\n" \
                    "  \"ROM for 1581 mode\" : \"1581.rom\""
 #define DRIVE_ROMS_FILE "ROM for 1541 mode=1541.rom\nROM for 1571 mode=1571.rom\nROM for 1581 mode=1581.rom\n"
@@ -1022,7 +1022,7 @@ static void configs(void)
    expect("a number in hex", "PUT /v1/configs/drive%20b%20settings/drive%20bus%20id?value=0x9 HTTP/1.1\r\n\r\n", OK);
    int applies = net_applies;
    expect("drive off", "PUT /v1/configs/Drive%20A%20Settings/Drive/disabled HTTP/1.1\r\n\r\n", OK);
-   check("drive off: off", !drive_on[0] && net_applies == applies, NULL);
+   check("drive off: off", !drive_is_on(0) && net_applies == applies, NULL);
    expect("not a choice", "PUT /v1/configs/Drive%20A%20Settings/Drive/Maybe HTTP/1.1\r\n\r\n",
           bad("\"Value 'Maybe' is not a valid choice for item Drive\""));
    expect("a choice with a space", "PUT /v1/configs/Drive%20A%20Settings/Drive?value=Enabled%20 HTTP/1.1\r\n\r\n",
@@ -1085,7 +1085,7 @@ static void configs(void)
          "[C64 and Cartridge Settings]\nCartridge=\nCartridge Preference=External\nAlternate Kernal=\n"
          "RAM Expansion Unit=Enabled\nREU Size=16 MB\nREU Preload Image=/SD/c128/x.reu\nCommand Interface=Disabled\n"
          "[Drive A Settings]\nDrive=Disabled\nDrive Type=1571\nDrive Bus ID=8\n" DRIVE_ROMS_FILE
-         "[Drive B Settings]\nDrive Type=1571\nDrive Bus ID=9\n" DRIVE_ROMS_FILE
+         "[Drive B Settings]\nDrive=Disabled\nDrive Type=1571\nDrive Bus ID=9\n" DRIVE_ROMS_FILE
          "[Modem Settings]\nModem Interface=ACIA / SwiftLink\nACIA (6551) Mapping=D700/NMI\nHardware Mode=SwiftLink\n"
          "[Ethernet Settings]\nUse DHCP=Enabled\nStatic IP=192.168.2.64\nStatic Netmask=255.255.255.0\n"
          "Static Gateway=192.168.2.1\nStatic DNS=8.8.8.8\n"
@@ -1095,7 +1095,8 @@ static void configs(void)
          "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
          "HDMI Flicker-free=Disabled\nHDMI Filter=Sharp Bilinear\nVGA Display Mode=Standard\n"
-         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n"), cfg);
+         "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n256 KB RAM=Disabled\n"
+         "[CMD HD Settings]\nDrive=Enabled\nDrive Bus ID=12\nDisk Image=\nBoot ROM=\n"), cfg);
    check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
    expect("save again: nothing", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n",
@@ -1106,7 +1107,7 @@ static void configs(void)
    // reset_to_default and load_from_flash
    expect("reset a store", "PUT /v1/configs/drive%20a%20settings:reset_to_default HTTP/1.1\r\n\r\n",
           ok("{ \n  \"reset\" : [ \"Drive A Settings\" ],\n  \"errors\" : [  ]\n}"));
-   check("reset: the drive on", drive_on[0], NULL);
+   check("reset: the drive on", drive_is_on(0), NULL);
    expect("reset all", "PUT /v1/configs:reset_to_default HTTP/1.1\r\n\r\n", OK);
    check("reset all: REU off, $D700 off, the default host", !settings[OPTM_G_REU][3] && settings[OPTM_G_REU][0] &&
          settings[OPTM_G_MODEM][0] && !strcmp(netcfg[NC_HOST], "c128-mega65") && !reu_path[0], NULL);
@@ -1173,7 +1174,7 @@ static void configs(void)
           "\"'Bogus' is not a valid configuration category name.\", \"Element 'Modem Settings' should be an object.\", "
           "\"'Speed' is not a valid item name in category 'Drive B Settings'.\", "
           "\"Value given for 'Drive' cannot be of type boolean.\", \"Value given for 'Drive Type' should be a literal.\""));
-   check("POST, errors: the good one done", !drive_on[0], NULL);
+   check("POST, errors: the good one done", !drive_is_on(0), NULL);
    const char *b2 = "{\"Network Settings\": {\"Host Name\": 42, \"network password\": \"pw\"}, "
                     "\"Ethernet Settings\": {\"Use DHCP\": \"Disabled\"}}";
    sprintf(req, "POST /v1/configs HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
@@ -1336,8 +1337,8 @@ static void drives(void)
    put_file("/games/c.d81", img_a, 4096);         // not a D81's size
    put_file("/games/g.g64", img_a, 1000);
 
-   expect("drives, none mounted", "GET /v1/drives HTTP/1.1\r\n\r\n",
-          drives_json(drive_obj("a", "true", 8, "1571", "", ""), drive_obj("b", "true", 9, "1571", "", "")));
+   expect("drives, none mounted: B off, as config.vhd", "GET /v1/drives HTTP/1.1\r\n\r\n",
+          drives_json(drive_obj("a", "true", 8, "1571", "", ""), drive_obj("b", "false", 9, "1571", "", "")));
    expect("mount", "PUT /v1/drives/a:mount?image=/SD/games/a.d64 HTTP/1.1\r\n\r\n",
           mounted(200, "OK", 2, 1541, 0x1520, "/SD/games/a.d64", NULL));
    check("mount: in drive a", drv_mounted[0] && !strcmp(drv_card[0], "/games/a.d64") && !drv_ro[0], NULL);
@@ -1402,9 +1403,9 @@ static void drives(void)
    expect("reset", "PUT /v1/drives/a:reset HTTP/1.1\r\n\r\n", OK);
    check("reset: reloaded", rom_reloads[0] == r0 + 1, NULL);
    expect("off", "PUT /v1/drives/a:off HTTP/1.1\r\n\r\n", OK);
-   check("off: off", !drive_on[0] && drive_power_of(0) == DRIVE_OFF, NULL);
+   check("off: off", !drive_is_on(0), NULL);
    expect("on", "PUT /v1/drives/a:on HTTP/1.1\r\n\r\n", OK);
-   check("on: on, no reset", drive_on[0] && rom_reloads[0] == r0 + 1, NULL);
+   check("on: on, no reset", drive_is_on(0) && rom_reloads[0] == r0 + 1, NULL);
    expect("on again: a reset", "PUT /v1/drives/a:on HTTP/1.1\r\n\r\n", OK);
    check("on again: reloaded", rom_reloads[0] == r0 + 2, NULL);
 
@@ -1829,19 +1830,19 @@ static void runners(void)
    check("load_prg: no RUN", !strcmp(typed, "@"), typed);
 
    typed[0] = 0;
-   drive_on[1] = 1;
+   drive_set(1, 1);
    expect("run_prg, C64", "PUT /v1/runners:run_prg?file=/SD/prg/hi64.prg HTTP/1.1\r\n\r\n", OK);
    check("run_prg, C64: GO64, loaded, pointers, RUN", c128_c64 && !strcmp(typed, "@GO64\rY\r@RUN\r") &&
          !memcmp(c128_mem + 0x801, prg64 + 2, 12) && !memcmp(c128_mem + 0x2D, "\x0D\x08\x0D\x08\x0D\x08", 6) &&
          c128_mem[0x35] == 0 && c128_mem[0x36] == 0xA0 && !memcmp(c128_mem + 0x277, "RUN\r", 4), typed);
-   check("run_prg: its .cfg loaded, but for its bad line (as his)", !drive_on[1], NULL);
+   check("run_prg: its .cfg loaded, but for its bad line (as his)", !drive_is_on(1), NULL);
    // Until the next start: saved, the file has what it had (no drive B power)
    char cfg[4096];
    f_unlink(SETTINGS_FILE);
    expect_200("run_prg's .cfg saved", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n");
    int n = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);
    cfg[n > 0 ? n : 0] = 0;
-   check("run_prg's .cfg: in effect, not kept", strstr(cfg, "[Drive B Settings]\nDrive=Enabled\n") && !drive_on[1], cfg);
+   check("run_prg's .cfg: in effect, not kept", strstr(cfg, "[Drive B Settings]\nDrive=Enabled\n") && !drive_is_on(1), cfg);
    expect("drive B off here", "PUT /v1/configs/drive%20b%20settings/drive?value=Disabled HTTP/1.1\r\n\r\n", OK);
    expect_200("saved again", "PUT /v1/configs:save_to_flash HTTP/1.1\r\n\r\n");
    n = get_file(SETTINGS_FILE, (uint8_t *)cfg, sizeof cfg - 1);

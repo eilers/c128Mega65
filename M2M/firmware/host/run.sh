@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Makes FAT images with macOS's own formatter (hdiutil, no root needed), with an MBR as
 # on a MEGA65 card, puts the test files on them, and runs test_boot, test_fw, test_mon,
-# test_http, test_modem, test_uci and test/uci's programs (test_prg); then test_shell
+# test_http, test_ftp, test_cmdhd, test_modem, test_uci and test/uci's programs (test_prg); then test_shell
 # against config.vhd as CORE/scripts/run_config_nvc.sh dumps it (nvc).
 # usage: run.sh build-dir   (holds the tests; ../build/firmware.bin must exist)
 set -euo pipefail
@@ -34,6 +34,12 @@ make_img() {   # image name, file system
 make_img fat32.img "MS-DOS FAT32"
 make_img fat16.img "MS-DOS FAT16"
 head -c 1048576 /dev/zero > "$files/blank.img"
+# Cards FatFs won't mount, for the boot ROM's diagnosis (lib/sd_diag.c)
+hdiutil create -quiet -size 64m -fs ExFAT -volname TESTEX -layout MBRSPUD "$files/exfat.dmg"
+mv "$files/exfat.dmg" "$files/exfat.img"
+hdiutil create -quiet -size 64m -fs "MS-DOS FAT32" -volname TESTGPT -layout GPTSPUD "$files/gpt.dmg"
+mv "$files/gpt.dmg" "$files/gpt.img"
+python3 -I "$here/patch_img.py" "$files/fat32.img" "$files"
 
 "$out/test_boot" "$files"
 "$out/test_fw" "$files/fat32.img"
@@ -42,6 +48,8 @@ cp "$files/fat32.img" "$files/http.img"
 "$out/test_http" "$files/http.img"
 cp "$files/fat32.img" "$files/ftp.img"
 "$out/test_ftp" "$files/ftp.img"
+cp "$files/fat32.img" "$files/cmdhd.img"
+"$out/test_cmdhd" "$files/cmdhd.img"
 for c in at http bulk telnet download download-pause bulk-stall download-stall trickle; do
    "$out/test_modem" $c > "$out/modem-$c.log" || { cat "$out/modem-$c.log"; exit 1; }
    tail -n 1 "$out/modem-$c.log"

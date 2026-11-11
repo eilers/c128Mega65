@@ -42,15 +42,6 @@ check_file_size() {
 log "Release check started: $TS"
 log "Artifact directory: $ARTIFACT_DIR"
 
-log "CHECK: Submodule status"
-git -C "$ROOT_DIR" submodule status --recursive > "$ARTIFACT_DIR/submodules.txt"
-while IFS= read -r line; do
-  if [[ -n "$line" && "${line:0:1}" == "-" ]]; then
-    fail "Uninitialized submodule detected: $line"
-  fi
-done < "$ARTIFACT_DIR/submodules.txt"
-pass "All submodules initialized"
-
 log "CHECK: Firmware of the system CPU"
 fw_version="$(python3 -I "$ROOT_DIR/M2M/firmware/tools/check_image.py" "$ROOT_DIR/sdcard/c128/firmware.bin" \
   "$ROOT_DIR/M2M/firmware/include/m2m_rv.h" 2>&1)" || fail "sdcard/c128/firmware.bin: $fw_version"

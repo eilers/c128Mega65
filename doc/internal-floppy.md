@@ -73,6 +73,8 @@ Two test benches:
 ## Diagnostics
 
 `physical_1581_diag` is QNICE device `0x0108`, as in C64MEGA65, so their
-register map (`doc/1581_dd_debug_device.md` there) applies. It shows pin
+register map (`doc/1581_dd_debug_device.md` there) applies. It is off by
+default: set `G_PHYS1581_DIAG => true` on `i_main` in `CORE/vhdl/mega65.vhd`
+to build it in; without it the device reads 0. It shows pin
 levels, the controller state, the last sector result, index timing and error
 counters, and can be read from the QNICE monitor over the JTAG UART.
