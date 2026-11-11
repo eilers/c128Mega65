@@ -102,6 +102,9 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 - **The Shell** (`fw/shell.c`, step 5): loads the menu from `config.vhd`, its default
   settings (the core's settings file changes them) and the auto-load ROMs from `globals.vhd`, sets up ascal and
   its filters, and lets the core out of reset; then Help (or F13) opens the options menu.
+  The core clears the C128's RAM first (`ram_clear`, `CORE/firmware/core.c`): a long reset
+  press starts the C128 as power-on does, a short one keeps its RAM, as a real C128's
+  reset button does.
   `fw/menu.c` is QNICE's `menu.asm` (groups, single-select items, submenus, headlines,
   lines); `fw/cfg.c` reads `config.vhd` and the sysinfo device. The core's callbacks
   (`m2m-rom.asm`'s) are `CORE/firmware/core.c`, which finds menu items by their group
