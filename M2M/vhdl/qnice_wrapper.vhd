@@ -60,6 +60,13 @@ port (
    paddle_i                  : in  std_logic_vector(3 downto 0);
    paddle_drain_o            : out std_logic;
 
+   -- Joystick port directions (up, down, left, right; low active), raw from the pins and
+   -- back out with an Amiga mouse's lines masked (its right button on up, as on a 1351)
+   joy1_dir_n_i              : in  std_logic_vector(3 downto 0);
+   joy2_dir_n_i              : in  std_logic_vector(3 downto 0);
+   joy1_dir_n_o              : out std_logic_vector(3 downto 0);
+   joy2_dir_n_o              : out std_logic_vector(3 downto 0);
+
    -- On-Screen-Menu (OSM)
    qnice_osm_cfg_enable_o    : out std_logic;
    qnice_osm_cfg_xy_o        : out std_logic_vector(15 downto 0);
@@ -192,6 +199,15 @@ signal qnice_pot1_x                  : unsigned(7 downto 0);
 signal qnice_pot1_y                  : unsigned(7 downto 0);
 signal qnice_pot2_x                  : unsigned(7 downto 0);
 signal qnice_pot2_y                  : unsigned(7 downto 0);
+
+-- Joystick directions synchronized to clk_i: the mouse decoder needs every edge, undebounced
+signal joy1_dir_n_d, joy1_dir_n_dd   : std_logic_vector(3 downto 0) := (others => '1');
+signal joy2_dir_n_d, joy2_dir_n_dd   : std_logic_vector(3 downto 0) := (others => '1');
+attribute async_reg                  : string;
+attribute async_reg of joy1_dir_n_d  : signal is "true";
+attribute async_reg of joy1_dir_n_dd : signal is "true";
+attribute async_reg of joy2_dir_n_d  : signal is "true";
+attribute async_reg of joy2_dir_n_dd : signal is "true";
 
 -- Statistics
 signal qnice_hr_count_long_d         : std_logic_vector(31 downto 0);
@@ -512,15 +528,25 @@ begin
       end if;
    end process p_hr_stats;
 
-   -- Generate the paddle readings (mouse not supported, yet)
+   p_joy_sync : process (clk_i)
+   begin
+      if rising_edge(clk_i) then
+         joy1_dir_n_d  <= joy1_dir_n_i;
+         joy1_dir_n_dd <= joy1_dir_n_d;
+         joy2_dir_n_d  <= joy2_dir_n_i;
+         joy2_dir_n_dd <= joy2_dir_n_d;
+      end if;
+   end process p_joy_sync;
+
+   -- Paddles, 1351 mice and Amiga mice (detected on their own, shown to the core as a 1351)
    -- Works with 50 MHz, which happens to be the QNICE clock domain
    i_mouse_paddles: entity work.mouse_input
       port map (
          clk                     => clk_i,
 
          mouse_debug             => open,
-         amiga_mouse_enable_a    => '0',
-         amiga_mouse_enable_b    => '0',
+         amiga_mouse_enable_a    => '1',
+         amiga_mouse_enable_b    => '1',
          amiga_mouse_assume_a    => '0',
          amiga_mouse_assume_b    => '0',
 
@@ -534,25 +560,25 @@ begin
          -- To allow auto-detection of Amiga mouses, we need to know what the
          -- rest of the joystick pins are doing
          fa_fire                 => '1',
-         fa_left                 => '1',
-         fa_right                => '1',
-         fa_up                   => '1',
-         fa_down                 => '1',
+         fa_up                   => joy1_dir_n_dd(0),
+         fa_down                 => joy1_dir_n_dd(1),
+         fa_left                 => joy1_dir_n_dd(2),
+         fa_right                => joy1_dir_n_dd(3),
          fb_fire                 => '1',
-         fb_left                 => '1',
-         fb_right                => '1',
-         fb_up                   => '1',
-         fb_down                 => '1',
+         fb_up                   => joy2_dir_n_dd(0),
+         fb_down                 => joy2_dir_n_dd(1),
+         fb_left                 => joy2_dir_n_dd(2),
+         fb_right                => joy2_dir_n_dd(3),
 
-         fa_up_out               => open,
-         fa_down_out             => open,
-         fa_left_out             => open,
-         fa_right_out            => open,
+         fa_up_out               => joy1_dir_n_o(0),
+         fa_down_out             => joy1_dir_n_o(1),
+         fa_left_out             => joy1_dir_n_o(2),
+         fa_right_out            => joy1_dir_n_o(3),
 
-         fb_up_out               => open,
-         fb_down_out             => open,
-         fb_left_out             => open,
-         fb_right_out            => open,
+         fb_up_out               => joy2_dir_n_o(0),
+         fb_down_out             => joy2_dir_n_o(1),
+         fb_left_out             => joy2_dir_n_o(2),
+         fb_right_out            => joy2_dir_n_o(3),
 
          -- We output the four sampled pot values
          pota_x                  => qnice_pot1_x,

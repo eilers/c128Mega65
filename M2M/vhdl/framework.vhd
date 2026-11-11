@@ -414,6 +414,10 @@ signal qnice_pot1_y_n         : unsigned(7 downto 0);
 signal qnice_pot2_x_n         : unsigned(7 downto 0);
 signal qnice_pot2_y_n         : unsigned(7 downto 0);
 
+-- Joystick directions after the Amiga mouse detector (up, down, left, right; low active)
+signal qnice_joy1_dir_n       : std_logic_vector(3 downto 0);
+signal qnice_joy2_dir_n       : std_logic_vector(3 downto 0);
+
 signal qnice_avm_write         : std_logic;
 signal qnice_avm_read          : std_logic;
 signal qnice_avm_address       : std_logic_vector(31 downto 0);
@@ -586,10 +590,11 @@ begin
          joy_1_on             => main_csr_joy1_on,
          joy_2_on             => main_csr_joy2_on,
 
-         joy_1_up_n           => joy_1_up_n_i,
-         joy_1_down_n         => joy_1_down_n_i,
-         joy_1_left_n         => joy_1_left_n_i,
-         joy_1_right_n        => joy_1_right_n_i,
+         -- Directions come through the Amiga mouse detector (qnice_wrapper)
+         joy_1_up_n           => qnice_joy1_dir_n(0),
+         joy_1_down_n         => qnice_joy1_dir_n(1),
+         joy_1_left_n         => qnice_joy1_dir_n(2),
+         joy_1_right_n        => qnice_joy1_dir_n(3),
          joy_1_fire_n         => joy_1_fire_n_i,
 
          dbnce_joy1_up_n      => main_joy1_up_n_o,
@@ -598,10 +603,10 @@ begin
          dbnce_joy1_right_n   => main_joy1_right_n_o,
          dbnce_joy1_fire_n    => main_joy1_fire_n_o,
 
-         joy_2_up_n           => joy_2_up_n_i,
-         joy_2_down_n         => joy_2_down_n_i,
-         joy_2_left_n         => joy_2_left_n_i,
-         joy_2_right_n        => joy_2_right_n_i,
+         joy_2_up_n           => qnice_joy2_dir_n(0),
+         joy_2_down_n         => qnice_joy2_dir_n(1),
+         joy_2_left_n         => qnice_joy2_dir_n(2),
+         joy_2_right_n        => qnice_joy2_dir_n(3),
          joy_2_fire_n         => joy_2_fire_n_i,
 
          dbnce_joy2_up_n      => main_joy2_up_n_o,
@@ -688,6 +693,10 @@ begin
       sd_eng_o                  => qnice_sd_eng_o,
       paddle_i                  => paddle_i,
       paddle_drain_o            => paddle_drain_o,
+      joy1_dir_n_i              => joy_1_right_n_i & joy_1_left_n_i & joy_1_down_n_i & joy_1_up_n_i,
+      joy2_dir_n_i              => joy_2_right_n_i & joy_2_left_n_i & joy_2_down_n_i & joy_2_up_n_i,
+      joy1_dir_n_o              => qnice_joy1_dir_n,
+      joy2_dir_n_o              => qnice_joy2_dir_n,
       qnice_osm_cfg_enable_o    => qnice_osm_cfg_enable,
       qnice_osm_cfg_xy_o        => qnice_osm_cfg_xy,
       qnice_osm_cfg_dxdy_o      => qnice_osm_cfg_dxdy,
@@ -883,7 +892,7 @@ begin
    -- Clock domain crossing: QNICE to CORE
    i_qnice2main: xpm_cdc_array_single
       generic map (
-         WIDTH => 615
+         WIDTH => 583
       )
       port map (
          src_clk                    => qnice_clk,
@@ -895,11 +904,7 @@ begin
          src_in(5)                  => qnice_flip_joyports_i,
          src_in(261 downto 6)       => qnice_osm_control_m_o,
          src_in(517 downto 262)     => qnice_gp_reg_o,
-         src_in(525 downto 518)     => std_logic_vector(qnice_pot1_x_n),
-         src_in(533 downto 526)     => std_logic_vector(qnice_pot1_y_n),
-         src_in(541 downto 534)     => std_logic_vector(qnice_pot2_x_n),
-         src_in(549 downto 542)     => std_logic_vector(qnice_pot2_y_n),
-         src_in(614 downto 550)     => qnice_rtc,
+         src_in(582 downto 518)     => qnice_rtc,
          dest_clk                   => main_clk_i,
          dest_out(0)                => main_qnice_reset_o,
          dest_out(1)                => main_qnice_pause_o,
@@ -909,12 +914,27 @@ begin
          dest_out(5)                => main_flip_joyports,
          dest_out(261 downto 6)     => main_osm_control_m_o,
          dest_out(517 downto 262)   => main_qnice_gp_reg_o,
-         dest_out(525 downto 518)   => main_pot1_x_o,
-         dest_out(533 downto 526)   => main_pot1_y_o,
-         dest_out(541 downto 534)   => main_pot2_x_o,
-         dest_out(549 downto 542)   => main_pot2_y_o,
-         dest_out(614 downto 550)   => main_rtc_o
+         dest_out(582 downto 518)   => main_rtc_o
       ); -- i_qnice2main
+
+   -- POT values as whole bytes: bit by bit, a mouse step could tear (the SID reads them live)
+   i_pots2main: entity work.cdc_stable
+      generic map (
+         G_REGISTER_SRC => true,
+         G_DATA_SIZE    => 32
+      )
+      port map (
+         src_clk_i                => qnice_clk,
+         src_data_i( 7 downto  0) => std_logic_vector(qnice_pot1_x_n),
+         src_data_i(15 downto  8) => std_logic_vector(qnice_pot1_y_n),
+         src_data_i(23 downto 16) => std_logic_vector(qnice_pot2_x_n),
+         src_data_i(31 downto 24) => std_logic_vector(qnice_pot2_y_n),
+         dst_clk_i                => main_clk_i,
+         dst_data_o( 7 downto  0) => main_pot1_x_o,
+         dst_data_o(15 downto  8) => main_pot1_y_o,
+         dst_data_o(23 downto 16) => main_pot2_x_o,
+         dst_data_o(31 downto 24) => main_pot2_y_o
+      ); -- i_pots2main
 
    -- The system CPU's HyperRAM port is on hr_clk already. It yields to the HDMI scaler: in
    -- 80 columns the scaler's reads at the top of a frame run late if the CPU's turns come
