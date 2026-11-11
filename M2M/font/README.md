@@ -3,8 +3,10 @@ Workflow: How to generate a font
 
 1. Find a `psf` font (for example by googling for `free psf fonts`).
 
-2. Untar `nafe-0.1.tar.gz` and `psftools-1.1.1.tar.gz` into two subdirectories
-   of this folder.
+2. Untar nafe 0.1 and psftools 1.1.1 into two subdirectories of this folder.
+   Their tarballs were here until November 2026: get them from the git
+   history (`git log -- M2M/font/nafe-0.1.tar.gz`), or psftools from
+   https://www.seasip.info/Unix/PSF/.
 
 3. Compile both tools by using `make` for nafe and by using the `./configure`
    and `make` sequence for psftools. If you get an error while compiling
