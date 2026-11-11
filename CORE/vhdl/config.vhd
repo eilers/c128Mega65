@@ -437,7 +437,7 @@ constant OPTM_ITEMS_ALL    : string :=
 
    " External Hardware\n"   &
    "\n"                     &
-   " Use IEC port\n"        &
+   " Use IEC port\n"        &    -- default off: only the virtual drives are on the bus
    " Swap joystick ports\n" &    -- default off: port 1's joystick is the C128's port 2 and back
    " REU: %s\n"           &    -- REU submenu; %s is the size or Off
    " RAM Expansion Unit\n"  &
@@ -738,7 +738,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
 
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
+                                             OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- Use IEC port (default off)
                                              OPTM_G_JOY_SWAP + OPTM_G_SINGLESEL,                  -- Swap joystick ports (default off)
                                              OPTM_G_SUBMENU,                                      -- REU submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- RAM Expansion Unit

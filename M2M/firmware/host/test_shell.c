@@ -689,7 +689,7 @@ int main(int argc, char **argv)
               setting_get(i) == (second && kept(i) ? bits[i] : cfg_get(CFG_OPTM_STDSEL, i));
    check(want, second ? "settings from the settings file" : "settings are config.vhd's defaults (no settings file)");
    if (second) {
-      check(!setting_get(item(" Use IEC port")), "IEC port off, as the first run left it");
+      check(setting_get(item(" Use IEC port")), "IEC port on, as the first run left it");
       check(bits[hd_on] && !setting_get(hd_on), "start: the CMD HD off without a boot ROM, though the file has it on");
    }
    check_stores();
@@ -785,7 +785,7 @@ int main(int argc, char **argv)
    check(setting_line("[Drive A Settings]\nDrive=Enabled\nDrive Type=1541\nDrive Bus ID=8\n") &&
          setting_line("[Drive B Settings]\nDrive=Disabled\nDrive Type=1571\nDrive Bus ID=9\n") &&
          setting_line("[U64 Specific Settings]\nSystem Mode=PAL\nHDMI Scan Resolution=720p 50 Hz 16:9\n") &&
-         setting_line("Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=All Connected\n") &&
+         setting_line("Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=C64 <-> Internal\n") &&
          setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Flicker-free=Disabled\n"),
          "settings file saved");
    // The REST API's keys drive the menu as the keyboard does, and the C128 sees none of them
@@ -1618,7 +1618,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    check(cursor_on("8:"), "cursor back on the start item");
 
-   // Leave drive A's model as it was and the IEC port off, for the next run
+   // Leave drive A's model as it was and the IEC port on (not the default), for the next run
    go_to("8:");
    press(M2M_KEY_RETURN);
    go_to_line("1571");
@@ -1628,7 +1628,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    press(M2M_KEY_HELP);
    idle();
-   check(setting_line("[Drive A Settings]\nDrive=Enabled\nDrive Type=1571\n") && setting_line("Serial Bus Mode=C64 <-> Internal\n"),
+   check(setting_line("[Drive A Settings]\nDrive=Enabled\nDrive Type=1571\n") && setting_line("Serial Bus Mode=All Connected\n"),
          "saved for the next run");
    // What the next run should start with
    uint8_t b[MENU_MAX];

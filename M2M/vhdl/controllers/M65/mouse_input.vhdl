@@ -2,6 +2,9 @@
 -- see AUTHORS details and license
 --
 -- Added to MiSTer2MEGA65 by sy2002 in January 2023
+-- C128 core: Amiga mouse switched on; edge test from mega65-core; right button only once
+-- pin 9 has been seen driven high (a passive mouse leaves it floating, which reads as pressed);
+-- rmb_key is a right button for any port with a mouse
 
 use WORK.ALL;
 
@@ -10,6 +13,10 @@ use IEEE.STD_LOGIC_1164.ALL;
 use ieee.numeric_std.all;
 
 entity mouse_input is
+  generic (
+    G_MODE_TIMEOUT : natural := 250_000_000;    -- 5 s at 50 MHz: back to joystick when idle
+    G_RMB_TIMEOUT  : natural := 1_500_000_000   -- 30 s held: the adapter was unplugged
+  );
   port (
     clk : in std_logic;
 
@@ -17,7 +24,8 @@ entity mouse_input is
     amiga_mouse_enable_b : in std_logic;
     amiga_mouse_assume_a : in std_logic;
     amiga_mouse_assume_b : in std_logic;
-    
+    rmb_key : in std_logic := '0';    -- '1': a key held as the right button
+
     pot_drain : buffer std_logic;
     fa_potx : in std_logic;
     fa_poty : in std_logic;
@@ -94,11 +102,12 @@ architecture behavioural of mouse_input is
   signal mb_x : unsigned(6 downto 0) := "1111111";
   signal mb_y : unsigned(6 downto 0) := "1111111";
 
-  -- POT values read from physical port
-  signal pota_x_internal : unsigned(7 downto 0) := x"00";
-  signal pota_y_internal : unsigned(7 downto 0) := x"00";
-  signal potb_x_internal : unsigned(7 downto 0) := x"00";
-  signal potb_y_internal : unsigned(7 downto 0) := x"00";
+  -- POT values read from physical port. Until the first sample: open lines (255), so a mouse
+  -- found at power-up can't take 0 for "pin 9 pulled high" and arm its right button
+  signal pota_x_internal : unsigned(7 downto 0) := x"FF";
+  signal pota_y_internal : unsigned(7 downto 0) := x"FF";
+  signal potb_x_internal : unsigned(7 downto 0) := x"FF";
+  signal potb_y_internal : unsigned(7 downto 0) := x"FF";
 
   -- Are the real POT values at either extremity of value?
   -- (if so, it can't be a 1351, but might be amiga mouse)
@@ -112,7 +121,20 @@ architecture behavioural of mouse_input is
   signal last_fb_rightdown : std_logic_vector(1 downto 0) := "11";
   signal last_amiga_mouse_enable_a : std_logic := '0';
   signal last_amiga_mouse_enable_b : std_logic := '0';
-  
+
+  -- Right button (pin 9): armed once the line read high (pull-up or active adapter)
+  signal ma_rmb_armed   : std_logic := '0';
+  signal mb_rmb_armed   : std_logic := '0';
+  signal ma_rmb_pressed : std_logic := '0';
+  signal mb_rmb_pressed : std_logic := '0';
+  signal ma_rmb_dog     : natural range 0 to G_RMB_TIMEOUT := 0;
+  signal mb_rmb_dog     : natural range 0 to G_RMB_TIMEOUT := 0;
+
+  -- rmb_key works on a port from the moment a mouse is recognized there until a joystick
+  -- moves on it or paddles show up
+  signal ma_key_on : std_logic := '0';
+  signal mb_key_on : std_logic := '0';
+
 begin
 
   process(clk) is
@@ -178,24 +200,25 @@ begin
       -- Amiga mouse you have to leave the joystick motionless for 5 seconds in
       -- 1 in 16 cases before it will be properly recognised by the MEGA65.
       if ((fa_up and fa_down and fa_left and fa_right) = '0') and (ma_amiga_mode='1') then
-        ma_amiga_mode_timeout <= 250000000;
+        ma_amiga_mode_timeout <= G_MODE_TIMEOUT;
       end if;
       if ((fb_up and fb_down and fb_left and fb_right) = '0') and (mb_amiga_mode='1') then
-        mb_amiga_mode_timeout <= 250000000;
+        mb_amiga_mode_timeout <= G_MODE_TIMEOUT;
       end if;
-      
-      
+
+
       -- Work out if we think we have an amiga mouse connected
-      if ((pota_x_internal(7 downto 2) = "111111") or (pota_x_internal(7 downto 2) = "000000"))
-        and ((pota_y_internal(7 downto 2) = "111111") or (pota_y_internal(7 downto 2) = "000000")) then
+      -- (upper nybble only, as in mega65-core: a pull-up on a button reads about 12)
+      if ((pota_x_internal(7 downto 4) = "1111") or (pota_x_internal(7 downto 4) = "0000"))
+        and ((pota_y_internal(7 downto 4) = "1111") or (pota_y_internal(7 downto 4) = "0000")) then
         potsa_at_edge <= '1';
       else
         potsa_at_edge <= '0';
         ma_amiga_mode <= '0';
         ma_amiga_pots <= '0';
       end if;
-      if (potb_x_internal(7 downto 2) = "111111" or (potb_x_internal(7 downto 2) = "000000"))
-        and (potb_y_internal(7 downto 2) = "111111" or (potb_y_internal(7 downto 2) = "000000")) then
+      if (potb_x_internal(7 downto 4) = "1111" or (potb_x_internal(7 downto 4) = "0000"))
+        and (potb_y_internal(7 downto 4) = "1111" or (potb_y_internal(7 downto 4) = "0000")) then
         potsb_at_edge <= '1';
       else
         potsb_at_edge <= '0';
@@ -206,7 +229,7 @@ begin
          and (potsa_at_edge='1') then
         ma_amiga_mode <= amiga_mouse_enable_a;
         ma_amiga_pots <= amiga_mouse_enable_a;
-        ma_amiga_mode_timeout <= 250000000;
+        ma_amiga_mode_timeout <= G_MODE_TIMEOUT;
         if ma_amiga_pots = '0' then
           -- Copy existing pot value in to avoid mouse jumping when swapping
           -- between 1351 and amiga mouse
@@ -220,7 +243,7 @@ begin
          and (potsb_at_edge='1') then
         mb_amiga_mode <= amiga_mouse_enable_b;
         mb_amiga_pots <= amiga_mouse_enable_b;
-        mb_amiga_mode_timeout <= 250000000;
+        mb_amiga_mode_timeout <= G_MODE_TIMEOUT;
         if mb_amiga_pots = '0' then
           -- Copy existing pot value in to avoid mouse jumping when swapping
           -- between 1351 and amiga mouse
@@ -230,13 +253,63 @@ begin
           mb_y(6) <= not potb_y_internal(6);
         end if;
       end if;
+      -- Right button: a reading < 40 means pin 9 is pulled high (released), > 200 grounded.
+      -- Floating also reads > 200, so only arm after a high; disarm after G_RMB_TIMEOUT held.
+      if ma_amiga_pots = '0' then
+        ma_rmb_armed <= '0';
+        ma_rmb_pressed <= '0';
+        ma_rmb_dog <= 0;
+      elsif pota_x_internal < 40 then
+        ma_rmb_armed <= '1';
+        ma_rmb_pressed <= '0';
+        ma_rmb_dog <= 0;
+      elsif ma_rmb_armed = '1' and pota_x_internal > 200 then
+        ma_rmb_pressed <= '1';
+        if ma_rmb_dog = G_RMB_TIMEOUT then
+          ma_rmb_armed <= '0';
+          ma_rmb_pressed <= '0';
+        else
+          ma_rmb_dog <= ma_rmb_dog + 1;
+        end if;
+      end if;
+      if mb_amiga_pots = '0' then
+        mb_rmb_armed <= '0';
+        mb_rmb_pressed <= '0';
+        mb_rmb_dog <= 0;
+      elsif potb_x_internal < 40 then
+        mb_rmb_armed <= '1';
+        mb_rmb_pressed <= '0';
+        mb_rmb_dog <= 0;
+      elsif mb_rmb_armed = '1' and potb_x_internal > 200 then
+        mb_rmb_pressed <= '1';
+        if mb_rmb_dog = G_RMB_TIMEOUT then
+          mb_rmb_armed <= '0';
+          mb_rmb_pressed <= '0';
+        else
+          mb_rmb_dog <= mb_rmb_dog + 1;
+        end if;
+      end if;
+
+      if (((fa_up or fa_down) = '0') or ((fa_left or fa_right) = '0')) and potsa_at_edge = '1' then
+        ma_key_on <= amiga_mouse_enable_a;
+      elsif ma_amiga_pots = '0' or
+            (ma_amiga_mode = '0' and (fa_up and fa_down and fa_left and fa_right) = '0') then
+        ma_key_on <= '0';
+      end if;
+      if (((fb_up or fb_down) = '0') or ((fb_left or fb_right) = '0')) and potsb_at_edge = '1' then
+        mb_key_on <= amiga_mouse_enable_b;
+      elsif mb_amiga_pots = '0' or
+            (mb_amiga_mode = '0' and (fb_up and fb_down and fb_left and fb_right) = '0') then
+        mb_key_on <= '0';
+      end if;
+
       last_fa_leftup <= fa_left & fa_up;
       last_fa_rightdown <= fa_right & fa_down;
       last_fb_leftup <= fb_left & fb_up;
       last_fb_rightdown <= fb_right & fb_down;
       if ma_amiga_mode='1' then
-        -- Map Amiga right button from POTY to UP
-        fa_up_out <= pota_x_internal(7);
+        -- Map Amiga right button (pin 9) to UP, as on a 1351
+        fa_up_out <= not (ma_rmb_pressed or (rmb_key and ma_key_on));
         fa_left_out <= '1';
         fa_right_out <= '1';
         fa_down_out <= '1';
@@ -273,13 +346,13 @@ begin
           when others => null;
         end case;
       else
-        fa_up_out <= fa_up;
+        fa_up_out <= fa_up and not (rmb_key and ma_key_on);
         fa_left_out <= fa_left;
         fa_right_out <= fa_right;
         fa_down_out <= fa_down;
       end if;
       if mb_amiga_mode='1' then
-        fb_up_out <= potb_x_internal(7);
+        fb_up_out <= not (mb_rmb_pressed or (rmb_key and mb_key_on));
         fb_left_out <= '1';
         fb_right_out <= '1';
         fb_down_out <= '1';
@@ -316,7 +389,7 @@ begin
           when others => null;
         end case;
       else
-        fb_up_out <= fb_up;
+        fb_up_out <= fb_up and not (rmb_key and mb_key_on);
         fb_left_out <= fb_left;
         fb_right_out <= fb_right;
         fb_down_out <= fb_down;
