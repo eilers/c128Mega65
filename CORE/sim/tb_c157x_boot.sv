@@ -129,7 +129,7 @@ module tb_c157x_boot;
 	);
 
 	// ---------------------------------------------------------------------------
-	// boot1.rom, byte-served exactly like drive_rom_server.vhd does it
+	// boot1.rom over iec_drive's pull handshake (tb_drive_rom checks the firmware's feed)
 	// ---------------------------------------------------------------------------
 
 	localparam ROM_BYTES = 6*32768;
@@ -158,9 +158,9 @@ module tb_c157x_boot;
 		$display("INFO: loaded %0d bytes from %s", ROM_BYTES, boot1_path);
 	end
 
-	// The real server needs several cycles per byte because its block RAM read is
-	// registered. Latching the address and pulsing the write in different phases
-	// reproduces that, and keeps rom_data aligned with the address iecdrv_rom holds.
+	// A byte every four clocks, as the old block RAM server did. Latching the address and
+	// pulsing the write in different phases keeps rom_data aligned with the address
+	// iecdrv_rom holds.
 	logic [1:0] srv_phase = 0;
 	always @(posedge clk_sys) begin
 		rom_wr <= 0;

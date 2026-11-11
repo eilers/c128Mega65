@@ -308,8 +308,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65 (Ultimate 64 compatible)\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"111\",\n" \
-                  "  \"core_version\" : \"1.11\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"112\",\n" \
+                  "  \"core_version\" : \"1.12\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -1697,10 +1697,10 @@ static void roms(void)
    check("characters, a file of no ROM's size: stock, failed", dev_holds(sys_rom, 0x10000, rom_stock + 0x10000, 8192) &&
          rompick_state(RP_CHAR) == RS_FAILED && !strcmp(rompick_name(RP_CHAR), "odd.bin"), NULL);
    expect("function ROM of 32 KB", "PUT /v1/configs/c128*/internal*?value=f32.bin HTTP/1.1\r\n\r\n", OK);
-   check("function ROM of 32 KB: at 0x18000, size 2", dev_holds(sys_rom, 0x18000, rom_f32, 32768) && func_size == 2, NULL);
+   check("function ROM of 32 KB: at 0x12000, size 2", dev_holds(sys_rom, 0x12000, rom_f32, 32768) && func_size == 2, NULL);
    expect("function ROM of 16 KB", "PUT /v1/configs/c128*/internal*?value=k16.bin HTTP/1.1\r\n\r\n", OK);
-   check("function ROM of 16 KB: twice, as VICE has it", dev_holds(sys_rom, 0x18000, rom_k16, 16384) &&
-         dev_holds(sys_rom, 0x1C000, rom_k16, 16384) && func_size == 2, NULL);
+   check("function ROM of 16 KB: twice, as VICE has it", dev_holds(sys_rom, 0x12000, rom_k16, 16384) &&
+         dev_holds(sys_rom, 0x16000, rom_k16, 16384) && func_size == 2, NULL);
    expect("no function ROM", "PUT /v1/configs/c128*/internal*?value= HTTP/1.1\r\n\r\n", OK);
    check("no function ROM: size 0", func_size == 0, NULL);
 

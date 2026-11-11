@@ -100,7 +100,7 @@ entity main is
      ram_data_i               : in unsigned(7 downto 0);      -- RAM data in
       sys_rom_addr_o           : out std_logic_vector(16 downto 0);
       sys_rom_data_i           : in  std_logic_vector(7 downto 0);
-      -- The internal function ROM, in the system ROM from 0x18000: 0 none, 1 16 KB (at $8000),
+      -- The internal function ROM, in the system ROM from 0x12000: 0 none, 1 16 KB (at $8000),
       -- 2 32 KB (and at $C000)
       func_rom_size_i          : in  std_logic_vector(1 downto 0) := "00";
 
@@ -196,8 +196,8 @@ entity main is
       qnice_vd_ce_i           : in  std_logic;
       qnice_vd_we_i           : in  std_logic;
 
-      -- Drive ROM pull interface (clk_sd_i domain). The drives fetch their DOS ROM
-      -- byte by byte out of the boot1.rom block RAM that mega65.vhd serves.
+      -- Drive ROM pull interface (clk_sd_i domain). The drives fetch their DOS ROM byte by
+      -- byte from drive_rom_server.vhd in mega65.vhd, which the firmware feeds.
       drv_rom_loading_i       : in  std_logic;
       drv_rom_reload_i        : in  std_logic_vector(1 downto 0) := "00";  -- a pulse: drive i's bank again
       drv_rom_ready_o         : out std_logic_vector(1 downto 0);          -- drive i has its ROM
@@ -1897,8 +1897,9 @@ cpu_data_in_proc: process (all)
 -- ramCE here: Z80 latch writes miss the CE strobe.
 ram_we_o <= ram_we;
 ram_data_o <= core_ram_data_out;
--- The function ROM's halves at 0x18000 and 0x1C000
-sys_rom_addr_o <= "11" & core_romfh & std_logic_vector(core_ram_addr(13 downto 0)) when core_romfl = '1' or core_romfh = '1' else
+-- The function ROM's halves at 0x12000 and 0x16000, right after boot0.rom's banks 0-17
+sys_rom_addr_o <= std_logic_vector(to_unsigned(C_FUNC_ROM_AT, 17) + (core_romfh & core_ram_addr(13 downto 0)))
+                     when core_romfl = '1' or core_romfh = '1' else
                   std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= core_ram_addr;
 sysrom_data <= unsigned(sys_rom_data_i);
@@ -2612,7 +2613,7 @@ iec_drive_inst : entity work.iec_drive
     sd_buff_din  => iec_sd_buf_data_out,     -- data read back from the drive's buffer RAM
     sd_buff_wr   => iec_sd_buf_wr,
 
-    -- DOS ROM, pulled out of boot1.rom by the server FSM in mega65.vhd
+    -- DOS ROM, handed over by drive_rom_server.vhd in mega65.vhd
     rom_loading  => drv_rom_loading_i,
     rom_reload   => drv_rom_reload_i(G_VDNUM - 1 downto 0),
     rom_ready    => iec_rom_ready,

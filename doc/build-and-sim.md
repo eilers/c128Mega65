@@ -270,7 +270,7 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 | Simulation               | Testbench                          | Covers                                                                                                     |
 |--------------------------|------------------------------------|------------------------------------------------------------------------------------------------------------|
 | C128 boot path           | `CORE/sim/tb_c128_boot.vhd`        | `main` with BRAM-backed RAM/ROM preloaded from `boot0.rom` — no M2M menu, HDMI, or SD-card model           |
-| Drive DOS ROM handover   | `CORE/sim/tb_drive_rom.vhd`        | `drive_rom_server.vhd` feeding the real `iecdrv_rom.sv`, byte for byte, across a bank switch               |
+| Drive DOS ROM handover   | `CORE/sim/tb_drive_rom.vhd`        | `drive_rom_server.vhd` and the firmware's feed into two real `iecdrv_rom.sv`: every byte, reloads, new models, resets |
 | Drive RAM                | `CORE/sim/tb_iecdrv_mem.vhd`       | `iecdrv_mem` and `iecdrv_trackmem` storing what the drive CPU and the head actually wrote                  |
 | 1581 drive ready         | `CORE/sim/tb_c1581_ready.sv`       | `c1581_fdc1772.v` plus `floppy.v` from mounting a D81 through spin-up to the first `sd_rd`                 |
 | Internal floppy WD side  | `CORE/sim/tb_c1581_physical.sv`    | `c1581_fdc1772.v` in physical mode against a mock controller: seek, read/write sector, read address, write track, force interrupt, CRC errors, lost data, write protect |
@@ -289,6 +289,8 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 `CORE/scripts/run_rv_soc_nvc.sh` runs `CORE/sim/tb_rv_soc.vhd`, the RISC-V system CPU
 with its self-test firmware, in [nvc](https://www.nickg.me.uk/nvc/) (`brew install nvc`)
 rather than Vivado. It takes a few seconds and isn't part of `run_all_sims.sh` yet.
+`CORE/scripts/run_drive_rom_nvc.sh` runs `tb_drive_rom` the same way, against
+`CORE/sim/iecdrv_rom_model.vhd` (nvc has no Verilog).
 
 ### 1541/1571 bring-up simulation
 
@@ -340,11 +342,16 @@ CORE/scripts/vivado.sh -mode batch \
   -tclargs CORE/CORE-R6-vivado2022.xpr
 ```
 
-Run this after touching `drive_rom_server.vhd`, the drive-ROM block RAM in
-`mega65.vhd`, or `iecdrv_rom.sv`. It loads two banks of a synthetic `boot1.rom`
-through the real pull handshake and compares all 65536 bytes, then checks that
-switching the bank (what changing the drive model in the menu does) invalidates
-the old image.
+or, in seconds and against `iecdrv_rom_model.vhd`, `CORE/scripts/run_drive_rom_nvc.sh`.
+
+Run this after touching `drive_rom_server.vhd`, its wiring in `mega65.vhd`,
+`iecdrv_rom.sv` or the feed in `CORE/firmware/drvrom.c` (the testbench models it).
+Two drives, arbitrated as `iec_drive.sv` does, load banks of a synthetic library
+from the firmware model over the device bus with `rv_soc`'s timing: one drive,
+both at once, reloads and a new model in the middle of a load, the other drive
+taking over (so the first goes on from an odd address), a drive reset and the
+core's reset in the middle of a load. Every byte a drive takes is checked as it
+takes it, and each ROM is read back once the drive has it.
 
 This matters because a broken handover is completely silent: `iecdrv_rom` raises
 `rom_valid` after 32768 write strobes regardless of *which* bytes arrived, so the

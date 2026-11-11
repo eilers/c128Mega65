@@ -472,6 +472,26 @@ static int dev_at(int dev, int at, int file, int off, int size)
    return 1;
 }
 
+// The drives' ROM library (drvrom.c), in HyperRAM at C_HMAP_DRVROM, the same way
+#define LIB_WINDOW 0x01C0
+static int lib_at(int at, int file, int off, int size)
+{
+   const uint8_t *lib = (const uint8_t *)host_hr + LIB_WINDOW * 8192;
+   for (int i = 0; i < size; i++)
+      if (lib[at + i] != pattern(file, off + i))
+         return 0;
+   return 1;
+}
+
+static int lib_zero(int at, int size)
+{
+   const uint8_t *lib = (const uint8_t *)host_hr + LIB_WINDOW * 8192;
+   for (int i = 0; i < size; i++)
+      if (lib[at + i])
+         return 0;
+   return 1;
+}
+
 // The settings file holds a line
 static int setting_line(const char *line)
 {
@@ -617,6 +637,8 @@ int main(int argc, char **argv)
    load_dump(argv[1]);
    crtrom_csr_set(D8_DEV, 0x030, 0x5D4D);             // the drives map their images
    crtrom_csr_set(D9_DEV, 0x030, 0x5D4D);
+   crtrom_csr_set(0x102, 1, LIB_WINDOW);              // drive_rom_server.vhd: the library's window,
+   memset((uint8_t *)host_hr + LIB_WINDOW * 8192, 0xA5, 6 * 32768);   // holding what was there before
    uint8_t bits[MENU_MAX];
    int second = make_card(bits);                      // the first run left its settings
    M2M_CSR |= M2M_CSR_SD_DET_EXT | M2M_CSR_SD_ACTIVE;
@@ -633,20 +655,21 @@ int main(int argc, char **argv)
    check(!(M2M_CSR & M2M_CSR_RESET), "core left reset");
    check((M2M_CSR & (M2M_CSR_KBD | M2M_CSR_JOY1 | M2M_CSR_JOY2)) == 0x38, "keyboard and joysticks on");
    check(device_holds(0x101, 0, 4100), "boot0.rom in its device");
-   check(second ? dev_at(0x102, 0, 22, 0, 32768) : device_holds(0x102, 1, 600),
-         second ? "drive 8's 1541 ROM picked over boot1.rom" : "boot1.rom in its device");
+   check(second ? lib_at(0, 22, 0, 32768) : lib_at(0, 1, 0, 600) && lib_zero(600, 6 * 32768 - 600),
+         second ? "drive 8's 1541 ROM picked over boot1.rom" : "boot1.rom in the library, zeros after it");
+   check(crtrom_csr_get(0x102, 0) == 3, "boot1.rom loaded: both drives reloaded");
    check(M2M_CSR & M2M_CSR_ASCAL_AUTO, "ascal follows the core");
    // The first run left ROMs picked and a boot cartridge in the settings file; the cartridge
    // loads from the main loop, once the C128 runs
    if (second) {
       check(crtrom_csr_get(CRT_DEV, CSR_STATUS) != 3, "start: the boot cartridge not loaded while the core is in reset");
       core_poll();
-      check(dev_at(0x101, 0x4000, 20, 0, 16384) && dev_at(0x101, 0x18000, 22, 0, 32768) &&
+      check(dev_at(0x101, 0x4000, 20, 0, 16384) && dev_at(0x101, 0x12000, 22, 0, 32768) &&
             crtrom_csr_get(0x101, 0) == 2 && dev_at(0x101, 0x8000, 0, 0x8000, 0x8000),
             "start: the C128 KERNAL and the function ROM picked, the rest stock");
-      check(dev_at(0x102, 2 * 32768, 20, 0, 16384) && dev_at(0x102, 2 * 32768 + 16384, 20, 0, 16384),
+      check(lib_at(2 * 32768, 20, 0, 16384) && lib_at(2 * 32768 + 16384, 20, 0, 16384),
             "start: drive 8's 1571 ROM picked, twice");
-      check(dev_at(0x102, 32768, 1, 32768, 0) && dev_at(0x101, 0x10000, 0, 0x10000, 8192),
+      check(lib_at(32768, 1, 32768, 0) && dev_at(0x101, 0x10000, 0, 0x10000, 8192),
             "start: drive 9's bank and the characters stock");
       check(device_holds(CRT_DEV, 24, 5000) && setting_get(item(" CRT file")) && setting_get(item(" CRT:%s")),
             "start: the boot cartridge loaded, the virtual cartridge the source");
@@ -1428,8 +1451,8 @@ int main(int argc, char **argv)
    check(find_row("f32.bin") == 2 && find_row("k16.bin") == 3 && find_row("k8.bin") < 0, "function ROM browser: 16 and 32 KB");
    browse_to("f32.bin");
    press(M2M_KEY_RETURN);
-   check(find_row("=Function ROM:f32.bin") > 0 && dev_at(0x101, 0x18000, 22, 0, 32768) && crtrom_csr_get(0x101, 0) == 2,
-         "function ROM: at 0x18000, 32 KB");
+   check(find_row("=Function ROM:f32.bin") > 0 && dev_at(0x101, 0x12000, 22, 0, 32768) && crtrom_csr_get(0x101, 0) == 2,
+         "function ROM: at 0x12000, 32 KB");
    // Drive A's 1571 ROM, in its submenu: its bank twice; no reload, the drive runs a 1541 now
    press(M2M_KEY_RUNSTOP);
    go_to("8:");
@@ -1441,27 +1464,27 @@ int main(int argc, char **argv)
    browse_to("k16.bin");
    press(M2M_KEY_RETURN);
    dump("drive ROM picked");
-   check(find_row("=1571 ROM:k16.bin") > 0 && dev_at(0x102, 2 * 32768, 20, 0, 16384) &&
-         dev_at(0x102, 2 * 32768 + 16384, 20, 0, 16384) && crtrom_csr_get(0x102, 0) == 0,
+   check(find_row("=1571 ROM:k16.bin") > 0 && lib_at(2 * 32768, 20, 0, 16384) &&
+         lib_at(2 * 32768 + 16384, 20, 0, 16384) && crtrom_csr_get(0x102, 0) == 0,
          "drive A's 1571 ROM: its bank, twice, no reload");
    // Its 1541 ROM, which it runs: a reload
    press(M2M_KEY_UP);
    press(M2M_KEY_RETURN);
    browse_to("f32.bin");
    press(M2M_KEY_RETURN);
-   check(find_row("=1541 ROM:f32.bin") > 0 && dev_at(0x102, 0, 22, 0, 32768) && crtrom_csr_get(0x102, 0) == 1,
+   check(find_row("=1541 ROM:f32.bin") > 0 && lib_at(0, 22, 0, 32768) && crtrom_csr_get(0x102, 0) == 1,
          "drive A's 1541 ROM: its bank, reloaded");
    // An 8 KB 1541 ROM is its $E000 half: the stock ROM under it (boot1.rom is 600 bytes here)
    press(M2M_KEY_RETURN);
    check(find_row("k8.bin") > 0, "1541 ROM browser: 8 KB files too");
    browse_to("k8.bin");
    press(M2M_KEY_RETURN);
-   check(find_row("=1541 ROM:k8.bin") > 0 && dev_at(0x102, 0, 1, 0, 512) && dev_at(0x102, 0x2000, 21, 0, 8192) &&
-         dev_at(0x102, 0x6000, 21, 0, 8192), "drive A's 1541 ROM 8 KB: stock, then it at $E000 twice");
+   check(find_row("=1541 ROM:k8.bin") > 0 && lib_at(0, 1, 0, 512) && lib_at(0x2000, 21, 0, 8192) &&
+         lib_at(0x6000, 21, 0, 8192), "drive A's 1541 ROM 8 KB: stock, then it at $E000 twice");
    press(M2M_KEY_RETURN);
    browse_to("f32.bin");
    press(M2M_KEY_RETURN);
-   check(find_row("=1541 ROM:f32.bin") > 0 && dev_at(0x102, 0, 22, 0, 32768), "drive A's 1541 ROM: f32.bin again");
+   check(find_row("=1541 ROM:f32.bin") > 0 && lib_at(0, 22, 0, 32768), "drive A's 1541 ROM: f32.bin again");
    press(M2M_KEY_RUNSTOP);
    go_to("System ROMs:");
    press(M2M_KEY_RETURN);

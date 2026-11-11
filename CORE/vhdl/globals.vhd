@@ -166,7 +166,7 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 ----------------------------------------------------------------------------------------------------------
 constant C_DEV_RAM            : std_logic_vector(15 downto 0) := x"0100"; -- RAM
 constant C_DEV_SYSTEM_ROM     : std_logic_vector(15 downto 0) := x"0101"; -- boot0.rom
-constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- boot1.rom
+constant C_DEV_DRIVE_ROM      : std_logic_vector(15 downto 0) := x"0102"; -- the drives' DOS ROMs, fed from C_HMAP_DRVROM (drive_rom_server.vhd)
 constant C_DEV_VDRIVES        : std_logic_vector(15 downto 0) := x"0103"; -- vdrives.vhd
 constant C_DEV_MOUNT_D8       : std_logic_vector(15 downto 0) := x"0104"; -- drive 8: block table of its image on the SD card (vd_sd.vhd)
 constant C_DEV_MOUNT_D9       : std_logic_vector(15 downto 0) := x"0105"; -- drive 9: block table of its image on the SD card (vd_sd.vhd)
@@ -180,6 +180,11 @@ constant C_DEV_INPUT          : std_logic_vector(15 downto 0) := x"010D"; -- RES
 constant C_DEV_VDC            : std_logic_vector(15 downto 0) := x"010E"; -- the VDC's RAM and registers, read without side effects (vdc_peek.vhd)
 constant C_DEV_CMDHD          : std_logic_vector(15 downto 0) := x"010F"; -- the CMD HD: boot ROM, SCSI buffer, controls (cmdhd/cmdhd.vhd)
 
+-- The system ROM (C_DEV_SYSTEM_ROM): boot0.rom (72 KB, MiSTer's banks 0-17), then the internal
+-- function ROM (32 KB)
+constant C_FUNC_ROM_AT        : natural := 16#12000#;
+constant C_SYS_ROM_SIZE       : natural := C_FUNC_ROM_AT + 16#8000#;   -- 104 KB: 26 block RAM tiles
+
 ----------------------------------------------------------------------------------------------------------
 -- HyperRAM memory map (in units of 4kW, i.e. one window is 8 kB)
 -- Layout and rationale: doc/hyperram-map.md
@@ -188,7 +193,8 @@ constant C_DEV_CMDHD          : std_logic_vector(15 downto 0) := x"010F"; -- the
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 1 MiB
 constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0080";     -- REU on R3: 512 KiB
 constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"00C0";     -- Virtual cartridge on R3: 2 MiB
--- 0x01C0-0x01FF: free
+constant C_HMAP_DRVROM        : std_logic_vector(15 downto 0) := x"01C0";     -- drive ROM library (boot1.rom): 192 KiB, up to 0x1D7
+-- 0x01D8-0x01FF: free
 constant C_HMAP_FIRMWARE      : std_logic_vector(15 downto 0) := x"0200";     -- RISC-V system CPU's firmware: up to 0x3FE
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 
@@ -225,7 +231,7 @@ constant ENDSTR : character := character'val(0);
 constant C_CRTROMTYPE_DEVICE     : std_logic_vector(15 downto 0) := x"0000";
 constant C_CRTROMTYPE_HYPERRAM   : std_logic_vector(15 downto 0) := x"0001";
 constant C_CRTROMTYPE_SDRAM      : std_logic_vector(15 downto 0) := x"0002";           -- @TODO/RESERVED for future R4 boards
-constant C_CRTROMTYPE_CORE       : std_logic_vector(15 downto 0) := x"0005";           -- the firmware's core code loads it (core_crtrom_load)
+constant C_CRTROMTYPE_CORE       : std_logic_vector(15 downto 0) := x"0005";           -- the firmware's core code loads it (core_crtrom_load, core_rom_autoload)
 
 -- Types of automatically loaded ROMs:
 -- If a mandatory file is missing, then the core outputs the missing file and goes fatal
@@ -295,7 +301,7 @@ constant BOOT_1_START : std_logic_vector(15 downto 0) := std_logic_vector(to_uns
 constant C_CRTROMS_AUTO_NUM      : natural := 2;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
 constant C_CRTROMS_AUTO_NAMES    : string := BOOT_0 & BOOT_1;
 constant C_CRTROMS_AUTO          : crtrom_buf_array := (C_CRTROMTYPE_DEVICE, C_DEV_SYSTEM_ROM, C_CRTROMTYPE_MANDATORY, BOOT_0_START, 
-                                                        C_CRTROMTYPE_DEVICE, C_DEV_DRIVE_ROM, C_CRTROMTYPE_MANDATORY, BOOT_1_START, 
+                                                        C_CRTROMTYPE_CORE, C_DEV_DRIVE_ROM, C_CRTROMTYPE_MANDATORY, BOOT_1_START,  -- into C_HMAP_DRVROM (drvrom.c)
                                                         x"EEEE");                     -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------

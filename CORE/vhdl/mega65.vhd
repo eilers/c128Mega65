@@ -385,10 +385,9 @@ signal qnice_sysrom_we       : std_logic;
 signal qnice_sysrom_addr     : std_logic_vector(16 downto 0);
 signal qnice_sysrom_d_to     : std_logic_vector(7 downto 0);
 signal qnice_sysrom_d_from   : std_logic_vector(7 downto 0);
+signal qnice_drvrom_ce       : std_logic;
 signal qnice_drvrom_we       : std_logic;
-signal qnice_drvrom_addr     : std_logic_vector(17 downto 0);
-signal qnice_drvrom_d_to     : std_logic_vector(7 downto 0);
-signal qnice_drvrom_d_from   : std_logic_vector(7 downto 0);
+signal qnice_drvrom_data     : std_logic_vector(15 downto 0);
 signal main_ram_addr         : unsigned(17 downto 0);
 signal main_ram_data_to      : unsigned(7 downto 0);
 signal main_ram_we           : std_logic;
@@ -396,7 +395,7 @@ signal main_ram_data_from    : unsigned(7 downto 0);
 signal main_ram_q            : std_logic_vector(7 downto 0);
 signal main_sysrom_addr      : std_logic_vector(16 downto 0);
 signal main_sysrom_data      : std_logic_vector(7 downto 0);
--- The internal function ROM, in boot0.rom's device from 0x18000: 0 none, 1 16 KB, 2 32 KB
+-- The internal function ROM, in boot0.rom's device from C_FUNC_ROM_AT: 0 none, 1 16 KB, 2 32 KB
 signal qnice_funcrom_size    : std_logic_vector(1 downto 0) := "00";
 signal main_funcrom_size     : std_logic_vector(1 downto 0);
 
@@ -633,15 +632,13 @@ signal exp_hr_readdata        : std_logic_vector(15 downto 0);
 signal exp_hr_readdatavalid   : std_logic;
 signal exp_hr_waitrequest     : std_logic;
 
--- Drive ROM server: hands boot1.rom to iec_drive byte by byte (QNICE clock domain)
-signal qnice_drvrom_b_addr   : std_logic_vector(17 downto 0) := (others => '0');
-signal qnice_drvrom_b_data   : std_logic_vector(7 downto 0);
+-- Drive ROM server: the firmware's bytes to iec_drive (QNICE clock domain)
 signal qnice_drv_rom_loading : std_logic;
 signal qnice_drv_rom_req     : std_logic;
 signal qnice_drv_rom_addr    : std_logic_vector(18 downto 0);
-signal qnice_drv_rom_wr      : std_logic := '0';
-signal qnice_drv_reload_f    : std_logic_vector(1 downto 0) := "00";   -- CSR write, falling edge
-signal qnice_drv_reload      : std_logic_vector(1 downto 0) := "00";   -- a pulse per drive
+signal qnice_drv_rom_data    : std_logic_vector(7 downto 0);
+signal qnice_drv_rom_wr      : std_logic;
+signal qnice_drv_reload      : std_logic_vector(1 downto 0);           -- a pulse per drive
 signal qnice_drv_rom_ready   : std_logic_vector(1 downto 0);
 signal qnice_core_rst        : std_logic;
 -- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
@@ -936,7 +933,7 @@ begin
          drv_rom_ready_o      => qnice_drv_rom_ready,
          drv_rom_req_o        => qnice_drv_rom_req,
          drv_rom_addr_o       => qnice_drv_rom_addr,
-         drv_rom_data_i       => qnice_drvrom_b_data,
+         drv_rom_data_i       => qnice_drv_rom_data,
          drv_rom_wr_i         => qnice_drv_rom_wr,
 
          rst_sd_i             => qnice_rst_i,
@@ -1148,8 +1145,7 @@ begin
       qnice_sysrom_addr    <= (others => '0');
       qnice_sysrom_d_to    <= (others => '0');
       qnice_sysrom_we      <= '0';
-      qnice_drvrom_addr    <= (others => '0');
-      qnice_drvrom_d_to    <= (others => '0');
+      qnice_drvrom_ce      <= '0';
       qnice_drvrom_we      <= '0';
       qnice_vd_ce          <= '0';
       qnice_vd_we          <= '0';
@@ -1180,7 +1176,7 @@ begin
             qnice_c64_ramx_we   <= qnice_dev_we_i;
             qnice_c64_ramx_d_to <= qnice_dev_data_i(7 downto 0);
             qnice_dev_data_o    <= x"00" & qnice_c64_ramx_d_from;
-        -- boot0.rom, and the internal function ROM from 0x18000; its CSR window: register 0
+        -- boot0.rom, and the internal function ROM from 0x12000; its CSR window: register 0
         -- the function ROM's size, 0 none, 1 16 KB, 2 32 KB
         when C_DEV_SYSTEM_ROM =>
             qnice_sysrom_addr <= qnice_dev_addr_i(16 downto 0);
@@ -1191,17 +1187,11 @@ begin
                qnice_sysrom_we   <= qnice_dev_we_i;
                qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
             end if;
-        -- boot1.rom; its CSR window: register 0 R: bit i drive i has its ROM, W: bit i
-        -- reloads drive i's bank, holding the drive in reset meanwhile (REST's load_rom)
+        -- The drives' DOS ROMs, fed by the firmware from HyperRAM (drive_rom_server.vhd)
         when C_DEV_DRIVE_ROM =>
-            qnice_drvrom_addr <= qnice_dev_addr_i(17 downto 0);
-            qnice_drvrom_d_to <= qnice_dev_data_i(7 downto 0);
-            if qnice_dev_addr_i(27 downto 12) = x"FFFF" then
-               qnice_dev_data_o  <= x"000" & "00" & qnice_drv_rom_ready;
-            else
-               qnice_drvrom_we   <= qnice_dev_we_i;
-               qnice_dev_data_o  <= x"00" & qnice_drvrom_d_from;
-            end if;
+            qnice_drvrom_ce   <= qnice_dev_ce_i;
+            qnice_drvrom_we   <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_drvrom_data;
 
         -- Virtual drive control and data registers (vdrives.vhd inside main.vhd)
         when C_DEV_VDRIVES =>
@@ -1364,7 +1354,8 @@ begin
          G_RD_DEPTH     => 16,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_DATA_SIZE    => 16,
+         G_MEMORY_TYPE  => "distributed"   -- 16 deep: LUT RAM, not 1.5 block RAM tiles
       )
       port map (
          s_clk_i               => qnice_clk_i,
@@ -1398,7 +1389,8 @@ begin
          G_RD_DEPTH     => 16,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_DATA_SIZE    => 16,
+         G_MEMORY_TYPE  => "distributed"   -- 16 deep: LUT RAM, not 1.5 block RAM tiles
       )
       port map (
          s_clk_i               => main_clk_o,
@@ -1816,13 +1808,12 @@ begin
    -- Drive ROM server (QNICE clock domain)
    ---------------------------------------------------------------------------------------------
 
-   -- The handshake itself lives in drive_rom_server.vhd, which CORE/sim/tb_drive_rom.vhd
-   -- exercises against the real iecdrv_rom. Four QNICE cycles per byte load a full 32 kB
-   -- bank in about 2.6 ms.
+   -- The drives' DOS ROMs (boot1.rom) are in HyperRAM at C_HMAP_DRVROM, and the firmware
+   -- feeds each drive its bank through this device (CORE/firmware/drvrom.c). A drive stays in
+   -- reset until it has the whole bank. CORE/sim/tb_drive_rom.vhd checks the handover.
    --
-   -- rom_loading tracks the core reset because the M2M Shell holds the core in reset while it
-   -- streams the mandatory C_CRTROMS_AUTO files in; serving from the ROM before that finishes
-   -- would hand the drives garbage and latch it as valid.
+   -- rom_loading tracks the core reset: the Shell holds the core in reset while it loads the
+   -- library, and every drive loads its bank again after the reset.
    i_cdc_main2qnice_rst : xpm_cdc_array_single
       generic map (
          WIDTH => 1
@@ -1836,37 +1827,25 @@ begin
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
 
-   -- A drive's bank again: its iecdrv_rom starts over, and the server drops a byte it was
-   -- fetching, which would land at the restarted address
-   p_drv_reload_f : process (qnice_clk_i)
-   begin
-      if falling_edge(qnice_clk_i) then
-         qnice_drv_reload_f <= "00";
-         if qnice_dev_id_i = C_DEV_DRIVE_ROM and qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
-            qnice_dev_addr_i(27 downto 0) = x"FFFF000" then
-            qnice_drv_reload_f <= qnice_dev_data_i(1 downto 0);
-         end if;
-      end if;
-   end process p_drv_reload_f;
-
-   p_drv_reload : process (qnice_clk_i)
-   begin
-      if rising_edge(qnice_clk_i) then
-         qnice_drv_reload <= qnice_drv_reload_f;
-      end if;
-   end process p_drv_reload;
-
    i_drive_rom_server : entity work.drive_rom_server
       generic map (
-         G_ROM_ADDR_WIDTH => 18
+         G_WINDOW      => C_HMAP_DRVROM
       )
       port map (
-         clk_i          => qnice_clk_i,
-         rom_loading_i  => qnice_drv_rom_loading or qnice_drv_reload(0) or qnice_drv_reload(1),
-         rom_req_i      => qnice_drv_rom_req,
-         rom_addr_i     => qnice_drv_rom_addr,
-         rom_wr_o       => qnice_drv_rom_wr,
-         rom_ram_addr_o => qnice_drvrom_b_addr
+         clk_i         => qnice_clk_i,
+         rst_i         => qnice_rst_i,
+         rom_loading_i => qnice_drv_rom_loading,
+         qnice_addr_i  => qnice_dev_addr_i,
+         qnice_data_i  => qnice_dev_data_i,
+         qnice_ce_i    => qnice_drvrom_ce,
+         qnice_we_i    => qnice_drvrom_we,
+         qnice_data_o  => qnice_drvrom_data,
+         rom_ready_i   => qnice_drv_rom_ready,
+         rom_reload_o  => qnice_drv_reload,
+         rom_req_i     => qnice_drv_rom_req,
+         rom_addr_i    => qnice_drv_rom_addr,
+         rom_data_o    => qnice_drv_rom_data,
+         rom_wr_o      => qnice_drv_rom_wr
       ); -- i_drive_rom_server
 
    ---------------------------------------------------------------------------------------------
@@ -1901,11 +1880,13 @@ begin
 
    main_ram_data_from <= unsigned(main_ram_q);
 
+   -- boot0.rom and the function ROM right after it, 104 KB (globals.vhd)
    i_system_rom : entity work.dualport_2clk_ram
       generic map (
-         ADDR_WIDTH => 17,
-         DATA_WIDTH => 8,
-         FALLING_A  => true
+         ADDR_WIDTH   => 17,
+         DATA_WIDTH   => 8,
+         MAXIMUM_SIZE => C_SYS_ROM_SIZE,
+         FALLING_A    => true
       )
       port map (
          clock_a         => qnice_clk_i,
@@ -1945,33 +1926,6 @@ begin
          dst_clk_i  => main_clk_o,
          dst_data_o => main_funcrom_size
       ); -- i_cdc_funcrom_size
-
-   -- boot1.rom holds the six 32 kB drive DOS banks that iec_drive can ask for with DRIVES = 2
-   -- (1541 x2, 1571 x2, 1581 x2), so the highest address it ever generates is 5 * 32768 + 32767
-   -- = 196,607. ADDR_WIDTH = 18 covers exactly that; the 19 bits this used to have would have
-   -- cost another 64 block RAM tiles that the design cannot spare.
-   i_drive_rom : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 18,
-         DATA_WIDTH => 8,
-         FALLING_A  => true
-      )
-      port map (
-         clock_a         => qnice_clk_i,
-         address_a       => qnice_drvrom_addr,
-         do_latch_addr_a => '0',
-         data_a          => qnice_drvrom_d_to,
-         wren_a          => qnice_drvrom_we,
-         q_a             => qnice_drvrom_d_from,
-         -- Port B serves the drives. It runs on the QNICE clock as well: the pull protocol of
-         -- iec_drive lives in its clk_sys domain, which is the QNICE clock here.
-         clock_b         => qnice_clk_i,
-         address_b       => qnice_drvrom_b_addr,
-         do_latch_addr_b => '0',
-         data_b          => (others => '0'),
-         wren_b          => '0',
-         q_b             => qnice_drvrom_b_data
-      );
 
    -- Drive LED colour comes from main.vhd (VIC/VDC probe during debug)
 

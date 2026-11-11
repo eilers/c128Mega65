@@ -23,7 +23,9 @@
 // 15: each drive's Drive enabled line; vd_sd's power register (0x034) only reads
 // 16: the 256 KB RAM menu item
 // 17: the CMD HD (C_DEV_CMDHD) and its submenu; 18 CRT/ROM menu items
-#define M2M_RV_HW_VERSION    17u
+// 18: the firmware feeds the drives' DOS ROMs from HyperRAM (C_DEV_DRIVE_ROM, drvrom.c); the
+//     function ROM from 0x12000
+#define M2M_RV_HW_VERSION    18u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

@@ -9,7 +9,8 @@ entity avm_fifo is
       G_RD_DEPTH     : integer;
       G_FILL_SIZE    : natural := 5;
       G_ADDRESS_SIZE : integer; -- Number of bits
-      G_DATA_SIZE    : integer  -- Number of bits
+      G_DATA_SIZE    : integer; -- Number of bits
+      G_MEMORY_TYPE  : string := "auto"  -- both FIFOs' (axi_fifo.vhd)
    );
    port (
       s_clk_i               : in  std_logic;
@@ -79,10 +80,11 @@ begin
 
    i_axi_fifo_wr : entity work.axi_fifo
       generic map (
-         G_DEPTH     => G_WR_DEPTH,
-         G_FILL_SIZE => G_FILL_SIZE,
-         G_DATA_SIZE => C_FIFO_WR_SIZE,
-         G_USER_SIZE => 8  -- burstcount
+         G_DEPTH       => G_WR_DEPTH,
+         G_FILL_SIZE   => G_FILL_SIZE,
+         G_DATA_SIZE   => C_FIFO_WR_SIZE,
+         G_USER_SIZE   => 8,  -- burstcount
+         G_MEMORY_TYPE => G_MEMORY_TYPE
       )
       port map (
          s_aclk_i        => s_clk_i,
@@ -106,10 +108,11 @@ begin
 
    i_axi_fifo_rd : entity work.axi_fifo
       generic map (
-         G_DEPTH     => G_RD_DEPTH,
-         G_FILL_SIZE => G_FILL_SIZE,
-         G_DATA_SIZE => G_DATA_SIZE-8,
-         G_USER_SIZE => 8  -- must be nonzero multiple of 8
+         G_DEPTH       => G_RD_DEPTH,
+         G_FILL_SIZE   => G_FILL_SIZE,
+         G_DATA_SIZE   => G_DATA_SIZE-8,
+         G_USER_SIZE   => 8,  -- must be nonzero multiple of 8
+         G_MEMORY_TYPE => G_MEMORY_TYPE
       )
       port map (
          s_aclk_i        => m_clk_i,

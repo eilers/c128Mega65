@@ -7,7 +7,6 @@ entity video_overlay is
    generic  (
       G_VGA_DX          : natural;
       G_VGA_DY          : natural;
-      G_FONT_FILE       : string;
       G_FONT_DX         : natural;
       G_FONT_DY         : natural
    );
@@ -32,6 +31,8 @@ entity video_overlay is
       vga_cfg_dxdy_i    : in  std_logic_vector(15 downto 0);
       vga_vram_addr_o   : out std_logic_vector(15 downto 0);
       vga_vram_data_i   : in  std_logic_vector(15 downto 0);
+      vga_font_addr_o   : out std_logic_vector(11 downto 0);
+      vga_font_data_i   : in  std_logic_vector(15 downto 0);
 
       -- VGA output
       vga_ce_o          : out std_logic;
@@ -113,7 +114,6 @@ begin
       generic map (
          G_VGA_DX              => G_VGA_DX,
          G_VGA_DY              => G_VGA_DY,
-         G_FONT_FILE           => G_FONT_FILE,
          G_FONT_DX             => G_FONT_DX,
          G_FONT_DY             => G_FONT_DY
       )
@@ -128,6 +128,8 @@ begin
          vga_osm_vram_addr_o   => vga_vram_addr_o,              -- Stage 5
          vga_osm_vram_data_i   => vga_vram_data_i( 7 downto 0), -- Stage 6
          vga_osm_vram_attr_i   => vga_vram_data_i(15 downto 8), -- Stage 6
+         vga_osm_font_addr_o   => vga_font_addr_o,
+         vga_osm_font_data_i   => vga_font_data_i,
          vga_osm_on_o          => stage8_vga_osm_on,
          vga_osm_rgb_o         => stage8_vga_osm_rgb
       ); -- i_vga_osm

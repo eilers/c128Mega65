@@ -141,7 +141,7 @@ bit i reloads drive i's bank, its `iecdrv_rom` and the ROM server starting over)
 hold (CSR `0x035`). iec_drive's per-drive `rom_reload` is in `CORE/C128_MiSTer`.
 
 Hardware interface 5: the internal function ROM in `C_DEV_SYSTEM_ROM` from `0x18000`
-(boot0.rom's BRAM has 128 KB), its size in that device's CSR register 0 (0 none, 1 16 KB,
+(`0x12000` since hardware interface 18), its size in that device's CSR register 0 (0 none, 1 16 KB,
 2 32 KB; a missing half floats, as on MiSTer). The firmware writes a 16 KB function ROM twice,
 as VICE and a 16 KB EPROM in the C128's 32 KB socket have it, so it uses 0 and 2.
 
@@ -155,6 +155,12 @@ Hardware interface 12: his video and audio streams in `C_DEV_NET` (words `0x20`-
 Hardware interface 13: `C_DEV_VDC` (`vdc_peek.vhd`), the VDC's RAM (words `0x0000`-`0xFFFF`)
 and registers (its CSR window), read through a second port of the VDC's own RAM and a copy
 of its register read, on its clock. The VDC is in `CORE/C128_MiSTer`.
+
+Hardware interface 18: boot1.rom moves from block RAM to HyperRAM (`C_HMAP_DRVROM`), and the
+firmware hands each drive the bytes of its bank (`drvrom.c`, `drive_rom_server.vhd`, its
+register map in its header). Register 0 of `C_DEV_DRIVE_ROM` stays as it was, so load_rom's
+reload and wait are unchanged. The function ROM moves to `0x12000`, right after boot0.rom, in
+a 104 KB system ROM.
 
 ## Settings
 
@@ -227,8 +233,8 @@ here or by REST. A start that fails shows his popup's text until Space.
 - `make -C M2M/firmware host-test` runs `test_http`: the server and lwIP with clients on a
   loopback, every answer to the byte, the limits, the reaper, bodies, the backlog; the
   routes on `host/host_rest.c`'s fakes (a C128's memory behind a DMA model, a C128 that
-  resets, boots to BASIC and takes typed keys, the drives, the drive ROM and cartridge
-  devices, the menu's bits) with the real `stores.c` and FatFs on a card image. `test_shell` types in the Network
+  resets, boots to BASIC and takes typed keys, the drives, the drives' ROM library and the
+  cartridge device, the menu's bits) with the real `stores.c` and FatFs on a card image. `test_shell` types in the Network
   submenu; `test_uci` and `test_prg` keep LOAD_CONFIG's answers.
 - Streams: `test_http` starts and stops them against a DNS server and ARP entries on its
   loopback and checks each header against `test/streams/udp_headers.py` (his
@@ -248,8 +254,8 @@ here or by REST. A start that fails shows his popup's text until Space.
   position, both scan directions, with the Z80).
 - `M2M/firmware/host/build/test_http -serve 18080 IMG` puts that build on `127.0.0.1:18080`,
   with the FAT image IMG as its card.
-- `CORE/scripts/run_drive_rom_sim.tcl` (tb_drive_rom: reloads, also in the middle of a load
-  and in reset) and `run_vd_sd_sim.tcl` (tb_vd_sd: hold).
+- `CORE/scripts/run_drive_rom_nvc.sh` and `run_drive_rom_sim.tcl` (tb_drive_rom: reloads, also
+  in the middle of a load and in reset) and `run_vd_sd_sim.tcl` (tb_vd_sd: hold).
 - `test/rest/rest_ab.py`: the same raw requests to the core and to an Ultimate, compared
   byte for byte (`--slow` adds the 15 s cases). `--contract ~/Code/1541ultimate` checks the
   answers against his OpenAPI document for what `/v1/info` says (`core_version`: U64) with his

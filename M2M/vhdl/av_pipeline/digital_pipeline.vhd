@@ -24,7 +24,6 @@ entity digital_pipeline is
       G_AUDIO_CLOCK_RATE     : natural;
       G_VGA_DX               : natural;              -- Actual format of video from Core (in pixels).
       G_VGA_DY               : natural;
-      G_FONT_FILE            : string;
       G_FONT_DX              : natural;
       G_FONT_DY              : natural;
       G_HDMI_VIEW            : hdmi_view_cfg_t := C_HDMI_VIEW_LEGACY
@@ -66,6 +65,8 @@ entity digital_pipeline is
       hdmi_osm_cfg_dxdy_i      : in  std_logic_vector(15 downto 0);
       hdmi_osm_vram_addr_o     : out std_logic_vector(15 downto 0);
       hdmi_osm_vram_data_i     : in  std_logic_vector(15 downto 0);
+      hdmi_osm_font_addr_o     : out std_logic_vector(11 downto 0);
+      hdmi_osm_font_data_i     : in  std_logic_vector(15 downto 0);
       sys_info_hdmi_o          : out std_logic_vector(47 downto 0);
       video_hdmax_o            : out natural range 0 to 4095;
       video_vdmax_o            : out natural range 0 to 4095;
@@ -655,7 +656,6 @@ begin
       generic  map (
          G_VGA_DX          => G_VGA_DX,  -- TBD
          G_VGA_DY          => G_VGA_DY,  -- TBD
-         G_FONT_FILE       => G_FONT_FILE,
          G_FONT_DX         => G_FONT_DX,
          G_FONT_DY         => G_FONT_DY
       )
@@ -676,6 +676,8 @@ begin
          vga_cfg_dxdy_i    => hdmi_osm_cfg_dxdy_i,
          vga_vram_addr_o   => hdmi_osm_vram_addr_o,
          vga_vram_data_i   => hdmi_osm_vram_data_i,
+         vga_font_addr_o   => hdmi_osm_font_addr_o,
+         vga_font_data_i   => hdmi_osm_font_data_i,
          vga_ce_o          => open,
          vga_red_o         => hdmi_osm_red,
          vga_green_o       => hdmi_osm_green,

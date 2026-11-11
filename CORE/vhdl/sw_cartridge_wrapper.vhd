@@ -304,7 +304,8 @@ begin
          G_RD_DEPTH     => 16,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_DATA_SIZE    => 16,
+         G_MEMORY_TYPE  => "distributed"   -- 16 deep: LUT RAM, not 1.5 block RAM tiles
       )
       port map (
          s_clk_i               => qnice_clk_i,
