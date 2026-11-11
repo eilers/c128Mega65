@@ -89,7 +89,7 @@ arrived waits in a ring of one window (in HyperRAM), not in lwIP's buffers: a fa
 sending small segments would otherwise empty the pool that every other frame needs.
 
 **Failures.** A trap (a bus error, say) stops the whole firmware on its trap screen, and so
-does a main loop stuck for a second (the watchdog, marked `stuck`, with the address it was
+does a main loop stuck for two seconds (the watchdog, marked `stuck`, with the address it was
 stuck at). The core needs a reset then (a long press). `AT*T` and `AT*W` test the two.
 
 ### Resources

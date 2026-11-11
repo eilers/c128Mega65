@@ -639,6 +639,7 @@ int main(int argc, char **argv)
    crtrom_csr_set(D9_DEV, 0x030, 0x5D4D);
    crtrom_csr_set(0x102, 1, LIB_WINDOW);              // drive_rom_server.vhd: the library's window,
    memset((uint8_t *)host_hr + LIB_WINDOW * 8192, 0xA5, 6 * 32768);   // holding what was there before
+   memset((void *)host_dev_at(0x100), 0xA5, 2 * 0x40010);   // and so does the C128's RAM
    uint8_t bits[MENU_MAX];
    int second = make_card(bits);                      // the first run left its settings
    M2M_CSR |= M2M_CSR_SD_DET_EXT | M2M_CSR_SD_ACTIVE;
@@ -653,6 +654,11 @@ int main(int argc, char **argv)
       zero &= fresh[i] == 0;
    check(zero, "heap_alloc: zeroed, on HyperRAM that held something");
    check(!(M2M_CSR & M2M_CSR_RESET), "core left reset");
+   M2M_RAMROM_DEV = 0x100;
+   int clear = 1;
+   for (int i = 0; i < 0x40000; i++)
+      clear &= M2M_DEV16[i] == 0;
+   check(clear && M2M_DEV16[0x40000] == 0xA5A5, "start: the C128's 256 KB of RAM cleared, no more");
    check((M2M_CSR & (M2M_CSR_KBD | M2M_CSR_JOY1 | M2M_CSR_JOY2)) == 0x38, "keyboard and joysticks on");
    check(device_holds(0x101, 0, 4100), "boot0.rom in its device");
    check(second ? lib_at(0, 22, 0, 32768) : lib_at(0, 1, 0, 600) && lib_zero(600, 6 * 32768 - 600),
