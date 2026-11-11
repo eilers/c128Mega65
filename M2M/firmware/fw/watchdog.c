@@ -2,7 +2,9 @@
 #include "m2m_rv.h"
 #include "watchdog.h"
 
-#define TIMEOUT  CPU_HZ               // 1 s
+// 2 s: the reset button holds HyperRAM, the firmware's code, in reset while it is down,
+// and restarts the firmware at 1.5 s; a shorter hold must not count as stuck
+#define TIMEOUT  (2 * CPU_HZ)
 #define RENEW    (CPU_HZ / 100)       // the deadline moves on at most every 10 ms
 #define MIE_MTIE (1u << 7)
 

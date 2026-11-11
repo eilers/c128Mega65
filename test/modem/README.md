@@ -52,7 +52,7 @@ one 64-word HyperRAM burst, `AT*H1` filled HDMI with sparkles.
 ## A fault and a hang
 
 `AT*T` reads from an address with nothing there; the firmware stops on its trap screen
-(`trap` and the cause in the menu's bottom row). `AT*W` loops for good; a second later the
+(`trap` and the cause in the menu's bottom row). `AT*W` loops for good; two seconds later the
 watchdog stops the firmware the same way, marked `stuck`, with the address of the loop.
 Either way the core needs a reset (a long press).
 

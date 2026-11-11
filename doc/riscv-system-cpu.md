@@ -20,8 +20,10 @@ has them, for reference.
 4. **Drop QNICE** (`a626c1c`): RISC-V on every board, QNICE deleted.
 
 Then UCI at `$DF1C` (`doc/uci.md`), then networking: the modem's own NEORV32 moved into
-the system CPU in step 8 (`CORE/firmware/net`, `doc/swiftlink-modem.md`), with a 1-second
-main-loop watchdog (`fw/watchdog.c`) that stops on the trap screen.
+the system CPU in step 8 (`CORE/firmware/net`, `doc/swiftlink-modem.md`), with a 2-second
+main-loop watchdog (`fw/watchdog.c`) that stops on the trap screen. Two seconds, because
+holding the reset button holds HyperRAM in reset, and the firmware waits for its code until
+the button is released or, at 1.5 s, the firmware restarts.
 
 Decisions: the firmware runs from HyperRAM behind the i-cache, loaded from the SD card by
 a small boot ROM (no card: a message on the screen; the `.cor` flash slot may come
