@@ -71,9 +71,9 @@ Pull Requests
 What goes where
 ---------------
 
-* `CORE/C128_MiSTer` is a submodule (https://github.com/eilers/C128_MiSTer).
-  Make changes to the MiSTer core there, on a branch off `Mega65_main`, and
-  update the submodule in your c128Mega65 PR.
+* `CORE/C128_MiSTer/rtl` is the MiSTer C128 core, kept in this repository.
+  Change it in the same PR as the rest; `CORE/C128_MiSTer/README.md` says
+  where it came from and how to borrow fixes from upstream.
 
 * The RISC-V firmware is committed as `sdcard/c128/firmware.bin`, so the core
   builds without a RISC-V toolchain. If you change its sources, rebuild it

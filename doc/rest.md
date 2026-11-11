@@ -138,7 +138,7 @@ core's own ROMs, 40 and 80 columns.
 
 Hardware interface 4: `C_DEV_DRIVE_ROM`'s CSR (register 0: R bit i drive i has its ROM, W
 bit i reloads drive i's bank, its `iecdrv_rom` and the ROM server starting over) and vd_sd's
-hold (CSR `0x035`). iec_drive's per-drive `rom_reload` is in the C128_MiSTer submodule.
+hold (CSR `0x035`). iec_drive's per-drive `rom_reload` is in `CORE/C128_MiSTer`.
 
 Hardware interface 5: the internal function ROM in `C_DEV_SYSTEM_ROM` from `0x18000`
 (boot0.rom's BRAM has 128 KB), its size in that device's CSR register 0 (0 none, 1 16 KB,
@@ -154,7 +154,7 @@ Hardware interface 12: his video and audio streams in `C_DEV_NET` (words `0x20`-
 
 Hardware interface 13: `C_DEV_VDC` (`vdc_peek.vhd`), the VDC's RAM (words `0x0000`-`0xFFFF`)
 and registers (its CSR window), read through a second port of the VDC's own RAM and a copy
-of its register read, on its clock. The VDC is in the C128_MiSTer submodule.
+of its register read, on its clock. The VDC is in `CORE/C128_MiSTer`.
 
 ## Settings
 

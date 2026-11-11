@@ -11,9 +11,6 @@ Target board: **MEGA65 R6**. Vivado project:
 From the repository root:
 
 ```bash
-# One-time setup
-git submodule update --init --recursive
-
 # Boot simulation (run before flashing)
 CORE/scripts/run_boot_sim.sh
 
@@ -25,19 +22,14 @@ CORE/scripts/vivado.sh -mode batch \
 
 ## Prerequisites
 
-### Repository and submodules
+### Repository
 
 ```bash
 git clone <repo-url> c128Mega65
-cd c128Mega65
-git submodule update --init --recursive
 ```
 
-Submodules include:
-
-| Path               | Purpose              |
-|--------------------|----------------------|
-| `CORE/C128_MiSTer` | MiSTer C128 core RTL |
+`CORE/C128_MiSTer/rtl` is the MiSTer C128 core's RTL, kept in this repository
+(see `CORE/C128_MiSTer/README.md`).
 
 ### System CPU firmware
 
@@ -523,7 +515,7 @@ bitstream build:
 CORE/scripts/release-check.sh
 ```
 
-Checks: submodules initialized, `sdcard/c128/firmware.bin` (fits the cores, not
+Checks: `sdcard/c128/firmware.bin` (fits the cores, not
 older than its sources), boot sim gate, and ROM file sizes.
 
 Add `--with-vivado` to include a full Vivado batch build (very long-running).
