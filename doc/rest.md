@@ -29,7 +29,7 @@ byte, because tools parse his answers. Where it differs, "Not his" below says so
 | `GET /v1/help?command=` | his fixed page |
 | `PUT /v1/machine:reset`, `:reboot` | the reset button, as UCI's REBOOT; a pause ends with it |
 | `PUT /v1/machine:pause`, `:resume` | the C128's CPU held by bus DMA, as his `stop()`; answered at once |
-| `GET /v1/machine:readmem?address=&length=` | memory as the C128's CPU sees it then (the MMU's banks, ROMs, I/O), read by bus DMA with the CPU held for the whole request; 1 µs a byte, 64 KB in about 70 ms |
+| `GET /v1/machine:readmem?address=&length=` | memory as a DMA sees it then: in C128 mode RAM in the VIC's bank (`$D506` bits 6-7), ROMs and I/O as `$FF00` selects them, no MMU registers; in C64 mode as the CPU sees it. Read by bus DMA with the CPU held for the whole request; 1 µs a byte, 64 KB in about 70 ms |
 | `PUT /v1/machine:writemem?address=&data=`, `POST` | the same, written: up to 128 bytes in the URL, or a POST's body (raw, or a multipart file part: the first part, up to 64 KB) |
 | `PUT /v1/machine:menu_button` | opens the On-Screen-Menu, or closes it (not while a file is being picked) |
 | `GET /v1/machine:vdcmem?address=&length=` | readmem's form and answers, for the VDC's 64 KB: the bytes a program reads through R18/R19 and R31 (16K or 64K, as R28 bit 4 has it), without moving the update address. No bus DMA: the C128 keeps running, also while the Z80 runs (CP/M's screen reads; readmem answers 423 then). 0.7 µs a byte, 64 KB in about 50 ms; sending 64 KB takes about 0.4 s, as readmem's. Pause first for a still snapshot |

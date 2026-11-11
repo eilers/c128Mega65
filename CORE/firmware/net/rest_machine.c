@@ -1,9 +1,10 @@
 // The REST API's machine routes: Gideon's software/api/route_machine.cc at 4b00732 (the
 // II+L's 3.15a has the same) with his U2's answers, on the C128. His C64_DMA_RAW_READ and
-// _WRITE go over the core's DMA port (c128dma.c): memory as the C128's CPU sees it then,
-// with the CPU held for the whole of a request, as his stop() holds it. Reset and reboot are
-// the reset button, as UCI's REBOOT; the menu is the On-Screen-Menu. vdcmem and vdcregs are
-// ours (the U64 has no VDC): readmem's form, read through vdc.c.
+// _WRITE go over the core's DMA port (c128dma.c): memory as a DMA sees it then (in C128
+// mode RAM in the VIC's bank, no MMU registers; see c128_dma.vhd), with the CPU held for the
+// whole of a request, as his stop() holds it. Reset and reboot are the reset button, as
+// UCI's REBOOT; the menu is the On-Screen-Menu. vdcmem and vdcregs are ours (the U64 has no
+// VDC): readmem's form, read through vdc.c.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
