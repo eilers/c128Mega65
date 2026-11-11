@@ -11,8 +11,9 @@
 -- being reset as soon as the SD card is switched.
 --
 -- C128 core: one sdhost.vhd controller per slot, so that each one's pin registers
--- sit on its own pins (native 4-bit SD at up to 50 MHz). Only the active one runs;
--- QNICE's registers and the engine port go to it, the other is held in reset.
+-- sit on its own pins. They run the card in SPI mode only (generic map below).
+-- Only the active one runs; QNICE's registers and the engine port go to it, the other
+-- is held in reset.
 --
 -- CAVEAT: RIGHT NOW WE CANNOT DETECT THE TRAY SD CARD on R3 machines. This
 -- is a PCB bug and it has been fixed on R3A machines.
@@ -230,7 +231,13 @@ begin
    g_ctrl : for i in 0 to 1 generate
       q2c(i)(Q2C_CARD) <= (others => '0');      -- set in eng_out
 
+      -- SPI only: on some R3 boards a card fails on the 4-bit SD bus, and a card that
+      -- ran in SD mode can't switch to SPI until it is powered off
       i_sdhost : entity work.sdhost
+         generic map (
+            G_NATIVE => false,
+            G_HS     => false
+         )
          port map (
             clk_i       => sysclk50Mhz_i,
             clk2x_i     => clk100_i,
