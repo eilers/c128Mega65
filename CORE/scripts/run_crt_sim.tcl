@@ -57,6 +57,7 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
     [file join $repo_dir "CORE/vhdl/reu_mapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/memory/avm_cache.vhd"] \
+    [file join $repo_dir "CORE/vhdl/input_inject_pkg.vhd"] \
     [file join $repo_dir "CORE/vhdl/cartridge.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_parser.vhd"] \
     [file join $repo_dir "CORE/vhdl/crt_cacher.vhd"] \
