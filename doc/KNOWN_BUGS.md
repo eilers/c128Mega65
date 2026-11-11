@@ -7,7 +7,8 @@
 * Amiga mice in either port, found on their own and shown to the C128 as a 1351. A
   passive Amiga mouse's right button can't be read on the MEGA65: hold **ALT** instead.
 * IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
-  defaults to on; turn it off to isolate the physical DIN from the virtual drives.
+  defaults to off, so only the virtual drives are on the bus; turn it on for real drives
+  and other devices on the DIN socket.
 * The Help menu occupies the MEGA65 Help key, which is also the C128 Help key.
   Enable **Keyboard > Help menu on F13** (default off) to open the menu with F13 instead,
   so C128 software can use Help. Close the menu with F13, Help, or Close Menu.

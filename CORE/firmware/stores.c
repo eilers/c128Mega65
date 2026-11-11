@@ -84,7 +84,7 @@ const item_t stores_items[] = {
    { ST_U64,     I_MOUSE + MS_WHEEL_DIR, IT_ENUM,  "Mouse Wheel Direction",   wheel_dirs,  0, 0, 0, NULL, 0 },
    { ST_U64,     I_GROUP,        IT_ENUM,   "Digital Video Mode",         hdmi_dvi,    0, 0, 0, NULL, OPTM_G_HDMI_AUDIO },
    { ST_U64,     I_SCAN,         IT_ENUM,   "HDMI Scan lines",            en_dis,      0, 0, 0, NULL, 0 },   // the HDMI Filter's
-   { ST_U64,     I_GROUP,        IT_ENUM,   "Serial Bus Mode",            iec_modes,   0, 0, 0, NULL, OPTM_G_IEC },
+   { ST_U64,     I_GROUP,        IT_ENUM,   "Serial Bus Mode",            iec_modes,   0, 0, 1, NULL, OPTM_G_IEC },   // default: the IEC port off
    { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "", 0 },
    { ST_C64,     I_GROUP,        IT_ENUM,   "Cartridge Preference",       cart_prefs,  0, 0, 0, NULL, OPTM_G_CART },
    { ST_C64,     I_ROM + RP_K64, IT_FILE,   "Alternate Kernal",           NULL, 0, PICK_MAX - 1, 0, "", 0 },
