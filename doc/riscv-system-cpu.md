@@ -112,6 +112,13 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   from the card (`vd_sd.vhd`), so mounting only hands the drive the SD block of each 4 KB
   piece. In builds with R3's memory map, the Cartridge line shows the cartridge cache's
   waits, as QNICE's does.
+- **The drives' DOS ROMs** (`CORE/firmware/drvrom.c`): boot1.rom's six banks are in HyperRAM
+  (`C_HMAP_DRVROM`, `doc/hyperram-map.md`), loaded at start as a `C_CRTROMTYPE_CORE` item of
+  `C_CRTROMS_AUTO` (`core_rom_autoload`). A drive asks for its bank after a new model, a reload
+  or the core's reset, and the main loop (`core_poll`, from the data RAM) hands it over through
+  `drive_rom_server.vhd`: it reads which byte is asked for, writes the bank from there four
+  bytes at a time, and looks again every 256 bytes, with the network's turn between. The
+  drive stays in reset until it has the whole bank.
 - **Shared** (`lib/`): the SD card through `sdhost`'s registers (512-byte blocks, a byte
   at a time through its buffer, as QNICE did), FatFs's disk layer, CRC-32, menu text, the
   serial port, a small `printf`, and the trap handler.

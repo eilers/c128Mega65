@@ -7,7 +7,7 @@
 -- VRAM attribute memory.
 --
 -- The signals vga_osm_on_o and vga_osm_rgb_o are delayed four clock cycles after
--- vga_col_i and vga_row_i.
+-- vga_col_i and vga_row_i. The font ROM is av_pipeline.vhd's, shared by both menus.
 --
 -- MiSTer2MEGA65 done by sy2002 and MJoergen in 2021 and licensed under GPL v3
 -------------------------------------------------------------------------------------
@@ -21,7 +21,6 @@ entity vga_osm is
    generic  (
       G_VGA_DX              : natural;
       G_VGA_DY              : natural;
-      G_FONT_FILE           : string;
       G_FONT_DX             : natural;
       G_FONT_DY             : natural
    );
@@ -38,6 +37,8 @@ entity vga_osm is
       vga_osm_vram_addr_o   : out std_logic_vector(15 downto 0);
       vga_osm_vram_data_i   : in  std_logic_vector(7 downto 0);
       vga_osm_vram_attr_i   : in  std_logic_vector(7 downto 0);
+      vga_osm_font_addr_o   : out std_logic_vector(11 downto 0);  -- 16x16 font ROM, a clock's latency
+      vga_osm_font_data_i   : in  std_logic_vector(15 downto 0);
 
       vga_osm_on_o          : out std_logic;
       vga_osm_rgb_o         : out std_logic_vector(23 downto 0)
@@ -183,22 +184,8 @@ begin
    stage5_vga_osm_vram_attr <= vga_osm_vram_attr_i;
 
    -- 16x16 pixel font ROM
-   inst_font : entity work.ram_init
-      generic map (
-         G_ADDR_WIDTH   => 12,
-         G_DATA_WIDTH   => 16,
-         G_ROM_PRELOAD  => true,
-         G_ROM_FILE     => G_FONT_FILE,
-         G_ROM_FILE_HEX => false
-      )
-      port map (
-         clock_i   => clk_i,
-         clen_i    => '1',
-         address_i => stage5_vga_osm_font_addr,
-         data_i    => (others => '0'),
-         wren_i    => '0',
-         q_o       => stage6_vga_osm_font_data
-      ); -- inst_font
+   vga_osm_font_addr_o      <= stage5_vga_osm_font_addr;
+   stage6_vga_osm_font_data <= vga_osm_font_data_i;
 
    p_stage6 : process (clk_i)
    begin

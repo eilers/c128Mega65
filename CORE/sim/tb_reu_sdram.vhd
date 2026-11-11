@@ -597,7 +597,8 @@ begin
          G_RD_DEPTH     => 16,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_DATA_SIZE    => 16,
+         G_MEMORY_TYPE  => "distributed"   -- as i_reu_avm_fifo in mega65.vhd
       )
       port map (
          s_clk_i               => clk,

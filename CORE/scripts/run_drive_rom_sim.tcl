@@ -1,8 +1,10 @@
 # Run the drive DOS ROM handover simulation (tb_drive_rom).
 #
-# Checks that drive_rom_server.vhd hands boot1.rom to the real iecdrv_rom.sv byte for
-# byte. A wrong handover is silent on hardware -- iecdrv_rom sets rom_valid regardless
-# of which bytes it received -- and only shows up as "device not present".
+# Checks that drive_rom_server.vhd and the firmware's feed (modelled in the testbench) hand
+# each drive its bank of boot1.rom, byte for byte, into two real iecdrv_rom.sv. A wrong
+# handover is silent on hardware -- iecdrv_rom sets rom_valid regardless of which bytes it
+# received -- and only shows up as "device not present". run_drive_rom_nvc.sh runs the same
+# testbench in nvc against iecdrv_rom_model.vhd.
 #
 # Usage:
 #   vivado -mode batch -source CORE/scripts/run_drive_rom_sim.tcl -tclargs CORE/CORE-R6-vivado2022.xpr
@@ -71,7 +73,8 @@ if {[file exists $sim_log]} {
     set fh [open $sim_log r]
     while {[gets $fh line] >= 0} {
         if {[string match *MISMATCH* $line] || [string match *simulation\ finished* $line] \
-            || [string match *loaded\ in* $line] || [string match *Failure* $line]} {
+            || [string match *loaded,* $line] || [string match *FAIL:* $line] \
+            || [string match *Failure* $line]} {
             puts $line
         }
         if {[string match *simulation\ finished* $line]} {

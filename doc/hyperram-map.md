@@ -1,6 +1,6 @@
 # HyperRAM Memory Map
 
-The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the REU, virtual cartridges and the RISC-V system CPU's firmware. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding. Every board has the same map. R4 and later boards also have SDRAM, which holds the REU and the virtual cartridge there ([SDRAM](#sdram-r4-and-later)).
+The MEGA65's 8 MiB of HyperRAM is shared by the HDMI framebuffer, the REU, virtual cartridges, the drives' DOS ROMs and the RISC-V system CPU's firmware. This file fixes which part each one owns, so the REU and a virtual cartridge can run at the same time without colliding. Every board has the same map. R4 and later boards also have SDRAM, which holds the REU and the virtual cartridge there ([SDRAM](#sdram-r4-and-later)).
 
 Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd`: windows of 4 kW (8 KiB). `0x000`–`0x3FF` covers all 8 MiB.
 
@@ -11,7 +11,8 @@ Addresses are in the units of the `C_HMAP_*` constants in `CORE/vhdl/globals.vhd
 | `0x000–0x07F` | 1 MiB       | 0–1 MiB     | ascal framebuffer (M2M)          | `C_HMAP_M2M`                     |
 | `0x080–0x0BF` | 512 KiB     | 1–1.5 MiB   | REU (R3; idle on R4+)            | `C_HMAP_REU`                     |
 | `0x0C0–0x1BF` | 2 MiB       | 1.5–3.5 MiB | Virtual cartridge (R3; idle on R4+) | `C_HMAP_CRT`                  |
-| `0x1C0–0x1FF` | 512 KiB     | 3.5–4 MiB   | Free (was the modem's firmware) |                                  |
+| `0x1C0–0x1D7` | 192 KiB     | 3.5–3.69 MiB | Drive ROM library (boot1.rom)   | `C_HMAP_DRVROM`                  |
+| `0x1D8–0x1FF` | 320 KiB     | 3.69–4 MiB  | Free (was the modem's firmware) |                                  |
 | `0x200–0x3FE` | ~4 MiB      | 4–8 MiB     | RISC-V system CPU's firmware     | `C_HMAP_FIRMWARE`                |
 | `0x3FF`       | 8 KiB       | at 8 MiB    | Unassigned (keep free, below)    |                                  |
 
@@ -32,9 +33,17 @@ R3 has no SDRAM, so its REU and cartridge share HyperRAM, and the REU is 512 KiB
 
 `CORE/sim/tb_config.vhd` (`CORE/scripts/run_config_nvc.sh`, nvc) checks that the R3 menu is the full one without items 94 and 95, in every selector the Shell reads.
 
-### Free: `0x1C0–0x1FF`
+### Drive ROM library: `0x1C0–0x1D7`
 
-Nothing uses this window. It held the SwiftLink modem's own firmware until the modem moved into the RISC-V system firmware.
+boot1.rom's six 32 KiB banks (1541, 1571 and 1581, each for drive 8 and drive 9), byte for byte as in the file, at CPU address `0x40380000`. They used to fill 64 block RAM tiles. The Shell loads the file here at start (its `C_CRTROMS_AUTO` item has `C_CRTROMTYPE_CORE`, `CORE/firmware/drvrom.c`), and ROM picks and REST's load_rom write their banks. `drive_rom_server.vhd` gives the firmware the window (`C_DEV_DRIVE_ROM` register 1), as `uci.vhd` does the REU's.
+
+Each drive keeps its bank in its own block RAM (`iecdrv_rom`) and asks for it after a new model, a reload or the core's reset. The firmware's main loop then hands it the bytes through `drive_rom_server.vhd`: no hardware master reads this window, so the HDMI scaler only sees the CPU's accesses, which yield to it (`avm_yield.vhd`). A bank is 8,192 word reads.
+
+Nothing else reaches the window. The REU's addresses are masked to its 512 KiB below the cartridge's region, which ends at `0x1BF`: the firmware takes no `.crt` over the 2 MiB that the cartridge's CSR `$020` gives (`core_prep_load`, REST's run_crt), and an EasyFlash's spare banks end at the region's 2 MiB. ascal masks its writes to its 1 MiB, and the firmware's heap stays in its own region from `0x200`. Reads that run past a region's end (a cache's look-ahead) are harmless.
+
+### Free: `0x1D8–0x1FF`
+
+Nothing uses this window. `0x1C0–0x1FF` held the SwiftLink modem's own firmware until the modem moved into the RISC-V system firmware.
 
 ### RISC-V firmware: `0x200–0x3FE`
 

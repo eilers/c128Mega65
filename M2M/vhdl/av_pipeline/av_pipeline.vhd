@@ -209,6 +209,8 @@ signal vga_osm_cfg_xy         : std_logic_vector(15 downto 0);
 signal vga_osm_cfg_dxdy       : std_logic_vector(15 downto 0);
 signal vga_osm_vram_addr      : std_logic_vector(15 downto 0);
 signal vga_osm_vram_data      : std_logic_vector(15 downto 0);
+signal vga_osm_font_addr      : std_logic_vector(11 downto 0);
+signal vga_osm_font_data      : std_logic_vector(15 downto 0);
 
 ---------------------------------------------------------------------------------------------
 -- hdmi_clk
@@ -221,6 +223,8 @@ signal hdmi_osm_cfg_xy        : std_logic_vector(15 downto 0);
 signal hdmi_osm_cfg_dxdy      : std_logic_vector(15 downto 0);
 signal hdmi_osm_vram_addr     : std_logic_vector(15 downto 0);
 signal hdmi_osm_vram_data     : std_logic_vector(15 downto 0);
+signal hdmi_osm_font_addr     : std_logic_vector(11 downto 0);
+signal hdmi_osm_font_data     : std_logic_vector(15 downto 0);
 
 signal hdmi_video_mode        : std_logic_vector(3 downto 0);
 signal hdmi_zoom_crop         : std_logic;
@@ -425,7 +429,6 @@ begin
       generic map (
          G_VGA_DX                => G_VGA_DX,
          G_VGA_DY                => G_VGA_DY,
-         G_FONT_FILE             => G_FONT_FILE,
          G_FONT_DX               => G_FONT_DX,
          G_FONT_DY               => G_FONT_DY,
          G_VGA_STD_SYNC          => G_VGA_STD_SYNC
@@ -473,7 +476,9 @@ begin
          video_osm_cfg_xy_i      => vga_osm_cfg_xy,
          video_osm_cfg_dxdy_i    => vga_osm_cfg_dxdy,
          video_osm_vram_addr_o   => vga_osm_vram_addr,
-         video_osm_vram_data_i   => vga_osm_vram_data
+         video_osm_vram_data_i   => vga_osm_vram_data,
+         video_osm_font_addr_o   => vga_osm_font_addr,
+         video_osm_font_data_i   => vga_osm_font_data
       ); -- i_analog_pipeline
 
    -- Clock domain crossing: VIDEO to QNICE
@@ -585,7 +590,6 @@ begin
          G_AUDIO_CLOCK_RATE  => G_AUDIO_CLOCK_RATE,
          G_VGA_DX            => G_VGA_DX,
          G_VGA_DY            => G_VGA_DY,
-         G_FONT_FILE         => G_FONT_FILE,
          G_FONT_DX           => G_FONT_DX,
          G_FONT_DY           => G_FONT_DY,
          G_HDMI_VIEW         => G_HDMI_VIEW
@@ -629,6 +633,8 @@ begin
          hdmi_osm_cfg_dxdy_i      => hdmi_osm_cfg_dxdy,
          hdmi_osm_vram_addr_o     => hdmi_osm_vram_addr,
          hdmi_osm_vram_data_i     => hdmi_osm_vram_data,
+         hdmi_osm_font_addr_o     => hdmi_osm_font_addr,
+         hdmi_osm_font_data_i     => hdmi_osm_font_data,
 
          -- QNICE connection to ascal's mode register
          qnice_ascal_mode_i       => unsigned(qnice_ascal_mode_i),
@@ -718,6 +724,32 @@ begin
          b_q_o          => hdmi_osm_vram_data
       ); -- i_osm_vram_hdmi
 
+
+   ---------------------------------------------------------------------------------------------------------------
+   -- On-Screen-Menu font: one ROM for both menus, a port on each one's clock (as vga_osm's own
+   -- ROM had it: the word a clock after its address)
+   ---------------------------------------------------------------------------------------------------------------
+
+   i_osm_font : entity work.tdp_ram
+      generic map (
+         ADDR_WIDTH   => 12,
+         DATA_WIDTH   => 16,
+         ROM_PRELOAD  => true,
+         ROM_FILE     => G_FONT_FILE,
+         ROM_FILE_HEX => false
+      )
+      port map (
+         clock_a   => vga_video_clk_i,
+         address_a => vga_osm_font_addr,
+         data_a    => (others => '0'),
+         wren_a    => '0',
+         q_a       => vga_osm_font_data,
+         clock_b   => hdmi_clk_i,
+         address_b => hdmi_osm_font_addr,
+         data_b    => (others => '0'),
+         wren_b    => '0',
+         q_b       => hdmi_osm_font_data
+      ); -- i_osm_font
 
    audio_clk_o   <= audio_clk_i;
    audio_reset_o <= audio_rst_i;

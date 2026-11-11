@@ -31,6 +31,7 @@ CORE/input_inject_nvc
 CORE/net_nvc
 CORE/stream_nvc
 CORE/vic_window_nvc
+CORE/drive_rom_nvc
 
 # Hide part of the M2M framework that is not needed since V1.2 but 
 # exists when you installed the M2M submodule previously.

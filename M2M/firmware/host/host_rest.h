@@ -20,7 +20,7 @@ extern char    reu_path[256];
 // floppy (its drive, or -1), hold, remaps; a 1541/1571 acts out a disk change over polls
 extern int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], mounts, remaps;
 extern char    drv_card[2][256];
-// The drive ROM device (boot1.rom's six banks) and reloads; the cartridge device and its loads
+// The drives' ROM library (boot1.rom's six banks, a byte a word) and reloads; the cartridge device and its loads
 extern uint16_t *drive_rom, *crt_mem;
 extern int     rom_reloads[2], crt_loads, crt_parsed;
 extern char    crt_shown[256];

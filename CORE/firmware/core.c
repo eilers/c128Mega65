@@ -10,6 +10,7 @@
 #include "diskimg.h"
 #include "dmem.h"
 #include "drives.h"
+#include "drvrom.h"
 #include "fmt.h"
 #include "ftp.h"
 #include "hdmi_filter.h"
@@ -37,6 +38,7 @@
 #define DEV_CFG     0x0002         // Load settings
 #define DEV_HD      0x0003         // the CMD HD's Image:%s
 #define DEV_ROM     0x0010         // + the pick
+#define DRIVE_ROM   0x0102         // C_CRTROMS_AUTO's core item: boot1.rom (C_DEV_DRIVE_ROM)
 
 #define CRT_DEVICE        0x0106   // C_DEV_CRT (globals.vhd), its CSR (sw_cartridge_csr.vhd):
 #define CRT_CSR_MAX_HI    0x020    // the largest .crt file it takes, in 64 kB
@@ -827,6 +829,11 @@ int core_crtrom_load(int dev, const char *path, const char **msg)
    return err;
 }
 
+int core_rom_autoload(int id, FIL *f)
+{
+   return id == DRIVE_ROM ? drvrom_load(f) : -1;
+}
+
 int core_crtrom_loaded(int dev)
 {
    int p = pick_of_dev(dev);
@@ -867,9 +874,10 @@ uint32_t core_menu_key(void)
    return shell_setting(OPTM_G_HELP_F13, 0) ? M2M_KEY_F13 : M2M_KEY_HELP;
 }
 
-// The menu's stream lines (net/stream.c), the boot cartridge's load (rompick.c), the Ultimate
-// Command Interface (uci.c), the REST API (net/http.c), its input's timing (input.c), the
-// FTP server (net/ftp.c) and the HDMI filter's coefficients (hdmi_filter.c)
+// The drives' DOS ROMs (drvrom.c), the menu's stream lines (net/stream.c), the boot
+// cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST API
+// (net/http.c), its input's timing (input.c), the FTP server (net/ftp.c) and the HDMI
+// filter's coefficients (hdmi_filter.c)
 // The CMD HD: the menu's Drive enabled and Bus ID (whatever set them: the menu, a settings
 // file, REST), then its disk's commands. Without a boot ROM it is off, whatever set it.
 static void hd_poll(void)
@@ -883,6 +891,7 @@ static void hd_poll(void)
 
 DMEM_CODE void core_poll(void)
 {
+   drvrom_poll();
    hd_poll();
    hdmi_filter_poll();
    if (stream_dirty)

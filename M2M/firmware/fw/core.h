@@ -3,6 +3,7 @@
 // (build/fw/config_ids.h).
 #pragma once
 #include <stdint.h>
+#include "ff.h"
 
 // What the file browser is for (CTX_* in QNICE's sysdef.asm), and the situations of
 // core_custom_msg (CMSG_*)
@@ -40,6 +41,9 @@ const char *core_new_file(int ctx, int group, const char *folder, const char *ty
 // crtrom_progress for the bar: 0, or an error code and *msg. And whether it holds a file.
 int         core_crtrom_load(int dev, const char *path, const char **msg);
 int         core_crtrom_loaded(int dev);
+// An auto-loaded ROM of that type (id is its second word in C_CRTROMS_AUTO), from the open
+// file: 0 once loaded
+int         core_rom_autoload(int id, FIL *f);
 // Its line's text in place of the file's name or <Load>, or NULL for the standard one
 const char *core_crtrom_text(int dev);
 // Space on a CRT/ROM line of the group, of either type: 1 if the core emptied it, 0 to

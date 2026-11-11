@@ -1,7 +1,7 @@
 // What the REST routes use of the rest of the firmware, faked for test_http: the C128's
 // memory behind a model of the bus DMA device (a job takes a few polls of its busy bit) and
-// of the C128 booting to BASIC, the menu's settings bits, the drives, the drive ROM and
-// cartridge devices, the REU's file and the network's settings. The card is a FAT image
+// of the C128 booting to BASIC, the menu's settings bits, the drives, the drives' ROM library
+// (drvrom.c), the cartridge device, the REU's file and the network's settings. The card is a FAT image
 // (FatFs and diskio_file.c).
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +10,7 @@
 #include "config_ids.h"
 #include "core.h"
 #include "drives.h"
+#include "drvrom.h"
 #include "ff.h"
 #include "host_rest.h"
 #include "m2m_rv.h"
@@ -291,21 +292,32 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
    return size > 4u << 20;
 }
 
-// --- the drive ROM and the cartridge --------------------------------------------------------
+// --- the drives' ROM library and the cartridge ----------------------------------------------
+
+// The library a byte a word, as the tests compare it; a drive has its ROM two asks after a reload
+void drvrom_put(uint32_t at, const uint8_t *src, uint32_t n)
+{
+   for (uint32_t i = 0; i < n && at + i < DRVROM_SIZE; i++)
+      drive_rom[at + i] = src[i];
+}
+
+int drvrom_ready(int d)
+{
+   return !rom_wait[d] || !--rom_wait[d];
+}
+
+void drvrom_reload(int d)
+{
+   rom_reloads[d]++;
+   rom_wait[d] = 2;
+}
 
 int      crtrom_count(void) { return 2; }
 uint16_t crtrom_dev(int k) { return k ? 0x0200 : 0x0106; }
 
-// The drive ROM's CSR: a drive has its ROM two asks after a reload; the cartridge's: 4 MB
+// The cartridge's CSR: 4 MB
 uint16_t crtrom_csr_get(uint16_t dev, int reg)
 {
-   if (dev == 0x0102 && reg == 0) {
-      int ready = 0;
-      for (int d = 0; d < 2; d++)
-         if (!rom_wait[d] || !--rom_wait[d])
-            ready |= 1 << d;
-      return ready;
-   }
    if (dev == 0x0106 && reg == 0x20)
       return 64;
    return 0;
@@ -315,12 +327,6 @@ void crtrom_csr_set(uint16_t dev, int reg, uint16_t v)
 {
    if (dev == 0x0101 && reg == 0)
       func_size = v;
-   if (dev == 0x0102 && reg == 0)
-      for (int d = 0; d < 2; d++)
-         if (v >> d & 1) {
-            rom_reloads[d]++;
-            rom_wait[d] = 2;
-         }
 }
 
 void crtrom_begin(int k) { (void)k; crt_loads++; }
@@ -399,8 +405,6 @@ volatile uint16_t *host_rest_dev(void)
          rom_under_z80++;
       return sys_rom;
    }
-   if (ramrom == 0x0102)
-      return drive_rom;
    if (ramrom == 0x0106)
       return crt_mem;
    if (ramrom == 0x010B)              // the network device: the streams' words, never busy
@@ -447,7 +451,7 @@ int host_rest_card(const char *img)
 void host_rest_init(void)
 {
    if (!drive_rom) {
-      drive_rom = calloc(6 * 32768, sizeof *drive_rom);
+      drive_rom = calloc(DRVROM_SIZE, sizeof *drive_rom);
       sys_rom = calloc(128 << 10, sizeof *sys_rom);
       crt_mem = calloc(4 << 20, sizeof *crt_mem);
    }

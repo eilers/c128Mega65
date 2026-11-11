@@ -38,6 +38,7 @@ uint32_t net_millis(void) { return (uint32_t)(host_time / (CPU_HZ / 1000)); }
 uint32_t sys_now(void) { return net_millis(); }
 uint32_t net_lock(void) { return 0; }
 void net_unlock(uint32_t dev) { (void)dev; }
+void core_idle(void) { }                  // net.c's turn in long work (drvrom.c's feed)
 static int net_up;
 int  net_started(void) { return net_up; }
 

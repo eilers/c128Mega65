@@ -16,9 +16,9 @@ system CPU's address space while the core runs.
 ADDR (hex): ram:1C01 (the C128's 256 KB, bank N at N0000), vdcram:0 (the VDC's 64 KB at the
 addresses a program sets in R18/R19), vdcreg:0 (R0-R37 as a program reads them, then the
 status byte and the selected register; neither moves the update address),
-sysrom:, drvrom:, osm: (the menu's characters), hr: (HyperRAM), DEV:WORD (word WORD of core
-device DEV), or a CPU address such as 40000000. A byte of a device is the low byte of its
-16-bit word.
+sysrom:, drvrom: (the drives' ROM library in HyperRAM, boot1.rom's layout), osm: (the menu's
+characters), hr: (HyperRAM), DEV:WORD (word WORD of core device DEV), or a CPU address such as
+40000000. A byte of a device is the low byte of its 16-bit word.
 """
 import argparse
 import glob
@@ -29,10 +29,11 @@ import sys
 import termios
 import time
 
-SPACES = {'ram': 0x0100, 'sysrom': 0x0101, 'drvrom': 0x0102, 'osm': 0x0000, 'vdcram': 0x010E,
-          'vdcreg': 0x010E, 'hr': None}
-BASES = {'vdcreg': 0xFFFF000}   # spaces that start in their device's CSR window
 HYPERRAM = 0x40000000
+SPACES = {'ram': 0x0100, 'sysrom': 0x0101, 'drvrom': None, 'osm': 0x0000, 'vdcram': 0x010E,
+          'vdcreg': 0x010E, 'hr': None}
+# Spaces that start in their device's CSR window, or at a CPU address (C_HMAP_DRVROM 0x1C0)
+BASES = {'vdcreg': 0xFFFF000, 'drvrom': HYPERRAM + 0x1C0 * 8192}
 CSR = 0xE0000000
 CSR_PAUSE = 0x0002
 CHUNK = 32  # bytes per write command
