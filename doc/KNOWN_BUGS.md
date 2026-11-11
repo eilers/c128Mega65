@@ -4,6 +4,8 @@
 * Mega65 Keyboard
 * Joystick ports, paddles and 1351 mice. **Swap joystick ports** in the Help menu
   (default off) swaps the two ports, paddles too.
+* Amiga mice in either port, found on their own and shown to the C128 as a 1351. A
+  passive Amiga mouse's right button can't be read on the MEGA65: hold **ALT** instead.
 * IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
   defaults to on; turn it off to isolate the physical DIN from the virtual drives.
 * The Help menu occupies the MEGA65 Help key, which is also the C128 Help key.

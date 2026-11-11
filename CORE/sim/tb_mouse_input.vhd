@@ -1,6 +1,7 @@
 -- tb_mouse_input: Amiga mouse detection in M2M's mouse_input.vhdl. A joystick passes through;
 -- an Amiga mouse (pots at the edge, an impossible direction pair) is masked and counted into
--- 1351 POT values; idle timeout; paddles end it; the right button arms only after pin 9 reads high.
+-- 1351 POT values; idle timeout; paddles end it; the right button arms only after pin 9 reads high;
+-- the key (ALT) is the right button on a port with a mouse, until a joystick moves there.
 -- Timeouts are shortened by generics; POT lines are modelled as charge times after the drain.
 
 library ieee;
@@ -30,6 +31,7 @@ architecture sim of tb_mouse_input is
    signal b_in         : std_logic_vector(3 downto 0) := "0011";
    signal a_out, b_out : std_logic_vector(3 downto 0);
    signal pa_x, pa_y, pb_x, pb_y : unsigned(7 downto 0);
+   signal key          : std_logic := '0';
 
    signal errors : natural := 0;
 begin
@@ -40,7 +42,7 @@ begin
       port map (
          clk => clk,
          amiga_mouse_enable_a => '1', amiga_mouse_enable_b => '1',
-         amiga_mouse_assume_a => '0', amiga_mouse_assume_b => '0',
+         amiga_mouse_assume_a => '0', amiga_mouse_assume_b => '0', rmb_key => key,
          pot_drain => drain,
          fa_potx => pot_line(0), fa_poty => pot_line(1),
          fb_potx => pot_line(2), fb_poty => pot_line(3),
@@ -133,6 +135,10 @@ begin
          a_in(i) <= '1';  tick(5);
          check(a_out = "1111", "joystick release should pass");
       end loop;
+      key <= '1';  tick(5);
+      check(a_out(0) = '1', "the key must not press up on a port that never had a mouse");
+      check(b_out(0) = '0', "the key presses port B's right button (its mouse, now unplugged)");
+      key <= '0';  tick(5);
 
       -- 2. Amiga mouse on port A: pure x motion with y at rest high is not yet recognized
       step(false, false, true);
@@ -152,6 +158,10 @@ begin
       end loop;
       check(pa_x = x0 + 10, "x should count 10 steps, got " & integer'image(to_integer(pa_x)));
       check(pa_y = y0 - 3, "y should count -3 steps, got " & integer'image(to_integer(pa_y)));
+      key <= '1';  tick(5);
+      check(a_out = "1110", "the key is the mouse's right button (up), got " & to_string(a_out));
+      key <= '0';  tick(5);
+      check(a_out = "1111", "key released");
       for i in 1 to 80 loop               -- through 0xBF -> 0x40 (7 bits, as a 1351)
          step(false, false, true);
       end loop;
@@ -165,10 +175,19 @@ begin
       while ay /= 0 loop step(false, true, true); end loop;
       x0 := pa_x;
       tick(C_MODE_TO + 10);
+      key <= '1';  tick(5);
+      check(a_out = "1110", "after the idle timeout the key is still the right button");
+      key <= '0';  tick(5);
       a_in(0) <= '0';  tick(5);
       check(a_out(0) = '0', "after the idle timeout a direction should pass again");
       check(pa_x = x0, "after the timeout the mouse position should hold");
       a_in(0) <= '1';  tick(5);
+      key <= '1';  tick(5);
+      check(a_out(0) = '1', "a joystick moved on port A: the key is no longer its right button");
+      b_in(1) <= '0';  tick(5);          -- port B: a joystick moves too
+      b_in(1) <= '1';  tick(5);
+      check(b_out(0) = '1', "a joystick moved on port B: the key is no longer its right button");
+      key <= '0';  tick(5);
 
       -- 4. Paddles (POTs off the edge) end the mouse: real readings come back
       target(0) <= 130;  target(1) <= 70;
@@ -187,6 +206,9 @@ begin
       check(a_out = "1111", "port A should be a mouse again");
       wait for C_SAMPLE;
       check(a_out(0) = '1', "a passive mouse's floating pin 9 must not press the right button");
+      key <= '1';  tick(5);
+      check(a_out = "1110", "the key is the right button again once the mouse is back");
+      key <= '0';  tick(5);
 
       -- 6. Mouse with a pull-up on port B: the right button reaches up, as on a 1351
       target(2) <= 12;

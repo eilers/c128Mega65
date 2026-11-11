@@ -3,7 +3,8 @@
 --
 -- Added to MiSTer2MEGA65 by sy2002 in January 2023
 -- C128 core: Amiga mouse switched on; edge test from mega65-core; right button only once
--- pin 9 has been seen driven high (a passive mouse leaves it floating, which reads as pressed)
+-- pin 9 has been seen driven high (a passive mouse leaves it floating, which reads as pressed);
+-- rmb_key is a right button for any port with a mouse
 
 use WORK.ALL;
 
@@ -23,7 +24,8 @@ entity mouse_input is
     amiga_mouse_enable_b : in std_logic;
     amiga_mouse_assume_a : in std_logic;
     amiga_mouse_assume_b : in std_logic;
-    
+    rmb_key : in std_logic := '0';    -- '1': a key held as the right button
+
     pot_drain : buffer std_logic;
     fa_potx : in std_logic;
     fa_poty : in std_logic;
@@ -127,6 +129,11 @@ architecture behavioural of mouse_input is
   signal mb_rmb_pressed : std_logic := '0';
   signal ma_rmb_dog     : natural range 0 to G_RMB_TIMEOUT := 0;
   signal mb_rmb_dog     : natural range 0 to G_RMB_TIMEOUT := 0;
+
+  -- rmb_key works on a port from the moment a mouse is recognized there until a joystick
+  -- moves on it or paddles show up
+  signal ma_key_on : std_logic := '0';
+  signal mb_key_on : std_logic := '0';
 
 begin
 
@@ -283,13 +290,26 @@ begin
         end if;
       end if;
 
+      if (((fa_up or fa_down) = '0') or ((fa_left or fa_right) = '0')) and potsa_at_edge = '1' then
+        ma_key_on <= amiga_mouse_enable_a;
+      elsif ma_amiga_pots = '0' or
+            (ma_amiga_mode = '0' and (fa_up and fa_down and fa_left and fa_right) = '0') then
+        ma_key_on <= '0';
+      end if;
+      if (((fb_up or fb_down) = '0') or ((fb_left or fb_right) = '0')) and potsb_at_edge = '1' then
+        mb_key_on <= amiga_mouse_enable_b;
+      elsif mb_amiga_pots = '0' or
+            (mb_amiga_mode = '0' and (fb_up and fb_down and fb_left and fb_right) = '0') then
+        mb_key_on <= '0';
+      end if;
+
       last_fa_leftup <= fa_left & fa_up;
       last_fa_rightdown <= fa_right & fa_down;
       last_fb_leftup <= fb_left & fb_up;
       last_fb_rightdown <= fb_right & fb_down;
       if ma_amiga_mode='1' then
         -- Map Amiga right button (pin 9) to UP, as on a 1351
-        fa_up_out <= not ma_rmb_pressed;
+        fa_up_out <= not (ma_rmb_pressed or (rmb_key and ma_key_on));
         fa_left_out <= '1';
         fa_right_out <= '1';
         fa_down_out <= '1';
@@ -326,13 +346,13 @@ begin
           when others => null;
         end case;
       else
-        fa_up_out <= fa_up;
+        fa_up_out <= fa_up and not (rmb_key and ma_key_on);
         fa_left_out <= fa_left;
         fa_right_out <= fa_right;
         fa_down_out <= fa_down;
       end if;
       if mb_amiga_mode='1' then
-        fb_up_out <= not mb_rmb_pressed;
+        fb_up_out <= not (mb_rmb_pressed or (rmb_key and mb_key_on));
         fb_left_out <= '1';
         fb_right_out <= '1';
         fb_down_out <= '1';
@@ -369,7 +389,7 @@ begin
           when others => null;
         end case;
       else
-        fb_up_out <= fb_up;
+        fb_up_out <= fb_up and not (rmb_key and mb_key_on);
         fb_left_out <= fb_left;
         fb_right_out <= fb_right;
         fb_down_out <= fb_down;

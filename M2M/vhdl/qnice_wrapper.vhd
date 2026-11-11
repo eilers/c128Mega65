@@ -209,6 +209,10 @@ attribute async_reg of joy1_dir_n_dd : signal is "true";
 attribute async_reg of joy2_dir_n_d  : signal is "true";
 attribute async_reg of joy2_dir_n_dd : signal is "true";
 
+-- ALT (MEGA65 key 66) is a mouse's right button; not while the menu has the keyboard
+constant C_KEY_ALT                   : natural := 66;
+signal qnice_rmb_key                 : std_logic;
+
 -- Statistics
 signal qnice_hr_count_long_d         : std_logic_vector(31 downto 0);
 signal qnice_hr_count_short_d        : std_logic_vector(31 downto 0);
@@ -538,6 +542,8 @@ begin
       end if;
    end process p_joy_sync;
 
+   qnice_rmb_key <= not qnice_qnice_matrix_n_i(C_KEY_ALT) and qnice_csr_keyboard_on_o;
+
    -- Paddles, 1351 mice and Amiga mice (detected on their own, shown to the core as a 1351)
    -- Works with 50 MHz, which happens to be the QNICE clock domain
    i_mouse_paddles: entity work.mouse_input
@@ -549,6 +555,7 @@ begin
          amiga_mouse_enable_b    => '1',
          amiga_mouse_assume_a    => '0',
          amiga_mouse_assume_b    => '0',
+         rmb_key                 => qnice_rmb_key,
 
          -- These are the 1351 mouse / C64 paddle inputs and drain control
          fa_potx                 => paddle_i(0),
