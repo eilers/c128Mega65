@@ -40,6 +40,9 @@
 #define DEV_ROM     0x0010         // + the pick
 #define DRIVE_ROM   0x0102         // C_CRTROMS_AUTO's core item: boot1.rom (C_DEV_DRIVE_ROM)
 
+#define RAM_DEVICE  0x0100         // C_DEV_RAM (globals.vhd): the C128's RAM,
+#define RAM_SIZE    0x40000        // 256 KB
+
 #define CRT_DEVICE        0x0106   // C_DEV_CRT (globals.vhd), its CSR (sw_cartridge_csr.vhd):
 #define CRT_CSR_MAX_HI    0x020    // the largest .crt file it takes, in 64 kB
 #define CRT_CSR_STALLS    0x021    // R: bank waits, W: clear
@@ -844,6 +847,17 @@ int core_crtrom_loaded(int dev)
    return p < 0 ? reu_file_picked() : rompick_state(p) == RS_FILE;
 }
 
+// The C128's RAM as at power-on, all zeros. The firmware starts at power-on and on a long
+// reset press: no program's reset hook survives that (GEOS 128's hung the next start).
+static void ram_clear(void)
+{
+   uint32_t was = M2M_RAMROM_DEV;
+   M2M_RAMROM_DEV = RAM_DEVICE;
+   for (uint32_t i = 0; i < RAM_SIZE; i++)
+      M2M_DEV16[i] = 0;
+   M2M_RAMROM_DEV = was;
+}
+
 // Before the C128 starts: the settings file's items (the network's in effect once it
 // starts), the ROMs picked, and the REU's image into the REU, as his REU Preload. The boot
 // cartridge loads later, once the C128 runs (rompick_poll).
@@ -851,6 +865,7 @@ const char *core_prep_start(void)
 {
    const char *msg;
    input_release_all();               // the input device as the firmware starts: nothing held
+   ram_clear();
    cmdhd_init();
    stores_load();
    rompick_boot();
