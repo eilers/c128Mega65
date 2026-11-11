@@ -25,6 +25,7 @@ entity main is
       G_VDNUM                 : natural;                    -- amount of virtual drives
       G_EXP_RESET_LEN         : natural := CORE_CLK_SPEED / 20;  -- reset on a cartridge change: 50 ms
       G_CMDHD                 : boolean := true;            -- a CMD HD on the bus (cmdhd/cmdhd.vhd)
+      G_PHYS1581_DIAG         : boolean := false;           -- internal floppy diagnostics (physical_1581_diag)
       G_REU_BASE              : std_logic_vector(31 downto 0) :=   -- word address of the REU's memory
                                 "0000000" & C_HMAP_REU(12 downto 0) & x"000"
    );
@@ -235,7 +236,8 @@ entity main is
       f_wgate_o               : out std_logic;
       f_wdata_o               : out std_logic;
 
-      -- Its QNICE diagnostic device (physical_1581_diag, C_DEV_PHYS1581, clk_sd_i domain)
+      -- Its QNICE diagnostic device (physical_1581_diag, C_DEV_PHYS1581, clk_sd_i domain),
+      -- only with G_PHYS1581_DIAG; else it reads 0
       qnice_p1581_ce_i        : in  std_logic := '0';
       qnice_p1581_we_i        : in  std_logic := '0';
       qnice_p1581_addr_i      : in  std_logic_vector(7 downto 0) := (others => '0');
@@ -2926,6 +2928,7 @@ end process p1581_sync_proc;
 
 -- Observational QNICE register bank (doc/1581_dd_debug_device.md in C64MEGA65).
 -- The one writable word, WR_CTRL, overrides write precompensation.
+p1581_diag_gen : if G_PHYS1581_DIAG generate
 i_physical_1581_diag : entity work.physical_1581_diag
   port map (
     clk_i             => clk_sd_i,
@@ -3033,6 +3036,10 @@ i_physical_1581_diag : entity work.physical_1581_diag
     qnice_data_i      => qnice_p1581_data_i,
     qnice_data_o      => qnice_p1581_data_o
   ); -- i_physical_1581_diag
+else generate
+  p1581_wr_precomp_mode <= "00";   -- WR_CTRL's reset value: precompensation as the controller decides
+  qnice_p1581_data_o    <= (others => '0');
+end generate p1581_diag_gen;
 
 vdrives_inst : entity work.vdrives
   generic map (
