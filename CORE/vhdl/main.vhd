@@ -504,6 +504,9 @@ signal core_ioe_bus         : std_logic;
 signal core_iof_bus         : std_logic;
 signal core_nmi_ack         : std_logic;
 signal core_umax_romh       : std_logic;
+signal core_umax_nomap      : std_logic;   -- Ultimax access to the unmapped $1000-$7FFF/$A000-$CFFF
+signal cart_umax_rd         : std_logic;   -- a hardware cart may serve that read (IDE64)
+signal core_ram_float       : std_logic;
 signal core_io_rom          : std_logic;
 signal core_io_ext          : std_logic;
 signal core_io_data         : unsigned(7 downto 0);
@@ -1084,7 +1087,8 @@ end process cart_io_proc;
 
 -- While the VIC has the bus, a select is always a read; system_we may still be the CPU's.
 cart_rd_now <= '1' when (system_we = '0' or core_aec = '0') and
-                        (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0') else '0';
+                        (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0' or
+                         cart_umax_rd = '1') else '0';
 
 -- What the cartridge tells the C128. Forced to the inactive level while the slot is unused so
 -- that an empty slot can never inject an interrupt or map a phantom cartridge into the address
@@ -1882,6 +1886,10 @@ end process;
 -- that feeding it to the cartridge's data bus cannot create a combinational loop.
 funcrom_cs    <= (core_romfl and (func_rom_size_i(0) or func_rom_size_i(1))) or (core_romfh and func_rom_size_i(1));
 funcrom_float <= (core_romfl or core_romfh) and not funcrom_cs;
+-- In Ultimax mode $1000-$7FFF and $A000-$CFFF have no RAM or ROM: a cartridge such as the IDE64
+-- maps its own RAM there (C64MEGA65 #176), else the bus floats. Only in the CPU's phase.
+cart_umax_rd   <= exp_port_hw and core_umax_nomap and core_aec;
+core_ram_float <= funcrom_float or (core_umax_nomap and not exp_port_hw);
 machine_data  <= unsigned(sys_rom_data_i) when sysrom_cs = '1' or funcrom_cs = '1' else ram_data_i;
 
 cpu_data_in_proc: process (all)
@@ -1900,7 +1908,7 @@ cpu_data_in_proc: process (all)
     -- through ramDin, which is exactly this signal. The VIC's Ultimax fetch counts only in the
     -- core's VIC slot, so the Z80's PHI1 slots still read RAM.
     elsif exp_port_hw = '1' and (cart_roml_n = '0' or (core_romh = '1' and core_aec = '1') or
-                                 core_umax_romh = '1') then
+                                 core_umax_romh = '1' or cart_umax_rd = '1') then
       ram_data <= data_from_cart;
     -- A virtual cartridge's ROM, or its RAM where the cartridge maps it. $DExx/$DFxx only reach
     -- the CPU from here while the cartridge sets io_rom.
@@ -2120,7 +2128,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       systemWe_o    => system_we,
       -- Reads answered by a hardware cartridge are substituted into ramDin (see cpu_data_in_proc),
       -- so from the bus logic's point of view the data bus floats only for a missing function ROM.
-      ramDinFloat   => funcrom_float,
+      ramDinFloat   => core_ram_float,
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
       ext_cycle     => core_ext_cycle, -- the REU's RAM slot in every C128 cycle
@@ -2186,6 +2194,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       romL          => core_roml,      -- output. CPU access to 0x8000-0x9FFF
       romH          => core_romh,      -- output. CPU access to 0xA000-0xBFFF or 0xE000-0xFFFF (ultimax)
       UMAXromH      => core_umax_romh, -- output
+      UMAXnomap     => core_umax_nomap, -- output
       IOE           => core_ioe,       -- output. aka IO1. CPU access to 0xDExx
       IOF           => core_iof,       -- output. aka IO2. CPU access to 0xDFxx
       IO7           => core_io7,       -- output. CPU access to 0xD7xx
