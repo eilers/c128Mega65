@@ -88,6 +88,24 @@ foreach required_file [list \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_drv.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_fdc1772.v"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/floppy.v"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/video_vicIIe_jb.sv"] \
+    [file join $repo_dir "M2M/vhdl/controllers/MiSTer/video_sync.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sdram_arbit.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/io_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/slot_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_if_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_protocol.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/uci.vhd"] \
+    [file join $repo_dir "CORE/vhdl/c128_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/input_inject.vhd"] \
+    [file join $repo_dir "CORE/vhdl/vdc_peek.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_i8255.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_rtc.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_scsi.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_drive.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd.vhd"] \
+    [file join $repo_dir "M2M/vhdl/controllers/M65/max10.vhdl"] \
+    [file join $repo_dir "M2M/vhdl/controllers/M65/pcm_to_pdm.vhdl"] \
 ] {
     if {[llength [get_files -quiet $required_file]] == 0} {
         puts "Adding missing source file: $required_file"

@@ -95,6 +95,7 @@ port (
    hr_core_waitrequest_i   : in  std_logic;
    hr_high_i               : in  std_logic;  -- Core is too fast
    hr_low_i                : in  std_logic;  -- Core is too slow
+   hr_dig_quiet_i          : in  std_logic;  -- The HDMI scaler is not using HyperRAM
 
    -- SDRAM (R4 and later), also on the HyperRAM clock: the virtual cartridge's file
    sr_core_refresh_ok_o    : out std_logic;
@@ -1481,6 +1482,7 @@ begin
          hr_readdata_i      => crt_hr_readdata,
          hr_readdatavalid_i => crt_hr_readdatavalid,
          hr_waitrequest_i   => crt_hr_waitrequest,
+         hr_quiet_i         => hr_dig_quiet_i,
          sr_refresh_ok_o    => sr_core_refresh_ok_o,
          sr_reu_ok_o        => hr_reu_ok,
          sr_write_o         => crt_sr_write,

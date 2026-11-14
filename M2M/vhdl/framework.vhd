@@ -216,6 +216,7 @@ port (
    hr_core_waitrequest_o   : out   std_logic;
    hr_high_o               : out   std_logic; -- Core is too fast
    hr_low_o                : out   std_logic; -- Core is too slow
+   hr_dig_quiet_o          : out   std_logic; -- The HDMI scaler is not using HyperRAM
 
    -- Provide SDRAM to core (in HyperRAM clock domain). R4 and later; on R3 it reads nothing.
    sr_core_refresh_ok_i    : in    std_logic := '1';  -- the core may keep refreshes out of its way
@@ -486,6 +487,8 @@ signal hr_burstcount          : std_logic_vector( 7 downto 0);
 signal hr_readdata            : std_logic_vector(15 downto 0);
 signal hr_readdatavalid       : std_logic;
 signal hr_waitrequest         : std_logic;
+
+signal hr_dig_quiet           : std_logic;
 
 -- Statistics
 signal hr_count_long          : unsigned(31 downto 0);
@@ -952,6 +955,7 @@ begin
          p_avm_burstcount_i    => hr_dig_burstcount,
          p_avm_waitrequest_i   => hr_dig_waitrequest,
          p_avm_readdatavalid_i => hr_dig_readdatavalid,
+         quiet_o               => hr_dig_quiet,
          s_avm_write_i         => qnice_avm_write,
          s_avm_read_i          => qnice_avm_read,
          s_avm_burstcount_i    => qnice_avm_burstcount,
@@ -960,6 +964,13 @@ begin
          m_avm_read_o          => hr_qnice_read,
          m_avm_waitrequest_i   => hr_qnice_waitrequest
       ); -- i_avm_yield_qnice
+
+   p_hr_dig_quiet : process (hr_clk)
+   begin
+      if rising_edge(hr_clk) then
+         hr_dig_quiet_o <= hr_dig_quiet;
+      end if;
+   end process p_hr_dig_quiet;
 
    hr_qnice_address        <= qnice_avm_address;
    hr_qnice_writedata      <= qnice_avm_writedata;
