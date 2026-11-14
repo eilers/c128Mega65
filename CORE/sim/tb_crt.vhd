@@ -65,6 +65,7 @@ architecture sim of tb_crt is
    signal reset_hard       : std_logic := '1';
    signal rst_qnice        : std_logic := '1';
    signal rst_hr           : std_logic := '1';
+   signal hr_quiet         : std_logic := '1';
 
    signal ram_addr         : unsigned(17 downto 0);
    signal ram_data_to      : unsigned(7 downto 0);
@@ -490,6 +491,7 @@ begin
          hr_readdata_i      => hr_readdata,
          hr_readdatavalid_i => hr_readdatavalid,
          hr_waitrequest_i   => hr_waitrequest,
+         hr_quiet_i         => hr_quiet,
          sr_refresh_ok_o    => sr_refresh_ok,
          sr_write_o         => sr_write,
          sr_read_o          => sr_read,
@@ -501,6 +503,22 @@ begin
          sr_readdatavalid_i => sr_readdatavalid,
          sr_waitrequest_i   => sr_waitrequest
       );
+
+   -- The HDMI scaler's turns at HyperRAM as the bank cache is told of them: the 80-column
+   -- screen at 720p reads a line's 18 bursts every 59 us and writes a burst every 3.6 us,
+   -- and avm_yield calls it quiet 32 clocks after each
+   p_quiet : process (clk_hr)
+      variable t : natural := 0;
+   begin
+      if rising_edge(clk_hr) then
+         t := (t + 1) mod 5900;
+         if t < 1454 or t mod 360 < 106 then
+            hr_quiet <= '0';
+         else
+            hr_quiet <= '1';
+         end if;
+      end if;
+   end process p_quiet;
 
    --------------------------------------------------------------------------------
    -- HyperRAM: single writes, read bursts after a fixed latency, one command at a time
