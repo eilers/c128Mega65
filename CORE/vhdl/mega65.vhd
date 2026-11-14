@@ -134,6 +134,7 @@ port (
    video_hs_o              : out std_logic;
    video_hblank_o          : out std_logic;
    video_vblank_o          : out std_logic;
+   video_source_o          : out std_logic;   -- '1': video_* is the VDC
 
    -- VGA stream: its own clock, so VGA can show the other chip
    vga_video_clk_o         : out std_logic;
@@ -718,6 +719,7 @@ begin
       );
 
    video_rst_o <= vdc_rst when main_video_sel_vdc = '1' else main_rst_o;
+   video_source_o <= main_video_sel_vdc;
 
    -- VGA vga_video_clk: the same mux again, so VGA can show the other chip than HDMI.
    i_vga_clk_mux: bufgmux_ctrl

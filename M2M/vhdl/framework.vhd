@@ -154,6 +154,7 @@ port (
    video_hs_i              : in    std_logic;
    video_hblank_i          : in    std_logic;
    video_vblank_i          : in    std_logic;
+   video_source_i          : in    std_logic;   -- which source video_* shows: HDMI blanks a switch
    vga_video_clk_i         : in    std_logic;   -- vga_video_*: VGA stream
    vga_video_rst_i         : in    std_logic;
    vga_video_ce_i          : in    std_logic;
@@ -1022,6 +1023,7 @@ begin
          video_hs_i              => video_hs_i,
          video_hblank_i          => video_hblank_i,
          video_vblank_i          => video_vblank_i,
+         video_source_i          => video_source_i,
          vga_video_clk_i         => vga_video_clk_i,
          vga_video_rst_i         => vga_video_rst_i,
          vga_video_ce_i          => vga_video_ce_i,

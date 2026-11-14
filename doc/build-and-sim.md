@@ -284,6 +284,7 @@ compiles incrementally and leaves units stale when a VHDL package changes.
 | Picture centered         | `CORE/sim/tb_video_window.vhd`     | the real VIC-II and VDC into their `video_sync`: 40 and 80 columns centered in the window HDMI and VGA show |
 | HDMI scanline filter fit | `CORE/sim/tb_scanline_fit.vhd`     | M2M `scanline_fit` in every HDMI mode: whole HDMI rows per line, lines and sides cropped, ascal's output rectangle |
 | HDMI after a reset       | `CORE/sim/tb_ascal_reset.vhd`      | ascal and `avm_decrease` against a HyperRAM controller model, reset while ascal writes: no burst left open, no read lost, reads resume |
+| HDMI 40/80 switch        | `CORE/sim/tb_video_switch.vhd`     | ascal and `scanline_fit` with two pictures like the VIC and the VDC, switched at different points of a frame: HDMI shows the old picture, black, then the whole new one, never garbage (nvc: `run_video_switch_nvc.sh`) |
 | 1541/1571 bring-up       | `CORE/sim/tb_c157x_boot.sv`        | mounting a `.D64`, the real `boot1.rom` handover, and the drive CPU from reset to answering the serial bus |
 
 `CORE/scripts/run_rv_soc_nvc.sh` runs `CORE/sim/tb_rv_soc.vhd`, the RISC-V system CPU

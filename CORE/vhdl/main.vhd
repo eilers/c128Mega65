@@ -408,11 +408,8 @@ attribute ASYNC_REG of vdc_sync_rst_sl : signal is "TRUE";
 signal hdmi_sel_vdc      : std_logic := '0';
 signal vga_sel_vdc       : std_logic := '0';
 signal vga_retro15khz    : std_logic;
-signal hdmi_sel_vdc_d    : std_logic := '0';
 signal vga_sel_vdc_d     : std_logic := '0';
-signal hdmi_switching    : std_logic := '0';
 signal vga_switching     : std_logic := '0';
-signal hdmi_switch_cnt   : natural range 0 to 65535 := 0;
 signal vga_switch_cnt    : natural range 0 to 65535 := 0;
 signal vic_jailbars      : std_logic_vector(1 downto 0) := "00";
 signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiSTer z80_n port)
@@ -883,20 +880,11 @@ begin
   end if;
 end process vdc_pixel_sample_proc;
 
--- Blank a port briefly when its source changes (its video clock BUFGMUX switches with it).
+-- Blank VGA briefly when its source changes (its video clock BUFGMUX switches with it).
+-- HDMI blanks in the framework (video_switch_blank), until ascal has the new picture.
 video_switch_blank_proc : process (clk_main_i)
 begin
   if rising_edge(clk_main_i) then
-    hdmi_sel_vdc_d <= hdmi_sel_vdc;
-    if hdmi_sel_vdc /= hdmi_sel_vdc_d then
-      hdmi_switching  <= '1';
-      hdmi_switch_cnt <= 65535;
-    elsif hdmi_switch_cnt /= 0 then
-      hdmi_switch_cnt <= hdmi_switch_cnt - 1;
-    else
-      hdmi_switching <= '0';
-    end if;
-
     vga_sel_vdc_d <= vga_sel_vdc;
     if vga_sel_vdc /= vga_sel_vdc_d then
       vga_switching  <= '1';
@@ -917,12 +905,9 @@ video_hs_o     <= vdc_hs_out when hdmi_sel_vdc = '1' else vic_hs_out;
 video_vs_o     <= vdc_vs_out when hdmi_sel_vdc = '1' else vic_vs_out;
 video_hblank_o <= vdc_hblank when hdmi_sel_vdc = '1' else vic_hblank;
 video_vblank_o <= vdc_vblank when hdmi_sel_vdc = '1' else vic_vblank;
-video_red_o    <= (others => '0') when hdmi_switching = '1' else
-                  std_logic_vector(vdc_r_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_r_reg);
-video_green_o  <= (others => '0') when hdmi_switching = '1' else
-                  std_logic_vector(vdc_g_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_g_reg);
-video_blue_o   <= (others => '0') when hdmi_switching = '1' else
-                  std_logic_vector(vdc_b_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_b_reg);
+video_red_o    <= std_logic_vector(vdc_r_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_r_reg);
+video_green_o  <= std_logic_vector(vdc_g_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_g_reg);
+video_blue_o   <= std_logic_vector(vdc_b_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_b_reg);
 
 vga_video_ce_o <= vdc_dot_ce when vga_sel_vdc = '1' else vic_pixel_ce;
 -- The on-screen menu counts this enable while the data-enable window is open
