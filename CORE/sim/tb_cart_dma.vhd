@@ -15,6 +15,8 @@
 -- reads external function ROM, and /ROML-/ROMH must stay out of PHI1. Last, with GAME low the
 -- VIC fetches $3000-$3FFF from ROMH, which a slave timed as the Ultimate's must serve. Then the
 -- 8502 goes to C64 mode in Ultimax and uses RAM the cart maps into the unmapped areas, as an IDE64.
+-- Before that, the model reads as a 1764's MOS 8726 REC does: whatever BA, holding a read through
+-- the BA-low cycles in which AEC is still high, and latching each (issue #9, C64MEGA65 #259).
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -118,6 +120,23 @@ architecture sim of tb_cart_dma is
    signal n_access         : natural := 0;
    signal n_warn_wr        : natural := 0;   -- writes done with BA low (the Ultimate allows two)
    signal n_ba_wait        : natural := 0;   -- reads held back by BA
+
+   -- 8726 REC mode: a read starts whatever BA and stays on the bus through BA-low cycles 1-3,
+   -- AEC still high there, and the REC latches every one (a verify compares it). From the fourth
+   -- the VIC has the bus; the read completes in the first cycle with BA high again.
+   type t_cnt3 is array (1 to 3) of natural;
+   signal rec_mode         : boolean := false;
+   signal ba_lo_n          : natural range 0 to 7 := 0;   -- PHI2 rises in a row with BA low
+   signal n_held           : t_cnt3 := (others => 0);     -- held reads by BA-low cycle
+   signal n_held_bad       : t_cnt3 := (others => 0);     -- ... that latched a byte that isn't the RAM's
+   signal n_rec_wr_lo      : natural := 0;                -- REC writes done in the first BA-low cycle
+   type t_cnt8 is array (0 to 7) of natural;
+   signal n_rec_wr_ba      : t_cnt8 := (others => 0);     -- REC write decisions by BA-low cycle
+   signal rec_wait_w       : boolean;                     -- a REC write waiting for BA: R/W stays high
+   function rec_pat(a : std_logic_vector(15 downto 0)) return std_logic_vector is
+   begin
+      return a(7 downto 0) xor a(15 downto 8) xor x"A7";
+   end function;
    signal n_ba_lo          : natural := 0;   -- PHI2 rises at which the cart saw BA low
 
    -- I/O slave: the command interface at $DF1C-$DF1F, timed as the Ultimate's slot_slave.vhd
@@ -410,11 +429,14 @@ begin
    -- Cartridge model, after the Ultimate's slot_master_v4.vhd and slot_timing.vhd
    --------------------------------------------------------------------------------
    vic_cyc  <= ba_hist = "000";
-   drive_al <= c_dma_n = '0' and phi2_rec = '1' and not vic_cyc;
+   drive_al <= c_dma_n = '0' and phi2_rec = '1' and
+               ((not rec_mode and not vic_cyc) or (rec_mode and ba_lo_n < 4));
    c_dma    <= '0' when c_dma_n = '0' else 'Z';
    c_a      <= cur_addr when drive_al else (others => 'Z');
-   c_rw     <= cur_rw   when drive_al else 'Z';
-   c_d      <= cur_data when drive_al and cur_rw = '0' and d_out_q = '1' else (others => 'Z');
+   -- After its write in the first BA-low cycle a REC stops: a write it waits with shows no R/W low
+   rec_wait_w <= rec_mode and cur_rw = '0' and c_state = C_CHECK and ba_lo_n >= 2;
+   c_rw     <= '1' when drive_al and rec_wait_w else cur_rw when drive_al else 'Z';
+   c_d      <= cur_data when drive_al and cur_rw = '0' and d_out_q = '1' and not rec_wait_w else (others => 'Z');
 
    p_cart : process (cart_clk)
       variable rise, fall : boolean;
@@ -432,6 +454,11 @@ begin
                n_ba_lo <= n_ba_lo + 1;
             end if;
             ba_hist  <= ba_hist(1 downto 0) & ba_s(1);
+            if ba_s(1) = '1' then
+               ba_lo_n <= 0;
+            elsif ba_lo_n /= 7 then
+               ba_lo_n <= ba_lo_n + 1;
+            end if;
             phase_h  <= 0;
             phi2_rec <= '1';
          elsif phase_h /= 63 then
@@ -475,8 +502,17 @@ begin
 
             when C_CHECK =>
                if phase_h = C_ADDR_VALID + 1 and phi2_rec = '1' then
-                  if cur_rw = '1' and ba_s(1) = '1' then
+                  if cur_rw = '1' and (ba_s(1) = '1' or (rec_mode and ba_lo_n < 4)) then
                      c_state <= C_DO;
+                  elsif cur_rw = '0' and rec_mode then
+                     -- a REC writes once more in the first BA-low cycle, then waits for BA high
+                     n_rec_wr_ba(ba_lo_n) <= n_rec_wr_ba(ba_lo_n) + 1;
+                     if ba_lo_n <= 1 then
+                        if ba_lo_n = 1 then
+                           n_rec_wr_lo <= n_rec_wr_lo + 1;
+                        end if;
+                        c_state <= C_DO;
+                     end if;
                   elsif cur_rw = '0' and not vic_cyc then
                      if ba_hist(0) = '0' then
                         n_warn_wr <= n_warn_wr + 1;
@@ -488,7 +524,20 @@ begin
                end if;
 
             when C_DO =>
-               if fall then
+               if fall and rec_mode and cur_rw = '1' and ba_lo_n /= 0 then
+                  -- a REC's held read: it latches the bus in BA-low cycles 1-3 and reads again
+                  if ba_lo_n <= 3 then
+                     n_held(ba_lo_n) <= n_held(ba_lo_n) + 1;
+                     if d_hist(1) /= rec_pat(cur_addr) then
+                        n_held_bad(ba_lo_n) <= n_held_bad(ba_lo_n) + 1;
+                        if n_held_bad(1) + n_held_bad(2) + n_held_bad(3) < 8 then
+                           report "REC held read of $" & to_hstring(cur_addr) & " in BA-low cycle " &
+                                  integer'image(ba_lo_n) & " latched $" & to_hstring(d_hist(1)) &
+                                  ", not $" & to_hstring(rec_pat(cur_addr));
+                        end if;
+                     end if;
+                  end if;
+               elsif fall then
                   rdata    <= d_hist(1);   -- the bus just before PHI2 fell
                   done     <= true;
                   n_access <= n_access + 1;
@@ -775,6 +824,13 @@ begin
             rw_start := now;
          elsif rw_fight'event and now > rw_start then   -- delta glitches are not contention
             n_rw_x <= n_rw_x + 1;
+            if now - rw_start > 200 ns and n_rw_x < 16 then
+               write(l, string'("R/W contention: ") & time'image(now - rw_start) & " ending " &
+                        time'image(now - phi2_rise_t) & " after PHI2 rose; REC " & boolean'image(rec_mode) &
+                        ", cart " & t_cart'image(c_state) & " R/W " & std_logic'image(cur_rw) &
+                        ", BA-low cycle " & integer'image(ba_lo_n));
+               writeline(output, l);
+            end if;
             if now - rw_start > rw_x_max then
                rw_x_max <= now - rw_start;
             end if;
@@ -1101,6 +1157,77 @@ begin
             integer'image(n_umax - n) & " Ultimax fetches");
       check(n_sel_early = 0, "/ROMH fell with the VIC's address " & integer'image(n_sel_early) & " times");
       check(n_sel_moved = 0, "the VIC's address moved under a low /ROMH " & integer'image(n_sel_moved) & " times");
+
+      -- A 1764's REC holds a read on the bus while BA is low, as a 6510 with RDY low, and latches
+      -- the bus in each of the three BA-low cycles before the VIC takes it. A real C64's RAM
+      -- answers all three. A $FF there fails every verify a stall interrupts (C64MEGA65 #259).
+      -- Sprites stall the bus too, outside the badlines: eight of them, one on each line 60-227.
+      freeze;
+      for i in 0 to 7 loop
+         dma_wr(std_logic_vector(to_unsigned(16#D001# + 2 * i, 16)), std_logic_vector(to_unsigned(60 + 21 * i, 8)));
+      end loop;
+      dma_wr(x"D015", x"FF");
+      for i in 0 to 255 loop
+         dma_wr(std_logic_vector(to_unsigned(16#2000# + i, 16)),
+                rec_pat(std_logic_vector(to_unsigned(16#2000# + i, 16))));
+      end loop;
+      rec_mode <= true;
+      n := 0;
+      for k in 0 to 15 loop
+         for i in 0 to 255 loop
+            dma_rd(std_logic_vector(to_unsigned(16#2000# + i, 16)), d);
+            if d /= rec_pat(std_logic_vector(to_unsigned(16#2000# + i, 16))) then
+               n := n + 1;
+            end if;
+         end loop;
+      end loop;
+      rec_mode <= false;
+      unfreeze;
+      write(l, string'("REC: held reads in BA-low cycles 1/2/3: ") & integer'image(n_held(1)) & "/" &
+               integer'image(n_held(2)) & "/" & integer'image(n_held(3)) & ", wrong " &
+               integer'image(n_held_bad(1)) & "/" & integer'image(n_held_bad(2)) & "/" &
+               integer'image(n_held_bad(3)));
+      writeline(output, l);
+      check(n = 0, integer'image(n) & " REC reads completed with the wrong byte");
+      check(n_held(1) > 4 and n_held(2) > 4 and n_held(3) > 4, "too few REC reads held by a stall");
+      check(n_held_bad(1) + n_held_bad(2) + n_held_bad(3) = 0, "REC held reads latched the wrong byte " &
+            integer'image(n_held_bad(1)) & "/" & integer'image(n_held_bad(2)) & "/" &
+            integer'image(n_held_bad(3)) & " times in BA-low cycles 1/2/3");
+
+      -- A REC fetch: 48 passes over 256 bytes, more than a frame, each with new data. A write lost in a stall leaves
+      -- the previous pass's byte, which plain reads (they wait for BA high) find after each pass.
+      -- The sprites again: the KERNAL's IRQ has run since.
+      freeze;
+      for i in 0 to 7 loop
+         dma_wr(std_logic_vector(to_unsigned(16#D001# + 2 * i, 16)), std_logic_vector(to_unsigned(60 + 21 * i, 8)));
+      end loop;
+      dma_wr(x"D015", x"FF");
+      n := 0;
+      for k in 0 to 47 loop
+         rec_mode <= true;
+         for i in 0 to 255 loop
+            dma_wr(std_logic_vector(to_unsigned(16#2100# + i, 16)), pat(k * 256 + i));
+         end loop;
+         rec_mode <= false;
+         for i in 0 to 255 loop
+            dma_rd(std_logic_vector(to_unsigned(16#2100# + i, 16)), d);
+            if d /= pat(k * 256 + i) then
+               n := n + 1;
+            end if;
+         end loop;
+      end loop;
+      dma_wr(x"D015", x"00");
+      unfreeze;
+      write(l, string'("REC write decisions by BA-low cycle 0-7:"));
+      for i in 0 to 7 loop
+         write(l, string'(" ") & integer'image(n_rec_wr_ba(i)));
+      end loop;
+      writeline(output, l);
+      write(l, string'("REC fetch: ") & integer'image(n_rec_wr_lo) & " writes in a first BA-low cycle, " &
+               integer'image(n) & " of 12288 bytes wrong");
+      writeline(output, l);
+      check(n_rec_wr_lo > 4, "too few REC writes in a first BA-low cycle");
+      check(n = 0, integer'image(n) & " REC fetch bytes lost");
 
       -- C64 mode in Ultimax: the cart's RAM answers in the unmapped areas, the C128's RAM stays
       -- out of them (C64MEGA65 #176, the IDE64), and the bus is the cart's while it drives a read

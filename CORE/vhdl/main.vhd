@@ -657,6 +657,7 @@ signal phi2_d               : std_logic := '0';
 signal phi2_cnt             : natural range 0 to 31 := 31;
 signal phi2_ph              : natural range 0 to 31;
 signal ba_lo_cnt            : natural range 0 to 3 := 0;   -- PHI2 rises in a row with BA low
+signal cart_dma_rd_held     : std_logic := '0';   -- the cart's access in BA-low cycle 2 was a read
 signal ba_warn              : std_logic;                   -- BA low, but the cart may still write
 signal ba_idle              : std_logic;                   -- BA low, and the cart leaves the bus alone
 
@@ -1157,6 +1158,19 @@ begin
             cart_dma_addr <= cart_a_q;
             cart_dma_rd   <= cart_rw_q;
             cart_dma_live <= '1';
+         end if;
+         -- A 1764's MOS 8726 REC holds a read through all three BA-low cycles, as a 6510 with RDY
+         -- low, and latches each; AEC is still high in the third, so a C64's RAM answers it. We
+         -- drive R/W there and can't sense it, but the REC's read is the one it held in the second
+         -- (C64MEGA65 #259: a $FF there fails every verify a stall interrupts).
+         if cart_dma_req = '1' and ba_idle = '1' and cart_dma_rd_held = '1' then
+            cart_dma_addr <= cart_a_q;
+            cart_dma_rd   <= '1';
+            cart_dma_live <= '1';
+         end if;
+         cart_dma_rd_held <= '0';
+         if cart_dma_req = '1' and ba_warn = '1' and ba_lo_cnt = 2 and cart_rw_q = '1' then
+            cart_dma_rd_held <= '1';
          end if;
       end if;
 
