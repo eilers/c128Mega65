@@ -423,6 +423,7 @@ architecture synthesis of mega65_r5 is
    signal hr_core_readdatavalid  : std_logic;
    signal hr_core_waitrequest    : std_logic;
    signal hr_low                 : std_logic;
+   signal hr_dig_quiet           : std_logic;
    signal sr_core_refresh_ok     : std_logic;
    signal sr_core_write          : std_logic;
    signal sr_core_read           : std_logic;
@@ -784,6 +785,7 @@ begin
       hr_core_waitrequest_o   => hr_core_waitrequest,
       hr_high_o               => hr_high,
       hr_low_o                => hr_low,
+      hr_dig_quiet_o          => hr_dig_quiet,
       sr_core_refresh_ok_i    => sr_core_refresh_ok,
       sr_core_write_i         => sr_core_write,
       sr_core_read_i          => sr_core_read,
@@ -1015,6 +1017,7 @@ begin
          hr_core_waitrequest_i   => hr_core_waitrequest,
          hr_high_i               => hr_high,
          hr_low_i                => hr_low,
+         hr_dig_quiet_i          => hr_dig_quiet,
          sr_core_refresh_ok_o    => sr_core_refresh_ok,
          sr_core_write_o         => sr_core_write,
          sr_core_read_o          => sr_core_read,

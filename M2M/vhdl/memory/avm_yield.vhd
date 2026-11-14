@@ -5,7 +5,8 @@
 -- HDMI scaler (framework.vhd). A request of the yielding master goes on only once the other
 -- has been idle, with no read data to come, for G_QUIET clocks, so the other's bursts run
 -- back to back. A request that has waited G_LIMIT clocks goes anyway. Once passed on, a
--- request stays until it is taken, and a write burst goes on to its end.
+-- request stays until it is taken, and a write burst goes on to its end. quiet_o says the
+-- other is idle that long, for a master that holds back on its own (crt_cacher.vhd).
 --
 -- C128 core: licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -29,6 +30,7 @@ entity avm_yield is
       p_avm_burstcount_i    : in  std_logic_vector(7 downto 0);
       p_avm_waitrequest_i   : in  std_logic;
       p_avm_readdatavalid_i : in  std_logic;
+      quiet_o               : out std_logic;
 
       -- The yielding master; its address, data and burst count go to the arbiter directly
       s_avm_write_i         : in  std_logic;
@@ -57,6 +59,7 @@ begin
    busy <= '1' when p_avm_read_i = '1' or p_avm_write_i = '1' or p_avm_readdatavalid_i = '1' or
                     pending /= 0 else '0';
    req  <= s_avm_read_i or s_avm_write_i;
+   quiet_o <= '1' when quiet = G_QUIET and busy = '0' else '0';
    pass <= '1' when held = '1' or (quiet = G_QUIET and busy = '0') or waited = G_LIMIT else '0';
 
    m_avm_read_o        <= s_avm_read_i and pass;
