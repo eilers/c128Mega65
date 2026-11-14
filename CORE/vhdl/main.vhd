@@ -607,6 +607,9 @@ signal cart_roml_q          : std_logic := '0';
 signal cart_romh_q          : std_logic := '0';
 signal cart_umax_q          : std_logic := '0';
 signal cart_roml_pin_n      : std_logic;
+signal cart_a_bus           : unsigned(15 downto 0);
+signal cart_a_bus_q         : unsigned(15 downto 0) := (others => '0');
+signal cart_a_held          : std_logic;
 signal cart_romh_pin_n      : std_logic;
 signal cart_io1_n           : std_logic := '1';
 signal cart_io2_n           : std_logic := '1';
@@ -1036,19 +1039,26 @@ cart_romh_c  <= core_romh and cart_rom_sel;
 cart_roml_n  <= not cart_roml_c;
 cart_romh_n  <= not cart_romh_c and (not cart_umax_vic);
 
+-- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up by RP4
+-- whenever the VIC has the bus, so a cartridge sees them as %1111.
+cart_a_bus <= "11" & core_vic_addr when cart_umax_vic = '1' else core_ram_addr(15 downto 0);
+
 -- A cart such as the IDUN latches the address when /ROML or /ROMH falls (issue #32). The address
--- and its decode switch on the same clock, so at the pins each select falls one clock later.
+-- and its decode switch on the same clock, and in a VIC refresh the address settles a clock late.
+-- So a select reaches the pin only once it and its address have been there for a whole clock.
 cart_sel_proc : process (clk_main_i)
 begin
    if rising_edge(clk_main_i) then
       cart_roml_q <= cart_roml_c;
       cart_romh_q <= cart_romh_c;
       cart_umax_q <= cart_umax_vic;
+      cart_a_bus_q <= cart_a_bus;
    end if;
 end process cart_sel_proc;
 
-cart_roml_pin_n <= not (cart_roml_c and cart_roml_q);
-cart_romh_pin_n <= not (cart_romh_c and cart_romh_q) and not (cart_umax_vic and cart_umax_q);
+cart_a_held     <= '1' when cart_a_bus = cart_a_bus_q else '0';
+cart_roml_pin_n <= not (cart_roml_c and cart_roml_q and cart_a_held);
+cart_romh_pin_n <= not (((cart_romh_c and cart_romh_q) or (cart_umax_vic and cart_umax_q)) and cart_a_held);
 
 -- /IO1 and /IO2 span the CPU's PHI2 phase as on a C64, not the core's CPU4-7 strobe: the Ultimate
 -- latches them ~350 ns into PHI2. Registered against the CPU/VIC address handover; low EXT5..CPU7,
@@ -1295,13 +1305,7 @@ begin
          -- Address bus. Only the low 16 bits of the core's address are a CPU/VIC address; bits
          -- 17..16 are the C128's RAM bank select and must not leave the machine.
          cart_addr_oe_o  <= '1';
-         if cart_umax_vic = '0' then
-            cart_a_o     <= core_ram_addr(15 downto 0);
-         else
-            -- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up
-            -- by RP4 whenever the VIC has the bus, so a cartridge sees them as %1111.
-            cart_a_o     <= "11" & core_vic_addr;
-         end if;
+         cart_a_o        <= cart_a_bus;
 
          -- Data bus: turn it into an input while the cartridge answers a read, drive it otherwise,
          -- so that the CPU can also write to the cartridge (bank switching).
