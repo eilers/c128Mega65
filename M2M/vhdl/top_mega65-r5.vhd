@@ -315,6 +315,7 @@ architecture synthesis of mega65_r5 is
    signal video_hs               : std_logic;
    signal video_hblank           : std_logic;
    signal video_vblank           : std_logic;
+   signal video_source           : std_logic;
    signal vga_video_clk          : std_logic;
    signal vga_video_rst          : std_logic;
    signal vga_video_ce           : std_logic;
@@ -734,6 +735,7 @@ begin
       video_hs_i              => video_hs,
       video_hblank_i          => video_hblank,
       video_vblank_i          => video_vblank,
+      video_source_i          => video_source,
       vga_video_clk_i         => vga_video_clk,
       vga_video_rst_i         => vga_video_rst,
       vga_video_ce_i          => vga_video_ce,
@@ -946,6 +948,7 @@ begin
          video_hs_o              => video_hs,
          video_hblank_o          => video_hblank,
          video_vblank_o          => video_vblank,
+         video_source_o          => video_source,
          vga_video_clk_o         => vga_video_clk,
          vga_video_rst_o         => vga_video_rst,
          vga_video_ce_o          => vga_video_ce,

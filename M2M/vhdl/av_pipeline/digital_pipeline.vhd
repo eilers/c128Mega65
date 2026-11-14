@@ -40,6 +40,7 @@ entity digital_pipeline is
       video_vs_i               : in  std_logic;
       video_hblank_i           : in  std_logic;
       video_vblank_i           : in  std_logic;
+      video_source_i           : in  std_logic;  -- HDMI goes black for a moment when this changes
       audio_clk_i              : in  std_logic;  -- 12.288 MHz
       audio_rst_i              : in  std_logic;
       audio_left_i             : in  signed(15 downto 0); -- Signed PCM format
@@ -255,9 +256,13 @@ architecture synthesis of digital_pipeline is
    signal hdmi_vmax              : integer;
 
    -- After video_rescaler
+   signal hdmi_blank             : std_logic;
    signal hdmi_red               : unsigned(7 downto 0);
    signal hdmi_green             : unsigned(7 downto 0);
    signal hdmi_blue              : unsigned(7 downto 0);
+   signal hdmi_pic_red           : unsigned(7 downto 0);
+   signal hdmi_pic_green         : unsigned(7 downto 0);
+   signal hdmi_pic_blue          : unsigned(7 downto 0);
    signal hdmi_hs                : std_logic;
    signal hdmi_vs                : std_logic;
    signal hdmi_de                : std_logic;
@@ -622,6 +627,22 @@ begin
          reset_na          => reset_na                      -- input
       ); -- i_ascal
 
+   -- Black while ascal's frame buffer still holds the old source after a switch
+   i_video_switch_blank : entity work.video_switch_blank
+      port map (
+         video_clk_i    => video_clk_i,
+         video_vs_i     => video_fit_vs,
+         video_fit_i    => video_scanlines(0),
+         video_source_i => video_source_i,
+         hdmi_clk_i     => hdmi_clk_i,
+         hdmi_vs_i      => hdmi_vs,
+         hdmi_blank_o   => hdmi_blank
+      ); -- i_video_switch_blank
+
+   hdmi_pic_red   <= (others => '0') when hdmi_blank = '1' else hdmi_red;
+   hdmi_pic_green <= (others => '0') when hdmi_blank = '1' else hdmi_green;
+   hdmi_pic_blue  <= (others => '0') when hdmi_blank = '1' else hdmi_blue;
+
    i_avm_decrease : entity work.avm_decrease
       generic map (
          G_SLAVE_ADDRESS_SIZE  => C_AVM_ADDRESS_SIZE,
@@ -662,9 +683,9 @@ begin
       port map (
          vga_clk_i         => hdmi_clk_i,
          vga_ce_i          => '1',
-         vga_red_i         => std_logic_vector(hdmi_red),
-         vga_green_i       => std_logic_vector(hdmi_green),
-         vga_blue_i        => std_logic_vector(hdmi_blue),
+         vga_red_i         => std_logic_vector(hdmi_pic_red),
+         vga_green_i       => std_logic_vector(hdmi_pic_green),
+         vga_blue_i        => std_logic_vector(hdmi_pic_blue),
          vga_hs_i          => hdmi_hs,
          vga_vs_i          => hdmi_vs,
          vga_de_i          => hdmi_de,

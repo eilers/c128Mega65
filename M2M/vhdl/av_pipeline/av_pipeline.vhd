@@ -45,6 +45,7 @@ entity av_pipeline is
       video_hs_i              : in  std_logic;
       video_hblank_i          : in  std_logic;
       video_vblank_i          : in  std_logic;
+      video_source_i          : in  std_logic;   -- which source video_* shows: HDMI blanks a switch
       -- vga_video_* feeds VGA; it may run on a different clock than video_*
       vga_video_clk_i         : in  std_logic;
       vga_video_rst_i         : in  std_logic;
@@ -606,6 +607,7 @@ begin
          video_vs_i               => video_crop_vs,
          video_hblank_i           => video_crop_hblank,
          video_vblank_i           => video_crop_vblank,
+         video_source_i           => video_source_i,
          video_hdmax_o            => video_hdmax,
          video_vdmax_o            => video_vdmax,
          audio_clk_i              => audio_clk_i,

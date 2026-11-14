@@ -33,6 +33,7 @@ CORE/stream_nvc
 CORE/vic_window_nvc
 CORE/drive_rom_nvc
 CORE/mouse_input_nvc
+CORE/video_switch_nvc
 
 # Hide part of the M2M framework that is not needed since V1.2 but 
 # exists when you installed the M2M submodule previously.
