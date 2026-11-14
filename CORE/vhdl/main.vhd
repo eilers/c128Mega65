@@ -601,6 +601,13 @@ signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
 signal cart_rom_sel         : std_logic;   -- the CPU's access may select ROML/ROMH (PLA rules)
 signal cart_roml_n          : std_logic;
 signal cart_romh_n          : std_logic;
+signal cart_roml_c          : std_logic;
+signal cart_romh_c          : std_logic;
+signal cart_roml_q          : std_logic := '0';
+signal cart_romh_q          : std_logic := '0';
+signal cart_umax_q          : std_logic := '0';
+signal cart_roml_pin_n      : std_logic;
+signal cart_romh_pin_n      : std_logic;
 signal cart_io1_n           : std_logic := '1';
 signal cart_io2_n           : std_logic := '1';
 constant C_RD_RELEASE       : natural := 2;
@@ -1024,8 +1031,24 @@ cart_umax_vic <= '1' when core_aec = '0' and core_exrom_n = '1' and core_game_n 
 -- A PLA selects ROML/ROMH for a write only in Ultimax mode. In 8K/16K mode the write goes to RAM
 -- alone, and a plain ROM cartridge, which has no R/W, would drive the bus against it.
 cart_rom_sel <= core_aec and ((not system_we) or (core_exrom_n and not core_game_n));
-cart_roml_n  <= not (core_roml and cart_rom_sel);
-cart_romh_n  <= not (core_romh and cart_rom_sel) and (not cart_umax_vic);
+cart_roml_c  <= core_roml and cart_rom_sel;
+cart_romh_c  <= core_romh and cart_rom_sel;
+cart_roml_n  <= not cart_roml_c;
+cart_romh_n  <= not cart_romh_c and (not cart_umax_vic);
+
+-- A cart such as the IDUN latches the address when /ROML or /ROMH falls (issue #32). The address
+-- and its decode switch on the same clock, so at the pins each select falls one clock later.
+cart_sel_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      cart_roml_q <= cart_roml_c;
+      cart_romh_q <= cart_romh_c;
+      cart_umax_q <= cart_umax_vic;
+   end if;
+end process cart_sel_proc;
+
+cart_roml_pin_n <= not (cart_roml_c and cart_roml_q);
+cart_romh_pin_n <= not (cart_romh_c and cart_romh_q) and not (cart_umax_vic and cart_umax_q);
 
 -- /IO1 and /IO2 span the CPU's PHI2 phase as on a C64, not the core's CPU4-7 strobe: the Ultimate
 -- latches them ~350 ns into PHI2. Registered against the CPU/VIC address handover; low EXT5..CPU7,
@@ -1249,8 +1272,8 @@ begin
       cart_reset_o    <= cart_reset_n_int when cart_reset_counter = 0 and cart_res_flckr_ign = 0 else '1';
       cart_reset_oe_o <= not cart_reset_o;
 
-      cart_roml_o     <= cart_roml_n;
-      cart_romh_o     <= cart_romh_n;
+      cart_roml_o     <= cart_roml_pin_n;
+      cart_romh_o     <= cart_romh_pin_n;
       cart_io1_o      <= cart_io1_n;
       cart_io2_o      <= cart_io2_n;
       cart_rw_o       <= not system_we;

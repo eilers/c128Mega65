@@ -171,6 +171,8 @@ architecture sim of tb_cart_dma is
    signal rd_settle_ram    : time := 1 us;    -- the same for RAM, not $Dxxx
    signal n_rom_sel        : natural := 0;    -- /ROML or /ROMH accesses
    signal n_rom_phi1       : natural := 0;    -- main clocks with /ROML or /ROMH low well into PHI1
+   signal n_sel_early      : natural := 0;    -- /ROML-/ROMH fell in the clock the address changed
+   signal n_sel_moved      : natural := 0;    -- the address changed while /ROML-/ROMH was low
 
    -- What the Ultimax slave serves for an address
    function umax_byte(a : std_logic_vector(15 downto 0)) return std_logic_vector is
@@ -656,6 +658,36 @@ begin
       end if;
    end process p_rom_phase;
 
+   -- A cart like the IDUN latches the address when /ROML or /ROMH falls (issue #32), so the
+   -- address must already be on the bus a main clock before, and hold while the select is low.
+   p_sel_latch : process (clk_main)
+      variable a_d   : unsigned(15 downto 0) := (others => '0');
+      variable sel_d : boolean := false;
+      variable sel   : boolean;
+      variable l     : line;
+   begin
+      if rising_edge(clk_main) then
+         sel := cart_roml = '0' or cart_romh = '0';
+         if core_released and cart_addr_oe = '1' and sel and in_a /= a_d then
+            if not sel_d then
+               n_sel_early <= n_sel_early + 1;
+            else
+               n_sel_moved <= n_sel_moved + 1;
+            end if;
+            if n_sel_early + n_sel_moved < 8 then
+               write(l, string'("/ROML-/ROMH low with $") & to_hstring(std_logic_vector(in_a)) &
+                        " on the bus, a clock before $" & to_hstring(std_logic_vector(a_d)));
+               if sel_d then
+                  write(l, string'(" (select already low)"));
+               end if;
+               writeline(output, l);
+            end if;
+         end if;
+         a_d   := in_a;
+         sel_d := sel;
+      end if;
+   end process p_sel_latch;
+
    -- The VIC latches its byte at the end of VIC3, a main clock after PHI2 rises at the slot. In
    -- that clock and the one before, the bus must hold the Ultimax slave's byte for the address on it.
    p_umax_chk : process (clk_main)
@@ -987,6 +1019,8 @@ begin
       check(n_rom_sel >= n + 2, "the 8502 read external function ROM with " &
             integer'image(n_rom_sel - n) & " /ROML-/ROMH accesses, not 2");
       check(n_rom_phi1 = 0, "/ROML or /ROMH was low in PHI1 for " & integer'image(n_rom_phi1) & " clocks");
+      check(n_sel_early = 0, "/ROML-/ROMH fell with the address " & integer'image(n_sel_early) & " times");
+      check(n_sel_moved = 0, "the address moved under a low /ROML-/ROMH " & integer'image(n_sel_moved) & " times");
 
       -- Ultimax: GAME low. In C128 mode the 8502's map ignores it, but the VIC's idle and refresh
       -- fetches at $3Fxx go to ROMH, and the slave samples their address early in PHI1.
@@ -997,6 +1031,8 @@ begin
       check(n_umax > n + 50, "the VIC fetched from ROMH in only " & integer'image(n_umax - n) & " phases");
       check(n_umax_bad = 0, "the VIC latched the wrong byte in " & integer'image(n_umax_bad) & " of " &
             integer'image(n_umax - n) & " Ultimax fetches");
+      check(n_sel_early = 0, "/ROMH fell with the VIC's address " & integer'image(n_sel_early) & " times");
+      check(n_sel_moved = 0, "the VIC's address moved under a low /ROMH " & integer'image(n_sel_moved) & " times");
 
       check(n_bus_x = 0, integer'image(n_bus_x) & " address/data contentions");
       -- The Ultimate takes PHI2 low as a read (slot_slave.vhd), so it drives while it still sees
