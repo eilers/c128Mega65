@@ -13,7 +13,8 @@
 -- has seen PHI2 run, as a Kung Fu Flash 2 does. It also answers the Ultimate's command
 -- interface at $DF1C-$DF1F, which the 8502 reads and writes from /NMI code. Then the 8502
 -- reads external function ROM, and /ROML-/ROMH must stay out of PHI1. Last, with GAME low the
--- VIC fetches $3000-$3FFF from ROMH, which a slave timed as the Ultimate's must serve.
+-- VIC fetches $3000-$3FFF from ROMH, which a slave timed as the Ultimate's must serve. Then the
+-- 8502 goes to C64 mode in Ultimax and uses RAM the cart maps into the unmapped areas, as an IDE64.
 --
 -- done by Jeff Flitton in 2026 and licensed under GPL v3
 ----------------------------------------------------------------------------------
@@ -142,6 +143,30 @@ architecture sim of tb_cart_dma is
    signal c_d_umax         : std_logic_vector(7 downto 0);
    signal n_umax           : natural := 0;    -- VIC phases that fetched from ROMH
    signal n_umax_bad       : natural := 0;    -- ... and latched a byte that isn't the slave's for that address
+
+   -- IDE64-like RAM in Ultimax's unmapped $1000-$7FFF/$A000-$CFFF, 256 bytes by A7..A0, timed as
+   -- the I/O slave: it drives a read from C_ADDR_VALID into PHI2 until it sees PHI2 fall, and
+   -- takes a write at C_SAMPLE_IO
+   type t_nm_ram is array (0 to 255) of std_logic_vector(7 downto 0);
+   function nm_init return t_nm_ram is
+      variable r : t_nm_ram;
+   begin
+      for i in r'range loop
+         r(i) := std_logic_vector(to_unsigned((i * 29 + 7) mod 256, 8));
+      end loop;
+      return r;
+   end function;
+   function nm_area(a : std_logic_vector(15 downto 0)) return boolean is
+      variable u : natural := to_integer(unsigned(a(15 downto 12)));
+   begin
+      return (u >= 1 and u <= 7) or (u >= 10 and u <= 12);
+   end function;
+   signal nm_ram           : t_nm_ram := nm_init;
+   signal nm_dav           : boolean := false;
+   signal nm_idx           : natural range 0 to 255 := 0;
+   signal c_d_nm           : std_logic_vector(7 downto 0);
+   signal n_nm_rd          : natural := 0;
+   signal n_nm_wr          : natural := 0;
 
    -- Test process <-> cartridge model (four-phase handshake on cart_clk)
    signal want_dma         : boolean := false;
@@ -371,6 +396,7 @@ begin
    x_d   <= c_d;
    x_d   <= c_d_io;
    x_d   <= c_d_umax;
+   x_d   <= c_d_nm;
    x_d   <= (others => 'H');
    x_io2 <= cart_io2_o when cart_ctrl_oe = '1' else 'Z';
    x_io2 <= 'H';
@@ -534,6 +560,28 @@ begin
       end if;
    end process p_umax;
 
+   c_d_nm <= nm_ram(nm_idx) when nm_dav else (others => 'Z');
+
+   p_nm : process (cart_clk)
+   begin
+      if rising_edge(cart_clk) then
+         if phi2_s(1) = '0' then
+            nm_dav <= false;
+         end if;
+         if phase_h = C_ADDR_VALID + 1 and phi2_rec = '1' and tb_game_n = '0' and
+            s_rw(1) = '1' and nm_area(s_addr) then
+            nm_idx  <= to_integer(unsigned(s_addr(7 downto 0)));
+            nm_dav  <= true;
+            n_nm_rd <= n_nm_rd + 1;
+         end if;
+         if phase_h = C_SAMPLE_IO and phi2_rec = '1' and tb_game_n = '0' and
+            s_rw(1) = '0' and nm_area(s_addr) then
+            nm_ram(to_integer(unsigned(s_addr(7 downto 0)))) <= s_d(1);
+            n_nm_wr <= n_nm_wr + 1;
+         end if;
+      end if;
+   end process p_nm;
+
    --------------------------------------------------------------------------------
    -- Boot, as in tb_c128_boot
    --------------------------------------------------------------------------------
@@ -581,7 +629,7 @@ begin
    rw_fight  <= cart_ctrl_oe = '1' and c_rw /= 'Z' and c_rw /= cart_rw_o;
    bus_fight <= (cart_addr_oe = '1' and c_a(0) /= 'Z') or (cart_data_oe = '1' and c_d(0) /= 'Z') or
                 (cart_data_oe = '1' and c_d_io(0) /= 'Z') or (c_d(0) /= 'Z' and c_d_io(0) /= 'Z') or
-                (cart_data_oe = '1' and c_d_umax(0) /= 'Z');
+                (cart_data_oe = '1' and c_d_umax(0) /= 'Z') or (cart_data_oe = '1' and c_d_nm(0) /= 'Z');
 
    -- A Kung Fu Flash 2 holds RESET until it has timed 100 PHI2 periods in a row (c64_wait_valid_clock),
    -- so PHI2 must run while the core is in reset. If it stops, the boot below never comes.
@@ -765,6 +813,8 @@ begin
       variable ok     : boolean;
       variable n      : natural;
       variable l      : line;
+      type t_nm_pre is array (0 to 3) of std_logic_vector(7 downto 0);
+      variable nm_pre : t_nm_pre;
 
       procedure check(cond : boolean; msg : string) is
       begin
@@ -838,6 +888,24 @@ begin
          x"AD", x"00", x"C0",                  -- lda $c000
          x"A9", x"00", x"8D", x"00", x"FF",    -- lda #$00 / sta $ff00
          x"4C", x"33", x"FF");                 -- jmp $ff33
+
+      -- From /NMI, with GAME low: to C64 mode, so Ultimax, then write and read the unmapped areas
+      -- and keep what it read at $0C80. It never returns: the KERNAL is gone.
+      type t_umax is array (0 to 58) of std_logic_vector(7 downto 0);
+      constant umax_code : t_umax := (
+         x"78",                                   -- sei
+         x"A9", x"E3", x"85", x"01",              -- lda #$e3 / sta $01
+         x"A9", x"2F", x"85", x"00",              -- lda #$2f / sta $00
+         x"A9", x"F7", x"8D", x"05", x"D5",       -- lda #$f7 / sta $d505: C64 mode, Ultimax
+         x"A9", x"A5", x"8D", x"00", x"50",       -- lda #$a5 / sta $5000
+         x"A9", x"3C", x"8D", x"F0", x"A0",       -- lda #$3c / sta $a0f0
+         x"A9", x"69", x"8D", x"34", x"12",       -- lda #$69 / sta $1234
+         x"AD", x"00", x"50", x"8D", x"80", x"0C", -- lda $5000 / sta $0c80
+         x"AD", x"F0", x"A0", x"8D", x"81", x"0C", -- lda $a0f0 / sta $0c81
+         x"AD", x"34", x"12", x"8D", x"82", x"0C", -- lda $1234 / sta $0c82
+         x"AD", x"EE", x"C0", x"8D", x"83", x"0C", -- lda $c0ee / sta $0c83
+         x"EE", x"84", x"0C",                     -- inc $0c84
+         x"4C", x"78", x"0C");                     -- jmp * ($0c78)
 
       function pat(i : natural) return std_logic_vector is
       begin
@@ -1033,6 +1101,48 @@ begin
             integer'image(n_umax - n) & " Ultimax fetches");
       check(n_sel_early = 0, "/ROMH fell with the VIC's address " & integer'image(n_sel_early) & " times");
       check(n_sel_moved = 0, "the VIC's address moved under a low /ROMH " & integer'image(n_sel_moved) & " times");
+
+      -- C64 mode in Ultimax: the cart's RAM answers in the unmapped areas, the C128's RAM stays
+      -- out of them (C64MEGA65 #176, the IDE64), and the bus is the cart's while it drives a read
+      ram_peek(16#5000#, nm_pre(0));
+      ram_peek(16#A0F0#, nm_pre(1));
+      ram_peek(16#1234#, nm_pre(2));
+      ram_peek(16#C0EE#, nm_pre(3));
+      freeze;
+      for i in umax_code'range loop
+         dma_wr(std_logic_vector(to_unsigned(16#0C40# + i, 16)), umax_code(i));
+      end loop;
+      for i in 0 to 4 loop
+         dma_wr(std_logic_vector(to_unsigned(16#0C80# + i, 16)), x"00");
+      end loop;
+      dma_wr(x"0318", x"40");
+      dma_wr(x"0319", x"0C");
+      unfreeze;
+      tb_game_n <= '0';
+      wait for 20 us;
+      tb_nmi_n <= '0';
+      wait for 3 us;
+      tb_nmi_n <= '1';
+      wait for 200 us;
+      ram_peek(16#0C84#, d);
+      check(d = x"01", "the Ultimax code ran to its end " & integer'image(to_integer(unsigned(d))) & " times");
+      ram_peek(16#0C80#, d);
+      check(d = x"A5", "Ultimax $5000 read $" & to_hstring(d) & ", not the cart's $A5");
+      ram_peek(16#0C81#, d);
+      check(d = x"3C", "Ultimax $A0F0 read $" & to_hstring(d) & ", not the cart's $3C");
+      ram_peek(16#0C82#, d);
+      check(d = x"69", "Ultimax $1234 read $" & to_hstring(d) & ", not the cart's $69");
+      ram_peek(16#0C83#, d);
+      check(d = nm_init(16#EE#), "Ultimax $C0EE read $" & to_hstring(d) & ", not the cart's $" &
+            to_hstring(nm_init(16#EE#)));
+      ram_peek(16#5000#, d);
+      check(d = nm_pre(0), "an Ultimax write reached RAM at $5000: $" & to_hstring(d));
+      ram_peek(16#A0F0#, d);
+      check(d = nm_pre(1), "an Ultimax write reached RAM at $A0F0: $" & to_hstring(d));
+      ram_peek(16#1234#, d);
+      check(d = nm_pre(2), "an Ultimax write reached RAM at $1234: $" & to_hstring(d));
+      check(n_nm_wr = 3 and n_nm_rd = 4, "the cart's RAM took " & integer'image(n_nm_wr) & " writes and " &
+            integer'image(n_nm_rd) & " reads, not 3 and 4");
 
       check(n_bus_x = 0, integer'image(n_bus_x) & " address/data contentions");
       -- The Ultimate takes PHI2 low as a read (slot_slave.vhd), so it drives while it still sees

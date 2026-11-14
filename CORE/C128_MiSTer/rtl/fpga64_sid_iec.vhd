@@ -160,6 +160,8 @@ port(
    romL        : out std_logic;
    romH        : out std_logic;
    UMAXromH 	: out std_logic;
+   -- MEGA65: an Ultimax access to the unmapped areas, which a cartridge may serve (IDE64)
+   UMAXnomap   : out std_logic;
    IOE			: out std_logic;
    IOF			: out std_logic;
    -- MEGA65: CPU access to $D7xx, the C128's spare I/O select (SwiftLink at $D700). Read data
@@ -368,6 +370,7 @@ signal cs_enable    : std_logic;
 signal cs_io        : std_logic;
 signal cs_io_l      : std_logic;
 signal cpu_cyc      : std_logic;
+signal umax_nomap   : std_logic;   -- MEGA65: Ultimax unmapped access
 signal t65_cyc      : std_logic;
 signal t65_cyc_s    : std_logic;
 signal t65_turbo_m  : std_logic_vector(2 downto 0);
@@ -820,6 +823,7 @@ port map (
    cs_romL => romL,
    cs_romH => romH,
    cs_UMAXromH => UMAXromH,
+   cs_UMAXnomap => umax_nomap,
    cs_sysRom => sysRom,
    sysRomBank => sysRomBank
 );
@@ -1308,12 +1312,16 @@ ramAddr <= systemAddr;
 -- cs_ram stays 1 for those RAM cycles.
 -- In Ultimax mode the PLA keeps RAM off under ROML/ROMH, so writes there (EasyFlash
 -- saves) reach only the cartridge. 8K/16K mode writes still go to RAM.
-ramWE   <= systemWe and cs_ram and not ((romL or romH) and mmu_exrom and not mmu_game);
+-- Nor is RAM on in Ultimax's unmapped areas, where a cartridge such as the IDE64 maps its
+-- own RAM (C64MEGA65 #176).
+ramWE   <= systemWe and cs_ram and not umax_nomap and
+           not ((romL or romH) and mmu_exrom and not mmu_game);
 systemWe_o <= systemWe;
 ramCE   <= cs_ram when
-           sysCycle = CYCLE_VIC0 or
-           (aec = '1' and sysCycle = CYCLE_CPU4) or
-           cpu_cyc = '1' else '0';
+           (sysCycle = CYCLE_VIC0 or
+            (aec = '1' and sysCycle = CYCLE_CPU4) or
+            cpu_cyc = '1') and umax_nomap = '0' else '0';
+UMAXnomap <= umax_nomap;
 
 t65_cyc <= (not t65_cyc_s) when
            (sysCycle = CYCLE_CPU0 and t65_turbo_m(0) = '1' and dma_pending = '0' and cs_ram = '1') or
