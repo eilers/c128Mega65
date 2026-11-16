@@ -668,6 +668,8 @@ signal cart_dma_hold        : std_logic;          -- a BA stall now meets a held
 signal ba_hold              : std_logic;                   -- BA low, the cart holds a read: served as one
 signal ba_warn              : std_logic;                   -- BA low, but the cart may still write
 signal ba_idle              : std_logic;                   -- BA low, and the cart leaves the bus alone
+signal dot_cnt              : unsigned(1 downto 0) := "00";
+signal cart_dotclk_q        : std_logic := '0';
 
 -- Hardware Expansion Port: Handle specifics of certain cartridges
 constant C_EF3_RESET_LEN : natural := 7; -- measured in phi2 cycles
@@ -1225,6 +1227,22 @@ begin
    end if;
 end process cart_dma_proc;
 
+-- DOTCLK as a real C64's: a square wave, four periods to a PHI2 half, each PHI2 edge one tick
+-- after a rising edge. The 8726 times its DRAM from it (C64MEGA65 A23); the pixel enable is a
+-- one-tick pulse. Free-running, so it doesn't stop in reset or pause.
+cart_dotclk_proc : process (clk_main_i)
+   variable v_cnt : unsigned(1 downto 0);
+begin
+   if rising_edge(clk_main_i) then
+      v_cnt := dot_cnt + 1;
+      if core_phi2 /= phi2_d then
+         v_cnt := "00";
+      end if;
+      dot_cnt       <= v_cnt;
+      cart_dotclk_q <= v_cnt(1);
+   end if;
+end process cart_dotclk_proc;
+
 -- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits; the system
 -- CPU's DMA waits for both. When only the virtual cartridge's cache stalls the CPU, the DMA
 -- cycles read RAM at $0000.
@@ -1312,7 +1330,7 @@ begin
       cart_io2_o      <= cart_io2_n;
       cart_rw_o       <= not system_we;
       cart_phi2_o     <= core_phi2;
-      cart_dotclock_o <= vic_pixel_ce;
+      cart_dotclock_o <= cart_dotclk_q;
       -- The VIC's BA, as C64MEGA65 V6 does
       cart_ba_o       <= core_ba;
 

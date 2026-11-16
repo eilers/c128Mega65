@@ -69,6 +69,10 @@ architecture sim of tb_cart_dma is
 
    -- What main drives towards the slot
    signal cart_phi2        : std_logic;
+   signal cart_dotclk      : std_logic;
+   signal n_dot_rise       : natural := 0;
+   signal n_dot_bad        : natural := 0;   -- DOTCLK periods or high times that aren't 4 and 2 ticks
+   signal n_dot_phi2_bad   : natural := 0;   -- PHI2 edges not a tick after a DOTCLK rise
    signal cart_ctrl_oe     : std_logic;
    signal cart_ba_o        : std_logic;
    signal cart_rw_o        : std_logic;
@@ -339,7 +343,7 @@ begin
          sys_rom_data_i       => sys_rom_data,
          cart_en_o            => open,
          cart_phi2_o          => cart_phi2,
-         cart_dotclock_o      => open,
+         cart_dotclock_o      => cart_dotclk,
          cart_dma_i           => in_dma,
          cart_reset_oe_o      => open,
          cart_reset_i         => cart_rst_n,
@@ -756,6 +760,30 @@ begin
          end if;
       end if;
    end process p_rd_settle;
+
+   -- DOTCLK as a real C64's, which the 8726 times its DRAM from: a square wave, 2 ticks high,
+   -- 4 to a period, and each PHI2 edge one tick after a rise
+   p_dotclk : process (cart_dotclk, cart_phi2)
+      variable t_rise : time := 0 ns;
+      variable n_ph   : natural := 0;
+   begin
+      if cart_phi2'event then
+         n_ph := n_ph + 1;
+         if n_ph > 2 and (cart_dotclk /= '1' or abs(now - t_rise - C_MAIN_PERIOD) > 1 ns) then
+            n_dot_phi2_bad <= n_dot_phi2_bad + 1;
+         end if;
+      end if;
+      if rising_edge(cart_dotclk) then
+         if n_ph > 2 and abs(now - t_rise - 4 * C_MAIN_PERIOD) > 1 ns then
+            n_dot_bad <= n_dot_bad + 1;
+         end if;
+         t_rise := now;
+         n_dot_rise <= n_dot_rise + 1;
+      end if;
+      if falling_edge(cart_dotclk) and n_ph > 2 and abs(now - t_rise - 2 * C_MAIN_PERIOD) > 1 ns then
+         n_dot_bad <= n_dot_bad + 1;
+      end if;
+   end process p_dotclk;
 
    p_phi2_t : process (cart_phi2)
    begin
@@ -1405,6 +1433,9 @@ begin
       -- /IO2, which outlasts the fall by a main clock, as a PLA's does, plus its own sync.
       check(tail_max <= 2 * C_MAIN_PERIOD, "a write tail on the data bus lasted " & time'image(tail_max));
       check(rw_x_max < 200 ns, "R/W contention lasted " & time'image(rw_x_max));
+      check(n_dot_rise > 1000 and n_dot_bad = 0 and n_dot_phi2_bad = 0,
+            "DOTCLK: " & integer'image(n_dot_rise) & " rises, " & integer'image(n_dot_bad) &
+            " bad periods, " & integer'image(n_dot_phi2_bad) & " PHI2 edges off it");
 
       write(l, string'("cart: ") & integer'image(n_access) & " DMA accesses, " &
                integer'image(n_warn_wr) & " writes after BA fell, " &
