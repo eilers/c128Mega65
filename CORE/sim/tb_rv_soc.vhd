@@ -35,7 +35,7 @@ end entity tb_rv_soc;
 architecture sim of tb_rv_soc is
 
    constant C_PERIOD     : time    := 20 ns;       -- 50 MHz; the CPU and HyperRAM run at twice that
-   constant C_HR_WORDS   : natural := 2 ** 18;     -- addresses wrap: CPU 0x40400000 is word 0
+   constant C_HR_WORDS   : natural := 2 ** 18;     -- addresses wrap: CPU 0x40600000 is word 0
    constant C_HR_LATENCY : natural := 16;          -- 100 MHz clocks before read data
    constant C_DEV_WAIT   : natural := 3;           -- wait clocks of the test device
    constant C_TIMEOUT    : time    := 50 ms;     -- the firmware: sdhost gives up on no card after 14 ms

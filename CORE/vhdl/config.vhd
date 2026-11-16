@@ -14,7 +14,7 @@ use work.globals.all;
 
 entity config is
 generic (
-   G_R3_MEMORY : boolean := false   -- no 2 MB or 16 MB REU: the menu leaves out those items
+   G_R3_MEMORY : boolean := false   -- no 16 MB REU: the menu leaves out that item
 );
 port (
    clk_i       : in std_logic;
@@ -291,7 +291,7 @@ constant OPTM_SIZE_ALL     : natural := 217; -- amount of items including empty 
 constant OPTM_DX           : natural := 23;
 constant OPTM_DY           : natural := 29;
 
--- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
+-- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_16M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
 constant OPTM_SIZE         : natural := OPTM_SIZE_ALL - C_MENU_R3_DROP * boolean'pos(G_R3_MEMORY);
 
@@ -862,7 +862,7 @@ end function drop_groups;
 function menu_items return string is
 begin
    if G_R3_MEMORY then
-      return drop_lines(OPTM_ITEMS_ALL, C_MENU_REU_2M, C_MENU_R3_DROP);
+      return drop_lines(OPTM_ITEMS_ALL, C_MENU_REU_16M, C_MENU_R3_DROP);
    end if;
    return OPTM_ITEMS_ALL;
 end function menu_items;
@@ -870,7 +870,7 @@ end function menu_items;
 function menu_groups return OPTM_GTYPE is
 begin
    if G_R3_MEMORY then
-      return drop_groups(OPTM_GROUPS_ALL, C_MENU_REU_2M, C_MENU_R3_DROP);
+      return drop_groups(OPTM_GROUPS_ALL, C_MENU_REU_16M, C_MENU_R3_DROP);
    end if;
    return OPTM_GROUPS_ALL;
 end function menu_groups;

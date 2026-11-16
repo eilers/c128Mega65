@@ -319,7 +319,7 @@ int item_choices(const item_t *it)
       n++;
    if (it->id == I_REU_SIZE)
       while (n > 1 && shell_item(OPTM_G_REU, n) < 0)
-         n--;                                          // 2 and 16 MB aren't on R3 memory
+         n--;                                          // 16 MB isn't on R3 memory
    return n;
 }
 

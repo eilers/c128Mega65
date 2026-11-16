@@ -25,7 +25,8 @@
 // 17: the CMD HD (C_DEV_CMDHD) and its submenu; 18 CRT/ROM menu items
 // 18: the firmware feeds the drives' DOS ROMs from HyperRAM (C_DEV_DRIVE_ROM, drvrom.c); the
 //     function ROM from 0x12000
-#define M2M_RV_HW_VERSION    18u
+// 19: HyperRAM map for a 2 MB REU on R3: firmware at 0x40600000, drive ROMs and REU moved
+#define M2M_RV_HW_VERSION    19u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32
@@ -122,7 +123,7 @@
 #ifndef M2M_HALT
 #define M2M_HALT()           do { asm volatile ("csrci mstatus, 8"); } while (1)   // stops the firmware for good, the watchdog too
 #endif
-#define M2M_FW_BASE          0x40400000u   // the firmware's region, C_HMAP_FIRMWARE 0x200-0x3FE
+#define M2M_FW_BASE          0x40600000u   // the firmware's region, C_HMAP_FIRMWARE 0x300-0x3FE
 #define M2M_FW_END           0x407FE000u   // (doc/hyperram-map.md)
 
 // NEORV32
