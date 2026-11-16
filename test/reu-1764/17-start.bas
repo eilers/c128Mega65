@@ -13,7 +13,9 @@
 85 for i=0 to nr(m)-1:l=peek(p+i):c=peek(p+32+i):y=l+256*(c>127)*-1
 90 print y;:if c<128 and (c and 16)=16 and l>=48 and l<=247 and (l and 7)=(c and 7) then print "*";
 92 next:print
-95 next:end
+95 next
+96 rem the top of basic back to $a000, or a basic program run next puts its strings there
+97 poke 55,0:poke 56,160:clr:end
 100 t=8196:f1=peek(t)+256*peek(t+1):f2=peek(t+2)+256*peek(t+3)
 105 g1=peek(t+4)+256*peek(t+5):g2=peek(t+6)+256*peek(t+7)
 110 bl=peek(t+8)+256*peek(t+9):u=peek(t+10)+256*peek(t+11):nr(m)=peek(t+12)
