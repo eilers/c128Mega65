@@ -11,7 +11,7 @@ has them, for reference.
    the same ports, so `config.vhd`, the core's devices and the framework stayed as they
    were. Until step 4 a build switch, `G_RISCV`, picked one or the other.
 2. **Firmware base**: the boot ROM loads the firmware from the SD card into HyperRAM and
-   runs it there, from `C_HMAP_FIRMWARE` (`0x200`–`0x3FE`, CPU address `0x40400000`,
+   runs it there, from `C_HMAP_FIRMWARE` (`0x300`–`0x3FE`, CPU address `0x40600000`,
    `doc/hyperram-map.md`). A main loop in C, SD card, FAT32, menu text, keys.
 3. **The Shell in C**, item by item, until it does everything the QNICE Shell does:
    the menu from `config.vhd`, the callbacks in `m2m-rom.asm`, mounting drives, loading
@@ -86,11 +86,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   (the Shell's mount error and FATAL screens show the same lines).
 - **The file** (`include/fw_image.h`, made by `tools/fw_image.py`): a 512-byte header
   block, then the image. The header holds a magic number, the load address (inside
-  `0x40400000`–`0x407FE000`), the entry, the size, the image's CRC-32, a version string,
+  `0x40600000`–`0x407FE000`), the entry, the size, the image's CRC-32, a version string,
   and the version of the hardware interface it was built for. The boot ROM starts only a
   firmware with its own `M2M_RV_HW_VERSION` (`include/m2m_rv.h`): bump it when a change
   there would break an older firmware.
-- **The firmware** (`fw/`): code and constants in HyperRAM at `0x40400000`; data and stack
+- **The firmware** (`fw/`): code and constants in HyperRAM at `0x40600000`; data and stack
   in the 128 KB data RAM. `main.c` polls each module in turn: the keys (Up and Down repeat,
   as in QNICE's `keyboard.asm`), the SD card (mounted when a card is in, dropped when the
   cards change) and the screen. FatFs R0.16 with its two patches, long names in code page
