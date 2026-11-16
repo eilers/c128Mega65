@@ -668,6 +668,7 @@ signal cart_dma_hold        : std_logic;          -- a BA stall now meets a held
 signal ba_hold              : std_logic;                   -- BA low, the cart holds a read: served as one
 signal ba_warn              : std_logic;                   -- BA low, but the cart may still write
 signal ba_idle              : std_logic;                   -- BA low, and the cart leaves the bus alone
+signal ba_warn_rd           : std_logic := '0';            -- the cart didn't write in this ba_warn cycle
 signal dot_cnt              : unsigned(1 downto 0) := "00";
 signal cart_dotclk_q        : std_logic := '0';
 
@@ -1160,6 +1161,7 @@ begin
          elsif ba_lo_cnt /= 4 then
             ba_lo_cnt <= ba_lo_cnt + 1;
          end if;
+         ba_warn_rd <= '0';
       end if;
 
       -- A held read is latched as any read, its data driven early (below): a $FF from the pull-ups
@@ -1191,6 +1193,7 @@ begin
             cart_dma_rd   <= cart_rw_q;
             cart_dma_live <= '1';
          end if;
+         ba_warn_rd <= ba_warn and cart_rw_q;
       end if;
 
       -- Hand the DMA port back to the REU at the next PHI2 rise, after the core has dropped DMA
@@ -1204,9 +1207,12 @@ begin
       -- with R/W, so we drive BA (and R/W high) only in PHI1, at the PHI2 rise when the cart
       -- samples it, past the Ultimate's read gate while BA is low, and in ba_hold and ba_idle
       -- cycles, so BA can't float up there. While BA is low, that overlaps an Ultimate write's
-      -- R/W by ~130 ns.
+      -- R/W by ~130 ns. In ba_warn BA is let go only while we sense R/W: unless the cart writes,
+      -- we drive it again from C_DMA_DATA. A 1764 whose transfer starts as BA falls goes wrong
+      -- when BA floats up (#9).
       cart_dma_ctrl_oe <= '0';
-      if ba_hold = '1' or ba_idle = '1' or
+      if ba_hold = '1' or ba_idle = '1' or ba_warn_rd = '1' or
+         (core_phi2 = '1' and phi2_ph = C_DMA_DATA and ba_warn = '1' and cart_rw_q = '1') or
          (core_phi2 = '0' and phi2_ph >= C_CTRL_TURN - 1) or
          (core_phi2 = '1' and phi2_ph < C_BA_HOLD - 1) or
          (core_phi2 = '1' and ba_warn = '1' and phi2_ph < C_BA_HOLD_W - 1) then

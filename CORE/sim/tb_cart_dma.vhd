@@ -143,6 +143,8 @@ architecture sim of tb_cart_dma is
    signal settle_plain     : natural := 0;                -- latest d_chg of a REC read with BA high
    signal settle_held      : natural := 0;                -- ... of a held one
    signal n_ba_float       : natural := 0;                -- samples of an undriven BA in a held read
+   signal ba_up_n          : natural := 0;                -- clocks in a row BA is low but undriven in PHI2
+   signal ba_up_max        : natural := 0;                -- ... at most, while the cart doesn't write
    signal rec_last_w       : boolean := false;            -- the REC's last completed access was a write
    signal n_held_after_w   : natural := 0;                -- held reads right after a write (a swap's)
    type t_wr_ba is array (0 to 255) of natural;
@@ -715,6 +717,23 @@ begin
    -- Address and data must never be driven from both sides. R/W briefly can be: BA and R/W
    -- share a level shifter, so main holds R/W high while it shows the cart BA.
    rw_fight  <= cart_ctrl_oe = '1' and c_rw /= 'Z' and c_rw /= cart_rw_o;
+
+   -- While the VIC holds BA low, main lets go of it only to sense R/W: a 1764 takes a BA that
+   -- floats up for high (#9). Only a cart's write keeps it undriven longer.
+   p_ba_up : process (clk_main)
+   begin
+      if rising_edge(clk_main) then
+         if to_x01(cart_phi2) = '1' and in_dma = '0' and cart_ba_o = '0' and cart_ctrl_oe = '0' and
+            c_rw /= '0' then
+            ba_up_n <= ba_up_n + 1;
+            if ba_up_n + 1 > ba_up_max then
+               ba_up_max <= ba_up_n + 1;
+            end if;
+         else
+            ba_up_n <= 0;
+         end if;
+      end if;
+   end process p_ba_up;
    bus_fight <= (cart_addr_oe = '1' and c_a(0) /= 'Z') or (cart_data_oe = '1' and c_d(0) /= 'Z') or
                 (cart_data_oe = '1' and c_d_io(0) /= 'Z') or (c_d(0) /= 'Z' and c_d_io(0) /= 'Z') or
                 (cart_data_oe = '1' and c_d_umax(0) /= 'Z') or (cart_data_oe = '1' and c_d_nm(0) /= 'Z');
@@ -1433,13 +1452,16 @@ begin
       -- /IO2, which outlasts the fall by a main clock, as a PLA's does, plus its own sync.
       check(tail_max <= 2 * C_MAIN_PERIOD, "a write tail on the data bus lasted " & time'image(tail_max));
       check(rw_x_max < 200 ns, "R/W contention lasted " & time'image(rw_x_max));
+      check(ba_up_max <= 3, "BA was low but undriven for " & integer'image(ba_up_max) &
+            " clocks in a row while the cart didn't write");
       check(n_dot_rise > 1000 and n_dot_bad = 0 and n_dot_phi2_bad = 0,
             "DOTCLK: " & integer'image(n_dot_rise) & " rises, " & integer'image(n_dot_bad) &
             " bad periods, " & integer'image(n_dot_phi2_bad) & " PHI2 edges off it");
 
       write(l, string'("cart: ") & integer'image(n_access) & " DMA accesses, " &
                integer'image(n_warn_wr) & " writes after BA fell, " &
-               integer'image(n_ba_wait) & " cycles a read waited for BA, R/W contention " &
+               integer'image(n_ba_wait) & " cycles a read waited for BA, BA undriven while low " &
+               integer'image(ba_up_max) & " clocks at most, R/W contention " &
                integer'image(n_rw_x) & "x up to " & time'image(rw_x_max) & ", I/O write tails " &
                integer'image(n_tail) & "x up to " & time'image(tail_max) & ", read data settled " &
                time'image(rd_settle_min) & " before PHI2 fell (RAM " & time'image(rd_settle_ram) & "), " &
