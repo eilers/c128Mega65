@@ -1263,12 +1263,12 @@ int main(int argc, char **argv)
    shell_force(OPTM_G_HD_ON, 0, 1);                     // as it was, for what follows
    press(M2M_KEY_RUNSTOP);
 
-   // R3-memory builds have no 2 MB and 16 MB REU
+   // R3-memory builds have no 16 MB REU
    go_to("REU");
    press(M2M_KEY_RETURN);
    int r3 = strstr(argv[1], "_r3") != NULL;
-   check(find_row(" 512 KB") > 0 && (find_row(" 2 MB") > 0) != r3 && (find_row(" 16 MB") > 0) != r3,
-         r3 ? "REU: Off and 512 KB" : "REU: Off, 512 KB, 2 MB, 16 MB");
+   check(find_row(" 512 KB") > 0 && find_row(" 2 MB") > 0 && (find_row(" 16 MB") > 0) != r3,
+         r3 ? "REU: Off, 512 KB, 2 MB" : "REU: Off, 512 KB, 2 MB, 16 MB");
 
    // The REU's file: only .reu files; with the REU off, a message
    M2M_RAMROM_DEV = UCI_DEV;

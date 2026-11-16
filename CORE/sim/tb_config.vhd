@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------------------
 -- Commodore 128 for MEGA65
 --
--- Testbench for config.vhd: R3-memory builds (G_R3_MEMORY) leave the 2 MB and 16 MB REU items
+-- Testbench for config.vhd: R3-memory builds (G_R3_MEMORY) leave the 16 MB REU item
 -- out of the menu. Reads both menus the way the Shell does and checks that the R3 one is the full
 -- one without those items, in every selector, and that the lines mega65.vhd reads are where it reads them.
 --
@@ -190,9 +190,9 @@ begin
       named(C_MENU_HELP_F13,      " Help menu on F13");
       named(C_MENU_RAM256,        " 256 KB RAM");
 
-      -- R3 item i is full item i, or i + 2 from the 2 MB item on, in text and in every selector
+      -- R3 item i is full item i, or i + 1 from the 16 MB item on, in text and in every selector
       for i in 0 to n_r - 1 loop
-         if i < C_MENU_REU_2M then j := i; else j := i + C_MENU_R3_DROP; end if;
+         if i < C_MENU_REU_16M then j := i; else j := i + C_MENU_R3_DROP; end if;
          item(items_f, len_f, j, f1, f2);
          item(items_r, len_r, i, r1, r2);
          check(items_f(f1 to f2) = items_r(r1 to r2),

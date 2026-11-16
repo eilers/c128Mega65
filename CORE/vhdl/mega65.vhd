@@ -301,17 +301,17 @@ end entity MEGA65_Core;
 
 architecture synthesis of MEGA65_Core is
 
--- No SDRAM: the cartridge and the REU go in HyperRAM, and the REU is 512 KB at most
+-- No SDRAM: the cartridge and the REU go in HyperRAM, and the REU is 2 MB at most
 -- (doc/hyperram-map.md)
 constant C_R3_MEMORY : boolean := G_BOARD = "MEGA65_R3" or not G_SDRAM;
 
--- R3-memory builds leave the 2 MB and 16 MB REU items out of the menu (config.vhd). A '0' in
--- each place keeps every C_MENU_* index, and the REU can't be bigger than 512 KB there.
+-- R3-memory builds leave the 16 MB REU item out of the menu (config.vhd). A '0' in its place
+-- keeps every C_MENU_* index, and the REU can't be bigger than 2 MB there.
 function menu_bits(ctl : std_logic_vector(255 downto 0)) return std_logic_vector is
 begin
    if C_R3_MEMORY then
-      return ctl(255 - C_MENU_R3_DROP downto C_MENU_REU_2M) &
-             std_logic_vector'(C_MENU_R3_DROP - 1 downto 0 => '0') & ctl(C_MENU_REU_2M - 1 downto 0);
+      return ctl(255 - C_MENU_R3_DROP downto C_MENU_REU_16M) &
+             std_logic_vector'(C_MENU_R3_DROP - 1 downto 0 => '0') & ctl(C_MENU_REU_16M - 1 downto 0);
    end if;
    return ctl;
 end function menu_bits;
@@ -325,11 +325,11 @@ begin
    return "0000000" & C_SMAP_REU(12 downto 0) & x"000";
 end function reu_base;
 
--- The REU's memory: 2^n bytes (16 MiB in SDRAM, 512 KiB in HyperRAM)
+-- The REU's memory: 2^n bytes (16 MiB in SDRAM, 2 MiB in HyperRAM)
 function reu_room_bits return natural is
 begin
    if C_R3_MEMORY then
-      return 19;
+      return 21;
    end if;
    return 24;
 end function reu_room_bits;

@@ -32,8 +32,8 @@ import time
 HYPERRAM = 0x40000000
 SPACES = {'ram': 0x0100, 'sysrom': 0x0101, 'drvrom': None, 'osm': 0x0000, 'vdcram': 0x010E,
           'vdcreg': 0x010E, 'hr': None}
-# Spaces that start in their device's CSR window, or at a CPU address (C_HMAP_DRVROM 0x1C0)
-BASES = {'vdcreg': 0xFFFF000, 'drvrom': HYPERRAM + 0x1C0 * 8192}
+# Spaces that start in their device's CSR window, or at a CPU address (C_HMAP_DRVROM 0x080)
+BASES = {'vdcreg': 0xFFFF000, 'drvrom': HYPERRAM + 0x080 * 8192}
 CSR = 0xE0000000
 CSR_PAUSE = 0x0002
 CHUNK = 32  # bytes per write command

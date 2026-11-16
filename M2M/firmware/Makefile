@@ -14,7 +14,7 @@ SIZE    := $(CROSS)size
 NM      := $(CROSS)nm
 
 ROM_WORDS  := 2048
-FW_BASE    := 0x40400000
+FW_BASE    := 0x40600000
 HW_VERSION := $(shell sed -n 's/^\#define M2M_RV_HW_VERSION *\([0-9]*\)u.*/\1/p' include/m2m_rv.h)
 FW_VERSION ?= $(shell git describe --always --dirty --match=NONE 2>/dev/null || echo unknown)
 # The core's part of the firmware (the callbacks of QNICE's m2m-rom.asm, its own modules)
@@ -35,7 +35,7 @@ LD      := $(ARCH) -nostartfiles -Wl,--gc-sections -T neorv32/neorv32.ld --specs
            -Wl,--defsym,__neorv32_ram_base=0x80000000 -Wl,--defsym,__neorv32_ram_size=128K
 ROM_LD  := $(LD) -Wl,--defsym,__neorv32_rom_base=0x0 -Wl,--defsym,__neorv32_rom_size=8K
 # Its .data holds code too (include/dmem.h)
-FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv32_rom_size=4088K \
+FW_LD   := $(LD) -Wl,--defsym,__neorv32_rom_base=$(FW_BASE) -Wl,--defsym,__neorv32_rom_size=2040K \
            -Wl,--no-warn-rwx-segments
 
 COMMON  := build/common/lib/console.o build/common/lib/trap.o build/common/lib/crc32.o \

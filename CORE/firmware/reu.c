@@ -35,7 +35,7 @@ static const reu_xfer_t *runs_of;    // the transfer whose file that is
 
 uint32_t reu_size(void)
 {
-   // The REU submenu's items: Off, 512 KB, 2 MB, 16 MB (the last two not on R3 memory)
+   // The REU submenu's items: Off, 512 KB, 2 MB, 16 MB (the last not on R3 memory)
    static const uint32_t sizes[] = { 0, 512u << 10, 2u << 20, 16u << 20 };
    for (int i = 1; i < 4; i++)
       if (shell_setting(OPTM_G_REU, i) == 1)
@@ -45,7 +45,7 @@ uint32_t reu_size(void)
 
 uint32_t reu_room(void)
 {
-   return uci_reu_mem() & 0x8000 ? 16u << 20 : 512u << 10;
+   return uci_reu_mem() & 0x8000 ? 16u << 20 : 2u << 20;
 }
 
 // Where REU byte 0 is for the CPU: an 8 KiB window of SDRAM or HyperRAM

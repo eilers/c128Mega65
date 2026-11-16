@@ -91,9 +91,9 @@ constant C_MENU_IEC              : natural := 133; -- IEC: Use hardware port
 constant C_MENU_JOY_SWAP         : natural := 134; -- Swap joystick ports (default off)
 constant C_MENU_REU_OFF          : natural := 138; -- REU: off (default)
 constant C_MENU_REU_512K         : natural := 139; -- REU: 512 KB
-constant C_MENU_REU_2M           : natural := 140; -- REU: 2 MB, not on R3-memory builds
+constant C_MENU_REU_2M           : natural := 140; -- REU: 2 MB
 constant C_MENU_REU_16M          : natural := 141; -- REU: 16 MB, not on R3-memory builds
-constant C_MENU_R3_DROP          : natural := 2;   -- R3-memory builds have neither
+constant C_MENU_R3_DROP          : natural := 1;   -- R3-memory builds don't have it
 constant C_MENU_CART_HW          : natural := 150; -- Cartridge: hardware slot (default)
 constant C_MENU_CART_CRT         : natural := 151; -- Cartridge: virtual cartridge (.crt)
 constant C_MENU_MODEM_DE00       : natural := 161; -- Modem: SwiftLink at $DE00 (Off at 128 is the default)
@@ -191,11 +191,11 @@ constant C_SYS_ROM_SIZE       : natural := C_FUNC_ROM_AT + 16#8000#;   -- 104 KB
 ----------------------------------------------------------------------------------------------------------
 
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- ascal framebuffer: 1 MiB
-constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0080";     -- REU on R3: 512 KiB
-constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"00C0";     -- Virtual cartridge on R3: 2 MiB
-constant C_HMAP_DRVROM        : std_logic_vector(15 downto 0) := x"01C0";     -- drive ROM library (boot1.rom): 192 KiB, up to 0x1D7
--- 0x01D8-0x01FF: free
-constant C_HMAP_FIRMWARE      : std_logic_vector(15 downto 0) := x"0200";     -- RISC-V system CPU's firmware: up to 0x3FE
+constant C_HMAP_DRVROM        : std_logic_vector(15 downto 0) := x"0080";     -- drive ROM library (boot1.rom): 192 KiB, up to 0x097
+-- 0x0098-0x00FF: free
+constant C_HMAP_REU           : std_logic_vector(15 downto 0) := x"0100";     -- REU on R3: 2 MiB
+constant C_HMAP_CRT           : std_logic_vector(15 downto 0) := x"0200";     -- Virtual cartridge on R3: 2 MiB
+constant C_HMAP_FIRMWARE      : std_logic_vector(15 downto 0) := x"0300";     -- RISC-V system CPU's firmware: up to 0x3FE
 constant C_HMAP_SIZE          : std_logic_vector(15 downto 0) := x"0400";     -- Total HyperRAM size: 8 MB
 
 -- SDRAM (R4 and later), in the same units: 64 MiB, 0x0000-0x1FFF

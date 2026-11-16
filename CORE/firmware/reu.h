@@ -9,7 +9,7 @@
 #define REU_DEFAULT_FILE "/c128/preload.reu"   // with none picked (Gideon's: /Usb0/preload.reu)
 
 uint32_t    reu_size(void);              // the menu's REU size in bytes, 0 while it is off
-uint32_t    reu_room(void);              // its memory: 16 MB in SDRAM, 512 KB in HyperRAM
+uint32_t    reu_room(void);              // its memory: 16 MB in SDRAM, 2 MB in HyperRAM
 const char *reu_file(void);              // the file picked in the menu, else REU_DEFAULT_FILE
 int         reu_file_picked(void);
 void        reu_file_set(const char *path);   // NULL: none picked

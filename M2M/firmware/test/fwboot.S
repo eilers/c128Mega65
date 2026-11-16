@@ -4,5 +4,5 @@
 .section .text.crt0
 .global _start
 _start:
-   li   t0, 0x40400000
+   li   t0, 0x40600000
    jr   t0
