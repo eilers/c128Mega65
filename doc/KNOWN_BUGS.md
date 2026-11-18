@@ -62,10 +62,12 @@
   cartridge that drives R/W low in PHI1 fights it there.
 * The core can't sense R/W while it drives BA, so it guesses a cartridge's access in
   the three cycles after BA falls from its last three, as C64MEGA65 does from two.
-  After a read, or a swap's write (R W R W), it serves all three as reads and drives
-  BA and R/W through the stall, as a 1764's REC needs. After other writes it senses
-  R/W in the first two, as the Ultimate II+ uses them, and ignores the third. A
-  cartridge that switches from reading to writing just as BA falls loses that write.
+  After a read it serves all three as reads and drives BA and R/W through the stall,
+  as a 1764's REC needs. After a swap's write (R W R W) it does the same but senses
+  R/W in the second cycle, where the REC writes a swap's last byte. After other
+  writes it senses R/W in the first two, as the Ultimate II+ uses them, and ignores
+  the third. A cartridge that switches from reading to writing just as BA falls
+  loses that write.
 
 # Planned
 
