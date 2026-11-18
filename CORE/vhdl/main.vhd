@@ -1135,8 +1135,13 @@ cart_dma_hold  <= cart_dma_last_live and
                   ((cart_dma_last_rd and not (cart_dma_prev_live and not cart_dma_prev_rd)) or
                    (not cart_dma_last_rd and cart_dma_prev_live and cart_dma_prev_rd and
                     not (cart_dma_prev2_live and cart_dma_prev2_rd)));
-ba_hold        <= '1' when core_ba = '0' and cart_dma_hold = '1' and ba_lo_cnt /= 4 else '0';
-ba_warn        <= '1' when core_ba = '0' and cart_dma_hold = '0' and ba_lo_cnt < 3 else '0';
+-- But a REC whose last read is that read after a swap's write latches it in the first BA-low
+-- cycle and writes in the second (VICE testprogs REU/reutiming2 f3/f4, references from a real
+-- C64), so we sense R/W in that second cycle (#9).
+ba_hold        <= '1' when core_ba = '0' and cart_dma_hold = '1' and ba_lo_cnt /= 4 and
+                           not (cart_dma_last_rd = '0' and ba_lo_cnt = 2) else '0';
+ba_warn        <= '1' when core_ba = '0' and ((cart_dma_hold = '0' and ba_lo_cnt < 3) or
+                           (cart_dma_hold = '1' and cart_dma_last_rd = '0' and ba_lo_cnt = 2)) else '0';
 ba_idle        <= '1' when core_ba = '0' and ba_hold = '0' and ba_warn = '0' else '0';
 cart_dma_req   <= exp_port_hw and not cart_dma_n_q and core_z80_n;
 
@@ -1222,11 +1227,13 @@ begin
       -- Read data from the latch until just past the PHI2 fall, and all through a held read, as
       -- C64MEGA65 does: the RAM has the address from EXT4, so the byte is there early in PHI2.
       -- ROML/ROMH reads are a cart's: by the core's decode, which outlasts the AEC-gated selects
-      -- while the cart lets go.
+      -- while the cart lets go. Ahead of the cycle in which a swap may write (ba_warn above), the
+      -- held read lets go as a plain one, so the cart's write data has the bus from PHI1 on.
       cart_dma_data_oe <= '0';
       if cart_dma = '1' and cart_dma_live = '1' and cart_dma_rd = '1' and
          core_roml = '0' and core_romh = '0' and core_umax_romh = '0' and
-         (ba_hold = '1' or
+         ((ba_hold = '1' and not (cart_dma_last_rd = '0' and ba_lo_cnt = 1 and
+                                  (core_phi2 = '0' or phi2_d = '0'))) or
           (core_phi2 = '1' and phi2_ph > C_DMA_ADDR) or (core_phi2 = '0' and phi2_ph < C_DATA_HOLD - 1)) then
          cart_dma_data_oe <= '1';
       end if;

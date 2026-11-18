@@ -142,9 +142,14 @@ architecture sim of tb_cart_dma is
    signal d_chg            : natural range 0 to 63 := 0;  -- phase_h at which the bus last changed
    signal settle_plain     : natural := 0;                -- latest d_chg of a REC read with BA high
    signal settle_held      : natural := 0;                -- ... of a held one
-   signal n_ba_float       : natural := 0;                -- samples of an undriven BA in a held read
+   signal n_ba_float       : natural := 0;                -- undriven BA in a held read, longer than R/W sensing
+   signal ba_fl_n          : natural := 0;                -- ... samples in a row
+   signal rec_fin          : boolean := false;            -- the REC's next read is its transfer's last
+   signal rec_rd_l1        : boolean := false;            -- its last access was a read done in BA-low cycle 1
+   signal n_fin_l2         : natural := 0;                -- REC last writes in BA-low cycle 2
    signal ba_up_n          : natural := 0;                -- clocks in a row BA is low but undriven in PHI2
    signal ba_up_max        : natural := 0;                -- ... at most, while the cart doesn't write
+   signal n_wr_drv         : natural := 0;                -- clocks the core drives data in PHI2 while the cart writes
    signal rec_last_w       : boolean := false;            -- the REC's last completed access was a write
    signal n_held_after_w   : natural := 0;                -- held reads right after a write (a swap's)
    type t_wr_ba is array (0 to 255) of natural;
@@ -450,9 +455,11 @@ begin
    c_dma    <= '0' when c_dma_n = '0' else 'Z';
    c_a      <= cur_addr when drive_al else (others => 'Z');
    -- A REC stops after its write in the first BA-low cycle, or at once after a read: a write it
-   -- waits with shows no R/W low
+   -- waits with shows no R/W low. But when its last read was done in the first, after a write, it
+   -- writes in the second (VICE testprogs REU/reutiming2 f3/f4, real-C64 references).
    rec_wait_w <= rec_mode and cur_rw = '0' and c_state = C_CHECK and
-                 (ba_lo_n >= 2 or (ba_lo_n = 1 and not rec_last_w));
+                 (ba_lo_n >= 2 or (ba_lo_n = 1 and not rec_last_w)) and
+                 not (ba_lo_n = 2 and rec_fin and rec_rd_l1);
    c_rw     <= '1' when drive_al and rec_wait_w else cur_rw when drive_al else 'Z';
    c_d      <= cur_data when drive_al and cur_rw = '0' and d_out_q = '1' and not rec_wait_w else (others => 'Z');
 
@@ -497,9 +504,15 @@ begin
          elsif phi2_rec = '1' and d_hist(1) /= d_hist(2) then
             d_chg <= phase_h;
          end if;
+         -- sensing R/W lets BA go for 3 clk_main ticks, under 6 samples here
          if rec_mode and c_state = C_DO and cur_rw = '1' and phi2_rec = '1' and
             ba_lo_n >= 1 and ba_lo_n <= 3 and x_ba /= '0' then
-            n_ba_float <= n_ba_float + 1;
+            ba_fl_n <= ba_fl_n + 1;
+            if ba_fl_n = 6 then
+               n_ba_float <= n_ba_float + 1;
+            end if;
+         else
+            ba_fl_n <= 0;
          end if;
          d_out_q <= d_out;   -- one clock later, for hold time
 
@@ -540,6 +553,9 @@ begin
                            n_rec_wr_lo <= n_rec_wr_lo + 1;
                         end if;
                         c_state <= C_DO;
+                     elsif ba_lo_n = 2 and rec_fin and rec_rd_l1 then
+                        n_fin_l2 <= n_fin_l2 + 1;
+                        c_state  <= C_DO;
                      end if;
                   elsif cur_rw = '0' and not vic_cyc then
                      if ba_hist(0) = '0' then
@@ -552,14 +568,16 @@ begin
                end if;
 
             when C_DO =>
-               if fall and rec_mode and cur_rw = '1' and ba_lo_n /= 0 then
-                  -- a REC's held read: it latches the bus in BA-low cycles 1-3 and reads again
+               if fall and rec_mode and cur_rw = '1' and ba_lo_n /= 0 and
+                  not (ba_lo_n = 1 and rec_last_w and rec_fin) then
+                  -- a REC's held read: it latches the bus in BA-low cycles 1-3 and reads again;
+                  -- after a swap's write we sense R/W in the second, so its data comes later there
                   if ba_lo_n <= 3 then
                      n_held(ba_lo_n) <= n_held(ba_lo_n) + 1;
                      if ba_lo_n = 1 and rec_last_w then
                         n_held_after_w <= n_held_after_w + 1;
                      end if;
-                     if d_chg > settle_held then
+                     if d_chg > settle_held and not (ba_lo_n = 2 and rec_last_w) then
                         settle_held <= d_chg;
                      end if;
                      if d_hist(1) /= rec_pat(cur_addr) then
@@ -577,6 +595,7 @@ begin
                   end if;
                   rdata    <= d_hist(1);   -- the bus just before PHI2 fell
                   rec_last_w <= cur_rw = '0';
+                  rec_rd_l1  <= rec_mode and cur_rw = '1' and ba_lo_n = 1;
                   if rec_mode and cur_rw = '0' then
                      wr_ba_lo(to_integer(unsigned(cur_addr(7 downto 0)))) <= ba_lo_n;
                   end if;
@@ -731,6 +750,9 @@ begin
             end if;
          else
             ba_up_n <= 0;
+         end if;
+         if to_x01(cart_phi2) = '1' and c_rw = '0' and cart_data_oe = '1' then
+            n_wr_drv <= n_wr_drv + 1;
          end if;
       end if;
    end process p_ba_up;
@@ -951,6 +973,8 @@ begin
       variable ok     : boolean;
       variable n      : natural;
       variable k      : natural;
+      variable m      : natural;
+      variable a      : std_logic_vector(15 downto 0);
       variable l      : line;
       type t_nm_pre is array (0 to 3) of std_logic_vector(7 downto 0);
       variable nm_pre : t_nm_pre;
@@ -1405,6 +1429,60 @@ begin
       check(n_rec_wr_lo > 4, "too few REC writes in a first BA-low cycle");
       check(n = 0, integer'image(n) & " REC fetch bytes lost");
 
+      -- 17-start's 2-byte swaps (#9), each a transfer of its own after idle cycles, started across
+      -- the start of a badline. Whose last read falls in BA-low cycle 1 writes in cycle 2.
+      freeze;
+      settle;
+      for i in 16#2A00# to 16#2A7F# loop
+         dma_wr(std_logic_vector(to_unsigned(i, 16)), rec_pat(std_logic_vector(to_unsigned(i, 16))));
+      end loop;
+      n := 0;
+      m := n_fin_l2;
+      for run in 0 to 63 loop
+         loop
+            dma_rd(x"D012", d);
+            exit when unsigned(d) = 16#3B# + 8 * (run mod 20);    -- badlines 59 to 211
+         end loop;
+         for j in 1 to run mod 16 loop
+            wait until falling_edge(cart_phi2);
+         end loop;
+         rec_mode <= true;
+         a := std_logic_vector(to_unsigned(16#2A00# + 2 * run, 16));
+         dma_rd(a, d);
+         if d /= rec_pat(a) then
+            n := n + 1;
+         end if;
+         dma_wr(a, not rec_pat(a));
+         a := std_logic_vector(to_unsigned(16#2A01# + 2 * run, 16));
+         rec_fin <= true;
+         dma_rd(a, d);
+         if d /= rec_pat(a) then
+            n := n + 1;
+         end if;
+         dma_wr(a, not rec_pat(a));
+         rec_fin  <= false;
+         rec_mode <= false;
+      end loop;
+      k := 0;
+      for i in 16#2A00# to 16#2A7F# loop
+         a := std_logic_vector(to_unsigned(i, 16));
+         dma_rd(a, d);
+         if d /= not rec_pat(a) then
+            k := k + 1;
+            if k <= 8 then
+               write(l, string'("REC 2-byte swap lost: $") & to_hstring(a) & " holds $" & to_hstring(d));
+               writeline(output, l);
+            end if;
+         end if;
+      end loop;
+      unfreeze;
+      write(l, string'("REC 2-byte swaps: ") & integer'image(n_fin_l2 - m) & " last writes in BA-low cycle 2, " &
+               integer'image(n) & " reads and " & integer'image(k) & " writes of 128 wrong");
+      writeline(output, l);
+      check(n_fin_l2 > m, "no REC swap wrote its last byte in BA-low cycle 2");
+      check(n = 0 and k = 0, "REC 2-byte swaps: " & integer'image(n) & " reads and " & integer'image(k) &
+            " writes wrong");
+
       -- C64 mode in Ultimax: the cart's RAM answers in the unmapped areas, the C128's RAM stays
       -- out of them (C64MEGA65 #176, the IDE64), and the bus is the cart's while it drives a read
       ram_peek(16#5000#, nm_pre(0));
@@ -1454,6 +1532,8 @@ begin
       check(rw_x_max < 200 ns, "R/W contention lasted " & time'image(rw_x_max));
       check(ba_up_max <= 3, "BA was low but undriven for " & integer'image(ba_up_max) &
             " clocks in a row while the cart didn't write");
+      check(n_wr_drv = 0, "the core drove the data bus for " & integer'image(n_wr_drv) &
+            " clocks of PHI2 in a cart's write");
       check(n_dot_rise > 1000 and n_dot_bad = 0 and n_dot_phi2_bad = 0,
             "DOTCLK: " & integer'image(n_dot_rise) & " rises, " & integer'image(n_dot_bad) &
             " bad periods, " & integer'image(n_dot_phi2_bad) & " PHI2 edges off it");
