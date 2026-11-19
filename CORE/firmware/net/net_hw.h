@@ -33,6 +33,7 @@
 #define ETH_STATUS     NET_REG(0x0A)   // R: a whole frame fits (0)
 #define ETH_DROPS      NET_REG(0x0B)   // R: frames received with errors or without room
 #define ETH_CTRL       NET_REG(0x0C)   // RW: run (0), the MAC and PHY leave reset
+#define ETH_RXKB       NET_REG(0x0D)   // R: the receive buffer in KB; 0 on a core that has 4
 
 #define ETH_RX_VALID      0x8000u
 #define ETH_LAST          0x0100u
