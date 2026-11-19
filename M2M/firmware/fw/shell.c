@@ -517,6 +517,8 @@ static void load_start(int idx, uint16_t group, int item)
    ui = UI_LOAD;
 }
 
+static void close_menu(void);
+
 static void load_poll(uint32_t key)
 {
    char text[1024];
@@ -563,6 +565,10 @@ static void load_poll(uint32_t key)
          if (!err) {
             core_file_loaded(load.group & MENU_ID, browse_path());
             load_done(load.drive || crt_loaded[load.k]);   // an action's line is never marked
+            if (browse_run()) {
+               core_file_run(load.group & MENU_ID, browse_path(), browse_run() == 2);
+               close_menu();
+            }
             break;
          }
          frame_full();

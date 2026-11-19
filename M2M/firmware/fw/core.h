@@ -36,6 +36,11 @@ const char *core_custom_msg(int situation, int ctx, int group);
 const char *core_new_file_label(int ctx, int group, const char *typed);
 // Make it in folder ("" the root): NULL and its name on the card in name, or why not (a line)
 const char *core_new_file(int ctx, int group, const char *folder, const char *typed, char *name, int size);
+// File browser, F7 and F8 (Shift+F7): the file loaded as Return loads it, then started, and
+// the menu closes. The frame's hint for the two keys, or NULL for an item whose files don't
+// start. core_file_run comes after core_file_loaded; alt: F8.
+const char *core_run_label(int ctx, int group);
+void        core_file_run(int group, const char *path, int alt);
 // A menu item of the core's own type (C_CRTROMTYPE_CORE; dev is its second word in
 // C_CRTROMS_MAN): load the file picked for it, after core_prep_load, with roms.h's
 // crtrom_progress for the bar: 0, or an error code and *msg. And whether it holds a file.

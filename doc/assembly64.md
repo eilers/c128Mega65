@@ -10,7 +10,7 @@ address (the menu's Network line shows it); nothing else has to be on.
 - `CORE/firmware/a64_search.c`: the three screens, on the Shell's screen (`core_app_open`
   and `core_app_key` in `M2M/firmware/fw/core.h`).
 - `CORE/firmware/net/rest_runners.c`: REST's `run_prg`, `load_prg` and `run_crt` without a
-  request (`runners.h`), for a file's Run.
+  request (`runners.h`), for a file's Run, and a disk's (`doc/run-disk.md`).
 - `M2M/firmware/host/test_shell.c` walks the screens against a model of the server in
   `host_net.c`'s web server; `test_http.c` has the runner. `test_shell config_dump.txt
   fat32.img -live NAME` (not part of `make host-test`) runs the same screens against the
@@ -24,7 +24,7 @@ address (the menu's Network line shows it); nothing else has to be on.
 | The form: Name, Group, Handle, Event are typed; the lines below are picked | Up, Down. In a typed line: type, Del, Clr empties it, **Return searches**. On a pick line: Return lists its values, Left and Right (or - and +) step through them, Space is Any again. Return on Search. Run/Stop: the menu |
 | The titles: `Name (Group, Year)` | Up, Down, Left and Right a page (as the file browser). Return: the title's files. Run/Stop: the form |
 | A title's files, with their sizes | Return: what to do with the file. Run/Stop: the titles |
-| A file's choices | D64, D71, D81: Mount in drive A, or B. PRG, P00: Run, or Load without RUN. CRT: Start as cartridge. Any file: Download to the SD card only |
+| A file's choices | D64, D71, D81: Mount in drive A, or B; Run from drive A, or Run in C64 mode (`doc/run-disk.md`). PRG, P00: Run, or Load without RUN. CRT: Start as cartridge. Any file: Download to the SD card only |
 
 Run/Stop also cancels a search or a download. The screens stay as they were left: after a
 mount the menu comes back with the drive's line showing the image, and the Assembly 64 line
@@ -60,8 +60,10 @@ The requests and the form's fields are the Ultimate firmware's. The differences:
   up to 500. The Ultimate shows the first 20.
 - Downloads are files on the card and stay. The Ultimate keeps them in a RAM disk until
   power-off.
-- No Run Disk (issue #31), no SID player, no tape or G64 images, no view of a text file or
-  into a disk image: such files can be downloaded only.
+- Run Disk picks C128 or C64 mode by what the disk holds (`doc/run-disk.md`). The
+  Ultimate's is C64 mode.
+- No SID player, no tape or G64 images, no view of a text file or into a disk image: such
+  files can be downloaded only.
 - Left and Right page through a list, as in the file browser. On the Ultimate, Left goes
   back.
 

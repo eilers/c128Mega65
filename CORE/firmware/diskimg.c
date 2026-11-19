@@ -213,3 +213,61 @@ FRESULT diskimg_create(const char *path, int kind, const char *name)
       f_unlink(path);
    return res;
 }
+
+// --- what starts a disk -------------------------------------------------------------------
+
+// Where a block is in the image, or -1 for none
+static int32_t block_at(int kind, int t, int s)
+{
+   int n = 0;
+   if (t < 1)
+      return -1;
+   if (kind == DISK_D81)
+      return t > 80 || s > 39 ? -1 : ((t - 1) * 40 + s) * 256;
+   if (kind == DISK_D71 && t > 35) {
+      n = 683;                             // the second side
+      t -= 35;
+   }
+   if (t > 42 || s > 20)
+      return -1;
+   for (int k = 1; k < t; k++)
+      n += k < 18 ? 21 : k < 25 ? 19 : k < 31 ? 18 : 17;
+   return (n + s) * 256;
+}
+
+static int block_read(FIL *f, int kind, int t, int s, uint8_t *b)
+{
+   int32_t at = block_at(kind, t, s);
+   UINT got;
+   return at >= 0 && f_lseek(f, at) == FR_OK && f_read(f, b, 256, &got) == FR_OK && got == 256;
+}
+
+int diskimg_start(const char *path, int kind, int *boot, int *load)
+{
+   uint8_t b[256];
+   FIL f;
+   int t = kind == DISK_D81 ? 40 : 18, s = kind == DISK_D81 ? 3 : 1;
+   *boot = 0;
+   *load = -1;
+   if (f_open(&f, path, FA_READ) != FR_OK)
+      return -1;
+   if (!block_read(&f, kind, 1, 0, b)) {
+      f_close(&f);
+      return -1;
+   }
+   *boot = !memcmp(b, "CBM", 3);
+   // The first program of the directory, as LOAD"*" takes it: its first block has the address
+   for (int left = 80; left && t && *load < 0 && block_read(&f, kind, t, s, b); left--) {
+      t = b[0];
+      s = b[1];
+      for (int e = 0; e < 256; e += 32)
+         if ((b[e + 2] & 0x87) == 0x82 && b[e + 3]) {
+            if (block_read(&f, kind, b[e + 3], b[e + 4], b))
+               *load = b[2] | b[3] << 8;
+            t = 0;
+            break;
+         }
+   }
+   f_close(&f);
+   return 0;
+}
