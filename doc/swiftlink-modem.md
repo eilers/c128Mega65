@@ -84,7 +84,8 @@ at 38400 baud). When the C128 falls behind, for example while it writes an XMODE
 disk, it drops RTS. The FIFO fills, the firmware stops passing bytes on, the TCP window
 closes, and the sender waits. The data waits on the server, so nothing needs to buffer it
 here. XMODEM itself never has more than one block in flight. A 2-segment TCP window covers
-a round trip of up to about 500 ms at 57600 baud, and fits in the MAC's 4 KB. What has
+a round trip of up to about 500 ms at 57600 baud. (The MAC's receive buffer was 4 KB when
+this was sized; it is 32 KB since Assembly 64's downloads, `doc/assembly64.md`.) What has
 arrived waits in a ring of one window (in HyperRAM), not in lwIP's buffers: a far end
 sending small segments would otherwise empty the pool that every other frame needs.
 
@@ -95,8 +96,8 @@ stuck at). The core needs a reset then (a long press). `AT*T` and `AT*W` test th
 ### Resources
 
 lwIP, sized for the modem, UCI's network target and the REST server, takes about 28 KB of
-the system CPU's 128 KB data RAM. The MAC's frame buffers (4 + 2 KB) and the 6551's FIFOs
-are LUTRAM.
+the system CPU's 128 KB data RAM. The MAC's receive buffer is 32 KB of block RAM, its
+transmit buffer 2 KB; the 6551's FIFOs are LUTRAM.
 
 **Short HyperRAM bursts.** HDMI's scaler keeps its frame buffer in HyperRAM and takes
 turns with the core, and it only has room for two bursts of the incoming picture. So the

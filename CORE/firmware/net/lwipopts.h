@@ -9,7 +9,9 @@
 #define LWIP_TIMERS                 1
 
 #define MEM_ALIGNMENT               4
+#ifndef MEM_SIZE                           // test_shell's model server sends a window at once
 #define MEM_SIZE                    (24 * 1024)   // what TCP sends: HTTP's and FTP's at once
+#endif
 #define MEMP_NUM_PBUF               8
 #define MEMP_NUM_RAW_PCB            0
 #define MEMP_NUM_UDP_PCB            6      // DHCP, DNS, UCI's sockets
@@ -19,7 +21,9 @@
 #endif
 #define MEMP_NUM_TCP_PCB_LISTEN     8      // the modem, HTTP, FTP and its 4 PASVs, one spare
 #define TCP_LISTEN_BACKLOG          1      // HTTP and FTP queue 2, as his listen()
+#ifndef MEMP_NUM_TCP_SEG
 #define MEMP_NUM_TCP_SEG            64
+#endif
 #define MEMP_NUM_ARP_QUEUE          4
 #define PBUF_POOL_SIZE              8      // one pool pbuf holds a whole frame
 
@@ -47,7 +51,9 @@
 
 #define TCP_MSS                     1460
 #define TCP_WND                     (2 * TCP_MSS)
+#ifndef TCP_SND_BUF
 #define TCP_SND_BUF                 (2 * TCP_MSS)
+#endif
 #define TCP_SND_QUEUELEN            (4 * TCP_SND_BUF / TCP_MSS)
 #define TCP_QUEUE_OOSEQ             0      // out-of-order segments get resent; saves pbufs
 #define LWIP_TCP_KEEPALIVE          1

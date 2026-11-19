@@ -31,7 +31,7 @@ static uint8_t is_help[MENU_MAX];    // help screen (WHS record) number, or 0
 #define CRTROM_MAX   24              // CRT/ROM items in the menu (C_CRTROMS_MAN_NUM at most)
 #define NAME_MAX     32              // a file's name as the menu shows it, cut
 
-static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_MSG, UI_CLOSING } ui;
+static enum { UI_CORE, UI_MENU, UI_HELP, UI_LOAD, UI_TEXT, UI_MSG, UI_APP, UI_CLOSING } ui;
 static uint32_t closing_at;
 static int      help_idx, help_set, help_page, help_pages;
 
@@ -432,6 +432,15 @@ static void select(uint16_t group, int item, enum menu_key key)
       edit_start(idx, group & MENU_ID);
       return;
    }
+   // A screen of the core's own: its line is never selected
+   if (core_app_open(group & MENU_ID)) {
+      menu_set(idx, 0);
+      menu.shown = 0;
+      scr_full_on();
+      keys_text();
+      ui = UI_APP;
+      return;
+   }
    if (is_help[idx]) {
       // Help items are never selected: show the pages, and the menu again after
       menu.sel[idx] = 0;
@@ -766,6 +775,11 @@ void shell_open_menu(void)
       open_menu();
 }
 
+int shell_closed(void)
+{
+   return ui == UI_CORE;
+}
+
 void shell_message(const char *text)
 {
    char out[256];
@@ -925,6 +939,17 @@ DMEM_CODE void shell_poll(void)
       if (k == M2M_KEY_SPACE || k == M2M_KEY_RUNSTOP)
          menu_again();
       break;
+   case UI_APP: {
+      int r = core_app_key(k);
+      if (r == APP_BUSY)
+         break;
+      for (int i = 0; i < menu.n; i++)   // what it changed (a mount) is what the menu shows
+         menu.sel[i] = setting_get(i);
+      menu_again();
+      if (r == APP_CLOSE)
+         close_menu();
+      break;
+   }
    case UI_HELP:
       if (k == M2M_KEY_SPACE || k == M2M_KEY_RUNSTOP) {
          menu.sel[help_idx] = 0;

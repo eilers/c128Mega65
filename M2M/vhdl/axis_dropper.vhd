@@ -62,7 +62,7 @@ entity axis_dropper is
     m_ready_i  : in    std_logic;
     m_valid_o  : out   std_logic := '0';
     m_data_o   : out   std_logic_vector(G_DATA_BITS - 1 downto 0);
-    m_last_o   : out   std_logic := '0'
+    m_last_o   : out   std_logic
   );
 end entity axis_dropper;
 
@@ -74,6 +74,9 @@ architecture rtl of axis_dropper is
 
   type     word_array_type is array (natural range <>) of std_logic_vector(G_DATA_BITS downto 0);
   signal   fifo : word_array_type(0 to 2 ** G_ADDR_BITS - 1);
+  -- The RAM's output register, loaded from the RAM only: with anything else written to it
+  -- (a last flag cleared) Vivado can't use block RAM and builds the buffer from LUTs
+  signal   rd_word : std_logic_vector(G_DATA_BITS downto 0) := (others => '0');
 
   subtype  R_DATA is natural range G_DATA_BITS - 1 downto 0;
 
@@ -156,10 +159,9 @@ begin
   begin
     if rising_edge(clk_i) then
 
-      -- Clear the output register once the current word is consumed.
+      -- The output register is empty once the current word is consumed.
       if m_ready_i = '1' then
         m_valid_o <= '0';
-        m_last_o  <= '0';
       end if;
 
       -- Load the next committed word whenever the output register is empty or
@@ -168,19 +170,20 @@ begin
       -- never wait for TREADY before asserting TVALID. The reader stays
       -- strictly behind start_ptr, so it never collides with the writer.
       if (m_valid_o = '0' or m_ready_i = '1') and rd_ptr /= start_ptr then
-        m_data_o  <= fifo(to_integer(rd_ptr))(R_DATA);
-        m_last_o  <= fifo(to_integer(rd_ptr))(C_LAST);
+        rd_word   <= fifo(to_integer(rd_ptr));
         m_valid_o <= '1';
         rd_ptr    <= rd_ptr + 1;
       end if;
 
       if rst_i = '1' then
         m_valid_o <= '0';
-        m_last_o  <= '0';
         rd_ptr    <= (others => '0');
       end if;
     end if;
   end process rd_proc;
+
+  m_data_o <= rd_word(R_DATA);
+  m_last_o <= rd_word(C_LAST) and m_valid_o;
 
 end architecture rtl;
 
