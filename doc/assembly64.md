@@ -86,3 +86,6 @@ firmware takes frames from the MAC, so the burst has to fit the MAC's receive bu
   in `lwip/include/lwip/tcp.h` and `lwip/core/tcp.c`) gives one connection its own.
 - What has arrived waits in a ring of one window in HyperRAM and goes to the card 4 KB at a
   time, so the window opens again while the card is written.
+
+Measured on an R6 in the US: 112 KB/s, where the two-segment window gave about 10. The
+download's screen shows the rate.
