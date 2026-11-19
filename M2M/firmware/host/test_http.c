@@ -34,6 +34,7 @@
 #include "net.h"
 #include "netcfg.h"
 #include "rest_priv.h"
+#include "runners.h"
 #include "rompick.h"
 #include "stores.h"
 #include "stream.h"
@@ -1922,6 +1923,48 @@ static void runners(void)
           errs(412, "Unknown", "Expected Body, but got none."));
    expect("modplay", "PUT /v1/runners:modplay?file=/SD/x.mod HTTP/1.1\r\n\r\n",
           errs(501, "Unknown", "Sampler module not available"));
+
+   // The menu's runner (Assembly 64): run_prg's steps without a request, from the main loop
+   int ss = -1;
+   memset(c128_mem + 0x1C00, 0, 32);
+   typed[0] = 0;
+   boots = reboots;
+   check("runner_prg: started", runner_prg("/prg/hello.prg", 1) == 0 && runner_poll() < 0, NULL);
+   check("runner_prg: one at a time", runner_prg("/prg/hello.prg", 1) != 0, NULL);
+   for (int i = 0; i < 4000000 && ss < 0; i++) {
+      step();
+      ss = runner_poll();
+   }
+   check("runner_prg: reset, at READY, loaded, relinked, RUN typed",
+         ss == 0 && reboots == boots + 1 && !c128_c64 && !strcmp(typed, "@RUN\r") && c128_mem[0x1C01] == 0x0B &&
+         !memcmp(c128_mem + 0x1C03, prg128 + 4, 10) && c128_mem[0x1210] == 0x0D && !dma_held_v, typed);
+   check("runner_poll: its result once", runner_poll() < 0, NULL);
+   typed[0] = 0;
+   check("runner_prg, load", runner_prg("/prg/hello.prg", 0) == 0, NULL);
+   for (ss = -1; ss < 0;) {
+      step();
+      ss = runner_poll();
+   }
+   check("runner_prg, load: no RUN", ss == 0 && !strcmp(typed, "@"), typed);
+   boots = reboots;
+   dma_z80_v = 1;
+   check("runner_prg, the Z80 runs: refused at once, no reset", runner_prg("/prg/hello.prg", 1) != 0 &&
+         runner_poll() < 0 && reboots == boots, NULL);
+   dma_z80_v = 0;
+   check("runner_prg, no file", runner_prg("/prg/x.prg", 1) != 0 && runner_poll() < 0, NULL);
+   boot_never = 1;
+   uint64_t t0 = now_us;
+   check("runner_prg, no BASIC: started", runner_prg("/prg/hello.prg", 1) == 0, NULL);
+   for (ss = -1; ss < 0 && now_us - t0 < 20000000;) {
+      step();
+      ss = runner_poll();
+   }
+   boot_never = 0;
+   check("runner_prg, no BASIC: fails after 10 s, the CPU let go", ss > 0 && now_us - t0 > 9000000 && !dma_held_v, NULL);
+   const char *why;
+   check("runner_crt", runner_crt("/carts/x.crt", &why) == 0 && !strcmp(crt_shown, "x.crt"), crt_shown);
+   check("runner_crt, not a .crt", runner_crt("/carts/bad.crt", &why) != 0 && !*crt_shown, crt_shown);
+   check("runner_crt, no file", runner_crt("/carts/none.crt", &why) != 0, NULL);
 }
 
 // --- machine:input and debugreg (rest_input.c, input.c, mouse.c) ---

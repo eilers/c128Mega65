@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <string.h>
+#include "a64_search.h"
 #include "cfg.h"
 #include "cmdhd.h"
 #include "config_ids.h"
@@ -883,6 +884,17 @@ void core_save_settings(void)
    stores_save();
 }
 
+// The Assembly 64 line is a screen of its own (a64_search.c)
+int core_app_open(int group)
+{
+   return group == OPTM_G_A64 && a64_open();
+}
+
+int core_app_key(uint32_t key)
+{
+   return a64_key(key);
+}
+
 // "Help menu on F13" lets the C128 have its Help key
 uint32_t core_menu_key(void)
 {
@@ -891,8 +903,8 @@ uint32_t core_menu_key(void)
 
 // The drives' DOS ROMs (drvrom.c), the menu's stream lines (net/stream.c), the boot
 // cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST API
-// (net/http.c), its input's timing (input.c), the FTP server (net/ftp.c) and the HDMI
-// filter's coefficients (hdmi_filter.c)
+// (net/http.c), its input's timing (input.c), the FTP server (net/ftp.c), the HDMI
+// filter's coefficients (hdmi_filter.c) and a program Assembly 64's screen started
 // The CMD HD: the menu's Drive enabled and Bus ID (whatever set them: the menu, a settings
 // file, REST), then its disk's commands. Without a boot ROM it is off, whatever set it.
 static void hd_poll(void)
@@ -916,4 +928,6 @@ DMEM_CODE void core_poll(void)
    http_poll();
    input_poll();
    ftp_poll();
+   if (a64_pending)
+      a64_run();
 }

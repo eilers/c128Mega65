@@ -181,8 +181,12 @@ typedef struct {
    int  send_left, sent;                 // "P n": pattern bytes still to go
    int  closing;                         // "C": close once all is sent
    uint32_t tail;                        // the web server's last 4 bytes
+   char req[2048];                       // and the request's header
+   int  rn;
+   uint8_t *page;                        // hn_web's answer, sent in place of the pattern
 } peer_t;
 static peer_t peers[PEERS];
+uint8_t *(*hn_web)(const char *request, int *len);
 
 static void peer_close(peer_t *c)
 {
@@ -193,6 +197,8 @@ static void peer_close(peer_t *c)
    if (tcp_close(c->pcb) != ERR_OK)
       tcp_abort(c->pcb);
    c->pcb = NULL;
+   free(c->page);
+   c->page = NULL;
 }
 
 static void peer_push(peer_t *c)
@@ -206,7 +212,10 @@ static void peer_push(peer_t *c)
          n = sizeof buf;
       if (n <= 0)
          break;
-      pattern(buf, n, c->sent % 251);
+      if (c->page)
+         memcpy(buf, c->page + c->sent, n);
+      else
+         pattern(buf, n, c->sent % 251);
       if (tcp_write(c->pcb, buf, n, TCP_WRITE_FLAG_COPY) != ERR_OK)
          break;
       c->sent      += n;
@@ -247,8 +256,16 @@ static void peer_byte(peer_t *c, uint8_t b)
    char t[32];
    if (c->web) {
       c->tail = c->tail << 8 | b;
+      if (c->rn < (int)sizeof c->req - 1)
+         c->req[c->rn++] = (char)b;
       if (c->tail == 0x0D0A0D0A) {
-         peer_say(c, "HTTP/1.0 200 OK\r\nServer: host_net\r\n\r\n");
+         c->req[c->rn] = 0;
+         c->rn = 0;
+         // A test's own pages: the whole answer, sent and then closed
+         if (hn_web && (c->page = hn_web(c->req, &c->send_left)))
+            c->sent = 0;
+         else
+            peer_say(c, "HTTP/1.0 200 OK\r\nServer: host_net\r\n\r\n");
          c->closing = 1;
          peer_push(c);
       }
@@ -293,7 +310,10 @@ static err_t peer_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 
 static void peer_err(void *arg, err_t err)
 {
-   ((peer_t *)arg)->pcb = NULL;
+   peer_t *c = arg;
+   c->pcb = NULL;
+   free(c->page);
+   c->page = NULL;
 }
 
 static err_t peer_accept(void *arg, struct tcp_pcb *pcb, err_t err)

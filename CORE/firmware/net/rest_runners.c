@@ -28,6 +28,7 @@
 #include "net.h"
 #include "rest_priv.h"
 #include "roms.h"
+#include "runners.h"
 #include "stores.h"
 #include "uci.h"
 
@@ -49,12 +50,14 @@ typedef struct {
    uint8_t  scratch[8];
 } runner_t;
 
-static runner_t *runners;               // a connection's, in HyperRAM
+static runner_t *runners;               // a connection's, in HyperRAM; the last one the menu's
+static rest_t   *local;                 // the menu's runner: a request without a connection
+static int       local_busy, local_ss;
 
 static runner_t *runner_of(rest_t *r)
 {
    if (!runners)
-      runners = heap_alloc(HTTP_CLIENTS * sizeof *runners);
+      runners = heap_alloc((HTTP_CLIENTS + 1) * sizeof *runners);
    return &runners[r->req->slot];
 }
 
@@ -154,7 +157,10 @@ static void dma_start_soft(rest_t *r, uint16_t addr, int len, int write, uint8_t
 static void answer(rest_t *r, int ss)
 {
    dma_keep(0);
-   subsys_response(r, ss);
+   if (r == local)
+      local_ss = ss;
+   else
+      subsys_response(r, ss);
 }
 
 static int run_step(rest_t *r)
@@ -310,7 +316,7 @@ static void run_cancel(rest_t *r)
 static void start_prg(rest_t *r, const char *name, int n, int run)
 {
    if (dma_z80()) {
-      subsys_response(r, SS_NO_LOCK);
+      answer(r, SS_NO_LOCK);
       return;
    }
    prepare(r, name, n, run);
@@ -319,7 +325,10 @@ static void start_prg(rest_t *r, const char *name, int n, int run)
    u->at = 0;
    dma_keep(1);
    dma_start_soft(r, 0x0A00, 1, 1, u->scratch);   // scratch is all 0 here
-   rest_pending(r, run_step, run_cancel);
+   if (r == local)
+      local_busy = 1;
+   else
+      rest_pending(r, run_step, run_cancel);
 }
 
 static void put_prg(rest_t *r, int run)
@@ -353,6 +362,39 @@ static void post_prg(rest_t *r, int run)
    start_prg(r, r->up_name, r->up_len, run);
 }
 
+// The menu's: PUT run_prg's file, stepped from the main loop
+int runner_prg(const char *card, int run)
+{
+   FIL f;
+   UINT got;
+   if (local_busy)
+      return SS_NO_LOCK;
+   if (!local) {
+      local = heap_alloc(sizeof *local);
+      local->req = heap_alloc(sizeof *local->req);
+      local->req->slot = HTTP_CLIENTS;
+      local->up = heap_alloc(UPLOAD_MAX + 1);
+   }
+   if (f_open(&f, card, FA_READ) != FR_OK)
+      return SS_CANNOT_OPEN_FILE;
+   FRESULT res = f_read(&f, local->up, UPLOAD_MAX, &got);
+   f_close(&f);
+   if (res != FR_OK)
+      return SS_CANNOT_OPEN_FILE;
+   stores_associated(card, 1);
+   local_ss = SS_OK;
+   start_prg(local, card, got, run);
+   return local_ss;
+}
+
+int runner_poll(void)
+{
+   if (!local_busy || !run_step(local))
+      return -1;
+   local_busy = 0;
+   return local_ss;
+}
+
 static void put_load_prg(rest_t *r) { put_prg(r, 0); }
 static void put_run_prg(rest_t *r) { put_prg(r, 1); }
 static void post_load_prg(rest_t *r) { post_prg(r, 0); }
@@ -377,24 +419,26 @@ static int crt_answer(int err)
    return err == 1 ? SS_ROM_IMAGE_TOO_LARGE : SS_ERROR_IN_FILE_FORMAT;
 }
 
+int runner_crt(const char *card, const char **msg)
+{
+   FILINFO fi;
+   int k = crt_item();
+   *msg = NULL;
+   if (k < 0)
+      return SS_SUBSYS_NOT_PRESENT;
+   if (!card || f_stat(card, &fi) != FR_OK || (fi.fattrib & AM_DIR))
+      return SS_CANNOT_OPEN_FILE;
+   core_sel_pre(OPTM_G_MOUNT_CRT, 0);
+   int ss = crt_answer(crtrom_load_quiet(k, card, OPTM_G_MOUNT_CRT, msg));
+   shell_crtrom_named(OPTM_G_MOUNT_CRT, ss == SS_OK ? card : NULL);
+   return ss;
+}
+
 static void put_run_crt(rest_t *r)
 {
    char card[UCI_PATH_MAX];
-   const char *c, *msg;
-   FILINFO fi;
-   int k = crt_item();
-   if (k < 0) {
-      subsys_response(r, SS_SUBSYS_NOT_PRESENT);
-      return;
-   }
-   if (!(c = uci_card_path(arg(r, "file"), card)) || f_stat(c, &fi) != FR_OK || (fi.fattrib & AM_DIR)) {
-      subsys_response(r, SS_CANNOT_OPEN_FILE);
-      return;
-   }
-   core_sel_pre(OPTM_G_MOUNT_CRT, 0);
-   int ss = crt_answer(crtrom_load_quiet(k, c, OPTM_G_MOUNT_CRT, &msg));
-   shell_crtrom_named(OPTM_G_MOUNT_CRT, ss == SS_OK ? c : NULL);
-   subsys_response(r, ss);
+   const char *msg;
+   subsys_response(r, runner_crt(uci_card_path(arg(r, "file"), card), &msg));
 }
 
 // The upload as it comes, into the cartridge's memory: a byte a word, as roms.c's copy_load

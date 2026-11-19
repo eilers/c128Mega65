@@ -3,13 +3,17 @@
 // ROMs and a settings file, and keys pressed one at a time.
 // Run it twice on one image: the second run starts with the settings the first one saved.
 // usage: test_shell config_dump.txt fat32.img [-v]
+// -live "name" instead: only Assembly 64's screens, against the real server, shown as they
+// come: a search for the name, its first title, that title's first file into drive A.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "a64_search.h"
 #include "browse.h"
 #include "cfg.h"
 #include "config_ids.h"
 #include "core.h"
+#include "drives.h"
 #include "ff.h"
 #include "filters.h"
 #include "hdmi_filter.h"
@@ -179,6 +183,8 @@ static void poll(int n)
          stream_poll();
       if (stream_dirty)
          stream_menu_sync();
+      if (a64_pending)
+         a64_run();
    }
 }
 
@@ -231,6 +237,7 @@ static void type(const char *s)
       { '1', 56 }, { '2', 59 }, { '3', 8 }, { '4', 11 }, { '9', 32 }, { '.', 44 }, { 'y', 25 }, { 'x', 23 },
       { '0', 35 }, { '6', 19 }, { '8', 27 }, { 'a', 10 }, { 'b', 28 }, { 'd', 18 }, { 'k', 37 }, { 'l', 42 },
       { 'n', 39 }, { ',', 47 }, { 'o', 38 }, { 't', 22 }, { 'h', 29 }, { 'i', 33 }, { 'g', 26 }, { 'v', 31 },
+      { 'm', 36 }, { 'e', 14 }, { 's', 13 }, { 'w', 9 }, { 'r', 17 }, { 'p', 41 }, { 'c', 20 }, { 'u', 30 },
    };
    for (; *s; s++)
       for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++)
@@ -296,6 +303,198 @@ static int item(const char *text)   // a menu index by its text
          return i;
    printf("no item \"%s\" in the menu\n", text);
    return 0;
+}
+
+// -------------------------------------------------------------------------------------
+// Assembly 64's server, as hackerswithstyle.se answers (host_net.c's web server)
+// -------------------------------------------------------------------------------------
+
+static uint8_t pattern(int file, int i);
+static uint8_t disk_byte(int file, int i);
+static char a64_last[1024];           // the last request's path
+static int  a64_bins, a64_asked;      // files fetched, requests
+
+// A whole answer: chunked as the server's paged searches are, or with its length; cut: so
+// many bytes of the body short
+static uint8_t *a64_page(int status, const uint8_t *body, int n, int chunked, int cut, int *len)
+{
+   uint8_t *p = malloc(n + n / 100 * 8 + 512);
+   int at = sprintf((char *)p, "HTTP/1.1 %d \r\nServer: nginx\r\nContent-Type: application/json\r\n", status);
+   if (chunked) {
+      at += sprintf((char *)p + at, "Transfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n");
+      for (int i = 0; i < n; i += 700) {
+         int k = n - i < 700 ? n - i : 700;
+         at += sprintf((char *)p + at, "%x\r\n", k);
+         memcpy(p + at, body + i, k);
+         at += k;
+         at += sprintf((char *)p + at, "\r\n");
+      }
+      at += sprintf((char *)p + at, "0\r\n\r\n");
+   } else {
+      at += sprintf((char *)p + at, "content-length: %d\r\nConnection: keep-alive\r\n\r\n", n);
+      memcpy(p + at, body, n - cut);
+      at += n - cut;
+   }
+   *len = at;
+   return p;
+}
+
+static uint8_t *a64_web(const char *req, int *len)
+{
+   static const char presets[] =
+      "[{\"type\":\"repo\",\"description\":\"Repository\",\"values\":[{\"aqlKey\":\"csdb\",\"name\":\"CSDB\"}]},"
+      "{\"type\":\"category\",\"description\":\"Category\",\"values\":[{\"aqlKey\":\"games\",\"name\":\"Games\"},"
+      "{\"aqlKey\":\"c128\",\"name\":\"C128\"}]},"
+      "{\"type\":\"rating\",\"values\":[{\"aqlKey\":\"5\"},{\"aqlKey\":\">=6\"}]},"
+      "{\"type\":\"type\",\"description\":\"Type\",\"values\":[{\"aqlKey\":\"d64\"},{\"aqlKey\":\"prg\"}]},"
+      "{\"type\":\"new\",\"description\":\"Newer\",\"values\":[{\"id\":3,\"aqlKey\":\"x\",\"name\":\"X\"}]},"
+      "{\"type\":\"empty\",\"description\":\"Empty\",\"values\":[]}]";
+   static const char three[] =
+      "[{\"category\":2,\"group\":\"Grahamit\",\"id\":\"265542\",\"name\":\"Wedge \\\"80\\\" \\u00e9t\xC3\xA9\",\"rating\":0,"
+      "\"siteRating\":0.0,\"updated\":\"2026-11-02 07:34:30.000000\",\"year\":2026},"
+      "{\"category\":0,\"id\":\"7\",\"name\":\"No group\",\"year\":0},"
+      "{\"category\":1,\"group\":\"G\",\"id\":\"8\",\"name\":\"A title with a name so long that it will not fit on one line\",\"year\":0}]";
+   static const char files[] =
+      "{\"contentEntry\":[{\"date\":1793601266700,\"id\":0,\"path\":\"wedge80.d64\",\"size\":174848},"
+      "{\"id\":1,\"path\":\"sub/hello.prg\",\"size\":15},{\"id\":2,\"path\":\"cart.crt\",\"size\":5000},"
+      "{\"id\":3,\"path\":\"tune.sid\",\"size\":300},{\"id\":4,\"path\":\"cut.d64\",\"size\":174848}],"
+      "\"isContentByItself\":false}";
+   static uint8_t body[174848];
+   char path[1024], id[64], q[900];
+   int off, lim, cat, idx, n = 0;
+   if (sscanf(req, "GET %1023s", path) != 1 || strncmp(path, "/leet/", 6))
+      return NULL;
+   strcpy(a64_last, path);
+   a64_asked++;
+   // The server knows its clients
+   if (!strstr(req, "\r\nClient-Id: Ultimate\r\n") || !strstr(req, "\r\nHost: hackerswithstyle.se\r\n") ||
+       !strstr(req, "\r\nUser-Agent: Assembly Query\r\n") || !strstr(req, "\r\nAccept-encoding: identity\r\n"))
+      return a64_page(464, (const uint8_t *)"{\"errorCode\":464}", 17, 0, 0, len);
+   if (!strcmp(path, "/leet/search/aql/presets"))
+      return a64_page(200, (const uint8_t *)presets, strlen(presets), 0, 0, len);
+   if (sscanf(path, "/leet/search/aql/%d/%d?query=%899s", &off, &lim, q) == 3) {
+      if (strstr(q, "none"))
+         return a64_page(200, (const uint8_t *)"[]", 2, 0, 0, len);
+      if (strstr(q, "oops"))
+         return a64_page(463, (const uint8_t *)"{\"errorCode\":463}", 17, 0, 0, len);
+      if (!strstr(q, "many"))
+         return a64_page(200, (const uint8_t *)three, strlen(three), 1, 0, len);
+      n = sprintf((char *)body, "[");      // 120 of them, a page at a time
+      for (int i = off; i < off + lim && i < 120; i++)
+         n += sprintf((char *)body + n, "%s{\"category\":2,\"group\":\"Group %d\",\"id\":\"%d\",\"name\":\"Many %03d\","
+                      "\"rating\":0,\"siteCategory\":27,\"siteRating\":0.0,\"year\":%d}", i > off ? "," : "", i, 1000 + i,
+                      i, 1980 + i % 40);
+      n += sprintf((char *)body + n, "]");
+      return a64_page(200, body, n, 1, 0, len);
+   }
+   if (sscanf(path, "/leet/search/entries/%63[^/]/%d", id, &cat) == 2) {
+      if (!strcmp(id, "7"))
+         return a64_page(200, (const uint8_t *)"{\"contentEntry\":[]}", 19, 0, 0, len);
+      return a64_page(200, (const uint8_t *)files, strlen(files), 0, 0, len);
+   }
+   if (sscanf(path, "/leet/search/bin/%63[^/]/%d/%d", id, &cat, &idx) == 3 && !strcmp(id, "265542") && cat == 2) {
+      static const int size[] = { 174848, 15, 5000, 300, 174848 };
+      if (idx < 0 || idx > 4)
+         return a64_page(434, (const uint8_t *)"{\"errorCode\":434}", 17, 0, 0, len);
+      a64_bins++;
+      for (int i = 0; i < size[idx]; i++)
+         body[i] = idx == 0 ? disk_byte(40, i) : pattern(40 + idx, i);
+      return a64_page(200, body, size[idx], 0, idx == 4 ? 100000 : 0, len);
+   }
+   return a64_page(404, (const uint8_t *)"{}", 2, 0, 0, len);
+}
+
+// The cursor of a whole-screen list or form onto the line with s: down, then up
+static int cursor_to(const char *s)
+{
+   char r[48];
+   for (int i = 0; i < 90; i++) {
+      int y = cursor_row();
+      if (y >= 0) {
+         row(y, 0, 45, r);
+         if (strstr(r, s))
+            return 1;
+      }
+      press(i < 30 ? M2M_KEY_DOWN : M2M_KEY_UP);
+   }
+   printf("no line \"%s\"\n", s);
+   return 0;
+}
+
+// Rounds until the screen shows s: 1, or 0 after 20 s
+static int wait_row(const char *s)
+{
+   for (int i = 0; i < 200000; i++) {
+      if (find_row(s) > 0)
+         return 1;
+      poll(10);
+   }
+   printf("no \"%s\" on the screen\n", s);
+   return 0;
+}
+
+static int file_is(const char *path, int size, uint8_t (*byte)(int file, int i), int file)
+{
+   static uint8_t b[512];
+   FIL f;
+   UINT got;
+   int ok = f_open(&f, path, FA_READ) == FR_OK;
+   if (!ok)
+      return 0;
+   ok = (int)f_size(&f) == size;
+   for (int at = 0; ok && at < size; at += got) {
+      ok = f_read(&f, b, sizeof b, &got) == FR_OK && got > 0;
+      for (unsigned i = 0; ok && i < got; i++)
+         ok = b[i] == byte(file, at + i);
+   }
+   f_close(&f);
+   return ok;
+}
+
+// Assembly 64 for real (host_live.c): not part of the host tests, which need no network
+unsigned char *host_live_web(const char *req, int *len);
+
+static int a64_live(const char *name)
+{
+   static const struct { char c; int k, shift; } keys[] = {
+      { 'a', 10, 0 }, { 'b', 28, 0 }, { 'c', 20, 0 }, { 'd', 18, 0 }, { 'e', 14, 0 }, { 'f', 21, 0 }, { 'g', 26, 0 },
+      { 'h', 29, 0 }, { 'i', 33, 0 }, { 'j', 34, 0 }, { 'k', 37, 0 }, { 'l', 42, 0 }, { 'm', 36, 0 }, { 'n', 39, 0 },
+      { 'o', 38, 0 }, { 'p', 41, 0 }, { 'q', 62, 0 }, { 'r', 17, 0 }, { 's', 13, 0 }, { 't', 22, 0 }, { 'u', 30, 0 },
+      { 'v', 31, 0 }, { 'w', 9, 0 }, { 'x', 23, 0 }, { 'y', 25, 0 }, { 'z', 12, 0 }, { ' ', 60, 0 }, { '0', 35, 0 },
+      { '1', 56, 0 }, { '2', 59, 0 }, { '3', 8, 0 }, { '4', 11, 0 }, { '5', 16, 0 }, { '6', 19, 0 }, { '7', 24, 0 },
+      { '8', 27, 0 }, { '9', 32, 0 } };
+   verbose = 1;
+   host_net_init();
+   net_on = 1;
+   hn_web = host_live_web;
+   press(M2M_KEY_HELP);
+   check(go_to("Assembly 64"), "live: the menu's line");
+   press(M2M_KEY_RETURN);
+   check(wait_row("Search"), "live: the form");
+   dump("form");
+   for (; *name; name++)
+      for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++)
+         if (keys[i].c == *name)
+            type_key(keys[i].k, keys[i].shift);
+   press(M2M_KEY_RETURN);
+   check(wait_row("found"), "live: titles");
+   dump("titles");
+   press(M2M_KEY_RETURN);
+   check(wait_row("Return: use"), "live: files");
+   dump("files");
+   press(M2M_KEY_RETURN);
+   dump("choices");
+   press(M2M_KEY_RETURN);
+   poll(3000);
+   dump("download");
+   for (int i = 0; i < 4000000 && !drive_mounted(0) && find_row("Space: continue") < 0; i++)
+      poll(10);
+   dump("after");
+   FILINFO fi;
+   check(drive_mounted(0) && f_stat(drive_path(0), &fi) == FR_OK, "live: a disk image mounted");
+   printf("mounted: %s, %u bytes\n", drive_path(0), (unsigned)fi.fsize);
+   host_net_report();
+   return fails != 0;
 }
 
 // -------------------------------------------------------------------------------------
@@ -611,8 +810,8 @@ static void check_stores(void)
       char text[64];
       if (g == OPTM_G_NET_VSTREAM || g == OPTM_G_NET_ASTREAM)
          continue;                                    // his streams: none at power-up
-      if (g == OPTM_G_HD_CONFIG || g == OPTM_G_HD_INSTALL)
-         continue;                                    // the CMD HD's resets: done, not kept
+      if (g == OPTM_G_HD_CONFIG || g == OPTM_G_HD_INSTALL || g == OPTM_G_A64)
+         continue;                                    // the CMD HD's resets, a screen: done, not kept
       if (g > 0 && g < 255 && !cfg_get(CFG_OPTM_MOUNT, i) && !cfg_get(CFG_OPTM_CRTROM, i) &&
           !cfg_get(CFG_OPTM_HELP, i) && !core_text_item(g, text, &max) && !kept(i)) {
          printf("not in the settings file: \"%s\"\n", menu.line[i]);
@@ -631,6 +830,7 @@ int main(int argc, char **argv)
       return 2;
    }
    verbose = argc > 3;
+   int live = argc > 4 && !strcmp(argv[3], "-live");
    image = argv[2];
    host_init();
    host_dev_hook = vdrives_hw;
@@ -654,6 +854,8 @@ int main(int argc, char **argv)
       zero &= fresh[i] == 0;
    check(zero, "heap_alloc: zeroed, on HyperRAM that held something");
    check(!(M2M_CSR & M2M_CSR_RESET), "core left reset");
+   if (live)
+      return a64_live(argv[4]);
    M2M_RAMROM_DEV = 0x100;
    int clear = 1;
    for (int i = 0; i < 0x40000; i++)
@@ -717,7 +919,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 31), "menu window 25x31 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 32), "menu window 25x32 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
@@ -1564,7 +1766,7 @@ int main(int argc, char **argv)
 
    // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
    // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
-   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 27, "Load settings: the main menu's last line but two");
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 28, "Load settings: the main menu's last line but two");
    go_to("Load settings");
    press(M2M_KEY_RETURN);
    dump("Load settings browser");
@@ -1609,6 +1811,223 @@ int main(int argc, char **argv)
          !setting_get(item(" Swap joystick ports")) &&
          setting_line("VIC-II Jailbars=Off\n") && setting_line("HDMI Scan Resolution=720p 50 Hz 16:9\n"),
          "back.cfg: as before");
+
+   // Assembly 64 (a64_search.c, net/a64.c): the form with the server's presets, a search,
+   // the titles, a title's files, and a file used. The second run finds the first one's files.
+   {
+      const char *dir = "/c128/a64/Wedge _80_ \x82t\x82 (265542-2)";   // quotes can't be in a name; e acute in 437
+      char name[128], r[48];
+      FILINFO fi;
+      int bins;
+      hn_web = a64_web;
+      f_rename("/a64-away", "/c128/a64");                 // the first run's, out of the browser's way since
+      press(M2M_KEY_UP);
+      check(cursor_on("Assembly 64"), "Assembly 64: its line, above Load settings");
+      press(M2M_KEY_RETURN);
+      check(find_row("Connecting to Assembly 64...") > 0 && (M2M_OSM_DXDY >> 8) == 45, "A64: connecting, on the whole screen");
+      check(wait_row("Search") && !strcmp(a64_last, "/leet/search/aql/presets"), "A64: the presets asked for, the form");
+      dump("A64 form");
+      check(find_row(" Name:        _") == 2 && find_row(" Event:") == 5 && find_row(" Category:    Any") == 7 &&
+            find_row(" Type:        Any") == 8 && find_row(" Repository:  Any") == 9 && find_row(" Rating:      Any") == 10 &&
+            find_row(" Newer:       Any") == 11 && find_row(" Search") == 13 && find_row("Empty") < 0,
+            "A64 form: typed fields, then the presets: Category and Type first, a new kind last, none without values");
+      check(cursor_row() == 2, "A64 form: the cursor on Name");
+      press(M2M_KEY_RETURN);
+      check(find_row("Type a name or pick something first") > 0 && a64_asked == 1, "A64: an empty form isn't sent");
+      type("none");
+      check(find_row(" Name:        none_") == 2, "A64: typed into Name");
+      press(M2M_KEY_RETURN);
+      check(wait_row("Nothing found.") && !strcmp(a64_last, "/leet/search/aql/0/50?query=%28name%3a%22none%22%29"),
+            "A64: Return in a field searches; nothing found");
+      press(M2M_KEY_SPACE);
+      check(find_row(" Name:        none_") == 2, "A64: back on the form, as it was");
+      type_key(51, 0);                                    // Clr
+      type("oops");
+      press(M2M_KEY_RETURN);
+      check(wait_row("Assembly 64 answered with error 463."), "A64: the server's error");
+      press(M2M_KEY_SPACE);
+      for (int i = 0; i < 4; i++)
+         type_key(K_DEL, 0);
+      type("wedge");
+      for (int i = 0; i < 4; i++)
+         press(M2M_KEY_DOWN);
+      check(cursor_row() == 7 && find_row(" Name:        wedge ") == 2 && find_row("Return: list") > 0, "A64: down to Category");
+      press(M2M_KEY_RIGHT);
+      check(find_row(" Category:    Games") == 7, "A64: Right picks the first");
+      press(M2M_KEY_RETURN);
+      check(find_row("Category:") == 0 && find_row(" Any") == 1 && find_row(" Games") == 2 && find_row(" C128") == 3 &&
+            cursor_row() == 2, "A64: Return lists a preset's values, the cursor on the one picked");
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(find_row(" Category:    C128") == 7 && find_row(" Name:        wedge") == 2, "A64: picked from the list, the rest kept");
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RIGHT);
+      press(M2M_KEY_SPACE);
+      check(find_row(" Type:        Any") == 8, "A64: Space is Any again");
+      for (int i = 0; i < 2; i++)
+         press(M2M_KEY_DOWN);
+      press(M2M_KEY_RIGHT);
+      check(find_row(" Rating:      5") == 10, "A64: a value without a name shows its key");
+      cursor_to("Search");
+      press(M2M_KEY_RETURN);
+      check(wait_row("3 found") &&
+            !strcmp(a64_last, "/leet/search/aql/0/50?query=%28name%3a%22wedge%22%29%20%26%20%28category%3ac128%29"
+                              "%20%26%20%28rating%3a%3e%3d5%29"), "A64: the form's query, rating as >=");
+      dump("A64 titles");
+      check(find_row(" Wedge \"80\" -t- (Grahamit, 2026)") == 1 && find_row(" No group  ") == 2 &&
+            find_row(" A title with a name so long that it wil...") == 3 && cursor_row() == 1,
+            "A64 titles: Name (Group, Year), the chunked answer whole, a long one cut");
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(wait_row("This title has no files.") && !strcmp(a64_last, "/leet/search/entries/7/0"), "A64: a title without files");
+      press(M2M_KEY_SPACE);
+      check(find_row("3 found") > 0 && cursor_row() == 2, "A64: back on the titles");
+      press(M2M_KEY_UP);
+      press(M2M_KEY_RETURN);
+      check(wait_row("wedge80.d64") && !strcmp(a64_last, "/leet/search/entries/265542/2"), "A64: a title's files asked for");
+      dump("A64 files");
+      row(1, 1, 44, r);
+      check(!strcmp(r, " wedge80.d64                          171K ") && find_row(" sub/hello.prg") == 2 &&
+            find_row("   1K") == 2 && find_row(" cut.d64") == 5 && find_row("Wedge \"80\"") == 0,
+            "A64 files: names and sizes, the title on the frame");
+
+      // A disk image: into a drive
+      bins = a64_bins;
+      press(M2M_KEY_RETURN);
+      check(find_row(" Mount in drive A (8)") == 1 && find_row(" Mount in drive B (9)") == 2 &&
+            find_row(" Download to the SD card only") == 3 && find_row("wedge80.d64") == 0, "A64: a disk image's choices");
+      press(M2M_KEY_RETURN);
+      for (int i = 0; i < 400000 && !drive_mounted(0); i++)
+         poll(10);
+      snprintf(name, sizeof name, "%s/wedge80.d64", dir);
+      check(drive_mounted(0) && !strcmp(drive_path(0), name), drive_path(0));
+      check(file_is(name, 174848, disk_byte, 40), "A64: the file on the card, whole");
+      check(a64_bins == bins + !second && (second || !strcmp(a64_last, "/leet/search/bin/265542/2/0")),
+            second ? "A64: the first run's file not fetched again" : "A64: fetched by its number");
+      check((M2M_OSM_DXDY >> 8) != 45 && cursor_on("Assembly 64") && find_row("wedge80.d64") > 0 &&
+            setting_get(mount_item(0)), "A64: mounted, back in the menu, the drive's line shows it");
+      snprintf(name, sizeof name, "%s/wedge80.d64.part", dir);
+      check(f_stat(name, &fi) == FR_NO_FILE, "A64: no .part left");
+
+      // The screens as they were left: the files. A mounted file is used as it is.
+      bins = a64_bins;
+      press(M2M_KEY_RETURN);
+      check(find_row(" wedge80.d64") == 1 && find_row("Connecting") < 0, "A64 again: the files, as left");
+      press(M2M_KEY_RETURN);
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(find_row("Saved on the SD card as") > 0 && find_row("/c128/a64/Wedge _80_") > 0 && a64_bins == bins,
+            "A64: download only, of a file the card has: nothing fetched");
+      press(M2M_KEY_SPACE);
+
+      // A program: its choices; downloaded by its name without the folder
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(find_row(" Run") == 1 && find_row(" Load, without RUN") == 2 && find_row(" Download to the SD card only") == 3,
+            "A64: a program's choices");
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(wait_row("Saved on the SD card as"), "A64: a program downloaded");
+      snprintf(name, sizeof name, "%s/hello.prg", dir);
+      check(file_is(name, 15, pattern, 41), "A64: sub/hello.prg is hello.prg in the title's folder");
+      press(M2M_KEY_SPACE);
+      // Run: the menu closes, then the runner starts. No C128 answers here, so it says so
+      // (test_http has the runner at work).
+      press(M2M_KEY_RETURN);
+      press(M2M_KEY_RETURN);
+      check(!(M2M_CSR & M2M_CSR_OSM) && a64_pending, "A64 Run: the menu closes first");
+      idle();
+      check((M2M_CSR & M2M_CSR_OSM) && find_row("The program could not be started:") > 0 && !a64_pending,
+            "A64 Run: no BASIC, the menu opens and says so");
+      press(M2M_KEY_SPACE);
+      go_to("Assembly 64");
+      press(M2M_KEY_RETURN);
+
+      // A cartridge: the virtual cartridge, and the menu closes
+      check(cursor_row() == 2, "A64 again: the cursor where it was");
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(find_row(" Start as cartridge") == 1 && find_row(" Download to the SD card only") == 2, "A64: a cartridge's choices");
+      press(M2M_KEY_RETURN);
+      for (int i = 0; i < 100000 && (M2M_CSR & M2M_CSR_OSM); i++)
+         poll(10);
+      check(!(M2M_CSR & M2M_CSR_OSM) && device_holds(CRT_DEV, 42, 5000) && setting_get(item(" CRT file")) &&
+            setting_get(item(" CRT:%s")), "A64: a .crt started: loaded, the cartridge's source, the menu closed");
+      idle();
+      press(M2M_KEY_HELP);
+      go_to("Cartridge");
+      press(M2M_KEY_RETURN);
+      check(find_row("CRT:cart.crt") > 0, "A64: the cartridge's line names it");
+      go_to("CRT:");
+      press(M2M_KEY_SPACE);                               // out again
+      press(M2M_KEY_RUNSTOP);
+      go_to("Assembly 64");
+      press(M2M_KEY_RETURN);
+
+      // Any other file: download only. One the server cuts short: nothing kept.
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(find_row(" Download to the SD card only") == 1 && find_row("tune.sid") == 0, "A64: another kind of file can be downloaded");
+      press(M2M_KEY_RUNSTOP);
+      check(find_row(" tune.sid") == 4 && cursor_row() == 4, "A64: Run/Stop, back on the files");
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      press(M2M_KEY_RETURN);
+      check(find_row("Downloading") > 0 && find_row("cut.d64") > 0, "A64: the download's screen");
+      check(wait_row("The connection was lost."), "A64: a download cut short fails");
+      dump("A64 cut");
+      snprintf(name, sizeof name, "%s/cut.d64", dir);
+      check(f_stat(name, &fi) == FR_NO_FILE, "A64: nothing under its name");
+      snprintf(name, sizeof name, "%s/cut.d64.part", dir);
+      check(f_stat(name, &fi) == FR_NO_FILE && drive_mounted(0), "A64: no .part either, the drive as it was");
+      press(M2M_KEY_SPACE);
+      // Cancelled with Run/Stop
+      press(M2M_KEY_RETURN);
+      press(M2M_KEY_RETURN);
+      poll(2000);
+      press(M2M_KEY_RUNSTOP);
+      check(find_row(" cut.d64") == 5 && f_stat(name, &fi) == FR_NO_FILE, "A64: Run/Stop cancels a download");
+
+      // More titles than a page: the next ones come at the list's end
+      press(M2M_KEY_RUNSTOP);
+      check(find_row("3 found") > 0, "A64: Run/Stop, the titles");
+      press(M2M_KEY_RUNSTOP);
+      check(find_row(" Name:        wedge") == 2 && find_row(" Category:    C128") == 7, "A64: Run/Stop, the form as it was");
+      cursor_to("Category");
+      press(M2M_KEY_SPACE);
+      cursor_to("Rating");
+      press(M2M_KEY_SPACE);
+      for (int i = 0; i < 12; i++)
+         press(M2M_KEY_UP);
+      type_key(51, 0);
+      type("many");
+      press(M2M_KEY_RETURN);
+      check(wait_row("50+ found") && find_row(" Many 000 (Group 0, 1980)") == 1 && find_row(" Many 030") == 31,
+            "A64: a page of 50, more to come");
+      press(M2M_KEY_RIGHT);
+      press(M2M_KEY_RIGHT);
+      check(wait_row("100+ found") && !strcmp(a64_last, "/leet/search/aql/50/50?query=%28name%3a%22many%22%29") &&
+            find_row(" Many 049") == 31 && cursor_row() == 31, "A64: at the end the next page, the cursor where it was");
+      for (int i = 0; i < 3; i++)
+         press(M2M_KEY_RIGHT);
+      check(wait_row("120 found") && find_row("120+") < 0 && !strcmp(a64_last, "/leet/search/aql/100/50?query=%28name%3a%22many%22%29"),
+            "A64: the last page, 120 in all");
+      press(M2M_KEY_RIGHT);
+      press(M2M_KEY_RIGHT);
+      check(find_row(" Many 119 (Group 119, 2019)") == 31 && cursor_row() == 31, "A64: the list's end");
+      int asked = a64_asked;
+      press(M2M_KEY_DOWN);
+      poll(100);
+      check(a64_asked == asked, "A64: no more asked for after the last page");
+      press(M2M_KEY_RUNSTOP);
+      press(M2M_KEY_RUNSTOP);
+      check(cursor_on("Assembly 64") && (M2M_OSM_DXDY >> 8) != 45, "A64: Run/Stop from the form, the menu");
+      shell_unmount(0);
+      check(f_rename("/c128/a64", "/a64-away") == FR_OK, "A64: its folder is /c128/a64");
+      hn_web = NULL;
+   }
 
    // Close Menu: next time from the start item
    go_to("Close Menu");
