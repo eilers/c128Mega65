@@ -23,6 +23,7 @@
 #include "heap.h"
 #include "keys.h"
 #include "m2m_rv.h"
+#include "net.h"
 #include "runners.h"
 #include "screen.h"
 #include "sdcard.h"
@@ -77,6 +78,8 @@ static struct list l_res, l_files, l_pick, l_act, *ls;
 static void      (*ls_text)(int i, char *out);
 static int         acts[4], act;       // the file's choices, and the one taken
 static int         shown_kb, shown_bar;
+static uint32_t    dl_start;           // a download's start, ms
+static int         dl_kb, dl_rate;     // the last one's size and KB/s; 0 if nothing was fetched
 int                a64_pending;        // a program waits for the menu to close, or runs
 static int         run_how;            // 1 run, 2 load
 
@@ -648,6 +651,14 @@ static void progress_show(void)
    scr_print(2, 2, 2, "Downloading");
    osm_printn(2, 3, SCR_COL_STD, a->entries[l_files.cur].path, COLS - 2);
    shown_kb = shown_bar = -1;
+   dl_start = net_millis();
+}
+
+// KB/s so far
+static int rate(void)
+{
+   uint32_t ms = net_millis() - dl_start;
+   return ms ? (int)((uint64_t)a64_got() * 1000 / ms >> 10) : 0;
 }
 
 static void progress(void)
@@ -661,9 +672,9 @@ static void progress(void)
    if (kb != shown_kb) {
       shown_kb = kb;
       if (total > 0)
-         fmt_snprintf(s, sizeof s, "%d of %d KB", kb, (total + 1023) >> 10);
+         fmt_snprintf(s, sizeof s, "%d of %d KB, %d KB/s", kb, (total + 1023) >> 10, rate());
       else
-         fmt_snprintf(s, sizeof s, "%d KB", kb);
+         fmt_snprintf(s, sizeof s, "%d KB, %d KB/s", kb, rate());
       osm_printn(2, 7, SCR_COL_STD, s, COLS - 2);
    }
    for (; shown_bar < bar && shown_bar < COLS - 3; shown_bar++)
@@ -711,6 +722,8 @@ static int use(void)
          a->msg[n++] = a->file[i];
       }
       a->msg[n] = 0;
+      if (dl_kb)
+         fmt_snprintf(a->msg + n, sizeof a->msg - n, "\n\n%d KB at %d KB/s", dl_kb, dl_rate);
       message(a->msg, S_FILES);
       break;
    }
@@ -735,6 +748,7 @@ static int fetch(void)
    int have = f_stat(a->file, &fi) == FR_OK && !(fi.fattrib & AM_DIR) && (!e->size || fi.fsize == e->size);
    for (int d = 0; d < drives_count(); d++)
       have |= !strcasecmp(drive_path(d), a->file);
+   dl_kb = 0;
    if (have)
       return use();
    progress_show();
@@ -917,9 +931,11 @@ int a64_key(uint32_t k)
          show(S_FILES);
       } else if (st == A64_FAILED)
          message(a64_error(), S_FILES);
-      else if (st == A64_DONE)
+      else if (st == A64_DONE) {
+         dl_kb = (a64_got() + 1023) >> 10;
+         dl_rate = rate();
          return use();
-      else
+      } else
          progress();
       break;
 

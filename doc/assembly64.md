@@ -69,5 +69,20 @@ The requests and the form's fields are the Ultimate firmware's. The differences:
 
 - A JSON answer is at most 40 KB (a page of 50 titles is under 15 KB).
 - A program is at most 64 KB, as REST's.
-- TCP's window is two segments (`lwipopts.h`), so a download moves about 3 KB per round
-  trip to the server.
+
+## Download speed
+
+The server is far from most users (200 to 280 ms a round trip from the US), and TCP moves
+one window a round trip. The server sends that window in one burst, faster than the
+firmware takes frames from the MAC, so the burst has to fit the MAC's receive buffer.
+
+- The MAC's receive buffer is 32 KB (`C_ETH_RX_BITS` in `CORE/vhdl/net/net.vhd`), and the
+  core says so in `ETH_RXKB` (word 13 of the network device).
+- The client's connection gets a window of the full frames that buffer holds, less one:
+  20 segments (29,200 bytes). Every other connection keeps lwIP's two segments
+  (`TCP_WND`): on a LAN the card is their limit, and the modem's is its baud rate. On a core
+  with the old 4 KB buffer, `ETH_RXKB` reads 0 and the client uses two segments too.
+- lwIP's window was one size for all connections; `tcp_rcv_wnd_max` (marked `c128Mega65`
+  in `lwip/include/lwip/tcp.h` and `lwip/core/tcp.c`) gives one connection its own.
+- What has arrived waits in a ring of one window in HyperRAM and goes to the card 4 KB at a
+  time, so the window opens again while the card is written.

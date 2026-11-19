@@ -4,6 +4,11 @@
 // the answer out of it (the header, then the body by its length, in chunks, or until the
 // server closes) into the buffer or onto the card. A file is written as NAME.part and
 // renamed once it is whole, so a download cut short leaves nothing behind under its name.
+//
+// The server is far away, and it sends a whole TCP window each round trip, in one burst
+// that has to wait in the MAC's receive buffer. So the window is what that buffer holds
+// (ETH_RXKB): 20 segments with 32 KB, lwIP's two with the 4 KB of older cores. What has
+// come is read a few KB at a time, so the window opens again while the card is written.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
@@ -15,6 +20,7 @@
 #include "heap.h"
 #include "log.h"
 #include "net.h"
+#include "net_hw.h"
 #include "lwip/dns.h"
 #include "lwip/tcp.h"
 
@@ -25,12 +31,14 @@
 #define URL_ENTRIES  "/leet/search/entries"
 #define URL_DOWNLOAD "/leet/search/bin"
 
-#define RING      3072                  // what came and isn't read yet: a window at most
+#define RING      (22 * TCP_MSS)        // what came and isn't read yet: a window at most
+#define FRAME     1518                  // a full segment in the MAC's buffer
+#define STEP      4096                  // read from the ring at a time, then the window opens
 #define QUIET_MS  15000                 // without a byte for so long: given up
 #define REQ_MAX   1536
 #define HLINE_MAX  128
 
-_Static_assert(RING >= TCP_WND, "the ring holds a window");
+_Static_assert(RING >= TCP_WND && RING < 65536, "the ring holds a window, which fits 16 bits");
 
 enum { P_STATUS, P_HEADER, P_BODY, P_CHUNK_SIZE, P_CHUNK_DATA, P_CHUNK_END };
 
@@ -41,6 +49,7 @@ static struct {
    uint8_t         up, fin, gone;       // connected; the server closed; lwIP dropped it
    unsigned        gen;                 // the request a name's answer is for
    uint16_t        head, len;           // the ring
+   uint16_t        wnd;                 // the window
    uint32_t        since;               // the last progress
    int             phase, status, line_n;
    int             chunked;
@@ -51,11 +60,11 @@ static struct {
    ip_addr_t       addr;
 } c;
 
-static uint8_t ring[RING];              // in the data RAM, as the FTP server's
-// The rest, in HyperRAM
+// In HyperRAM
 static struct aux {
-   FIL  f;
-   char req[REQ_MAX], line[HLINE_MAX], file[260], part[266], text[64];
+   FIL     f;
+   char    req[REQ_MAX], line[HLINE_MAX], file[260], part[266], text[64];
+   uint8_t ring[RING];
 } *x;
 
 // --- the connection -----------------------------------------------------------------------
@@ -113,7 +122,7 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
       const uint8_t *d = q->payload;
       for (int n = q->len; n;) {
          int at = (c.head + c.len) % RING, k = RING - at < n ? RING - at : n;
-         memcpy(ring + at, d, k);
+         memcpy(x->ring + at, d, k);
          c.len += k;
          d += k;
          n -= k;
@@ -153,6 +162,7 @@ static void connect_to(const ip_addr_t *addr)
       return;
    }
    c.pcb = pcb;
+   tcp_rcv_wnd_max(pcb, c.wnd);
    tcp_recv(pcb, on_recv);
    tcp_err(pcb, on_err);
    if (tcp_connect(pcb, addr, HOSTPORT, on_connected) != ERR_OK) {
@@ -171,6 +181,20 @@ static void on_dns(const char *name, const ip_addr_t *addr, void *arg)
       return;
    }
    connect_to(addr);
+}
+
+// The window: the full segments the MAC's receive buffer holds, less one for what else
+// comes in meanwhile; lwIP's own where that is all it holds
+static uint16_t window(void)
+{
+   uint32_t was = M2M_RAMROM_DEV;
+   M2M_RAMROM_DEV = NET_DEVICE;
+   unsigned kb = ETH_RXKB;
+   M2M_RAMROM_DEV = was;
+   int n = (kb ? kb * 1024 : 4096) / FRAME - 1;
+   if (n > RING / TCP_MSS)
+      n = RING / TCP_MSS;
+   return n * TCP_MSS > TCP_WND ? n * TCP_MSS : TCP_WND;
 }
 
 // --- the answer ---------------------------------------------------------------------------
@@ -297,11 +321,13 @@ int a64_poll(void)
 {
    if (c.state != A64_BUSY)
       return c.state;
-   // The ring's two parts at most a round. Turns during a write to the card only add
-   // behind what is read: the ring holds a window at most.
+   // Two steps at most a round. Turns during a write to the card only add behind what is
+   // read: the ring holds a window at most.
    for (int k = 0; k < 2 && c.len && c.state == A64_BUSY; k++) {
       int at = c.head, n = c.len < RING - at ? c.len : RING - at;
-      take(ring + at, n);
+      if (n > STEP)
+         n = STEP;
+      take(x->ring + at, n);
       c.head = (at + n) % RING;
       c.len -= n;
       c.since = net_millis();
@@ -389,6 +415,7 @@ static void start(char *buf, int size, const char *file)
    c.buf   = buf;
    c.size  = size;
    c.total = -1;
+   c.wnd   = window();
    c.state = A64_BUSY;
    c.since = net_millis();
    log_printf("a64 %s", x->req);

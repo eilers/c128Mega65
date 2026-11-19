@@ -142,8 +142,12 @@ typedef err_t (*tcp_connected_fn)(void *arg, struct tcp_pcb *tpcb, err_t err);
 #define RCV_WND_SCALE(pcb, wnd) (wnd)
 #define SND_WND_SCALE(pcb, wnd) (wnd)
 #define TCPWND16(x)             (x)
-#define TCP_WND_MAX(pcb)        TCP_WND
+/* c128Mega65: a connection's own limit (tcp_rcv_wnd_max); TCP_WND unless it set one */
+#define TCP_WND_MAX(pcb)        ((pcb)->rcv_wnd_max)
 #endif
+/* c128Mega65: a receive window other than TCP_WND for one connection, set after tcp_new()
+   and before tcp_connect(). Without window scaling, 65535 bytes at most. */
+#define tcp_rcv_wnd_max(pcb, wnd) ((pcb)->rcv_wnd = (pcb)->rcv_ann_wnd = (pcb)->rcv_wnd_max = (tcpwnd_size_t)(wnd))
 /* Increments a tcpwnd_size_t and holds at max value rather than rollover */
 #define TCP_WND_INC(wnd, inc)   do { \
                                   if ((tcpwnd_size_t)(wnd + inc) >= wnd) { \
@@ -283,6 +287,7 @@ struct tcp_pcb {
   u32_t rcv_nxt;   /* next seqno expected */
   tcpwnd_size_t rcv_wnd;   /* receiver window available */
   tcpwnd_size_t rcv_ann_wnd; /* receiver window to announce */
+  tcpwnd_size_t rcv_wnd_max; /* c128Mega65: the most rcv_wnd gets */
   u32_t rcv_ann_right_edge; /* announced right edge of window */
 
 #if LWIP_TCP_SACK_OUT

@@ -5,7 +5,7 @@
 // lwIP too; its UDP side and the DNS server answer at the wire, so they take none of the
 // firmware's UDP PCBs. Packets for the firmware's sockets come from the pbuf pool, as eth.c's
 // frames do (a pool that has run dry loses them); a packet over the MTU is lost, as its
-// fragments would be (IP_REASSEMBLY 0). A packet takes 200 us. After "E n" the peer keeps
+// fragments would be (IP_REASSEMBLY 0). A packet takes 200 us (hn_wire_us). After "E n" the peer keeps
 // its window shut for 1.5 s, past what the window and lwIP's send buffer hold (5840
 // bytes), so the firmware's WRITEs have to wait for room.
 #include "lwip/dns.h"               // first: macOS's headers define BYTE_ORDER and htons too
@@ -23,7 +23,8 @@
 #include "eth.h"
 #include "net.h"
 
-#define WIRE_US 200
+int hn_wire_us = 200;                     // a packet's time on the wire
+int hn_syn_wnd;                           // the window of the last SYN to port 80
 #define PORT    6464
 #define PEERS   8
 
@@ -75,13 +76,16 @@ static void put(uint8_t *d, int n)
       fprintf(stderr, "host_net: wire full\n");
       exit(2);
    }
-   wire[wire_n++] = (struct pkt){ d, n, now_us() + WIRE_US };
+   wire[wire_n++] = (struct pkt){ d, n, now_us() + hn_wire_us };
 }
 
 static err_t lo_output(struct netif *nif, struct pbuf *p, const ip4_addr_t *a)
 {
    uint8_t *d = malloc(p->tot_len);
-   put(d, pbuf_copy_partial(p, d, p->tot_len, 0));
+   int n = pbuf_copy_partial(p, d, p->tot_len, 0), ihl = (d[0] & 15) * 4;
+   if (n >= ihl + 20 && d[9] == IP_PROTO_TCP && be16(d + ihl + 2) == 80 && (d[ihl + 13] & 0x12) == 0x02)
+      hn_syn_wnd = be16(d + ihl + 14);
+   put(d, n);
    return ERR_OK;
 }
 

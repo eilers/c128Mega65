@@ -33,14 +33,16 @@ build/test_fw: test_fw.c diskio_file.c ../lib/fmt.c ../fatfs/ff.c ../fatfs/ffuni
 	@mkdir -p build
 	$(HOSTCC) $(CFLAGS) -I../fw $(filter %.c,$^) -o $@
 
-# The Shell, with registers, devices and HyperRAM faked in host_m2m.c
+# The Shell, with registers, devices and HyperRAM faked in host_m2m.c. lwIP sends up to 24
+# segments at once here, so that host_net.c's web server can fill a large window.
 SHELL_SRC := test_shell.c host_live.c host_m2m.c diskio_file.c ../fw/browse.c ../fw/cfg.c ../fw/drives.c \
              ../fw/heap.c ../fw/keys.c ../fw/menu.c \
              ../fw/roms.c ../fw/screen.c ../fw/sdcard.c ../fw/shell.c $(wildcard ../../../CORE/firmware/*.c) \
              ../lib/console.c ../lib/fmt.c ../lib/sd_diag.c ../fatfs/ff.c ../fatfs/ffunicode.c $(NET_SRC)
 build/test_shell: $(SHELL_SRC) host_m2m.h $(wildcard ../fw/*.h) ../build/fw/config_ids.h
 	@mkdir -p build
-	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -include host_m2m.h $(filter %.c,$^) -o $@
+	$(HOSTCC) $(CFLAGS) -I../fw -I../build/fw -I../../../CORE/firmware $(NET_FLAGS) -include host_m2m.h \
+	          -DTCP_SND_BUF=35040 -DMEMP_NUM_TCP_SEG=128 -DMEM_SIZE=98304 $(filter %.c,$^) -o $@
 
 # The Ultimate Command Interface, its registers modelled in test_uci.c
 UCI_SRC := test_uci.c host_uci_model.c host_m2m.c host_reu_sd.c diskio_file.c ../../../CORE/firmware/uci.c \

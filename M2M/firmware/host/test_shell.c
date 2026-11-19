@@ -35,6 +35,7 @@
 void host_init(void);
 int  disk_file_open(const char *path);
 extern uint32_t host_regs[];
+extern uint64_t host_time;
 
 static int fails, runs, verbose;
 static const char *image;
@@ -357,9 +358,10 @@ static uint8_t *a64_web(const char *req, int *len)
    static const char files[] =
       "{\"contentEntry\":[{\"date\":1793601266700,\"id\":0,\"path\":\"wedge80.d64\",\"size\":174848},"
       "{\"id\":1,\"path\":\"sub/hello.prg\",\"size\":15},{\"id\":2,\"path\":\"cart.crt\",\"size\":5000},"
-      "{\"id\":3,\"path\":\"tune.sid\",\"size\":300},{\"id\":4,\"path\":\"cut.d64\",\"size\":174848}],"
+      "{\"id\":3,\"path\":\"tune.sid\",\"size\":300},{\"id\":4,\"path\":\"cut.d64\",\"size\":174848},"
+      "{\"id\":5,\"path\":\"big.d81\",\"size\":819200}],"
       "\"isContentByItself\":false}";
-   static uint8_t body[174848];
+   static uint8_t body[819200];
    char path[1024], id[64], q[900];
    int off, lim, cat, idx, n = 0;
    if (sscanf(req, "GET %1023s", path) != 1 || strncmp(path, "/leet/", 6))
@@ -393,8 +395,8 @@ static uint8_t *a64_web(const char *req, int *len)
       return a64_page(200, (const uint8_t *)files, strlen(files), 0, 0, len);
    }
    if (sscanf(path, "/leet/search/bin/%63[^/]/%d/%d", id, &cat, &idx) == 3 && !strcmp(id, "265542") && cat == 2) {
-      static const int size[] = { 174848, 15, 5000, 300, 174848 };
-      if (idx < 0 || idx > 4)
+      static const int size[] = { 174848, 15, 5000, 300, 174848, 819200 };
+      if (idx < 0 || idx > 5)
          return a64_page(434, (const uint8_t *)"{\"errorCode\":434}", 17, 0, 0, len);
       a64_bins++;
       for (int i = 0; i < size[idx]; i++)
@@ -1989,6 +1991,33 @@ int main(int argc, char **argv)
       poll(2000);
       press(M2M_KEY_RUNSTOP);
       check(find_row(" cut.d64") == 5 && f_stat(name, &fi) == FR_NO_FILE, "A64: Run/Stop cancels a download");
+
+      // The window is what the MAC's receive buffer holds: two segments with a core that
+      // doesn't say (4 KB), as every download so far; 20 with 32 KB. A server 100 ms away
+      // (a round trip) sends a window each time: 800 KB take 28 round trips, not 280.
+      check(hn_syn_wnd == 2920, "A64: a core with a 4 KB MAC buffer: lwIP's window of two segments");
+      snprintf(name, sizeof name, "%s/big.d81", dir);
+      f_unlink(name);
+      host_dev_at(0x10B)[0x0D] = 32;
+      hn_wire_us = 50000;
+      press(M2M_KEY_DOWN);
+      press(M2M_KEY_RETURN);
+      check(find_row(" Mount in drive A (8)") == 1 && find_row("big.d81") == 0, "A64: a D81's choices");
+      cursor_to("Download");
+      uint64_t t0 = host_time;
+      press(M2M_KEY_RETURN);
+      check(wait_row("KB/s") && find_row("of 800 KB") > 0, "A64: the download's progress and rate");
+      check(wait_row("Saved on the SD card as") && find_row("800 KB at ") > 0, "A64: 800 KB downloaded, its rate shown");
+      dump("A64 big");
+      int ms = (int)((host_time - t0) / (CPU_HZ / 1000));
+      if (verbose)
+         printf("big.d81: %d ms, SYN window %d\n", ms, hn_syn_wnd);
+      check(hn_syn_wnd == 29200, "A64: a 32 KB MAC buffer: a window of 20 segments");
+      check(ms < 8000, "A64: 800 KB over a 100 ms round trip in under 8 s (two segments: 28 s)");
+      check(file_is(name, 819200, pattern, 45), "A64: the file whole, through the ring's wraps");
+      hn_wire_us = 200;
+      host_dev_at(0x10B)[0x0D] = 0;
+      press(M2M_KEY_SPACE);
 
       // More titles than a page: the next ones come at the list's end
       press(M2M_KEY_RUNSTOP);
