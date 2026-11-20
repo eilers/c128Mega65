@@ -55,6 +55,9 @@ first, one a picture, on one no program was found. No C64 disk is taken for a C1
   program that starts itself never gets to it.
 - The device number is the drive's bus ID. In C128 mode a drive that isn't 8 gets
   `RUN"*",U9`, or `BOOT U9` for a boot sector.
+- The 40/80 key is left alone. With it down and the video on "Follow 40/80", a disk that
+  runs in C64 mode leaves the 80-column screen up, and that one stays black: release the
+  key.
 - If BASIC doesn't come within 10 s the menu opens and says so: a cartridge, or a boot disk
   in drive 8 when the other drive's disk was to run.
 
