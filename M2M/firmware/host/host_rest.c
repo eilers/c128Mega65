@@ -36,6 +36,7 @@ int       rom_under_z80;                 // system ROM accesses while the Z80 ru
 int     rom_reloads[2], crt_loads, crt_parsed;
 char    crt_shown[256];
 int     c128_basic, c128_c64, boot_never, c64_cart, typed_run;
+int     cbm_ignored;                    // a C128 that takes no notice of the C= key at a reset
 char    typed[64];
 static int ready_calls[2], rom_wait[2], reset_pend, z80_left, boot_left;
 static uint32_t ramrom;
@@ -66,7 +67,8 @@ static void reset_now(void)
    dma_held_v = 0;
    z80_cpm = 0;                         // the Z80's boot then hands the bus to the 8502
    z80_left = 2;
-   c128_c64 = c64_cart;
+   // C64 mode: a C64 cartridge, or the C= key held (row 7, bit 5: word 3's high byte)
+   c128_c64 = c64_cart || ((input_dev[3] & 0x2000) && !cbm_ignored);
    kernal();
 }
 
@@ -78,8 +80,10 @@ static void c128_runs(void)
 {
    if (!c128_basic && boot_left && !--boot_left && !boot_never) {
       c128_basic = 1;
+      memset(c128_mem + 0x400, ' ', 1000);         // the screen, the cursor on its seventh line
       if (c128_c64) {
          memcpy(c128_mem + 0x2B, "\x01\x08\x03\x08", 4);
+         memcpy(c128_mem + 0xD1, "\xF0\x04", 2);
          memset(c128_mem + 0x800, 0, 3);
       } else {
          c128_mem[0xA00] = 3;
@@ -96,6 +100,13 @@ static void c128_runs(void)
    keys[n] = 0;
    c128_mem[ndx_addr()] = 0;
    int at = strlen(typed);
+   // Return first, in C64 mode: the editor takes the cursor's line, shown here in <>
+   if (c128_c64 && keys[0] == '\r' && c128_mem[0x4F0] != ' ') {
+      typed[at++] = '<';
+      for (int i = 0; i < 40 && c128_mem[0x4F0 + i] != ' ' && at < (int)sizeof typed - 2; i++)
+         typed[at++] = c128_mem[0x4F0 + i] < 0x20 ? c128_mem[0x4F0 + i] + 0x40 : c128_mem[0x4F0 + i];
+      typed[at++] = '>';
+   }
    for (int i = 0; i < n && at < (int)sizeof typed - 1; i++)
       typed[at++] = keys[i] ? keys[i] : '@';         // a NUL shows as @
    typed[at] = 0;
@@ -179,6 +190,8 @@ void dma_stop(void)
 }
 
 void shell_menu_button(void) { menu_buttons++; }
+int shell_closed(void) { return !menu_open; }
+void shell_open_menu(void) { }
 
 int shell_menu_screen(uint8_t *out)
 {
@@ -237,6 +250,8 @@ int drives_ready(void)
          return 0;
    return 1;
 }
+
+int shell_mount(int d, const char *path, const char **msg) { return shell_mount_ro(d, path, 0, msg); }
 
 // As the menu: an image for the internal floppy's drive turns it off first; a size the core
 // takes; not the other drive's; then the model one the image runs, and the drive on

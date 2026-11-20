@@ -111,7 +111,7 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   lines); `fw/cfg.c` reads `config.vhd` and the sysinfo device. The core's callbacks
   (`m2m-rom.asm`'s) are `CORE/firmware/core.c`, which finds menu items by their group
   (`config_ids.h`, made from `config.vhd`). `fw/browse.c` is the file browser
-  (`selectfile.asm`, `dirbrowse.asm`). A menu item can also be a screen of the core's own
+  (`selectfile.asm`, `dirbrowse.asm`); F7 and F8 in a drive's start the disk (`doc/run-disk.md`). A menu item can also be a screen of the core's own
   (`core_app_open`, `core_app_key`): the core's Assembly 64 search (`doc/assembly64.md`). `fw/roms.c` loads `.crt` files, by the device's DMA
   where it has one, and hands the core's own items (`C_CRTROMTYPE_CORE`: the REU's file,
   the ROM picks) to `core.c`. `fw/drives.c` mounts disk images: drives 8 and 9 read them straight

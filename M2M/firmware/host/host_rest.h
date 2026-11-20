@@ -28,6 +28,7 @@ extern char    crt_shown[256];
 // the keyboard buffer typed into it; boot_never: BASIC never comes; c64_cart: it boots C64
 extern int     c128_basic, c128_c64, boot_never, c64_cart, typed_run;
 extern char    typed[64];
+extern int     cbm_ignored;
 
 void host_rest_init(void);
 void c128_settle(void);

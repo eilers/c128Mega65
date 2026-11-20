@@ -34,6 +34,7 @@
 #include "net.h"
 #include "netcfg.h"
 #include "rest_priv.h"
+#include "core.h"
 #include "runners.h"
 #include "rompick.h"
 #include "stores.h"
@@ -1809,6 +1810,58 @@ static void roms(void)
    }
 }
 
+// A D64 with a boot sector or not, and its first program's load address (-1: no program)
+static void disk_file(const char *path, int boot, int load)
+{
+   static uint8_t img[174848];
+   memset(img, 0, sizeof img);
+   if (boot)
+      memcpy(img, "CBM", 3);
+   uint8_t *dir = img + (17 * 21 + 1) * 256;      // track 18, sector 1
+   dir[1] = 0xFF;
+   dir[2] = 0x80;                                  // a DEL entry first, then the program
+   if (load >= 0) {
+      dir[32 + 2] = 0x82;
+      dir[32 + 3] = 17;                            // its first block: track 17, sector 0
+      img[16 * 21 * 256 + 2] = load & 0xFF;
+      img[16 * 21 * 256 + 3] = load >> 8;
+   }
+   put_file(path, img, sizeof img);
+}
+
+// A D81 as CP/M makes a boot disk: CP/M's directory on track 1, the 1581's autoboot file in
+// the directory (or a file of another name, or type), the boot sector on track 40, sector 5
+static void cpm_d81(const char *path, const char *autoboot, int type)
+{
+   static uint8_t img[819200];
+   memset(img, 0, sizeof img);
+   memcpy(img, "\0CPM+    SYS", 12);
+   uint8_t *dir = img + (39 * 40 + 3) * 256;      // track 40, sector 3
+   dir[1] = 0xFF;
+   dir[2] = type;
+   dir[3] = 40;
+   dir[4] = 4;
+   memcpy(dir + 5, autoboot, 16);
+   memcpy(img + (39 * 40 + 5) * 256, "CBM", 3);
+   put_file(path, img, sizeof img);
+}
+
+// The image into drive d, then the menu's runner to its end: its result
+static int run_disk(const char *path, int d, int c64)
+{
+   const char *msg;
+   int ss = -1;
+   typed[0] = 0;
+   c128_settle();
+   if (shell_mount(d, path, &msg) || runner_disk(d, c64))
+      return -2;
+   for (int i = 0; i < 4000000 && ss < 0; i++) {
+      step();
+      ss = runner_poll();
+   }
+   return ss;
+}
+
 static void runners(void)
 {
    put_file("/prg/hello.prg", prg128, sizeof prg128);
@@ -1963,6 +2016,74 @@ static void runners(void)
    check("runner_prg, no BASIC: fails after 10 s, the CPU let go", ss > 0 && now_us - t0 > 9000000 && !dma_held_v, NULL);
    const char *why;
    check("runner_crt", runner_crt("/carts/x.crt", &why) == 0 && !strcmp(crt_shown, "x.crt"), crt_shown);
+
+   // The menu's Run of a disk: what the disk holds picks the mode
+   disk_file("/prg/basic128.d64", 0, 0x1C01);
+   disk_file("/prg/boot.d64", 1, 0x0C00);
+   disk_file("/prg/game64.d64", 0, 0x0801);
+   disk_file("/prg/dual.d64", 1, 0x0801);
+   disk_file("/prg/loader.d64", 0, 0x02A7);
+   disk_file("/prg/empty.d64", 0, -1);
+   static const char game_cfg[] = "[Drive B Settings]\nDrive=Disabled\n";
+   put_file("/prg/game64.cfg", game_cfg, sizeof game_cfg - 1);
+   check("runner_disk, no disk", (shell_unmount(0), runner_disk(0, 0)) != 0 && runner_poll() < 0, NULL);
+   boots = reboots;
+   check("a disk with C128 BASIC first: RUN\"*\" in C128 mode", run_disk("/prg/basic128.d64", 0, 0) == 0 &&
+         !c128_c64 && !strcmp(typed, "@RUN\"*\"\r") && reboots == boots + 1 && !dma_held_v, typed);
+   boots = reboots;
+   check("a boot sector: the reset, nothing typed", run_disk("/prg/boot.d64", 0, 0) == 0 && !c128_c64 &&
+         !*typed && reboots == boots + 1 && !dma_held_v, typed);
+   drive_set(1, 1);
+   check("a C64 disk: C= over the reset, LOAD on the screen, Return and RUN typed", run_disk("/prg/game64.d64", 0, 0) == 0 &&
+         c128_c64 && !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r") && c128_mem[0xCE] == 12 && !(input_dev[3] & 0x2000), typed);
+   check("its .cfg loaded", !drive_is_on(1), NULL);
+   drive_set(1, 1);
+   check("a loader below $0801: C64 mode", run_disk("/prg/loader.d64", 0, 0) == 0 && c128_c64 &&
+         !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r"), typed);
+   check("no program at all: C64 mode", run_disk("/prg/empty.d64", 0, 0) == 0 && c128_c64, typed);
+   cpm_d81("/prg/cpm.d81", "COPYRIGHT CBM 86", 0x83);
+   cpm_d81("/prg/other.d81", "COPYRIGHT CBM 87", 0x83);
+   cpm_d81("/prg/seq.d81", "COPYRIGHT CBM 86", 0x81);
+   boots = reboots;
+   check("a 1581's CP/M disk, its boot sector on track 40: it boots", run_disk("/prg/cpm.d81", 0, 0) == 0 &&
+         !c128_c64 && !*typed && reboots == boots + 1, typed);
+   check("a D81 without the autoboot file: no boot sector", run_disk("/prg/other.d81", 0, 0) == 0 && c128_c64 &&
+         run_disk("/prg/seq.d81", 0, 0) == 0 && c128_c64, typed);
+   check("a boot sector and a C64 program: it boots", run_disk("/prg/dual.d64", 0, 0) == 0 && !c128_c64 && !*typed, typed);
+   check("the same in C64 mode, asked for", run_disk("/prg/dual.d64", 0, 1) == 0 && c128_c64 &&
+         !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r"), typed);
+   cbm_ignored = 1;
+   check("C= not taken: GO64 typed", run_disk("/prg/game64.d64", 0, 0) == 0 && c128_c64 &&
+         !strcmp(typed, "@GO64\rY\r@<LOAD\"*\",8,1>\rRUN\r") && !(input_dev[3] & 0x2000), typed);
+   cbm_ignored = 0;
+   drive_set(1, 1);
+   shell_unmount(0);
+   check("drive B, C128 BASIC", run_disk("/prg/basic128.d64", 1, 0) == 0 && !strcmp(typed, "@RUN\"*\",U9\r"), typed);
+   check("drive B, a boot sector: BOOT typed", run_disk("/prg/boot.d64", 1, 0) == 0 && !strcmp(typed, "@BOOT U9\r"), typed);
+   check("drive B, a C64 disk", run_disk("/prg/loader.d64", 1, 0) == 0 && !strcmp(typed, "@<LOAD\"*\",9,1>\rRUN\r"), typed);
+   stores_drive_set_id(1, 11);
+   check("device 11: RUN abbreviated to fit the keyboard buffer", run_disk("/prg/basic128.d64", 1, 0) == 0 &&
+         !strcmp(typed, "@R\xD5\"*\",U11\r"), typed);
+   check("device 11, a C64 disk", run_disk("/prg/loader.d64", 1, 0) == 0 && !strcmp(typed, "@<LOAD\"*\",11,1>\rRUN\r"), typed);
+   stores_drive_set_id(1, 9);
+   shell_unmount(1);
+   // Out of CP/M: a reset first, then as ever
+   boots = reboots;
+   z80_cpm = 1;
+   check("the Z80 runs: a reset, then the 8502's steps", run_disk("/prg/basic128.d64", 0, 0) == 0 && !z80_cpm &&
+         !strcmp(typed, "@RUN\"*\"\r") && reboots == boots + 2, typed);
+   boots = reboots;
+   z80_cpm = 1;
+   check("the Z80 runs, a boot sector: one reset", run_disk("/prg/boot.d64", 0, 0) == 0 && !z80_cpm && !*typed &&
+         reboots == boots + 1, typed);
+   boot_never = 1;
+   t0 = now_us;
+   check("no BASIC: fails after 10 s, C= let go", run_disk("/prg/game64.d64", 0, 0) > 0 && now_us - t0 > 9000000 &&
+         !dma_held_v && !(input_dev[3] & 0x2000), NULL);
+   boot_never = 0;
+   drive_set(1, 1);
+   shell_unmount(0);
+   c128_settle();
    check("runner_crt, not a .crt", runner_crt("/carts/bad.crt", &why) != 0 && !*crt_shown, crt_shown);
    check("runner_crt, no file", runner_crt("/carts/none.crt", &why) != 0, NULL);
 }

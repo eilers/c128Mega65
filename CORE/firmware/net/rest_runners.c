@@ -15,6 +15,12 @@
 // run_crt: the .crt into the virtual cartridge, as the menu's CRT: line (the cartridge's
 // source becomes the .crt, main.vhd resets the C128 into it); an upload goes straight into
 // the cartridge's memory. sidplay: no player here (501); modplay: his U2 without a sampler.
+//
+// The menu's Run of a disk (runner_disk) takes the same steps: the disk's .cfg, the reset,
+// BASIC's READY, then the keys. A boot sector: the C128's KERNAL boots it, nothing typed. A
+// first program for $1C01: RUN"*" in C128 mode. Any other disk, or when asked: C64 mode, with
+// the C= key held over the reset so that nothing boots first, then LOAD"*",8,1 on the screen
+// with Return and RUN in the keyboard buffer, as the Ultimate's boot cartridge has them.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
 #include <string.h>
@@ -22,8 +28,11 @@
 #include "c128dma.h"
 #include "config_ids.h"
 #include "core.h"
+#include "diskimg.h"
+#include "drives.h"
 #include "fmt.h"
 #include "heap.h"
+#include "input.h"
 #include "m2m_rv.h"
 #include "net.h"
 #include "rest_priv.h"
@@ -38,15 +47,17 @@
 #define POLL_MS      10
 
 enum { MODE_C128, MODE_C64 };
-enum { R_POISON, R_RESET, R_WAIT, R_NUL, R_READY, R_GO64, R_LOAD, R_POKE };
+enum { R_POISON, R_RESET, R_WAIT, R_NUL, R_READY, R_GO64, R_LOAD, R_POKE, R_DRIVE, R_Z80 };
+enum { DISK_NONE, DISK_KEYS, DISK_BOOTS };   // a disk's start: keys at READY, or the KERNAL boots it
 
 // A request's runner: what it loads, how far it is, and the pokes after the program
 typedef struct {
    int      mode, run, typed, in64, at, npokes, poke;   // in64: C64 BASIC is up
+   int      disk, screen, cbm;         // screen: poke 0 goes to the cursor's line; cbm: C= held
    uint16_t load, end;
    int      len;
    uint8_t *prg;                       // the program's bytes after its load address
-   struct { uint16_t addr; uint8_t len, d[8]; } pokes[12];
+   struct { uint16_t addr; uint8_t len, d[12]; } pokes[12];
    uint8_t  scratch[8];
 } runner_t;
 
@@ -137,7 +148,51 @@ static void prepare(rest_t *r, const char *name, int n, int run)
    }
 }
 
+// A disk in the drive of bus id: its mode, and the keys for BASIC's READY
+static void prepare_disk(rest_t *r, int id, int boot, int load, int c64)
+{
+   runner_t *u = runner_of(r);
+   char keys[16];
+   memset(u, 0, sizeof *u);
+   u->len = -1;
+   u->disk = DISK_KEYS;
+   if (c64 || (!boot && load != 0x1C01 && load != 0x4001)) {
+      u->mode = MODE_C64;
+      int n = fmt_snprintf(keys, sizeof keys, "LOAD\"*\",%d,1", id);
+      for (int i = 0; i < n; i++)
+         keys[i] &= 0x3F;                          // as screen codes
+      u->screen = 1;
+      poke(u, 0, keys, n);                         // on the cursor's line, found at READY
+      poke(u, 0x00CE, keys, 1);                    // what the cursor's blink puts back
+      poke(u, 0x0277, "\rRUN\r", 5);
+      poke(u, 0x00C6, "\x05", 1);
+      return;
+   }
+   u->mode = MODE_C128;
+   if (boot && id == 8) {
+      u->disk = DISK_BOOTS;
+      return;
+   }
+   // The keyboard buffer holds 10: RUN as R, shifted U from device 10 on
+   char n = boot ? fmt_snprintf(keys, sizeof keys, "BOOT U%d\r", id) :
+            id == 8 ? fmt_snprintf(keys, sizeof keys, "RUN\"*\"\r") :
+            fmt_snprintf(keys, sizeof keys, "%s\"*\",U%d\r", id < 10 ? "RUN" : "R\xD5", id);
+   poke(u, 0x034A, keys, n);
+   poke(u, 0x00D0, &n, 1);
+}
+
 // --- the steps ----------------------------------------------------------------------------
+
+// The C= key, held over the reset: the C128 comes up in C64 mode
+static void cbm_key(runner_t *u, int on)
+{
+   static const uint8_t key[IN_ROWS] = { [7] = 0x20 };
+   if (on)
+      input_press(IN_LIVE, key);
+   else if (u->cbm)
+      input_release(IN_LIVE, key);
+   u->cbm = on;
+}
 
 // A DMA job of the runner's: 1 once it's over; *ok whether it went through
 static int dma(rest_t *r, int *ok)
@@ -156,11 +211,22 @@ static void dma_start_soft(rest_t *r, uint16_t addr, int len, int write, uint8_t
 
 static void answer(rest_t *r, int ss)
 {
+   cbm_key(runner_of(r), 0);
    dma_keep(0);
    if (r == local)
       local_ss = ss;
    else
       subsys_response(r, ss);
+}
+
+// $0A00 and $2D cleared with the CPU held, then the reset
+static void begin(rest_t *r)
+{
+   runner_t *u = runner_of(r);
+   r->phase = R_POISON;
+   u->at = 0;
+   dma_keep(1);
+   dma_start_soft(r, 0x0A00, 1, 1, u->scratch);   // scratch is all 0 here
 }
 
 static int run_step(rest_t *r)
@@ -170,6 +236,32 @@ static int run_step(rest_t *r)
    int ok;
 
    switch (r->phase) {
+   // A 1541 or 1571 acts out a disk change after a mount, begun long before the menu has
+   // closed: the reset waits until it is over, or the KERNAL's boot finds no disk
+   case R_DRIVE:
+   case R_Z80:                                     // out of CP/M: a reset, then the 8502's turn
+      if (now - r->t0 > READY_LIMIT) {
+         answer(r, SS_NO_LOCK);
+         return 1;
+      }
+      if (r->phase == R_DRIVE) {
+         if (!drives_ready())
+            return 0;
+         if (dma_z80()) {
+            uci_reboot();
+            r->phase = R_Z80;
+            r->t0 = now;
+            return 0;
+         }
+      } else if (dma_z80())
+         return 0;
+      else if (u->disk == DISK_BOOTS) {
+         answer(r, SS_OK);
+         return 1;
+      }
+      begin(r);
+      return 0;
+
    case R_POISON:                                  // $0A00 then $002D cleared, CPU held
       if (!dma(r, &ok))
          return 0;
@@ -181,6 +273,8 @@ static int run_step(rest_t *r)
          dma_start_soft(r, 0x002D, 1, 1, u->scratch);
          return 0;
       }
+      if (u->disk && u->mode == MODE_C64)
+         cbm_key(u, 1);
       uci_reboot();                                // the hold ends with the reset
       r->phase = R_RESET;
       r->t0 = now;
@@ -198,6 +292,10 @@ static int run_step(rest_t *r)
          if (dma_held())                           // still held: the reset is yet to come
             return 0;
          dma_keep(0);
+         if (u->disk == DISK_BOOTS) {
+            answer(r, SS_OK);
+            return 1;
+         }
          r->phase = R_WAIT;
          u->at = -1;
          return 0;
@@ -235,6 +333,8 @@ static int run_step(rest_t *r)
          int c128 = u->scratch[0] == 3;
          int c64 = !memcmp(u->scratch + 1, "\x01\x08\x03\x08", 4);
          u->in64 = c64;
+         if (c64 || c128)
+            cbm_key(u, 0);
          if (u->mode == MODE_C64 && c64)
             r->phase = R_NUL;
          else if (c128 && !u->typed)
@@ -262,6 +362,8 @@ static int run_step(rest_t *r)
       r->phase = R_LOAD;
       if (u->len > 0)
          dma_start_soft(r, u->load, u->len, 1, u->prg);
+      else if (u->screen)
+         dma_start_soft(r, 0x00D1, 2, 0, u->scratch);   // PNT: the cursor's line
       else
          r->job.pos = r->job.len = 0;
       return 0;
@@ -292,6 +394,13 @@ static int run_step(rest_t *r)
          return 1;
       }
       if (r->phase == R_LOAD) {
+         if (u->screen) {
+            u->pokes[0].addr = u->scratch[0] | u->scratch[1] << 8;
+            if (u->pokes[0].addr < 0x0400 || u->pokes[0].addr > 0x07C0) {
+               answer(r, SS_NO_LOCK);              // not the screen BASIC starts with
+               return 1;
+            }
+         }
          r->phase = R_POKE;
          u->poke = 0;
       } else
@@ -308,6 +417,7 @@ static int run_step(rest_t *r)
 
 static void run_cancel(rest_t *r)
 {
+   cbm_key(runner_of(r), 0);
    job_cancel(r);
    dma_keep(0);
 }
@@ -320,11 +430,7 @@ static void start_prg(rest_t *r, const char *name, int n, int run)
       return;
    }
    prepare(r, name, n, run);
-   runner_t *u = runner_of(r);
-   r->phase = R_POISON;
-   u->at = 0;
-   dma_keep(1);
-   dma_start_soft(r, 0x0A00, 1, 1, u->scratch);   // scratch is all 0 here
+   begin(r);
    if (r == local)
       local_busy = 1;
    else
@@ -362,19 +468,27 @@ static void post_prg(rest_t *r, int run)
    start_prg(r, r->up_name, r->up_len, run);
 }
 
-// The menu's: PUT run_prg's file, stepped from the main loop
-int runner_prg(const char *card, int run)
+// The menu's request, stepped from the main loop: 0 while another one runs
+static int local_free(void)
 {
-   FIL f;
-   UINT got;
    if (local_busy)
-      return SS_NO_LOCK;
+      return 0;
    if (!local) {
       local = heap_alloc(sizeof *local);
       local->req = heap_alloc(sizeof *local->req);
       local->req->slot = HTTP_CLIENTS;
       local->up = heap_alloc(UPLOAD_MAX + 1);
    }
+   return 1;
+}
+
+// The menu's: PUT run_prg's file
+int runner_prg(const char *card, int run)
+{
+   FIL f;
+   UINT got;
+   if (!local_free())
+      return SS_NO_LOCK;
    if (f_open(&f, card, FA_READ) != FR_OK)
       return SS_CANNOT_OPEN_FILE;
    FRESULT res = f_read(&f, local->up, UPLOAD_MAX, &got);
@@ -387,12 +501,84 @@ int runner_prg(const char *card, int run)
    return local_ss;
 }
 
+// The .cfg may move the drive: the image's path is taken first, the drive's ID after
+int runner_disk(int d, int c64)
+{
+   char path[UCI_PATH_MAX];
+   int boot, load;
+   if (!local_free())
+      return SS_NO_LOCK;
+   if (!drive_mounted(d))
+      return SS_CANNOT_OPEN_FILE;
+   fmt_snprintf(path, sizeof path, "%s", drive_path(d));
+   if (diskimg_start(path, drive_image_type(d), &boot, &load))
+      return SS_CANNOT_OPEN_FILE;
+   stores_associated(path, 0);
+   prepare_disk(local, stores_drive_id(d), boot, load, c64);
+   local->phase = R_DRIVE;
+   local->t0 = net_millis();
+   local_busy = 1;
+   return SS_OK;
+}
+
 int runner_poll(void)
 {
    if (!local_busy || !run_step(local))
       return -1;
    local_busy = 0;
    return local_ss;
+}
+
+// --- for the menu: once it has closed -----------------------------------------------------
+
+int runner_pending;
+static struct { int what, d, flag; const char *card; } later;   // what: 1 a program, 2 a disk
+
+static void later_failed(int disk)
+{
+   shell_open_menu();
+   shell_message(disk ? "The disk could not be started:\nBASIC did not come up. A cartridge\n"
+                        "or another drive's boot disk may be\nin the way." :
+                 "The program could not be started:\nBASIC did not come up. A cartridge,\n"
+                 "a boot disk or CP/M may be in the way.");
+}
+
+void runner_later_prg(const char *card, int run)
+{
+   later.what = 1;
+   later.card = card;
+   later.flag = run;
+   runner_pending = 1;
+}
+
+void runner_later_disk(int d, int c64)
+{
+   later.what = 2;
+   later.d = d;
+   later.flag = c64;
+   runner_pending = 1;
+}
+
+void runner_later(void)
+{
+   static int disk;
+   if (later.what) {
+      if (!shell_closed())
+         return;
+      disk = later.what == 2;
+      later.what = 0;
+      if (disk ? runner_disk(later.d, later.flag) : runner_prg(later.card, later.flag)) {
+         runner_pending = 0;
+         later_failed(disk);
+      }
+      return;
+   }
+   int ss = runner_poll();
+   if (ss < 0)
+      return;
+   runner_pending = 0;
+   if (ss)
+      later_failed(disk);
 }
 
 static void put_load_prg(rest_t *r) { put_prg(r, 0); }

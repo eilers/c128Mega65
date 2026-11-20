@@ -67,7 +67,7 @@ static const char *const text_name[TEXTS] = { "name", "group", "handle", "event"
 
 enum { S_NONE, S_PRESETS, S_FORM, S_PICK, S_SEARCH, S_RESULTS, S_MORE, S_FILES_GET, S_FILES,
        S_ACTION, S_DOWNLOAD, S_MSG };
-enum { ACT_MOUNT_A, ACT_MOUNT_B, ACT_RUN, ACT_LOAD, ACT_CRT, ACT_SAVE };
+enum { ACT_MOUNT_A, ACT_MOUNT_B, ACT_DISK, ACT_DISK_C64, ACT_RUN, ACT_LOAD, ACT_CRT, ACT_SAVE };
 
 struct list { int n, cur, top; };
 
@@ -76,12 +76,10 @@ static int         ntok, nfields, nvalues, more;
 static int         f_cur;              // the form's line
 static struct list l_res, l_files, l_pick, l_act, *ls;
 static void      (*ls_text)(int i, char *out);
-static int         acts[4], act;       // the file's choices, and the one taken
+static int         acts[6], act;       // the file's choices, and the one taken
 static int         shown_kb, shown_bar;
 static uint32_t    dl_start;           // a download's start, ms
 static int         dl_kb, dl_rate;     // the last one's size and KB/s; 0 if nothing was fetched
-int                a64_pending;        // a program waits for the menu to close, or runs
-static int         run_how;            // 1 run, 2 load
 
 // --- the server's JSON, off jsmn's tokens -------------------------------------------------
 
@@ -584,6 +582,8 @@ static void act_text(int i, char *out)
       fmt_snprintf(out, COLS, " Mount in drive %c (%d)", acts[i] == ACT_MOUNT_A ? 'A' : 'B',
                    stores_drive_id(acts[i] == ACT_MOUNT_B));
       break;
+   case ACT_DISK: strcpy(out, " Run, from drive A"); break;
+   case ACT_DISK_C64: strcpy(out, " Run in C64 mode, from drive A"); break;
    case ACT_RUN:  strcpy(out, " Run"); break;
    case ACT_LOAD: strcpy(out, " Load, without RUN"); break;
    case ACT_CRT:  strcpy(out, " Start as cartridge"); break;
@@ -597,6 +597,8 @@ static void actions_show(void)
    int n = 0;
    if (has_ext(name, ".d64") || has_ext(name, ".d71") || has_ext(name, ".d81")) {
       acts[n++] = ACT_MOUNT_A;
+      acts[n++] = ACT_DISK;
+      acts[n++] = ACT_DISK_C64;
       if (drives_count() > 1)
          acts[n++] = ACT_MOUNT_B;
    } else if (has_ext(name, ".prg") || has_ext(name, ".p00")) {
@@ -690,9 +692,14 @@ static int use(void)
    switch (act) {
    case ACT_MOUNT_A:
    case ACT_MOUNT_B:
+   case ACT_DISK:
+   case ACT_DISK_C64:
       if (!(err = shell_mount(act == ACT_MOUNT_B, a->file, &msg))) {
          at = S_FILES;
-         return APP_MENU;                 // where the drive's line shows it
+         if (act == ACT_MOUNT_A || act == ACT_MOUNT_B)
+            return APP_MENU;              // where the drive's line shows it
+         runner_later_disk(0, act == ACT_DISK_C64);
+         return APP_CLOSE;
       }
       if (!msg) {
          fmt_snprintf(a->msg, sizeof a->msg, "The disk image could not be mounted.\nError code: %04X", err);
@@ -702,8 +709,7 @@ static int use(void)
       break;
    case ACT_RUN:
    case ACT_LOAD:
-      run_how = act == ACT_RUN ? 1 : 2;
-      a64_pending = 1;                    // once the menu is closed (a64_run)
+      runner_later_prg(a->file, act == ACT_RUN);   // once the menu is closed
       at = S_FILES;
       return APP_CLOSE;
    case ACT_CRT:
@@ -950,34 +956,4 @@ int a64_key(uint32_t k)
       break;
    }
    return APP_BUSY;
-}
-
-// --- a program, once the menu is closed and the C128 runs ---------------------------------
-
-static void run_failed(void)
-{
-   shell_open_menu();
-   shell_message("The program could not be started:\nBASIC did not come up. A cartridge,\n"
-                 "a boot disk or CP/M may be in the way.");
-}
-
-void a64_run(void)
-{
-   if (run_how) {
-      if (!shell_closed())
-         return;
-      int how = run_how;
-      run_how = 0;
-      if (runner_prg(a->file, how == 1)) {
-         a64_pending = 0;
-         run_failed();
-      }
-      return;
-   }
-   int ss = runner_poll();
-   if (ss < 0)
-      return;
-   a64_pending = 0;
-   if (ss)
-      run_failed();
 }

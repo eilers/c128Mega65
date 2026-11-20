@@ -26,6 +26,7 @@
 #include "reu.h"
 #include "rompick.h"
 #include "roms.h"
+#include "runners.h"
 #include "sdcard.h"
 #include "shell.h"
 #include "stores.h"
@@ -184,8 +185,8 @@ static void poll(int n)
          stream_poll();
       if (stream_dirty)
          stream_menu_sync();
-      if (a64_pending)
-         a64_run();
+      if (runner_pending)
+         runner_later();
    }
 }
 
@@ -231,6 +232,7 @@ static void type_key(int k, int shift)
 #define K_DEL    0
 #define K_RETURN 1
 #define K_F5     6
+#define K_F7     3
 
 static void type(const char *s)
 {
@@ -1435,6 +1437,37 @@ int main(int argc, char **argv)
    check(find_row(" 8:1541 <Mount Drive>") == 3 && f_unlink("/c128/blank_01.d64") == FR_OK &&
          f_unlink("/c128/blank.d81") == FR_OK, "drive A a 1541 without a disk again, the new disks gone");
 
+   // F7 in a drive's browser: the disk mounted as Return mounts it, the menu closed, then
+   // started; F8 (Shift+F7) the same in C64 mode. No C128 answers here, so the menu opens
+   // again and says so (test_http has the runner at work).
+   put_file("/c128/run.d64", 31, 174848);
+   go_to("8:");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_RETURN);
+   dump("drive A's browser, F7's hint");
+   check(find_row("F5: New D64 disk  F7: Run  F8: as C64") == 32, "drive A's browser: the hint for F7 and F8");
+   browse_to("<Sub>");
+   type_key(K_F7, 0);
+   check(find_row("run.d64") > 0 && !drive_mounted(0) && !runner_pending, "F7 on a folder: nothing");
+   browse_to("run.d64");
+   type_key(K_F7, 0);
+   check(!(M2M_CSR & M2M_CSR_OSM) && runner_pending && !strcmp(drive_path(0), "/c128/run.d64"),
+         "F7: the disk in drive A, the menu closes first");
+   check(wait_row("The disk could not be started:") && (M2M_CSR & M2M_CSR_OSM) && !runner_pending,
+         "F7: no C128, the menu opens and says so");
+   press(M2M_KEY_SPACE);
+   check(find_row("=Disk:run.d64") > 0, "the menu as it was left: drive A's submenu, the disk on its line");
+   press(M2M_KEY_RETURN);
+   browse_to("run.d64");
+   type_key(K_F7, 1);
+   check(!(M2M_CSR & M2M_CSR_OSM) && runner_pending && !strcmp(drive_path(0), "/c128/run.d64"), "F8: the same");
+   check(wait_row("The disk could not be started:"), "F8: no C128 either");
+   press(M2M_KEY_SPACE);
+   press(M2M_KEY_RUNSTOP);
+   shell_unmount(0);
+   poll(10);
+   check(find_row(" 8:1541 <Mount Drive>") == 3 && f_unlink("/c128/run.d64") == FR_OK, "drive A without a disk again");
+
    // The CMD HD's F5: "name,MB" makes name.dhd of that size
    char hd[FF_MAX_LFN + 1];
    FILINFO hd_fi;
@@ -1896,8 +1929,9 @@ int main(int argc, char **argv)
       // A disk image: into a drive
       bins = a64_bins;
       press(M2M_KEY_RETURN);
-      check(find_row(" Mount in drive A (8)") == 1 && find_row(" Mount in drive B (9)") == 2 &&
-            find_row(" Download to the SD card only") == 3 && find_row("wedge80.d64") == 0, "A64: a disk image's choices");
+      check(find_row(" Mount in drive A (8)") == 1 && find_row(" Run, from drive A") == 2 &&
+            find_row(" Run in C64 mode, from drive A") == 3 && find_row(" Mount in drive B (9)") == 4 &&
+            find_row(" Download to the SD card only") == 5 && find_row("wedge80.d64") == 0, "A64: a disk image's choices");
       press(M2M_KEY_RETURN);
       for (int i = 0; i < 400000 && !drive_mounted(0); i++)
          poll(10);
@@ -1916,12 +1950,23 @@ int main(int argc, char **argv)
       press(M2M_KEY_RETURN);
       check(find_row(" wedge80.d64") == 1 && find_row("Connecting") < 0, "A64 again: the files, as left");
       press(M2M_KEY_RETURN);
-      press(M2M_KEY_DOWN);
-      press(M2M_KEY_DOWN);
+      cursor_to("Download");
       press(M2M_KEY_RETURN);
       check(find_row("Saved on the SD card as") > 0 && find_row("/c128/a64/Wedge _80_") > 0 && a64_bins == bins,
             "A64: download only, of a file the card has: nothing fetched");
       press(M2M_KEY_SPACE);
+
+      // Run: the disk in drive A, the menu closes, then the runner (no C128 here: it says so)
+      press(M2M_KEY_RETURN);
+      cursor_to("Run in C64 mode");
+      press(M2M_KEY_RETURN);
+      check(!(M2M_CSR & M2M_CSR_OSM) && runner_pending && drive_mounted(0) && a64_bins == bins,
+            "A64 Run of a disk: in drive A, the menu closes first");
+      check(wait_row("The disk could not be started:") && !runner_pending, "A64 Run of a disk: no C128, the menu says so");
+      press(M2M_KEY_SPACE);
+      go_to("Assembly 64");
+      press(M2M_KEY_RETURN);
+      check(find_row(" wedge80.d64") == 1 && cursor_row() == 1, "A64 again: the files, the cursor on the disk");
 
       // A program: its choices; downloaded by its name without the folder
       press(M2M_KEY_DOWN);
@@ -1939,9 +1984,9 @@ int main(int argc, char **argv)
       // (test_http has the runner at work).
       press(M2M_KEY_RETURN);
       press(M2M_KEY_RETURN);
-      check(!(M2M_CSR & M2M_CSR_OSM) && a64_pending, "A64 Run: the menu closes first");
+      check(!(M2M_CSR & M2M_CSR_OSM) && runner_pending, "A64 Run: the menu closes first");
       idle();
-      check((M2M_CSR & M2M_CSR_OSM) && find_row("The program could not be started:") > 0 && !a64_pending,
+      check((M2M_CSR & M2M_CSR_OSM) && find_row("The program could not be started:") > 0 && !runner_pending,
             "A64 Run: no BASIC, the menu opens and says so");
       press(M2M_KEY_SPACE);
       go_to("Assembly 64");

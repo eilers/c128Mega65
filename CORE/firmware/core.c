@@ -20,6 +20,7 @@
 #include "m2m_rv.h"
 #include "net/net.h"
 #include "net/netcfg.h"
+#include "net/runners.h"
 #include "net/stream.h"
 #include "reu.h"
 #include "rompick.h"
@@ -586,6 +587,19 @@ static int disk_kind(int d, const char *typed)
    return stores_drive_type(d);
 }
 
+// --- F7 and F8 in a drive's browser: the disk mounted, then started (net/rest_runners.c) ----
+
+const char *core_run_label(int ctx, int group)
+{
+   return disk_drive(ctx, group) < 0 ? NULL : "F7: Run  F8: as C64";
+}
+
+void core_file_run(int group, const char *path, int alt)
+{
+   (void)path;
+   runner_later_disk(group == OPTM_G_MOUNT_D9, alt);
+}
+
 // --- F5 in the CMD HD's browser: a new image, "name,MB" -----------------------------------
 
 #define HD_NEW_MB  256                  // the size of a new image, if the name says none
@@ -904,7 +918,7 @@ uint32_t core_menu_key(void)
 // The drives' DOS ROMs (drvrom.c), the menu's stream lines (net/stream.c), the boot
 // cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST API
 // (net/http.c), its input's timing (input.c), the FTP server (net/ftp.c), the HDMI
-// filter's coefficients (hdmi_filter.c) and a program Assembly 64's screen started
+// filter's coefficients (hdmi_filter.c) and a program or disk the menu started
 // The CMD HD: the menu's Drive enabled and Bus ID (whatever set them: the menu, a settings
 // file, REST), then its disk's commands. Without a boot ROM it is off, whatever set it.
 static void hd_poll(void)
@@ -928,6 +942,6 @@ DMEM_CODE void core_poll(void)
    http_poll();
    input_poll();
    ftp_poll();
-   if (a64_pending)
-      a64_run();
+   if (runner_pending)
+      runner_later();
 }
