@@ -656,10 +656,21 @@ signal cart_dma_data_oe     : std_logic := '0';
 signal phi2_d               : std_logic := '0';
 signal phi2_cnt             : natural range 0 to 31 := 31;
 signal phi2_ph              : natural range 0 to 31;
-signal ba_lo_cnt            : natural range 0 to 3 := 0;   -- PHI2 rises in a row with BA low
-signal cart_dma_rd_held     : std_logic := '0';   -- the cart's access in BA-low cycle 2 was a read
+signal ba_lo_cnt            : natural range 0 to 4 := 0;   -- PHI2 rises in a row with BA low; 4: the VIC's
+signal cart_dma_last_rd     : std_logic := '1';   -- the cart's last three accesses with BA high
+signal cart_dma_acc         : std_logic;          -- the cart accesses now: not idle, reading $FFFF
+signal cart_dma_last_live   : std_logic := '0';
+signal cart_dma_prev_rd     : std_logic := '1';
+signal cart_dma_prev_live   : std_logic := '0';
+signal cart_dma_prev2_rd    : std_logic := '1';
+signal cart_dma_prev2_live  : std_logic := '0';
+signal cart_dma_hold        : std_logic;          -- a BA stall now meets a held read
+signal ba_hold              : std_logic;                   -- BA low, the cart holds a read: served as one
 signal ba_warn              : std_logic;                   -- BA low, but the cart may still write
 signal ba_idle              : std_logic;                   -- BA low, and the cart leaves the bus alone
+signal ba_warn_rd           : std_logic := '0';            -- the cart didn't write in this ba_warn cycle
+signal dot_cnt              : unsigned(1 downto 0) := "00";
+signal cart_dotclk_q        : std_logic := '0';
 
 -- Hardware Expansion Port: Handle specifics of certain cartridges
 constant C_EF3_RESET_LEN : natural := 7; -- measured in phi2 cycles
@@ -1113,8 +1124,25 @@ cart_reset_n_int <= '0' when (pwrup_reset_cnt /= 0 or reset_core_int_n = '0') el
 -- cycle-gated and FAST mode adds a CPUC slot. The 8502 must own the bus, as the core's Z80 does
 -- not stop for DMA (a real C128's does, PRG p. 636).
 phi2_ph        <= 0 when core_phi2 /= phi2_d else phi2_cnt;
-ba_warn        <= '1' when core_ba = '0' and ba_lo_cnt /= 3 else '0';
-ba_idle        <= '1' when core_ba = '0' and ba_lo_cnt = 3 else '0';
+-- A 1764's MOS 8726 REC holds a read on the bus through the three BA-low cycles in which AEC is
+-- still high, as a 6510 with RDY low, and latches each before PHI2 falls; a C64's RAM answers all
+-- three (C64MEGA65 #259). That is the next read after a read, and the read after a swap's write:
+-- one after a read that follows a write or opens the transfer. After other writes (a fetch, or
+-- the Ultimate's first write after reads) or a swap's read the cart may write in the first two,
+-- as the Ultimate does, so we sense R/W there. The Ultimate idles reading $FFFF: not a read here.
+cart_dma_acc   <= cart_dma_req when cart_rw_q = '0' or cart_a_q /= x"FFFF" else '0';
+cart_dma_hold  <= cart_dma_last_live and
+                  ((cart_dma_last_rd and not (cart_dma_prev_live and not cart_dma_prev_rd)) or
+                   (not cart_dma_last_rd and cart_dma_prev_live and cart_dma_prev_rd and
+                    not (cart_dma_prev2_live and cart_dma_prev2_rd)));
+-- But a REC whose last read is that read after a swap's write latches it in the first BA-low
+-- cycle and writes in the second (VICE testprogs REU/reutiming2 f3/f4, references from a real
+-- C64), so we sense R/W in that second cycle (#9).
+ba_hold        <= '1' when core_ba = '0' and cart_dma_hold = '1' and ba_lo_cnt /= 4 and
+                           not (cart_dma_last_rd = '0' and ba_lo_cnt = 2) else '0';
+ba_warn        <= '1' when core_ba = '0' and ((cart_dma_hold = '0' and ba_lo_cnt < 3) or
+                           (cart_dma_hold = '1' and cart_dma_last_rd = '0' and ba_lo_cnt = 2)) else '0';
+ba_idle        <= '1' when core_ba = '0' and ba_hold = '0' and ba_warn = '0' else '0';
 cart_dma_req   <= exp_port_hw and not cart_dma_n_q and core_z80_n;
 
 cart_dma_proc : process (clk_main_i)
@@ -1130,26 +1158,37 @@ begin
       end if;
 
       -- BA as the cart samples it at each PHI2 rise. A VIC-II, like the core's, takes the bus in the
-      -- fourth cycle with BA low, but the Ultimate already leaves the third alone and floats R/W
-      -- there ("Patch: 2 cycles only" in its slot_timing.vhd), so the third is ba_idle too.
+      -- fourth cycle with BA low. The Ultimate already leaves the third alone and floats R/W there
+      -- ("Patch: 2 cycles only" in its slot_timing.vhd), so unless a read is held it's ba_idle.
       if core_phi2 = '1' and phi2_d = '0' then
          if core_ba = '1' then
             ba_lo_cnt <= 0;
-         elsif ba_lo_cnt /= 3 then
+         elsif ba_lo_cnt /= 4 then
             ba_lo_cnt <= ba_lo_cnt + 1;
          end if;
+         ba_warn_rd <= '0';
       end if;
 
-      -- While BA is low we hold the R/W line ourselves, so the access is latched later then.
+      -- A held read is latched as any read, its data driven early (below): a $FF from the pull-ups
+      -- fails a REC verify. While BA is low otherwise we hold the R/W line ourselves, so the
+      -- access is latched later.
       -- Any cycle without a cart access reads $FFFF, as the Ultimate does when idle.
       if core_phi2 = '1' and phi2_ph = C_DMA_ADDR then
          cart_dma_addr <= x"FFFF";
          cart_dma_rd   <= '1';
          cart_dma_live <= '0';
-         if cart_dma_req = '1' and core_ba = '1' then
+         if cart_dma_req = '1' and (core_ba = '1' or ba_hold = '1') then
             cart_dma_addr <= cart_a_q;
-            cart_dma_rd   <= cart_rw_q;
+            cart_dma_rd   <= cart_rw_q or not core_ba;
             cart_dma_live <= '1';
+         end if;
+         if core_ba = '1' then
+            cart_dma_prev2_rd   <= cart_dma_prev_rd;
+            cart_dma_prev2_live <= cart_dma_prev_live and cart_dma_req;
+            cart_dma_prev_rd   <= cart_dma_last_rd;
+            cart_dma_prev_live <= cart_dma_last_live and cart_dma_req;
+            cart_dma_last_rd   <= cart_rw_q;
+            cart_dma_last_live <= cart_dma_acc;
          end if;
       end if;
       if core_phi2 = '1' and phi2_ph = C_DMA_DATA then
@@ -1159,19 +1198,7 @@ begin
             cart_dma_rd   <= cart_rw_q;
             cart_dma_live <= '1';
          end if;
-         -- A 1764's MOS 8726 REC holds a read through all three BA-low cycles, as a 6510 with RDY
-         -- low, and latches each; AEC is still high in the third, so a C64's RAM answers it. We
-         -- drive R/W there and can't sense it, but the REC's read is the one it held in the second
-         -- (C64MEGA65 #259: a $FF there fails every verify a stall interrupts).
-         if cart_dma_req = '1' and ba_idle = '1' and cart_dma_rd_held = '1' then
-            cart_dma_addr <= cart_a_q;
-            cart_dma_rd   <= '1';
-            cart_dma_live <= '1';
-         end if;
-         cart_dma_rd_held <= '0';
-         if cart_dma_req = '1' and ba_warn = '1' and ba_lo_cnt = 2 and cart_rw_q = '1' then
-            cart_dma_rd_held <= '1';
-         end if;
+         ba_warn_rd <= ba_warn and cart_rw_q;
       end if;
 
       -- Hand the DMA port back to the REU at the next PHI2 rise, after the core has dropped DMA
@@ -1183,26 +1210,51 @@ begin
 
       -- Level shifter directions while the cart has the bus, for the next clock. BA shares one
       -- with R/W, so we drive BA (and R/W high) only in PHI1, at the PHI2 rise when the cart
-      -- samples it, past the Ultimate's read gate while BA is low, and in ba_idle cycles.
-      -- While BA is low, that overlaps an Ultimate write's R/W by ~130 ns.
+      -- samples it, past the Ultimate's read gate while BA is low, and in ba_hold and ba_idle
+      -- cycles, so BA can't float up there. While BA is low, that overlaps an Ultimate write's
+      -- R/W by ~130 ns. In ba_warn BA is let go only while we sense R/W: unless the cart writes,
+      -- we drive it again from C_DMA_DATA. A 1764 whose transfer starts as BA falls goes wrong
+      -- when BA floats up (#9).
       cart_dma_ctrl_oe <= '0';
-      if ba_idle = '1' or
+      if ba_hold = '1' or ba_idle = '1' or ba_warn_rd = '1' or
+         (core_phi2 = '1' and phi2_ph = C_DMA_DATA and ba_warn = '1' and cart_rw_q = '1') or
          (core_phi2 = '0' and phi2_ph >= C_CTRL_TURN - 1) or
          (core_phi2 = '1' and phi2_ph < C_BA_HOLD - 1) or
          (core_phi2 = '1' and ba_warn = '1' and phi2_ph < C_BA_HOLD_W - 1) then
          cart_dma_ctrl_oe <= '1';
       end if;
 
-      -- Read data from the latch until just past the PHI2 fall. ROML/ROMH reads are a cart's: by
-      -- the core's decode, which outlasts the AEC-gated selects while the cart lets go.
+      -- Read data from the latch until just past the PHI2 fall, and all through a held read, as
+      -- C64MEGA65 does: the RAM has the address from EXT4, so the byte is there early in PHI2.
+      -- ROML/ROMH reads are a cart's: by the core's decode, which outlasts the AEC-gated selects
+      -- while the cart lets go. Ahead of the cycle in which a swap may write (ba_warn above), the
+      -- held read lets go as a plain one, so the cart's write data has the bus from PHI1 on.
       cart_dma_data_oe <= '0';
       if cart_dma = '1' and cart_dma_live = '1' and cart_dma_rd = '1' and
          core_roml = '0' and core_romh = '0' and core_umax_romh = '0' and
-         ((core_phi2 = '1' and phi2_ph > C_DMA_ADDR) or (core_phi2 = '0' and phi2_ph < C_DATA_HOLD - 1)) then
+         ((ba_hold = '1' and not (cart_dma_last_rd = '0' and ba_lo_cnt = 1 and
+                                  (core_phi2 = '0' or phi2_d = '0'))) or
+          (core_phi2 = '1' and phi2_ph > C_DMA_ADDR) or (core_phi2 = '0' and phi2_ph < C_DATA_HOLD - 1)) then
          cart_dma_data_oe <= '1';
       end if;
    end if;
 end process cart_dma_proc;
+
+-- DOTCLK as a real C64's: a square wave, four periods to a PHI2 half, each PHI2 edge one tick
+-- after a rising edge. The 8726 times its DRAM from it (C64MEGA65 A23); the pixel enable is a
+-- one-tick pulse. Free-running, so it doesn't stop in reset or pause.
+cart_dotclk_proc : process (clk_main_i)
+   variable v_cnt : unsigned(1 downto 0);
+begin
+   if rising_edge(clk_main_i) then
+      v_cnt := dot_cnt + 1;
+      if core_phi2 /= phi2_d then
+         v_cnt := "00";
+      end if;
+      dot_cnt       <= v_cnt;
+      cart_dotclk_q <= v_cnt(1);
+   end if;
+end process cart_dotclk_proc;
 
 -- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits; the system
 -- CPU's DMA waits for both. When only the virtual cartridge's cache stalls the CPU, the DMA
@@ -1291,7 +1343,7 @@ begin
       cart_io2_o      <= cart_io2_n;
       cart_rw_o       <= not system_we;
       cart_phi2_o     <= core_phi2;
-      cart_dotclock_o <= vic_pixel_ce;
+      cart_dotclock_o <= cart_dotclk_q;
       -- The VIC's BA, as C64MEGA65 V6 does
       cart_ba_o       <= core_ba;
 
