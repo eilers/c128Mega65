@@ -21,6 +21,11 @@ The disk decides. C64 mode only when nothing on it says C128:
 | A first program that loads at `$1C01` (C128 BASIC; also `$4001`) | C128 mode, `RUN"*"` |
 | Anything else | C64 mode, `LOAD"*",8,1` and `RUN`, as the Ultimate's Run Disk |
 
+A 1581's CP/M disk has no boot sector on track 1: CP/M's directory is there. It has the
+1581's autoboot file (`COPYRIGHT CBM 86`, type USR), code for the drive that hands the C128
+track 40, sector 5 when it asks for the boot sector. An image with that file and `CBM` in
+that sector counts as one with a boot sector.
+
 F8 is for a disk that carries both: a boot sector for the C128 and a C64 program first
 (Zork I). It goes to C64 mode whatever the disk holds.
 

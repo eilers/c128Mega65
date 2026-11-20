@@ -1829,6 +1829,23 @@ static void disk_file(const char *path, int boot, int load)
    put_file(path, img, sizeof img);
 }
 
+// A D81 as CP/M makes a boot disk: CP/M's directory on track 1, the 1581's autoboot file in
+// the directory (or a file of another name, or type), the boot sector on track 40, sector 5
+static void cpm_d81(const char *path, const char *autoboot, int type)
+{
+   static uint8_t img[819200];
+   memset(img, 0, sizeof img);
+   memcpy(img, "\0CPM+    SYS", 12);
+   uint8_t *dir = img + (39 * 40 + 3) * 256;      // track 40, sector 3
+   dir[1] = 0xFF;
+   dir[2] = type;
+   dir[3] = 40;
+   dir[4] = 4;
+   memcpy(dir + 5, autoboot, 16);
+   memcpy(img + (39 * 40 + 5) * 256, "CBM", 3);
+   put_file(path, img, sizeof img);
+}
+
 // The image into drive d, then the menu's runner to its end: its result
 static int run_disk(const char *path, int d, int c64)
 {
@@ -2024,6 +2041,14 @@ static void runners(void)
    check("a loader below $0801: C64 mode", run_disk("/prg/loader.d64", 0, 0) == 0 && c128_c64 &&
          !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r"), typed);
    check("no program at all: C64 mode", run_disk("/prg/empty.d64", 0, 0) == 0 && c128_c64, typed);
+   cpm_d81("/prg/cpm.d81", "COPYRIGHT CBM 86", 0x83);
+   cpm_d81("/prg/other.d81", "COPYRIGHT CBM 87", 0x83);
+   cpm_d81("/prg/seq.d81", "COPYRIGHT CBM 86", 0x81);
+   boots = reboots;
+   check("a 1581's CP/M disk, its boot sector on track 40: it boots", run_disk("/prg/cpm.d81", 0, 0) == 0 &&
+         !c128_c64 && !*typed && reboots == boots + 1, typed);
+   check("a D81 without the autoboot file: no boot sector", run_disk("/prg/other.d81", 0, 0) == 0 && c128_c64 &&
+         run_disk("/prg/seq.d81", 0, 0) == 0 && c128_c64, typed);
    check("a boot sector and a C64 program: it boots", run_disk("/prg/dual.d64", 0, 0) == 0 && !c128_c64 && !*typed, typed);
    check("the same in C64 mode, asked for", run_disk("/prg/dual.d64", 0, 1) == 0 && c128_c64 &&
          !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r"), typed);

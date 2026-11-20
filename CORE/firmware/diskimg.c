@@ -247,6 +247,7 @@ int diskimg_start(const char *path, int kind, int *boot, int *load)
    uint8_t b[256];
    FIL f;
    int t = kind == DISK_D81 ? 40 : 18, s = kind == DISK_D81 ? 3 : 1;
+   int pt = 0, ps = 0, autoboot = 0;
    *boot = 0;
    *load = -1;
    if (f_open(&f, path, FA_READ) != FR_OK)
@@ -256,18 +257,25 @@ int diskimg_start(const char *path, int kind, int *boot, int *load)
       return -1;
    }
    *boot = !memcmp(b, "CBM", 3);
-   // The first program of the directory, as LOAD"*" takes it: its first block has the address
-   for (int left = 80; left && t && *load < 0 && block_read(&f, kind, t, s, b); left--) {
+   // The directory: its first program, as LOAD"*" takes it, and a 1581's autoboot file
+   for (int left = 80; left && t && block_read(&f, kind, t, s, b); left--) {
       t = b[0];
       s = b[1];
-      for (int e = 0; e < 256; e += 32)
-         if ((b[e + 2] & 0x87) == 0x82 && b[e + 3]) {
-            if (block_read(&f, kind, b[e + 3], b[e + 4], b))
-               *load = b[2] | b[3] << 8;
-            t = 0;
-            break;
+      for (int e = 0; e < 256; e += 32) {
+         if (!pt && (b[e + 2] & 0x87) == 0x82 && b[e + 3]) {
+            pt = b[e + 3];
+            ps = b[e + 4];
          }
+         if (b[e + 2] == 0x83 && !memcmp(b + e + 5, "COPYRIGHT CBM 86", 16))
+            autoboot = 1;
+      }
    }
+   if (pt && block_read(&f, kind, pt, ps, b))
+      *load = b[2] | b[3] << 8;                 // the program's first block has the address
+   // A 1581's CP/M disk has CP/M's directory on track 1. Its autoboot file is code for the
+   // drive, which hands the C128 track 40, sector 5 when it asks for the boot sector.
+   if (kind == DISK_D81 && autoboot && block_read(&f, kind, 40, 5, b) && !memcmp(b, "CBM", 3))
+      *boot = 1;
    f_close(&f);
    return 0;
 }

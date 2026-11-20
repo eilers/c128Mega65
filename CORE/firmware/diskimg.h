@@ -23,6 +23,6 @@ void    diskimg_expand(FIL *f, uint32_t bytes);
 // A whole new image at path, at once; never over another file (FR_EXIST), none left on an error
 FRESULT diskimg_create(const char *path, int kind, const char *name);
 // What starts the disk in the image at path: *boot, a C128 boot sector ("CBM" at track 1,
-// sector 0), and *load, where its first program loads (-1 without one). 0, or -1 if the image
-// can't be read.
+// sector 0, or where a 1581's CP/M disk has it), and *load, where its first program loads
+// (-1 without one). 0, or -1 if the image can't be read.
 int     diskimg_start(const char *path, int kind, int *boot, int *load);
