@@ -190,6 +190,8 @@ port (
    main_pot1_y_o           : out   std_logic_vector(7 downto 0);
    main_pot2_x_o           : out   std_logic_vector(7 downto 0);
    main_pot2_y_o           : out   std_logic_vector(7 downto 0);
+   main_mouse_amiga_i      : in    std_logic_vector(1 downto 0);   -- '1': Amiga mouse; 0 = port 1, 1 = port 2
+   main_mouse_rclick_i     : in    std_logic_vector(1 downto 0);   -- '1': MEGA+left = right; 0 = port 1, 1 = port 2
    main_rtc_o              : out   std_logic_vector(64 downto 0);
 
 
@@ -416,9 +418,14 @@ signal qnice_pot1_y_n         : unsigned(7 downto 0);
 signal qnice_pot2_x_n         : unsigned(7 downto 0);
 signal qnice_pot2_y_n         : unsigned(7 downto 0);
 
--- Joystick directions after the Amiga mouse detector (up, down, left, right; low active)
-signal qnice_joy1_dir_n       : std_logic_vector(3 downto 0);
-signal qnice_joy2_dir_n       : std_logic_vector(3 downto 0);
+-- The paddle values in the core's clock domain, ahead of the Amiga mice (debouncer.vhd)
+signal main_pot1_x_n          : std_logic_vector(7 downto 0);
+signal main_pot1_y_n          : std_logic_vector(7 downto 0);
+signal main_pot2_x_n          : std_logic_vector(7 downto 0);
+signal main_pot2_y_n          : std_logic_vector(7 downto 0);
+
+-- MEGA key (low active), for an Amiga mouse's right click
+signal main_mega_key_n        : std_logic;
 
 signal qnice_avm_write         : std_logic;
 signal qnice_avm_read          : std_logic;
@@ -594,11 +601,10 @@ begin
          joy_1_on             => main_csr_joy1_on,
          joy_2_on             => main_csr_joy2_on,
 
-         -- Directions come through the Amiga mouse detector (qnice_wrapper)
-         joy_1_up_n           => qnice_joy1_dir_n(0),
-         joy_1_down_n         => qnice_joy1_dir_n(1),
-         joy_1_left_n         => qnice_joy1_dir_n(2),
-         joy_1_right_n        => qnice_joy1_dir_n(3),
+         joy_1_up_n           => joy_1_up_n_i,
+         joy_1_down_n         => joy_1_down_n_i,
+         joy_1_left_n         => joy_1_left_n_i,
+         joy_1_right_n        => joy_1_right_n_i,
          joy_1_fire_n         => joy_1_fire_n_i,
 
          dbnce_joy1_up_n      => main_joy1_up_n_o,
@@ -607,17 +613,31 @@ begin
          dbnce_joy1_right_n   => main_joy1_right_n_o,
          dbnce_joy1_fire_n    => main_joy1_fire_n_o,
 
-         joy_2_up_n           => qnice_joy2_dir_n(0),
-         joy_2_down_n         => qnice_joy2_dir_n(1),
-         joy_2_left_n         => qnice_joy2_dir_n(2),
-         joy_2_right_n        => qnice_joy2_dir_n(3),
+         joy_2_up_n           => joy_2_up_n_i,
+         joy_2_down_n         => joy_2_down_n_i,
+         joy_2_left_n         => joy_2_left_n_i,
+         joy_2_right_n        => joy_2_right_n_i,
          joy_2_fire_n         => joy_2_fire_n_i,
 
          dbnce_joy2_up_n      => main_joy2_up_n_o,
          dbnce_joy2_down_n    => main_joy2_down_n_o,
          dbnce_joy2_left_n    => main_joy2_left_n_o,
          dbnce_joy2_right_n   => main_joy2_right_n_o,
-         dbnce_joy2_fire_n    => main_joy2_fire_n_o
+         dbnce_joy2_fire_n    => main_joy2_fire_n_o,
+
+         -- Amiga mice, as C64MEGA65's (#190): the menu's settings per MEGA65 port
+         amiga_i              => main_mouse_amiga_i,
+         amiga_rclick_i       => main_mouse_rclick_i,
+         mega_key_n_i         => main_mega_key_n,
+
+         pot1_x_i             => main_pot1_x_n,
+         pot1_y_i             => main_pot1_y_n,
+         pot2_x_i             => main_pot2_x_n,
+         pot2_y_i             => main_pot2_y_n,
+         pot1_x_o             => main_pot1_x_o,
+         pot1_y_o             => main_pot1_y_o,
+         pot2_x_o             => main_pot2_x_o,
+         pot2_y_o             => main_pot2_y_o
       ); -- i_joy_debouncer
 
    -- Joystick outputs from the core are connected directly
@@ -659,7 +679,8 @@ begin
 
          -- interface to QNICE: used by the firmware and the Shell
          qnice_keys_n_o       => main_qnice_keys_n,
-         qnice_matrix_n_o     => main_qnice_matrix_n
+         qnice_matrix_n_o     => main_qnice_matrix_n,
+         mega_key_n_o         => main_mega_key_n
       ); -- i_m2m_keyb
 
    ---------------------------------------------------------------------------------------------------------------
@@ -697,10 +718,6 @@ begin
       sd_eng_o                  => qnice_sd_eng_o,
       paddle_i                  => paddle_i,
       paddle_drain_o            => paddle_drain_o,
-      joy1_dir_n_i              => joy_1_right_n_i & joy_1_left_n_i & joy_1_down_n_i & joy_1_up_n_i,
-      joy2_dir_n_i              => joy_2_right_n_i & joy_2_left_n_i & joy_2_down_n_i & joy_2_up_n_i,
-      joy1_dir_n_o              => qnice_joy1_dir_n,
-      joy2_dir_n_o              => qnice_joy2_dir_n,
       qnice_osm_cfg_enable_o    => qnice_osm_cfg_enable,
       qnice_osm_cfg_xy_o        => qnice_osm_cfg_xy,
       qnice_osm_cfg_dxdy_o      => qnice_osm_cfg_dxdy,
@@ -921,7 +938,8 @@ begin
          dest_out(582 downto 518)   => main_rtc_o
       ); -- i_qnice2main
 
-   -- POT values as whole bytes: bit by bit, a mouse step could tear (the SID reads them live)
+   -- POT values as whole bytes: bit by bit, a value could tear (the SID reads them live). They go
+   -- on through the debouncer, where an Amiga mouse's position replaces its port's
    i_pots2main: entity work.cdc_stable
       generic map (
          G_REGISTER_SRC => true,
@@ -934,10 +952,10 @@ begin
          src_data_i(23 downto 16) => std_logic_vector(qnice_pot2_x_n),
          src_data_i(31 downto 24) => std_logic_vector(qnice_pot2_y_n),
          dst_clk_i                => main_clk_i,
-         dst_data_o( 7 downto  0) => main_pot1_x_o,
-         dst_data_o(15 downto  8) => main_pot1_y_o,
-         dst_data_o(23 downto 16) => main_pot2_x_o,
-         dst_data_o(31 downto 24) => main_pot2_y_o
+         dst_data_o( 7 downto  0) => main_pot1_x_n,
+         dst_data_o(15 downto  8) => main_pot1_y_n,
+         dst_data_o(23 downto 16) => main_pot2_x_n,
+         dst_data_o(31 downto 24) => main_pot2_y_n
       ); -- i_pots2main
 
    -- The system CPU's HyperRAM port is on hr_clk already. It yields to the HDMI scaler: in

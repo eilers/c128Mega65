@@ -310,8 +310,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65 (Ultimate 64 compatible)\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"113\",\n" \
-                  "  \"core_version\" : \"1.13\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"114\",\n" \
+                  "  \"core_version\" : \"1.14\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -1098,6 +1098,7 @@ static void configs(void)
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
          "HDMI Flicker-free=Disabled\nHDMI Filter=Sharp Bilinear\nVGA Display Mode=Standard\n"
          "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n256 KB RAM=Disabled\n"
+         "Port 1 Mouse=1351\nPort 1 MEGA+Left as Right=Disabled\nPort 2 Mouse=1351\nPort 2 MEGA+Left as Right=Disabled\n"
          "[CMD HD Settings]\nDrive=Enabled\nDrive Bus ID=12\nDisk Image=\nBoot ROM=\n"), cfg);
    check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
