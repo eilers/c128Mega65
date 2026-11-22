@@ -72,6 +72,11 @@ foreach required_file [list \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_drv.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_fdc1772.v"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/floppy.v"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_i8255.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_rtc.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_scsi.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_drive.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd.vhd"] \
 ] {
     if {[llength [get_files -quiet $required_file]] == 0} {
         puts "Adding missing source file: $required_file"
