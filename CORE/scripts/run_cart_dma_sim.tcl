@@ -158,7 +158,7 @@ set sim_dir [file join \
     [file dirname [file normalize $project_file]] \
     "[file rootname [file tail $project_file]].sim" sim_1 behav xsim]
 
-run 80ms
+run 200ms
 close_sim -force
 
 set gate_ok 0

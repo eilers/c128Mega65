@@ -60,9 +60,14 @@
   high while it shows the cartridge BA: in PHI1, and while BA is low, until ~190 ns
   into PHI2. An Ultimate II+ DMA write while BA is low fights it for ~130 ns, and a
   cartridge that drives R/W low in PHI1 fights it there.
-* A DMA cartridge gets only the first two cycles after BA falls, as the Ultimate II+
-  uses them. A VIC-II leaves the CPU three, but the core ignores a cartridge's access
-  in the third and drives R/W high through it.
+* The core can't sense R/W while it drives BA, so it guesses a cartridge's access in
+  the three cycles after BA falls from its last three, as C64MEGA65 does from two.
+  After a read it serves all three as reads and drives BA and R/W through the stall,
+  as a 1764's REC needs. After a swap's write (R W R W) it does the same but senses
+  R/W in the second cycle, where the REC writes a swap's last byte. After other
+  writes it senses R/W in the first two, as the Ultimate II+ uses them, and ignores
+  the third. A cartridge that switches from reading to writing just as BA falls
+  loses that write.
 
 # Planned
 
