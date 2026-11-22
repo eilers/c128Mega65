@@ -362,6 +362,8 @@ architecture synthesis of mega65_r6 is
    signal main_pot1_y            : std_logic_vector(7 downto 0);
    signal main_pot2_x            : std_logic_vector(7 downto 0);
    signal main_pot2_y            : std_logic_vector(7 downto 0);
+   signal main_mouse_amiga       : std_logic_vector(1 downto 0);   -- the Mouse submenu, per MEGA65 port
+   signal main_mouse_rclick      : std_logic_vector(1 downto 0);
    signal main_rtc               : std_logic_vector(64 downto 0);
 
    signal iec_clk_en             : std_logic;
@@ -778,6 +780,8 @@ begin
       main_pot2_x_o           => main_pot2_x,
       main_pot2_y_o           => main_pot2_y,
       main_rtc_o              => main_rtc,
+      main_mouse_amiga_i      => main_mouse_amiga,
+      main_mouse_rclick_i     => main_mouse_rclick,
 
       -- Provide HyperRAM to core (in HyperRAM clock domain)
       hr_clk_o                => hr_clk,
@@ -1010,6 +1014,8 @@ begin
          main_pot2_x_i           => main_pot2_x,
          main_pot2_y_i           => main_pot2_y,
          main_rtc_i              => main_rtc,
+         main_mouse_amiga_o      => main_mouse_amiga,
+         main_mouse_rclick_o     => main_mouse_rclick,
 
          --------------------------------------------------------------------------------------------------------
          -- Provide support for external memory (Avalon Memory Map)

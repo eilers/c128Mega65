@@ -277,19 +277,19 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 218; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 230; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 30 rows, the HDMI submenu 25 and the
+-- tallest page. The main menu is the tallest at 31 rows, the HDMI submenu 25 and the
 -- drive submenus 23 (headline through Back to main menu; the "%s" opener is hidden
 -- inside the submenu); they leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 30;
+constant OPTM_DY           : natural := 31;
 
 -- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_16M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
@@ -439,6 +439,18 @@ constant OPTM_ITEMS_ALL    : string :=
    "\n"                     &
    " Use IEC port\n"        &    -- default off: only the virtual drives are on the bus
    " Swap joystick ports\n" &    -- default off: port 1's joystick is the C128's port 2 and back
+   " Mouse\n"               &    -- Mouse submenu, as C64MEGA65's (#190); Port 1 and 2 are the
+   " Mouse\n"               &    -- MEGA65's sockets, whatever Swap joystick ports says
+   "\n"                     &
+   " Port 1: 1351\n"        &    -- default: the port as it is (1351, joystick, paddles)
+   " Port 1: Amiga\n"       &
+   " #1: MEGA+left = right\n" &  -- default off: MEGA + left button is the right button
+   "\n"                     &
+   " Port 2: 1351\n"        &
+   " Port 2: Amiga\n"       &
+   " #2: MEGA+left = right\n" &
+   "\n"                     &
+   " Back to main menu\n"   &
    " REU: %s\n"           &    -- REU submenu; %s is the size or Off
    " RAM Expansion Unit\n"  &
    "\n"                     &
@@ -591,6 +603,10 @@ constant OPTM_G_ROM_HD     : integer := 58;   -- its Boot ROM:%s
 constant OPTM_G_HD_CONFIG  : integer := 59;   -- a reset with WRITE PROTECT held (core.c turns it off)
 constant OPTM_G_HD_INSTALL : integer := 60;   -- a reset with SWAP 8 and SWAP 9 held
 constant OPTM_G_A64        : integer := 61;   -- Assembly 64: a screen of the firmware's, never marked
+constant OPTM_G_MOUSE_P1   : integer := 62;   -- the MEGA65's port 1: 1351 (as it is) or Amiga mouse
+constant OPTM_G_MOUSE_P1_RC: integer := 63;   -- port 1's Amiga mouse: MEGA + left button = right button
+constant OPTM_G_MOUSE_P2   : integer := 64;   -- port 2's
+constant OPTM_G_MOUSE_P2_RC: integer := 65;
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -742,6 +758,18 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- Use IEC port (default off)
                                              OPTM_G_JOY_SWAP + OPTM_G_SINGLESEL,                  -- Swap joystick ports (default off)
+                                             OPTM_G_SUBMENU,                                      -- Mouse submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Mouse
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_MOUSE_P1 + OPTM_G_STDSEL,                     -- Port 1: 1351
+                                             OPTM_G_MOUSE_P1,                                     -- Port 1: Amiga
+                                             OPTM_G_MOUSE_P1_RC + OPTM_G_SINGLESEL,               -- #1: MEGA+left = right (default off)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_MOUSE_P2 + OPTM_G_STDSEL,                     -- Port 2: 1351
+                                             OPTM_G_MOUSE_P2,                                     -- Port 2: Amiga
+                                             OPTM_G_MOUSE_P2_RC + OPTM_G_SINGLESEL,               -- #2: MEGA+left = right (default off)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- REU submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- RAM Expansion Unit
                                              OPTM_G_LINE,                                         -- Line

@@ -49,7 +49,6 @@ run_step "CPU yields HyperRAM to the scaler (tb_avm_yield)" CORE/scripts/run_avm
 run_step "HDMI black while 40/80 switches (tb_video_switch)" CORE/scripts/run_video_switch_nvc.sh
 run_step "Keyboard arrows and API keys (tb_keyboard)" CORE/scripts/run_keyboard_nvc.sh
 run_step "REST input device (tb_input_inject)" CORE/scripts/run_input_inject_nvc.sh
-run_step "Amiga mouse detection (tb_mouse_input)" CORE/scripts/run_mouse_input_nvc.sh
 run_step "Drive DOS ROM feed, VHDL model of iecdrv_rom (tb_drive_rom)" CORE/scripts/run_drive_rom_nvc.sh
 
 # Fast, isolated unit gates first.

@@ -794,6 +794,9 @@ static void check_stores(void)
          const char *l = menu.line[i];
          while (*l == ' ')
             l++;
+         const char *word = strstr(l, ": ");   // "Port 1: Amiga": the key says Port 1
+         if (word)
+            l = word + 2;
          if ((it->store == ST_MEGA65 || it->store == ST_U64) && !on_off_line(it) &&
              (n >= item_choices(it) || strcmp(l, it->choices[n])))
             words = 0;
@@ -923,7 +926,7 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    dump("menu");
    check(M2M_CSR & M2M_CSR_OSM, "Help opens the menu");
-   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 32), "menu window 25x32 at 20,0");
+   check(M2M_OSM_XY == (20u << 8) && M2M_OSM_DXDY == (25u << 8 | 33), "menu window 25x33 at 20,0");
    check(!(M2M_CSR & M2M_CSR_KBD), "keyboard off while the menu is open");
    check(find_row(" Drives") == 1 && vram(M2M_DEV_VRAM_ATTR, 22, 1) == 0x0E, "headline Drives");
    check(find_row(" 8:1571 <Mount Drive>") == 3 && cursor_row() == 3, "cursor on drive A's line (the start item), its ID and model");
@@ -1062,6 +1065,37 @@ int main(int argc, char **argv)
    press(M2M_KEY_HELP);
    press(M2M_KEY_RETURN);
    check(cursor_on("Swap joystick ports") && !setting_get(item(" Swap joystick ports")), "joystick ports back");
+
+   // Mouse: C64MEGA65's submenu under Swap joystick ports, kept in MEGA65 Settings
+   check(find_row(" Mouse") == find_row(" Swap joystick ports") + 1, "Mouse: under Swap joystick ports");
+   go_to("Mouse");
+   press(M2M_KEY_RETURN);
+   dump("mouse submenu");
+   check(find_row(" Mouse") == 1 && find_row("*Port 1: 1351") > 0 && find_row("*Port 2: 1351") > 0 &&
+         find_row(" #1: MEGA+left = right") > 0 && find_row(" #2: MEGA+left = right") > 0,
+         "mouse submenu: both ports 1351, right click off");
+   go_to("Port 1: Amiga");
+   press(M2M_KEY_RETURN);
+   go_to("#1: MEGA+left = right");
+   press(M2M_KEY_RETURN);
+   check(find_row("*Port 1: Amiga") > 0 && find_row("=#1: MEGA+left = right") > 0 && find_row("*Port 2: 1351") > 0,
+         "port 1: Amiga, MEGA+left = right");
+   press(M2M_KEY_HELP);
+   idle();
+   check(setting_line("256 KB RAM=Disabled\nPort 1 Mouse=Amiga\nPort 1 MEGA+Left as Right=Enabled\n"
+                      "Port 2 Mouse=1351\nPort 2 MEGA+Left as Right=Disabled\n"), "kept: Port 1 Mouse=Amiga");
+   press(M2M_KEY_HELP);
+   if (!cursor_on("MEGA+left")) {   // the menu opens where it was left
+      go_to("Mouse");
+      press(M2M_KEY_RETURN);
+   }
+   go_to("Port 1: 1351");
+   press(M2M_KEY_RETURN);
+   go_to("#1: MEGA+left = right");
+   press(M2M_KEY_RETURN);
+   check(setting_get(item(" Port 1: 1351")) && !setting_get(item(" #1: MEGA+left = right")), "port 1 back to 1351");
+   press(M2M_KEY_RUNSTOP);
+   check(cursor_on("Mouse"), "back in the main menu on Mouse");
 
    // 256 KB RAM: the main menu's line under Keyboard, kept in MEGA65 Settings
    check(find_row(" 256 KB RAM") == find_row(" Keyboard: Stock") + 1, "256 KB RAM: under Keyboard");
@@ -1801,7 +1835,7 @@ int main(int argc, char **argv)
 
    // Load settings: .cfg files; what is right in one takes effect and is kept at once. The
    // VGA mode game.crt's .cfg set lasts until the next start: the file keeps Standard.
-   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 28, "Load settings: the main menu's last line but two");
+   check(find_row("=Load settings") < 0 && find_row(" Load settings") == 29, "Load settings: the main menu's last line but two");
    go_to("Load settings");
    press(M2M_KEY_RETURN);
    dump("Load settings browser");

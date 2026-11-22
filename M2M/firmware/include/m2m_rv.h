@@ -26,7 +26,8 @@
 // 18: the firmware feeds the drives' DOS ROMs from HyperRAM (C_DEV_DRIVE_ROM, drvrom.c); the
 //     function ROM from 0x12000
 // 19: HyperRAM map for a 2 MB REU on R3: firmware at 0x40600000, drive ROMs and REU moved
-#define M2M_RV_HW_VERSION    19u
+// 20: the Mouse submenu (Amiga mouse per port, MEGA+left = right), menu items from 135 on moved
+#define M2M_RV_HW_VERSION    20u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

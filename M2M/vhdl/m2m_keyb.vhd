@@ -50,7 +50,11 @@ entity m2m_keyb is
       -- interface to QNICE: used by the firmware and the Shell (see M2M/firmware/include/m2m_rv.h)
       qnice_keys_n_o       : out std_logic_vector(15 downto 0);
       -- every key, bit n = key_num n, low active: the firmware's text entry
-      qnice_matrix_n_o     : out std_logic_vector(79 downto 0)
+      qnice_matrix_n_o     : out std_logic_vector(79 downto 0);
+
+      -- MEGA key (key 61), low active, whatever enable_core_i says: an Amiga mouse's right click
+      -- (debouncer.vhd, as C64MEGA65's #190)
+      mega_key_n_o         : out std_logic
    );
 end m2m_keyb;
 
@@ -71,7 +75,8 @@ begin
    -- output the keyboard interface for QNICE
    qnice_keys_n_o    <= keys_n;
    qnice_matrix_n_o  <= matrix_n;
-   
+   mega_key_n_o      <= matrix_n(61);   -- taken over whenever the scan is at key 61
+
    m65driver : entity work.mega65kbd_to_matrix
    port map
    (
