@@ -51,6 +51,7 @@ static const char *const hdmi_filters[] = { "No Filter", "Sharp Bilinear", "Bicu
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
 static const char *const hd_ids[]      = { "8", "9", "10", "11", "12", NULL };   // the menu's Bus ID
+static const char *const mouse_types[] = { "1351", "Amiga", NULL };          // the Mouse submenu's
 // His U64's
 static const char *const sys_modes[]   = { "PAL", NULL };                     // System Mode
 static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };       // Joystick Swapper
@@ -134,6 +135,10 @@ const item_t stores_items[] = {
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "256 KB RAM",                 en_dis,      0, 0, 0, NULL, OPTM_G_RAM256 },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Port 1 Mouse",               mouse_types, 0, 0, 0, NULL, OPTM_G_MOUSE_P1 },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Port 1 MEGA+Left as Right",  en_dis,      0, 0, 0, NULL, OPTM_G_MOUSE_P1_RC },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Port 2 Mouse",               mouse_types, 0, 0, 0, NULL, OPTM_G_MOUSE_P2 },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Port 2 MEGA+Left as Right",  en_dis,      0, 0, 0, NULL, OPTM_G_MOUSE_P2_RC },
    // Ours: the CMD HD
    { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, OPTM_G_HD_ON },
    { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive Bus ID",               hd_ids,      0, 0, 4, NULL, OPTM_G_HD_ID },
@@ -142,7 +147,7 @@ const item_t stores_items[] = {
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
-#define ITEMS_MAX 64
+#define ITEMS_MAX 72
 _Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.group holds ITEMS_MAX items");
 
 // What a change asks for, -1 where it says nothing; strings in their own buffers. And the

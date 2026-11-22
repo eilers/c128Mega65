@@ -214,6 +214,11 @@ port (
    main_pot2_y_i           : in  std_logic_vector(7 downto 0);
    main_rtc_i              : in  std_logic_vector(64 downto 0);
 
+   -- The Mouse submenu, per MEGA65 port (0 = port 1, 1 = port 2): an Amiga mouse, and
+   -- MEGA + left button = right button
+   main_mouse_amiga_o      : out std_logic_vector(1 downto 0);
+   main_mouse_rclick_o     : out std_logic_vector(1 downto 0);
+
    -- CBM-488/IEC serial port
    iec_reset_n_o           : out std_logic;
    iec_atn_n_o             : out std_logic;
@@ -667,6 +672,11 @@ begin
    main_joy_2_left_n_o  <= '1';
    main_joy_2_right_n_o <= '1';
    main_joy_2_fire_n_o  <= '1';
+
+   main_mouse_amiga_o(0)  <= main_osm_control(C_MENU_MOUSE_P1_AMIGA);
+   main_mouse_amiga_o(1)  <= main_osm_control(C_MENU_MOUSE_P2_AMIGA);
+   main_mouse_rclick_o(0) <= main_osm_control(C_MENU_MOUSE_P1_RC);
+   main_mouse_rclick_o(1) <= main_osm_control(C_MENU_MOUSE_P2_RC);
 
   ---------------------------------------------------------------------------------------------
   -- main_clk (MiSTer core's clock)

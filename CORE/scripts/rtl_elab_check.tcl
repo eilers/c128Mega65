@@ -65,6 +65,7 @@ set required_source_files [list \
     [file join $repo_dir "CORE/vhdl/c128_dma.vhd"] \
     [file join $repo_dir "CORE/vhdl/input_inject_pkg.vhd"] \
     [file join $repo_dir "CORE/vhdl/input_inject.vhd"] \
+    [file join $repo_dir "M2M/vhdl/amiga_mouse.vhd"] \
     [file join $repo_dir "CORE/vhdl/vdc_peek.vhd"] \
     [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_i8255.vhd"] \
     [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_rtc.vhd"] \
