@@ -214,7 +214,7 @@ port (
    main_pot2_y_i           : in  std_logic_vector(7 downto 0);
    main_rtc_i              : in  std_logic_vector(64 downto 0);
 
-   -- The Mouse submenu, per MEGA65 port (0 = port 1, 1 = port 2): an Amiga mouse, and
+   -- The Amiga mouse submenu, per MEGA65 port (0 = port 1, 1 = port 2): an Amiga mouse, and
    -- MEGA + left button = right button
    main_mouse_amiga_o      : out std_logic_vector(1 downto 0);
    main_mouse_rclick_o     : out std_logic_vector(1 downto 0);
@@ -673,10 +673,11 @@ begin
    main_joy_2_right_n_o <= '1';
    main_joy_2_fire_n_o  <= '1';
 
-   main_mouse_amiga_o(0)  <= main_osm_control(C_MENU_MOUSE_P1_AMIGA);
-   main_mouse_amiga_o(1)  <= main_osm_control(C_MENU_MOUSE_P2_AMIGA);
-   main_mouse_rclick_o(0) <= main_osm_control(C_MENU_MOUSE_P1_RC);
-   main_mouse_rclick_o(1) <= main_osm_control(C_MENU_MOUSE_P2_RC);
+   -- One Amiga mouse at most (the menu's radio group); the debouncer gives the right click
+   -- to the Amiga port only
+   main_mouse_amiga_o(0)  <= main_osm_control(C_MENU_AMIGA_P1);
+   main_mouse_amiga_o(1)  <= main_osm_control(C_MENU_AMIGA_P2);
+   main_mouse_rclick_o    <= (others => main_osm_control(C_MENU_MOUSE_RC));
 
   ---------------------------------------------------------------------------------------------
   -- main_clk (MiSTer core's clock)

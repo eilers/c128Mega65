@@ -89,25 +89,24 @@ constant C_MENU_VGA_15KHZHSVS    : natural := 126; -- VGA: native 15 kHz, separa
 constant C_MENU_VGA_15KHZCS      : natural := 127; -- VGA: native 15 kHz, composite sync on pin 13
 constant C_MENU_IEC              : natural := 133; -- IEC: Use hardware port
 constant C_MENU_JOY_SWAP         : natural := 134; -- Swap joystick ports (default off)
-constant C_MENU_MOUSE_P1_AMIGA   : natural := 139; -- Mouse: port 1 is an Amiga mouse (default 1351: as it is)
-constant C_MENU_MOUSE_P1_RC      : natural := 140; -- Mouse: port 1, MEGA + left button = right button (default off)
-constant C_MENU_MOUSE_P2_AMIGA   : natural := 143; -- Mouse: port 2
-constant C_MENU_MOUSE_P2_RC      : natural := 144;
-constant C_MENU_REU_OFF          : natural := 150; -- REU: off (default)
-constant C_MENU_REU_512K         : natural := 151; -- REU: 512 KB
-constant C_MENU_REU_2M           : natural := 152; -- REU: 2 MB
-constant C_MENU_REU_16M          : natural := 153; -- REU: 16 MB, not on R3-memory builds
+constant C_MENU_AMIGA_P1         : natural := 139; -- Amiga mouse: in port 1 (default Off: both ports as they are)
+constant C_MENU_AMIGA_P2         : natural := 140; -- Amiga mouse: in port 2
+constant C_MENU_MOUSE_RC         : natural := 142; -- Amiga mouse: MEGA + left button = right button (default off)
+constant C_MENU_REU_OFF          : natural := 148; -- REU: off (default)
+constant C_MENU_REU_512K         : natural := 149; -- REU: 512 KB
+constant C_MENU_REU_2M           : natural := 150; -- REU: 2 MB
+constant C_MENU_REU_16M          : natural := 151; -- REU: 16 MB, not on R3-memory builds
 constant C_MENU_R3_DROP          : natural := 1;   -- R3-memory builds don't have it
-constant C_MENU_CART_HW          : natural := 162; -- Cartridge: hardware slot (default)
-constant C_MENU_CART_CRT         : natural := 163; -- Cartridge: virtual cartridge (.crt)
-constant C_MENU_MODEM_DE00       : natural := 173; -- Modem: SwiftLink at $DE00 (Off at 128 is the default)
-constant C_MENU_MODEM_DF00       : natural := 174; -- Modem: SwiftLink at $DF00, REU off
-constant C_MENU_MODEM_D700       : natural := 175; -- Modem: SwiftLink at $D700
-constant C_MENU_UCI              : natural := 178; -- UCI at $DF1C: Ultimate Command Interface (default off)
-constant C_MENU_KEYS_4080        : natural := 217; -- Keyboard: real Caps Lock is the 40/80 key (default)
-constant C_MENU_KEYS_ASCII       : natural := 218; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
-constant C_MENU_HELP_F13         : natural := 221; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
-constant C_MENU_RAM256           : natural := 224; -- 256 KB RAM: banks 2 and 3 (default off)
+constant C_MENU_CART_HW          : natural := 160; -- Cartridge: hardware slot (default)
+constant C_MENU_CART_CRT         : natural := 161; -- Cartridge: virtual cartridge (.crt)
+constant C_MENU_MODEM_DE00       : natural := 171; -- Modem: SwiftLink at $DE00 (Off at 128 is the default)
+constant C_MENU_MODEM_DF00       : natural := 172; -- Modem: SwiftLink at $DF00, REU off
+constant C_MENU_MODEM_D700       : natural := 173; -- Modem: SwiftLink at $D700
+constant C_MENU_UCI              : natural := 176; -- UCI at $DF1C: Ultimate Command Interface (default off)
+constant C_MENU_KEYS_4080        : natural := 215; -- Keyboard: real Caps Lock is the 40/80 key (default)
+constant C_MENU_KEYS_ASCII       : natural := 216; -- Keyboard: real Caps Lock is ASCII/DIN; F9 latches 40/80
+constant C_MENU_HELP_F13         : natural := 219; -- Keyboard: OSM trigger on F13 (Help stays C128 Help)
+constant C_MENU_RAM256           : natural := 222; -- 256 KB RAM: banks 2 and 3 (default off)
 
 ----------------------------------------------------------------------------------------------------------
 -- Video Mode
