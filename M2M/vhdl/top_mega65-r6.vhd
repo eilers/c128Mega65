@@ -362,7 +362,7 @@ architecture synthesis of mega65_r6 is
    signal main_pot1_y            : std_logic_vector(7 downto 0);
    signal main_pot2_x            : std_logic_vector(7 downto 0);
    signal main_pot2_y            : std_logic_vector(7 downto 0);
-   signal main_mouse_amiga       : std_logic_vector(1 downto 0);   -- the Mouse submenu, per MEGA65 port
+   signal main_mouse_amiga       : std_logic_vector(1 downto 0);   -- the Amiga mouse submenu, per MEGA65 port
    signal main_mouse_rclick      : std_logic_vector(1 downto 0);
    signal main_rtc               : std_logic_vector(64 downto 0);
 

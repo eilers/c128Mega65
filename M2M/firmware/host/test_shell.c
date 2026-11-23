@@ -794,9 +794,6 @@ static void check_stores(void)
          const char *l = menu.line[i];
          while (*l == ' ')
             l++;
-         const char *word = strstr(l, ": ");   // "Port 1: Amiga": the key says Port 1
-         if (word)
-            l = word + 2;
          if ((it->store == ST_MEGA65 || it->store == ST_U64) && !on_off_line(it) &&
              (n >= item_choices(it) || strcmp(l, it->choices[n])))
             words = 0;
@@ -1066,36 +1063,39 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    check(cursor_on("Swap joystick ports") && !setting_get(item(" Swap joystick ports")), "joystick ports back");
 
-   // Mouse: C64MEGA65's submenu under Swap joystick ports, kept in MEGA65 Settings
-   check(find_row(" Mouse") == find_row(" Swap joystick ports") + 1, "Mouse: under Swap joystick ports");
-   go_to("Mouse");
+   // Amiga mouse: a submenu under Swap joystick ports, one port at most, kept in MEGA65 Settings
+   check(find_row(" Amiga mouse: Off") == find_row(" Swap joystick ports") + 1, "Amiga mouse: Off, under Swap joystick ports");
+   go_to("Amiga mouse");
    press(M2M_KEY_RETURN);
-   dump("mouse submenu");
-   check(find_row(" Mouse") == 1 && find_row("*Port 1: 1351") > 0 && find_row("*Port 2: 1351") > 0 &&
-         find_row(" #1: MEGA+left = right") > 0 && find_row(" #2: MEGA+left = right") > 0,
-         "mouse submenu: both ports 1351, right click off");
-   go_to("Port 1: Amiga");
+   dump("amiga mouse submenu");
+   check(find_row(" Amiga mouse") == 1 && find_row("*Off") > 0 && find_row(" Port 1") > 0 &&
+         find_row(" Port 2") > 0 && find_row(" MEGA+left = right") > 0, "amiga mouse submenu: Off, right click off");
+   go_to("Port 2");
    press(M2M_KEY_RETURN);
-   go_to("#1: MEGA+left = right");
+   go_to("Port 1");
    press(M2M_KEY_RETURN);
-   check(find_row("*Port 1: Amiga") > 0 && find_row("=#1: MEGA+left = right") > 0 && find_row("*Port 2: 1351") > 0,
-         "port 1: Amiga, MEGA+left = right");
+   go_to("MEGA+left = right");
+   press(M2M_KEY_RETURN);
+   check(find_row("*Port 1") > 0 && find_row(" Port 2") > 0 && find_row(" Off") > 0 &&
+         setting_get(item(" Port 1")) && !setting_get(item(" Port 2")) && find_row("=MEGA+left = right") > 0,
+         "port 1 takes the Amiga mouse from port 2, MEGA+left = right");
    press(M2M_KEY_HELP);
    idle();
-   check(setting_line("256 KB RAM=Disabled\nPort 1 Mouse=Amiga\nPort 1 MEGA+Left as Right=Enabled\n"
-                      "Port 2 Mouse=1351\nPort 2 MEGA+Left as Right=Disabled\n"), "kept: Port 1 Mouse=Amiga");
+   check(setting_line("256 KB RAM=Disabled\nAmiga Mouse=Port 1\nMEGA+Left as Right=Enabled\n"),
+         "kept: Amiga Mouse=Port 1");
    press(M2M_KEY_HELP);
    if (!cursor_on("MEGA+left")) {   // the menu opens where it was left
-      go_to("Mouse");
+      go_to("Amiga mouse");
       press(M2M_KEY_RETURN);
    }
-   go_to("Port 1: 1351");
+   go_to("Off");
    press(M2M_KEY_RETURN);
-   go_to("#1: MEGA+left = right");
+   go_to("MEGA+left = right");
    press(M2M_KEY_RETURN);
-   check(setting_get(item(" Port 1: 1351")) && !setting_get(item(" #1: MEGA+left = right")), "port 1 back to 1351");
+   check(!setting_get(item(" Port 1")) && !setting_get(item(" Port 2")) && !setting_get(item(" MEGA+left = right")),
+         "Amiga mouse back to Off");
    press(M2M_KEY_RUNSTOP);
-   check(cursor_on("Mouse"), "back in the main menu on Mouse");
+   check(cursor_on("Amiga mouse: Off"), "back in the main menu on Amiga mouse: Off");
 
    // 256 KB RAM: the main menu's line under Keyboard, kept in MEGA65 Settings
    check(find_row(" 256 KB RAM") == find_row(" Keyboard: Stock") + 1, "256 KB RAM: under Keyboard");

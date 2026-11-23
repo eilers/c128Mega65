@@ -178,10 +178,9 @@ begin
       named(C_MENU_VGA_15KHZCS,   " 15 kHz with CSYNC");
       named(C_MENU_IEC,           " Use IEC port");
       named(C_MENU_JOY_SWAP,      " Swap joystick ports");
-      named(C_MENU_MOUSE_P1_AMIGA, " Port 1: Amiga");
-      named(C_MENU_MOUSE_P1_RC,   " #1: MEGA+left = right");
-      named(C_MENU_MOUSE_P2_AMIGA, " Port 2: Amiga");
-      named(C_MENU_MOUSE_P2_RC,   " #2: MEGA+left = right");
+      named(C_MENU_AMIGA_P1,      " Port 1");
+      named(C_MENU_AMIGA_P2,      " Port 2");
+      named(C_MENU_MOUSE_RC,      " MEGA+left = right");
       named(C_MENU_REU_OFF,       " Off");
       named(C_MENU_REU_512K,      " 512 KB");
       named(C_MENU_CART_HW,       " Hardware");
