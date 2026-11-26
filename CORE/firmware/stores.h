@@ -53,6 +53,12 @@ int         stores_menu_pos(int group, int n);   // a group's selected line amon
 int         stores_hdmi_50(int mode);            // Flicker-free and Raw need a 50 Hz HDMI mode
 void        stores_frame_sync_fix(void);         // with a 60 Hz mode, Frame Sync is Off
 
+// The Mouse & Paddles submenu: the Amiga mouse's port (OPTM_G_AMIGA_MOUSE) and the Atari CX30
+// paddles' (OPTM_G_ATARI), in the menu's order; each line is a mask of ports
+enum { AM_OFF, AM_PORT1, AM_PORT2, AM_COUNT };
+enum { AP_OFF, AP_PORT1, AP_PORT2, AP_BOTH, AP_COUNT };
+void        stores_ports_fix(int picked);        // no port with both; picked = the group just set
+
 enum { DM_1541, DM_1571, DM_1581, DM_INTERNAL };
 // Drive enabled: on the bus, with a disk or without (his Drive). A mount turns it on.
 int         stores_drive_on(int d);

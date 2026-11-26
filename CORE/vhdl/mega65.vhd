@@ -59,6 +59,9 @@ port (
    -- Flip joystick ports
    qnice_flip_joyports_o   : out std_logic;
 
+   -- Atari CX30 paddles (1 MOhm) per MEGA65 port: 0 = port 1, 1 = port 2
+   qnice_paddle_atari_o    : out std_logic_vector(1 downto 0);
+
    -- On-Screen-Menu selections
    qnice_osm_control_i     : in  std_logic_vector(255 downto 0);
 
@@ -1161,6 +1164,10 @@ begin
 
    -- Swap joystick ports: the framework swaps the joystick lines and the paddles
    qnice_flip_joyports_o      <= qnice_osm_control(C_MENU_JOY_SWAP);
+
+   -- Atari CX30 paddles: per MEGA65 port, whatever Swap joystick ports says
+   qnice_paddle_atari_o(0)    <= qnice_osm_control(C_MENU_ATARI_P1) or qnice_osm_control(C_MENU_ATARI_BOTH);
+   qnice_paddle_atari_o(1)    <= qnice_osm_control(C_MENU_ATARI_P2) or qnice_osm_control(C_MENU_ATARI_BOTH);
 
    ---------------------------------------------------------------------------------------------
    -- Core specific device handling (QNICE clock domain)

@@ -183,6 +183,11 @@ begin
       named(C_MENU_AMIGA_P1,      " Port 1");
       named(C_MENU_AMIGA_P2,      " Port 2");
       named(C_MENU_MOUSE_RC,      " MEGA+left = right");
+      named(C_MENU_AMIGA_P1 - 2,  " Amiga mouse");          -- the label tells the two groups apart
+      named(C_MENU_ATARI_P1 - 2,  " Atari CX30 paddles");
+      named(C_MENU_ATARI_P1,      " Port 1");
+      named(C_MENU_ATARI_P2,      " Port 2");
+      named(C_MENU_ATARI_BOTH,    " Both ports");
       named(C_MENU_REU_OFF,       " Off");
       named(C_MENU_REU_512K,      " 512 KB");
       named(C_MENU_CART_HW,       " Hardware");

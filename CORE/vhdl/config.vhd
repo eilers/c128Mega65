@@ -277,7 +277,7 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 232; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 239; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
@@ -443,14 +443,21 @@ constant OPTM_ITEMS_ALL    : string :=
    "\n"                     &
    " Use IEC port\n"        &    -- default off: only the virtual drives are on the bus
    " Swap joystick ports\n" &    -- default off: port 1's joystick is the C128's port 2 and back
-   " Amiga mouse: %s\n"     &    -- Amiga mouse submenu; %s is its port or Off. Port 1 and 2 are
-   " Amiga mouse\n"         &    -- the MEGA65's sockets, whatever Swap joystick ports says
+   " Mouse/Paddles: %s\n"   &    -- Mouse & Paddles submenu; %s is Stock or Custom (core.c). Port 1
+   " Mouse & Paddles\n"     &    -- and 2 are the MEGA65's sockets, whatever Swap joystick ports says
    "\n"                     &
+   " Amiga mouse\n"         &
    " Off\n"                 &    -- default: both ports as they are (1351, joystick, paddles)
    " Port 1\n"              &    -- one port only: GEOS reads both ports' POT lines at once, and an
    " Port 2\n"              &    -- Amiga port without a mouse is a resting 1351 that it mixes in
    "\n"                     &
    " MEGA+left = right\n"   &    -- default off: MEGA + left button is the right button
+   "\n"                     &
+   " Atari CX30 paddles\n"  &    -- 1 MOhm paddles, read at half the rate (C64MEGA65 #193)
+   " Off\n"                 &    -- default: Commodore paddles (470 kOhm)
+   " Port 1\n"              &
+   " Port 2\n"              &
+   " Both ports\n"          &
    "\n"                     &
    " Back to main menu\n"   &
    " REU: %s\n"           &    -- REU submenu; %s is the size or Off
@@ -607,6 +614,7 @@ constant OPTM_G_HD_INSTALL : integer := 60;   -- a reset with SWAP 8 and SWAP 9 
 constant OPTM_G_A64        : integer := 61;   -- Assembly 64: a screen of the firmware's, never marked
 constant OPTM_G_AMIGA_MOUSE: integer := 62;   -- the MEGA65's port with the Amiga mouse: Off, Port 1, Port 2
 constant OPTM_G_MOUSE_RC   : integer := 63;   -- the Amiga mouse: MEGA + left button = right button
+constant OPTM_G_ATARI      : integer := 64;   -- Atari CX30 paddles: Off, Port 1, Port 2, Both ports
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -762,14 +770,21 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- Use IEC port (default off)
                                              OPTM_G_JOY_SWAP + OPTM_G_SINGLESEL,                  -- Swap joystick ports (default off)
-                                             OPTM_G_SUBMENU,                                      -- Amiga mouse submenu START
-                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Amiga mouse
+                                             OPTM_G_SUBMENU,                                      -- Mouse & Paddles submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Mouse & Paddles
                                              OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Amiga mouse
                                              OPTM_G_AMIGA_MOUSE + OPTM_G_STDSEL,                  -- Off
                                              OPTM_G_AMIGA_MOUSE,                                  -- Port 1
                                              OPTM_G_AMIGA_MOUSE,                                  -- Port 2
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_MOUSE_RC + OPTM_G_SINGLESEL,                  -- MEGA+left = right (default off)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_TEXT,                                         -- Atari CX30 paddles
+                                             OPTM_G_ATARI + OPTM_G_STDSEL,                        -- Off
+                                             OPTM_G_ATARI,                                        -- Port 1
+                                             OPTM_G_ATARI,                                        -- Port 2
+                                             OPTM_G_ATARI,                                        -- Both ports
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- REU submenu START

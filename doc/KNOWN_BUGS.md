@@ -4,11 +4,15 @@
 * Mega65 Keyboard
 * Joystick ports, paddles and 1351 mice. **Swap joystick ports** in the Help menu
   (default off) swaps the two ports, paddles too.
-* Amiga mice, shown to the C128 as a 1351: pick its port in the Help menu's **Amiga mouse**
-  submenu (Port 1 and 2 are the MEGA65's sockets, whatever Swap joystick ports says). One
-  port at most: GEOS reads both ports' paddle lines at once, as on a real C128, so a second
-  Amiga port without a mouse would make the pointer jump. A passive Amiga mouse's right
-  button can't be read on the MEGA65: turn on **MEGA+left = right** and click with MEGA held.
+* Amiga mice, shown to the C128 as a 1351: pick its port in the Help menu's **Mouse &
+  Paddles** submenu (Port 1 and 2 are the MEGA65's sockets, whatever Swap joystick ports
+  says). One port at most: GEOS reads both ports' paddle lines at once, as on a real C128, so
+  a second Amiga port without a mouse would make the pointer jump. A passive Amiga mouse's
+  right button can't be read on the MEGA65: turn on **MEGA+left = right** and click with MEGA
+  held.
+* Atari CX30 paddles (1 MOhm, twice a Commodore paddle's 470 kOhm): pick their ports under
+  **Atari CX30 paddles** in the same submenu, and they span the whole range as Commodore
+  paddles do. A port has the Amiga mouse or Atari paddles, never both.
 * IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
   defaults to off, so only the virtual drives are on the bus; turn it on for real drives
   and other devices on the DIN socket.

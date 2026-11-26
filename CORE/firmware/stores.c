@@ -51,7 +51,8 @@ static const char *const hdmi_filters[] = { "No Filter", "Sharp Bilinear", "Bicu
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
 static const char *const hd_ids[]      = { "8", "9", "10", "11", "12", NULL };   // the menu's Bus ID
-static const char *const amiga_ports[] = { "Off", "Port 1", "Port 2", NULL };   // the Amiga mouse submenu's
+static const char *const amiga_ports[] = { "Off", "Port 1", "Port 2", NULL };   // the Mouse & Paddles submenu's
+static const char *const atari_ports[] = { "Off", "Port 1", "Port 2", "Both ports", NULL };
 static const char *const frame_syncs[] = { "Off", "Flicker-free", "Raw 50.1 Hz", NULL };   // FS_*
 // His U64's
 static const char *const sys_modes[]   = { "PAL", NULL };                     // System Mode
@@ -138,6 +139,7 @@ const item_t stores_items[] = {
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "256 KB RAM",                 en_dis,      0, 0, 0, NULL, OPTM_G_RAM256 },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Amiga Mouse",                amiga_ports, 0, 0, 0, NULL, OPTM_G_AMIGA_MOUSE },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "MEGA+Left as Right",         en_dis,      0, 0, 0, NULL, OPTM_G_MOUSE_RC },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Atari CX30 Paddles",         atari_ports, 0, 0, 0, NULL, OPTM_G_ATARI },
    // Ours: the CMD HD
    { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, OPTM_G_HD_ON },
    { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive Bus ID",               hd_ids,      0, 0, 4, NULL, OPTM_G_HD_ID },
@@ -331,6 +333,21 @@ void stores_frame_sync_fix(void)
 {
    if (!stores_hdmi_50(group_pos(OPTM_G_HDMI, HM_COUNT)) && group_pos(OPTM_G_FF, FS_COUNT) != FS_OFF)
       shell_force(OPTM_G_FF, FS_OFF, 1);
+}
+
+// An Amiga port's paddle lines are its mouse, so a port has the mouse or Atari paddles. Both
+// groups' lines are port masks (Off 0, Port 1 1, Port 2 2, Both ports 3). The group the menu
+// just set keeps its ports; after a settings file or REST, the mouse does.
+void stores_ports_fix(int picked)
+{
+   int amiga = group_pos(OPTM_G_AMIGA_MOUSE, AM_COUNT);
+   int atari = group_pos(OPTM_G_ATARI, AP_COUNT);
+   if (!(amiga & atari))
+      return;
+   if (picked == OPTM_G_ATARI)
+      shell_force(OPTM_G_AMIGA_MOUSE, AM_OFF, 1);
+   else
+      shell_force(OPTM_G_ATARI, atari & ~amiga, 1);
 }
 
 int item_choices(const item_t *it)
@@ -652,6 +669,7 @@ static int apply(void)
          shell_force(OPTM_G_HDMI_FILTER, HF_DEFAULT < HF_SCANLINES ? HF_DEFAULT : HF_NONE, 1);
    }
    stores_frame_sync_fix();      // after the HDMI mode and Frame Sync, whichever came
+   stores_ports_fix(0);          // after the Amiga mouse and the Atari paddles
    if (want.image >= 0) {
       reu_file_set(want.image ? want_image : NULL);
       shell_crtrom_named(OPTM_G_REU_FILE, want.image ? want_image : NULL);

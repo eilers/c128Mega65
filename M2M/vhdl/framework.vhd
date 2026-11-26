@@ -259,6 +259,7 @@ port (
    qnice_ascal_triplebuf_i : in    std_logic;
    qnice_hdmi_scanlines_i  : in    std_logic;     -- a scanline filter: scanline_fit on
    qnice_flip_joyports_i   : in    std_logic;
+   qnice_paddle_atari_i    : in    std_logic_vector(1 downto 0);   -- '1': Atari CX30 paddles; 0 = port 1, 1 = port 2
    qnice_osm_control_m_o   : out   std_logic_vector(255 downto 0);
    qnice_gp_reg_o          : out   std_logic_vector(255 downto 0);
 
@@ -740,6 +741,7 @@ begin
       qnice_ascal_polyphase_i   => qnice_ascal_polyphase_i,
       qnice_ascal_triplebuf_i   => qnice_ascal_triplebuf_i,
       qnice_flip_joyports_i     => qnice_flip_joyports_i,
+      qnice_paddle_atari_i      => qnice_paddle_atari_i,
       qnice_osm_control_m_o     => qnice_osm_control_m_o,
       qnice_gp_reg_o            => qnice_gp_reg_o,
       qnice_csr_reset_o         => qnice_csr_reset,
