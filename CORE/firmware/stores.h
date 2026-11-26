@@ -46,6 +46,13 @@ int         item_inverted(const item_t *it);  // a single-select line's item who
 enum { MS_MODE, MS_SENS, MS_ACCEL, MS_WHEEL, MS_WHEEL_DIR, MS_COUNT };
 int         stores_mouse(int k);
 
+// HDMI Frame Sync (OPTM_G_FF) and the HDMI modes (OPTM_G_HDMI), in the menu's order
+enum { FS_OFF, FS_FF, FS_RAW, FS_COUNT };
+enum { HM_720P50, HM_720P60, HM_576P43, HM_576P54, HM_640, HM_720X480, HM_800, HM_COUNT };
+int         stores_menu_pos(int group, int n);   // a group's selected line among n, or 0
+int         stores_hdmi_50(int mode);            // Flicker-free and Raw need a 50 Hz HDMI mode
+void        stores_frame_sync_fix(void);         // with a 60 Hz mode, Frame Sync is Off
+
 enum { DM_1541, DM_1571, DM_1581, DM_INTERNAL };
 // Drive enabled: on the bus, with a disk or without (his Drive). A mount turns it on.
 int         stores_drive_on(int d);

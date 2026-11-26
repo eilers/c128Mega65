@@ -28,7 +28,8 @@
 // 19: HyperRAM map for a 2 MB REU on R3: firmware at 0x40600000, drive ROMs and REU moved
 // 20: the Mouse submenu (Amiga mouse per port, MEGA+left = right), menu items from 135 on moved
 // 21: the Amiga mouse submenu (Off, Port 1, Port 2; one MEGA+left = right), items from 138 on moved
-#define M2M_RV_HW_VERSION    21u
+// 22: HDMI Frame Sync (Off, Flicker-free, Raw 50.1 Hz) in place of Flicker-free, items from 115 on moved
+#define M2M_RV_HW_VERSION    22u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32

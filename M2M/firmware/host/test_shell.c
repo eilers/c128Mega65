@@ -16,6 +16,7 @@
 #include "drives.h"
 #include "ff.h"
 #include "filters.h"
+#include "frame_sync.h"
 #include "hdmi_filter.h"
 #include "heap.h"
 #include "host_net.h"
@@ -696,6 +697,11 @@ static int lib_zero(int at, int size)
 }
 
 // The settings file holds a line
+static void quiet(const char *fmt, ...)
+{
+   (void)fmt;
+}
+
 static int setting_line(const char *line)
 {
    static char text[4096];
@@ -992,7 +998,7 @@ int main(int argc, char **argv)
          setting_line("[Drive B Settings]\nDrive=Disabled\nDrive Type=1571\nDrive Bus ID=9\n") &&
          setting_line("[U64 Specific Settings]\nSystem Mode=PAL\nHDMI Scan Resolution=720p 50 Hz 16:9\n") &&
          setting_line("Digital Video Mode=HDMI\nHDMI Scan lines=Disabled\nSerial Bus Mode=C64 <-> Internal\n") &&
-         setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Flicker-free=Disabled\n"),
+         setting_line("[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\nHDMI Frame Sync=Off\n"),
          "settings file saved");
    // The REST API's keys drive the menu as the keyboard does, and the C128 sees none of them
    shell_menu_button();
@@ -1096,6 +1102,84 @@ int main(int argc, char **argv)
          "Amiga mouse back to Off");
    press(M2M_KEY_RUNSTOP);
    check(cursor_on("Amiga mouse: Off"), "back in the main menu on Amiga mouse: Off");
+
+   // HDMI Frame Sync (frame_sync.c): Off by default; a new raw picture asks for Space and goes
+   // back after 10 s; Flicker-free and Raw only with a 50 Hz HDMI mode
+   go_to("HDMI: ");
+   press(M2M_KEY_RETURN);
+   dump("hdmi submenu");
+   check(find_row(" Frame Sync") > 0 && find_row("*Off") == find_row(" Frame Sync") + 1 &&
+         find_row(" Flicker-free") > 0 && find_row(" Raw 50.1 Hz") > 0, "HDMI submenu: Frame Sync Off");
+   go_to("Raw 50.1 Hz");
+   press(M2M_KEY_RETURN);
+   dump("raw question");
+   check(fs_asking() && find_row("Going back in 10 s") > 0 && shell_setting(OPTM_G_FF, FS_RAW),
+         "Raw: the question, Raw set");
+   press(M2M_KEY_HELP);
+   check(fs_asking() && (M2M_CSR & M2M_CSR_OSM), "Help doesn't close the menu under the question");
+   uint64_t t0 = host_time;
+   for (int i = 0; i < 5000 && fs_asking(); i++)
+      poll(100);
+   double secs = (double)(host_time - t0) / CPU_HZ;
+   check(!fs_asking() && secs >= 9.5 && secs < 10.5 && shell_setting(OPTM_G_FF, FS_OFF) && find_row("*Off") > 0,
+         "no key: back to Off after 10 s");
+   check(cursor_on("Raw 50.1 Hz"), "the cursor still on Raw");
+   press(M2M_KEY_RETURN);
+   check(fs_asking(), "Raw again: the question");
+   press(M2M_KEY_SPACE);
+   check(!fs_asking() && shell_setting(OPTM_G_FF, FS_RAW) && find_row("*Raw 50.1 Hz") > 0, "Space keeps Raw");
+   go_to("576p 50 Hz 4:3");
+   press(M2M_KEY_RETURN);
+   check(fs_asking() && shell_setting(OPTM_G_HDMI, HM_576P43), "576p under Raw: the question");
+   press(M2M_KEY_RUNSTOP);
+   check(!fs_asking() && shell_setting(OPTM_G_HDMI, HM_720P50) && shell_setting(OPTM_G_FF, FS_RAW) &&
+         find_row("*720p 50 Hz 16:9") > 0, "Run/Stop: back to 720p 50 Hz, Raw kept");
+   go_to("800x600 60 Hz");
+   press(M2M_KEY_RETURN);
+   check(!fs_asking() && shell_setting(OPTM_G_HDMI, HM_800) && shell_setting(OPTM_G_FF, FS_OFF) &&
+         find_row("*Off") > 0, "800x600: Frame Sync Off, no question");
+   go_to("Flicker-free");
+   press(M2M_KEY_RETURN);
+   check(!fs_asking() && shell_setting(OPTM_G_HDMI, HM_576P43) && shell_setting(OPTM_G_FF, FS_FF) &&
+         find_row("*576p 50 Hz 4:3") > 0, "Flicker-free with 800x600: 576p 50 Hz 4:3");
+   go_to("720p 60 Hz 16:9");
+   press(M2M_KEY_RETURN);
+   check(shell_setting(OPTM_G_FF, FS_OFF), "720p 60 Hz: Frame Sync Off");
+   go_to("Raw 50.1 Hz");
+   press(M2M_KEY_RETURN);
+   check(fs_asking() && shell_setting(OPTM_G_HDMI, HM_720P50), "Raw with 720p 60 Hz: 720p 50 Hz, the question");
+   press(M2M_KEY_RUNSTOP);
+   check(shell_setting(OPTM_G_HDMI, HM_720P60) && shell_setting(OPTM_G_FF, FS_OFF), "Run/Stop: 720p 60 Hz and Off again");
+   press(M2M_KEY_RETURN);
+   press(M2M_KEY_SPACE);
+   press(M2M_KEY_HELP);
+   idle();
+   check(setting_line("HDMI Scan Resolution=720p 50 Hz 16:9\n") && setting_line("HDMI Frame Sync=Raw 50.1 Hz\n"),
+         "kept: HDMI Frame Sync=Raw 50.1 Hz");
+   // Settings files: the old HDMI Flicker-free line, and Raw with a 60 Hz mode
+   static const struct { const char *text; int mode, fs; const char *what; } fsf[] = {
+      { "[MEGA65 Settings]\nHDMI Flicker-free= Enabled\n", HM_720P50, FS_FF, "old HDMI Flicker-free=Enabled: Flicker-free" },
+      { "[MEGA65 Settings]\nHDMI Flicker-free=Disabled\n", HM_720P50, FS_OFF, "old HDMI Flicker-free=Disabled: Off" },
+      { "[MEGA65 Settings]\nHDMI Frame Sync=Raw 50.1 Hz\n[U64 Specific Settings]\nHDMI Scan Resolution=800x600 60 Hz\n",
+        HM_800, FS_OFF, "a file with 800x600 and Raw: Off" },
+      { "[U64 Specific Settings]\nHDMI Scan Resolution=576p 50 Hz 5:4\n[MEGA65 Settings]\nHDMI Frame Sync=Raw 50.1 Hz\n",
+        HM_576P54, FS_RAW, "a file with 576p 5:4 and Raw: Raw" },
+   };
+   for (unsigned k = 0; k < sizeof fsf / sizeof fsf[0]; k++) {
+      FIL f;
+      put_text("/c128/fs.cfg", fsf[k].text);
+      stores_begin();
+      int ok = f_open(&f, "/c128/fs.cfg", FA_READ) == FR_OK && stores_read(&f, ~0u, quiet) && f_close(&f) == FR_OK;
+      stores_apply();
+      check(ok && shell_setting(OPTM_G_HDMI, fsf[k].mode) && shell_setting(OPTM_G_FF, fsf[k].fs) && !fs_asking(),
+            fsf[k].what);
+   }
+   f_unlink("/c128/fs.cfg");
+   shell_force(OPTM_G_HDMI, HM_720P50, 1);
+   shell_force(OPTM_G_FF, FS_OFF, 1);
+   press(M2M_KEY_HELP);
+   press(M2M_KEY_RUNSTOP);
+   check(cursor_on("HDMI: 720p 50 Hz 16:9") && shell_setting(OPTM_G_FF, FS_OFF), "back on the HDMI line, Frame Sync Off");
 
    // 256 KB RAM: the main menu's line under Keyboard, kept in MEGA65 Settings
    check(find_row(" 256 KB RAM") == find_row(" Keyboard: Stock") + 1, "256 KB RAM: under Keyboard");

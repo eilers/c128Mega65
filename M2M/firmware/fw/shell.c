@@ -786,6 +786,17 @@ int shell_closed(void)
    return ui == UI_CORE;
 }
 
+// The core's own screen over the open menu, as after core_app_open: core_app_key gets the
+// keys until it gives the menu back (frame_sync.c's question after a selection)
+void shell_app_start(void)
+{
+   if (ui != UI_MENU)
+      return;
+   menu.shown = 0;
+   scr_full_on();
+   ui = UI_APP;
+}
+
 void shell_message(const char *text)
 {
    char out[256];

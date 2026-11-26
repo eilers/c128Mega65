@@ -163,7 +163,9 @@ begin
       named(C_MENU_HDMI_640_60,   " 640x480 60 Hz");
       named(C_MENU_HDMI_720_5994, " 720x480 59.94 Hz");
       named(C_MENU_HDMI_800_60,   " 800x600 60 Hz");
+      named(C_MENU_HDMI_SYNC_OFF, " Off");
       named(C_MENU_HDMI_FF,       " Flicker-free");
+      named(C_MENU_HDMI_RAW,      " Raw 50.1 Hz");
       named(C_MENU_HDMI_AUDIO,    " HDMI audio");
       named(C_MENU_FLT_NONE,      " No Filter");
       named(C_MENU_FLT_SHARP,     " Sharp Bilinear");

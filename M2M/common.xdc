@@ -20,6 +20,10 @@ create_generated_clock -name audio_clk       [get_pins i_framework/i_clk_m2m/i_c
 create_generated_clock -name tmds_clk        [get_pins i_framework/i_video_out_clock/MMCM/CLKOUT0]
 create_generated_clock -name hdmi_clk        [get_pins i_framework/i_video_out_clock/MMCM/CLKOUT1]
 
+## The analysis sees hdmi_clk at the MMCM's static 74.25 MHz (13.468 ns). Raw 720p runs it at
+## 74.444 MHz (13.433 ns, 35 ps shorter); this margin covers that and the other table's jitter.
+set_clock_uncertainty -setup 0.100 [get_clocks hdmi_clk]
+
 ## The following constraints are needed by M2M/vhdl/controllers/HDMI/video_out_clock.vhd
 create_generated_clock -name div_clk -source [get_ports {clk_i}] -divide_by 2 [get_pins i_framework/i_video_out_clock/clki_div_reg/Q]
 set_case_analysis 1 [get_pins i_framework/i_video_out_clock/clk_mux_reg/Q]

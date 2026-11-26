@@ -52,6 +52,7 @@ static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
 static const char *const hd_ids[]      = { "8", "9", "10", "11", "12", NULL };   // the menu's Bus ID
 static const char *const amiga_ports[] = { "Off", "Port 1", "Port 2", NULL };   // the Amiga mouse submenu's
+static const char *const frame_syncs[] = { "Off", "Flicker-free", "Raw 50.1 Hz", NULL };   // FS_*
 // His U64's
 static const char *const sys_modes[]   = { "PAL", NULL };                     // System Mode
 static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };       // Joystick Swapper
@@ -129,7 +130,7 @@ const item_t stores_items[] = {
    // Ours: the menu's other settings, under its names
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Video Output",               video_outs,  0, 0, 0, NULL, OPTM_G_VIDEO_OUT },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VIC-II Jailbars",            jailbars,    0, 0, 0, NULL, OPTM_G_JAILBARS },
-   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Flicker-free",          en_dis,      0, 0, 0, NULL, OPTM_G_FF },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Frame Sync",            frame_syncs, 0, 0, FS_OFF, NULL, OPTM_G_FF },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "HDMI Filter",                hdmi_filters, 0, 0, HF_DEFAULT, NULL, OPTM_G_HDMI_FILTER },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "VGA Display Mode",           vga_modes,   0, 0, 0, NULL, OPTM_G_VGA_MODES },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
@@ -313,6 +314,23 @@ static int group_pos(int group, int n)
       if (shell_setting(group, i))
          return i;
    return 0;
+}
+
+int stores_menu_pos(int group, int n)
+{
+   return group_pos(group, n);
+}
+
+int stores_hdmi_50(int mode)
+{
+   return mode == HM_720P50 || mode == HM_576P43 || mode == HM_576P54;
+}
+
+// Flicker-free and Raw need a 50 Hz HDMI mode: with a 60 Hz one, Frame Sync is Off
+void stores_frame_sync_fix(void)
+{
+   if (!stores_hdmi_50(group_pos(OPTM_G_HDMI, HM_COUNT)) && group_pos(OPTM_G_FF, FS_COUNT) != FS_OFF)
+      shell_force(OPTM_G_FF, FS_OFF, 1);
 }
 
 int item_choices(const item_t *it)
@@ -633,6 +651,7 @@ static int apply(void)
       else if (!want.scan && f >= HF_SCANLINES)
          shell_force(OPTM_G_HDMI_FILTER, HF_DEFAULT < HF_SCANLINES ? HF_DEFAULT : HF_NONE, 1);
    }
+   stores_frame_sync_fix();      // after the HDMI mode and Frame Sync, whichever came
    if (want.image >= 0) {
       reu_file_set(want.image ? want_image : NULL);
       shell_crtrom_named(OPTM_G_REU_FILE, want.image ? want_image : NULL);
@@ -759,6 +778,15 @@ static int read_item(int s, char *line, int nr, void (*log)(const char *fmt, ...
    for (k = 0; k < stores_count; k++)
       if (stores_items[k].store == s && !strcasecmp(name, stores_items[k].name))
          break;
+   // Before HDMI Frame Sync the menu had a line HDMI Flicker-free: Disabled is Off, Enabled
+   // Flicker-free
+   if (k == stores_count && s == ST_MEGA65 && !strcasecmp(name, "HDMI Flicker-free")) {
+      for (k = 0; stores_items[k].group != OPTM_G_FF; k++)
+         ;
+      while (is_space(*v))
+         v++;
+      v = (char *)frame_syncs[strncasecmp(v, "Enabled", 7) ? FS_OFF : FS_FF];
+   }
    if (k == stores_count) {
       log("Line %d: Item '%s' not found in this store [%s]; ignored.\n", nr, name, names[s]);
       return 1;

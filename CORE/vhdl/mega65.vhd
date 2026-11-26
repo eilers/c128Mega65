@@ -376,7 +376,8 @@ signal video_clk_sel       : std_logic;
 -- Power-on default is the original PAL speed; the process below has no reset, so the
 -- initial value also keeps the clock mux select defined in simulation.
 signal hr_core_speed : unsigned(1 downto 0) := "00"; -- see clock.vhd for details
-signal hr_hdmi_ff          : std_logic;      -- "HDMI: Flicker-free" menu bit, synced to hr_clk
+signal main_hdmi_ff        : std_logic;      -- HDMI Frame Sync = Flicker-free, with a 50 Hz HDMI mode
+signal hr_hdmi_ff          : std_logic;      -- main_hdmi_ff, synced to hr_clk
 signal hr_video_sel_vdc    : std_logic;      -- HDMI shows the VDC, synced to hr_clk
 
 ---------------------------------------------------------------------------------------------
@@ -744,8 +745,16 @@ begin
    vga_video_rst_o <= vdc_rst when main_vga_sel_vdc = '1' else main_rst_o;
 
    ---------------------------------------------------------------------------------------------
-   -- hr_clk (HyperRAM clock): "HDMI: Flicker-free"
+   -- hr_clk (HyperRAM clock): HDMI Frame Sync = Flicker-free
    ---------------------------------------------------------------------------------------------
+
+   -- Off and Raw keep the core on its original clock. The Shell changes a radio group's bits
+   -- one at a time in rising order, so Raw -> Flicker-free passes through "both set" (Raw
+   -- wins, also in qnice_video_mode_o) and Flicker-free -> Raw through Off. The 60 Hz HDMI
+   -- modes can't be locked to the C128, so they keep the original clock too.
+   main_hdmi_ff <= main_osm_control(C_MENU_HDMI_FF) and not main_osm_control(C_MENU_HDMI_RAW) and
+                   not (main_osm_control(C_MENU_HDMI_720p_60) or main_osm_control(C_MENU_HDMI_640_60) or
+                        main_osm_control(C_MENU_HDMI_720_5994) or main_osm_control(C_MENU_HDMI_800_60));
 
    -- Clock Domain Crossing: CORE -> HyperRAM
    i_cdc_main2hr : entity work.cdc_stable
@@ -754,7 +763,7 @@ begin
       )
       port map (
          src_clk_i     => main_clk_o,
-         src_data_i(0) => main_osm_control(C_MENU_HDMI_FF),
+         src_data_i(0) => main_hdmi_ff,
          src_data_i(1) => main_video_sel_vdc,
          dst_clk_i     => hr_clk_i,
          dst_data_o(0) => hr_hdmi_ff,
@@ -1086,12 +1095,21 @@ begin
    -- The selection is independent of whether the VIC or the VDC is shown: ascal detects the
    -- incoming image geometry on its own (iauto='1'), so both sources are scaled into the very
    -- same output rectangle of the selected HDMI mode.
-   qnice_video_mode_o <= C_VIDEO_SVGA_800_60   when qnice_osm_control(C_MENU_HDMI_800_60)      = '1' else
-                         C_VIDEO_HDMI_720_5994 when qnice_osm_control(C_MENU_HDMI_720_5994)    = '1' else
-                         C_VIDEO_HDMI_640_60   when qnice_osm_control(C_MENU_HDMI_640_60)      = '1' else
-                         C_VIDEO_HDMI_5_4_50   when qnice_osm_control(C_MENU_HDMI_576p_50_5_4) = '1' else
-                         C_VIDEO_HDMI_4_3_50   when qnice_osm_control(C_MENU_HDMI_576p_50)     = '1' else
-                         C_VIDEO_HDMI_16_9_60  when qnice_osm_control(C_MENU_HDMI_720p_60)     = '1' else
+   --
+   -- HDMI Frame Sync = Raw 50.1 Hz picks a 50 Hz mode's raw twin: HDMI at the C128's own frame
+   -- rate, with the genlock (digital_pipeline.vhd). The 60 Hz modes have none; the firmware
+   -- keeps Frame Sync Off with them, and here they ignore it.
+   qnice_video_mode_o <= C_VIDEO_SVGA_800_60      when qnice_osm_control(C_MENU_HDMI_800_60)      = '1' else
+                         C_VIDEO_HDMI_720_5994    when qnice_osm_control(C_MENU_HDMI_720_5994)    = '1' else
+                         C_VIDEO_HDMI_640_60      when qnice_osm_control(C_MENU_HDMI_640_60)      = '1' else
+                         C_VIDEO_HDMI_5_4_50_RAW  when qnice_osm_control(C_MENU_HDMI_576p_50_5_4) = '1' and
+                                                       qnice_osm_control(C_MENU_HDMI_RAW)         = '1' else
+                         C_VIDEO_HDMI_5_4_50      when qnice_osm_control(C_MENU_HDMI_576p_50_5_4) = '1' else
+                         C_VIDEO_HDMI_4_3_50_RAW  when qnice_osm_control(C_MENU_HDMI_576p_50)     = '1' and
+                                                       qnice_osm_control(C_MENU_HDMI_RAW)         = '1' else
+                         C_VIDEO_HDMI_4_3_50      when qnice_osm_control(C_MENU_HDMI_576p_50)     = '1' else
+                         C_VIDEO_HDMI_16_9_60     when qnice_osm_control(C_MENU_HDMI_720p_60)     = '1' else
+                         C_VIDEO_HDMI_16_9_50_RAW when qnice_osm_control(C_MENU_HDMI_RAW)         = '1' else
                          C_VIDEO_HDMI_16_9_50;                       -- C_MENU_HDMI_720p_50
 
    -- Use On-Screen-Menu selections to configure several audio and video settings

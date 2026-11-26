@@ -4,16 +4,20 @@ use ieee.std_logic_1164.all;
 package video_modes_pkg is
 
    type video_modes_t is record
-      CLK_KHZ     : integer;                       -- Pixel clock frequency in kHz
-      CLK_SEL     : std_logic_vector(2 downto 0);  -- Pixel clock selection
-                                                   -- 000 =  25.200 MHz
-                                                   -- 001 =  27.000 MHz
-                                                   -- 010 =  74.250 MHz
-                                                   -- 011 = 148.500 MHz
-                                                   -- 100 =  25.175 MHz
-                                                   -- 101 =  27.027 MHz
-                                                   -- 110 =  74.176 MHz
-                                                   -- 111 = undefined
+      CLK_KHZ     : integer;                       -- Pixel clock frequency in kHz, also the HDMI audio CTS
+      CLK_SEL     : std_logic_vector(3 downto 0);  -- Pixel clock selection (video_out_clock.vhd)
+                                                   -- 0000 =  25.200 MHz
+                                                   -- 0001 =  27.000 MHz
+                                                   -- 0010 =  74.250 MHz
+                                                   -- 0011 = 148.500 MHz
+                                                   -- 0100 =  25.175 MHz
+                                                   -- 0101 =  27.027 MHz
+                                                   -- 0110 =  74.176 MHz
+                                                   -- 0111 =  40.000 MHz
+                                                   -- 1000 =  74.4444 MHz (720p at the C128's frame rate)
+                                                   -- 1001 =  27.0238 MHz (576p at the C128's frame rate)
+      CTS_FRAC_N  : integer;                       -- The pixel clock is CLK_KHZ + CTS_FRAC_N / CTS_FRAC_D kHz;
+      CTS_FRAC_D  : integer;                       -- that fraction of the audio packets carries CLK_KHZ + 1
       CEA_CTA_VIC : integer;                       -- CEA/CTA VIC
       ASPECT      : std_logic_vector(1 downto 0);  -- aspect ratio: 01=4:3, 10=16:9
       PIXEL_REP   : std_logic;                     -- 0=no pixel repetition; 1=pixel repetition
@@ -40,7 +44,9 @@ package video_modes_pkg is
    -- Taken from section 4.9 in the document CEA-861-D
    constant C_PAL_720_576_50 : video_modes_t := (
       CLK_KHZ     => 27000,      -- 27.000 MHz
-      CLK_SEL     => "001",
+      CLK_SEL     => "0001",
+      CTS_FRAC_N  => 0,          -- audio CTS = CLK_KHZ in every packet
+      CTS_FRAC_D  => 1,
       CEA_CTA_VIC => 17,         -- CEA/CTA VIC 17=PAL 720x576 @ 50 Hz
       ASPECT      => "01",       -- aspect ratio: 01=4:3, 10=16:9: "01" for PAL
       PIXEL_REP   => '0',        -- no pixel repetition
@@ -60,7 +66,9 @@ package video_modes_pkg is
    -- Taken from section 4.9 in the document CEA-861-D
    constant C_HDMI_576p_50 : video_modes_t := (
       CLK_KHZ     => 27000,      -- 27.000 MHz
-      CLK_SEL     => "001",
+      CLK_SEL     => "0001",
+      CTS_FRAC_N  => 0,          -- audio CTS = CLK_KHZ in every packet
+      CTS_FRAC_D  => 1,
       CEA_CTA_VIC => 17,         -- CEA/CTA VIC: 720x576p, 50 Hz, 4:3
       ASPECT      => "01",       -- apsect ratio: 01=4:3, 10=16:9
       PIXEL_REP   => '0',        -- no pixel repetition
@@ -80,7 +88,9 @@ package video_modes_pkg is
    -- Taken from section 4.7 in the document CEA-861-D
    constant C_HDMI_720p_50 : video_modes_t := (
       CLK_KHZ     => 74250,      -- 74.250 MHz
-      CLK_SEL     => "010",
+      CLK_SEL     => "0010",
+      CTS_FRAC_N  => 0,          -- audio CTS = CLK_KHZ in every packet
+      CTS_FRAC_D  => 1,
       CEA_CTA_VIC => 19,         -- CEA/CTA VIC: 1280x720p, 50 Hz, 16:9
       ASPECT      => "10",       -- apsect ratio: 01=4:3, 10=16:9
       PIXEL_REP   => '0',        -- no pixel repetition
@@ -104,7 +114,9 @@ package video_modes_pkg is
    -- HDMI 480p @ 59.94 Hz (720x480)
    constant C_HDMI_720x480p_5994 : video_modes_t := (
       CLK_KHZ     => 27000,      -- 27.000 MHz
-      CLK_SEL     => "001",
+      CLK_SEL     => "0001",
+      CTS_FRAC_N  => 0,          -- audio CTS = CLK_KHZ in every packet
+      CTS_FRAC_D  => 1,
       CEA_CTA_VIC => 2,
       ASPECT      => "01",       -- apsect ratio: 01=4:3, 10=16:9
       PIXEL_REP   => '0',        -- no pixel repetition
@@ -128,7 +140,9 @@ package video_modes_pkg is
    -- HDMI 480p @ 60 Hz (640x480)
    constant C_HDMI_640x480p_60 : video_modes_t := (
       CLK_KHZ     => 25200,      -- 25.200 MHz
-      CLK_SEL     => "000",
+      CLK_SEL     => "0000",
+      CTS_FRAC_N  => 0,          -- audio CTS = CLK_KHZ in every packet
+      CTS_FRAC_D  => 1,
       CEA_CTA_VIC => 1,
       ASPECT      => "01",       -- apsect ratio: 01=4:3, 10=16:9
       PIXEL_REP   => '0',        -- no pixel repetition
@@ -148,7 +162,9 @@ package video_modes_pkg is
    -- Taken from section 4.3 in the document CEA-861-D
    constant C_HDMI_720p_60 : video_modes_t := (
       CLK_KHZ     => 74250,      -- 74.250 MHz
-      CLK_SEL     => "010",
+      CLK_SEL     => "0010",
+      CTS_FRAC_N  => 0,          -- audio CTS = CLK_KHZ in every packet
+      CTS_FRAC_D  => 1,
       CEA_CTA_VIC => 4,          -- CEA/CTA VIC: 1280x720p, 60 Hz, 16:9
       ASPECT      => "10",       -- apsect ratio: 01=4:3, 10=16:9
       PIXEL_REP   => '0',        -- no pixel repetition
@@ -169,7 +185,9 @@ package video_modes_pkg is
    -- CAUTION: CTA/CTV VIC does not officially support SVGA 800x600; there are some monitors, where it works, though
    constant C_SVGA_800_600_60 : video_modes_t := (
       CLK_KHZ     => 40000,      -- 40.000 MHz
-      CLK_SEL     => "111",
+      CLK_SEL     => "0111",
+      CTS_FRAC_N  => 0,          -- audio CTS = CLK_KHZ in every packet
+      CTS_FRAC_D  => 1,
       CEA_CTA_VIC => 65,         -- SVGA is not an official mode; "65" taken from here: https://www.raspberrypi.org/documentation/configuration/config-txt/video.md
       ASPECT      => "01",       -- aspect ratio: 01=4:3, 10=16:9: "01" for SVGA
       PIXEL_REP   => '0',        -- no pixel repetition
@@ -181,6 +199,57 @@ package video_modes_pkg is
       V_PULSE     => 4,          -- vertical sync pulse width in rows
       V_BP        => 23,         -- vertical back porch width in rows
       V_FP        => 1,          -- vertical front porch width in rows
+      H_POL       => '1',        -- horizontal sync pulse polarity (1 = positive, 0 = negative)
+      V_POL       => '1'         -- vertical sync pulse polarity (1 = positive, 0 = negative)
+   );
+
+   --------------------------------------------------------
+   -- Raw modes: HDMI at the C128's own frame rate (HDMI Frame Sync = Raw 50.1 Hz)
+   --------------------------------------------------------
+
+   -- Each one keeps the syncs, polarities and VIC of its standard mode. In 720p the frame is a
+   -- little shorter than the source's, and hdmi_genlock.vhd stretches the vertical back porch;
+   -- in 576p one line less makes the frame exactly as long as a VIC-II frame. From C64MEGA65.
+
+   -- 720p: C_HDMI_720p_50 at 100 MHz x 67 / 90 = 74.444444 MHz (1980 x 750 at 50.131 Hz)
+   constant C_HDMI_720p_50_RAW : video_modes_t := (
+      CLK_KHZ     => 74444,      -- 74.444444 MHz = 74444 + 4/9 kHz
+      CLK_SEL     => "1000",
+      CTS_FRAC_N  => 4,
+      CTS_FRAC_D  => 9,
+      CEA_CTA_VIC => 19,         -- CEA/CTA VIC: 1280x720p, 50 Hz, 16:9
+      ASPECT      => "10",       -- apsect ratio: 01=4:3, 10=16:9
+      PIXEL_REP   => '0',        -- no pixel repetition
+      H_PIXELS    => 1280,       -- horizontal display width in pixels
+      V_PIXELS    => 720,        -- vertical display width in rows
+      H_FP        => 440,        -- horizontal front porch width in pixels
+      H_PULSE     => 40,         -- horizontal sync pulse width in pixels
+      H_BP        => 220,        -- horizontal back porch width in pixels
+      V_FP        => 5,          -- vertical front porch width in rows
+      V_PULSE     => 5,          -- vertical sync pulse width in rows
+      V_BP        => 20,         -- vertical back porch width in rows
+      H_POL       => '1',        -- horizontal sync pulse polarity (1 = positive, 0 = negative)
+      V_POL       => '1'         -- vertical sync pulse polarity (1 = positive, 0 = negative)
+   );
+
+   -- 576p: C_HDMI_576p_50 with 624 lines (V_FP 4) at 100 MHz x 227 / 840 = 27.023810 MHz:
+   -- 864 x 624 pixel clocks, exactly a PAL VIC-II frame (50.124291 Hz)
+   constant C_HDMI_576p_50_RAW : video_modes_t := (
+      CLK_KHZ     => 27023,      -- 27.023810 MHz = 27023 + 17/21 kHz
+      CLK_SEL     => "1001",
+      CTS_FRAC_N  => 17,
+      CTS_FRAC_D  => 21,
+      CEA_CTA_VIC => 17,         -- CEA/CTA VIC: 720x576p, 50 Hz, 4:3
+      ASPECT      => "01",       -- apsect ratio: 01=4:3, 10=16:9
+      PIXEL_REP   => '0',        -- no pixel repetition
+      H_PIXELS    => 720,        -- horizontal display width in pixels
+      V_PIXELS    => 576,        -- vertical display width in rows
+      H_FP        => 12,         -- horizontal front porch width in pixels
+      H_PULSE     => 64,         -- horizontal sync pulse width in pixels
+      H_BP        => 68,         -- horizontal back porch width in pixels
+      V_FP        => 4,          -- vertical front porch width in rows
+      V_PULSE     => 5,          -- vertical sync pulse width in rows
+      V_BP        => 39,         -- vertical back porch width in rows
       H_POL       => '1',        -- horizontal sync pulse polarity (1 = positive, 0 = negative)
       V_POL       => '1'         -- vertical sync pulse polarity (1 = positive, 0 = negative)
    );
@@ -260,7 +329,12 @@ package video_modes_pkg is
       C_VIDEO_HDMI_5_4_50   ,  -- PAL  576p in 5:4 @ 50 Hz
       C_VIDEO_HDMI_640_60   ,  -- HDMI 640x480     @ 60 Hz
       C_VIDEO_HDMI_720_5994 ,  -- HDMI 720x480     @ 59.94 Hz
-      C_VIDEO_SVGA_800_60      -- SVGA 800x600     @ 60 Hz
+      C_VIDEO_SVGA_800_60   ,  -- SVGA 800x600     @ 60 Hz
+      -- HDMI at the C128's own frame rate (HDMI Frame Sync = Raw 50.1 Hz): each is the mode
+      -- above without "_RAW", with the raw record (C_HDMI_*_RAW) and the genlock
+      C_VIDEO_HDMI_16_9_50_RAW,  -- HDMI 1280x720    @ 50.12 Hz
+      C_VIDEO_HDMI_4_3_50_RAW ,  -- PAL  576p in 4:3 @ 50.12 Hz
+      C_VIDEO_HDMI_5_4_50_RAW    -- PAL  576p in 5:4 @ 50.12 Hz
    );
 
    --------------------------------------------------------
@@ -403,6 +477,10 @@ package video_modes_pkg is
    pure function video_mode_to_slv(video_mode : video_mode_type) return std_logic_vector;
 
    pure function slv_to_video_mode(video_mode_slv : std_logic_vector) return video_mode_type;
+
+   -- A raw mode (HDMI at the C128's frame rate), and the standard mode it is made from
+   pure function video_mode_is_raw(video_mode : video_mode_type) return boolean;
+   pure function video_mode_base(video_mode : video_mode_type) return video_mode_type;
 
 end package video_modes_pkg;
 
@@ -649,6 +727,9 @@ package body video_modes_pkg is
          when C_VIDEO_HDMI_640_60   => return "0100";
          when C_VIDEO_HDMI_720_5994 => return "0101";
          when C_VIDEO_SVGA_800_60   => return "0110";
+         when C_VIDEO_HDMI_16_9_50_RAW => return "0111";
+         when C_VIDEO_HDMI_4_3_50_RAW  => return "1000";
+         when C_VIDEO_HDMI_5_4_50_RAW  => return "1001";
       end case;
    end function video_mode_to_slv;
 
@@ -662,8 +743,28 @@ package body video_modes_pkg is
          when "0100" => return C_VIDEO_HDMI_640_60;
          when "0101" => return C_VIDEO_HDMI_720_5994;
          when "0110" => return C_VIDEO_SVGA_800_60;
+         when "0111" => return C_VIDEO_HDMI_16_9_50_RAW;
+         when "1000" => return C_VIDEO_HDMI_4_3_50_RAW;
+         when "1001" => return C_VIDEO_HDMI_5_4_50_RAW;
          when others => return C_VIDEO_HDMI_16_9_50;
       end case;
    end function slv_to_video_mode;
+
+   pure function video_mode_is_raw(video_mode : video_mode_type) return boolean is
+   begin
+      return video_mode = C_VIDEO_HDMI_16_9_50_RAW or
+             video_mode = C_VIDEO_HDMI_4_3_50_RAW  or
+             video_mode = C_VIDEO_HDMI_5_4_50_RAW;
+   end function video_mode_is_raw;
+
+   pure function video_mode_base(video_mode : video_mode_type) return video_mode_type is
+   begin
+      case video_mode is
+         when C_VIDEO_HDMI_16_9_50_RAW => return C_VIDEO_HDMI_16_9_50;
+         when C_VIDEO_HDMI_4_3_50_RAW  => return C_VIDEO_HDMI_4_3_50;
+         when C_VIDEO_HDMI_5_4_50_RAW  => return C_VIDEO_HDMI_5_4_50;
+         when others                   => return video_mode;
+      end case;
+   end function video_mode_base;
 
 end package body video_modes_pkg;

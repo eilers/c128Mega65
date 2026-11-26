@@ -102,6 +102,7 @@ void shell_unmount(int d);
 void shell_crtrom_named(int group, const char *path);
 void shell_open_menu(void);                   // as the Help key does, unless it is open
 int  shell_closed(void);                      // the menu is closed and the C128 has its keys
+void shell_app_start(void);                   // from a selection: the core's screen (core_app_key)
 // A message over the open menu, until Space (his popups); nothing while the menu is closed
 void shell_message(const char *text);
 void shell_menu_button(void);                 // opens or closes it (REST's menu_button)
