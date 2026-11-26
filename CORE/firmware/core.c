@@ -116,7 +116,7 @@ const char *core_submenu_summary(int idx)
 
    // A submenu's first menu group: a drive's Disk line, the Cartridge submenu's source, the
    // System ROMs submenu's C128 KERNAL line, the Keyboard submenu's Caps Lock key, the
-   // Network submenu's REST on or off
+   // Network submenu's REST on or off, the Mouse & Paddles submenu's Amiga mouse
    while ((g = shell_group(++idx)) == 0)
       ;
    if (g == OPTM_G_MOUNT_D8 || g == OPTM_G_MOUNT_D9)
@@ -126,6 +126,9 @@ const char *core_submenu_summary(int idx)
    if (g == OPTM_G_KEYS)   // Stock: Caps Lock is 40/80 and Help opens the menu
       return shell_setting(OPTM_G_KEYS, 0) && !shell_setting(OPTM_G_HELP_F13, 0) ?
              " Keyboard: Stock" : " Keyboard: Custom";
+   if (g == OPTM_G_AMIGA_MOUSE)   // Stock: no Amiga mouse, no MEGA+left = right, no Atari paddles
+      return stores_menu_pos(OPTM_G_AMIGA_MOUSE, AM_COUNT) || shell_setting(OPTM_G_MOUSE_RC, 0) ||
+             stores_menu_pos(OPTM_G_ATARI, AP_COUNT) ? " Mouse/Paddles: Custom" : " Mouse/Paddles: Stock";
    if (g == OPTM_G_ROM_K128) {
       int custom = 0;
       for (int p = 0; p < RP_DRIVE; p++)
@@ -255,6 +258,9 @@ void core_sel_post(int group, int item)
    }
    // HDMI Frame Sync: 50 Hz modes only, and a raw picture asks to be kept (frame_sync.c)
    fs_sel_post(group);
+   // A port has the Amiga mouse or Atari paddles: the line just picked wins
+   if (group == OPTM_G_AMIGA_MOUSE || group == OPTM_G_ATARI)
+      stores_ports_fix(group);
 }
 
 // --- the Network submenu's text items -----------------------------------------------------

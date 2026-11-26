@@ -224,6 +224,7 @@ if {[llength $bit_files] > 0} {
 if {[llength $bit_files] > 0} {
     if {[catch {
         open_run impl_1
+        source [file join $core_dir scripts check_bus_skew.tcl]
         source [file join $core_dir scripts check_80col_timing.tcl]
     } err]} {
         puts "80-column timing check did not run: $err"

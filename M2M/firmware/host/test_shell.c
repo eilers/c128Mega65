@@ -292,6 +292,32 @@ static int go_to_line(const char *s)
    return 0;
 }
 
+// Row y of the screen has s
+static int row_has(int y, const char *s)
+{
+   char r[48];
+   if (y < 0)
+      return 0;
+   row(y, 0, 45, r);
+   return strstr(r, s) != NULL;
+}
+
+// The cursor onto the Mouse & Paddles submenu's Amiga mouse line n (AM_*) or Atari paddles
+// line n (AP_*), from MEGA+left = right, the line between them: both have Off, Port 1, Port 2
+static void amiga_line(int n)
+{
+   go_to("MEGA+left = right");
+   for (int i = n; i < AM_COUNT; i++)
+      press(M2M_KEY_UP);
+}
+
+static void atari_line(int n)
+{
+   go_to("MEGA+left = right");
+   for (int i = 0; i <= n; i++)
+      press(M2M_KEY_DOWN);
+}
+
 static int mount_item(int d)   // drive d's line, by its group
 {
    for (int i = 0; i < menu.n; i++)
@@ -1069,39 +1095,79 @@ int main(int argc, char **argv)
    press(M2M_KEY_RETURN);
    check(cursor_on("Swap joystick ports") && !setting_get(item(" Swap joystick ports")), "joystick ports back");
 
-   // Amiga mouse: a submenu under Swap joystick ports, one port at most, kept in MEGA65 Settings
-   check(find_row(" Amiga mouse: Off") == find_row(" Swap joystick ports") + 1, "Amiga mouse: Off, under Swap joystick ports");
-   go_to("Amiga mouse");
+   // Mouse & Paddles: a submenu under Swap joystick ports, kept in MEGA65 Settings. One Amiga
+   // mouse port at most; Atari CX30 paddles per port; a port has one or the other.
+   check(find_row(" Mouse/Paddles: Stock") == find_row(" Swap joystick ports") + 1,
+         "Mouse/Paddles: Stock, under Swap joystick ports");
+   go_to("Mouse/Paddles");
    press(M2M_KEY_RETURN);
-   dump("amiga mouse submenu");
-   check(find_row(" Amiga mouse") == 1 && find_row("*Off") > 0 && find_row(" Port 1") > 0 &&
-         find_row(" Port 2") > 0 && find_row(" MEGA+left = right") > 0, "amiga mouse submenu: Off, right click off");
-   go_to("Port 2");
+   dump("mouse & paddles submenu");
+   int atari_y = find_row(" Atari CX30 paddles");
+   check(find_row(" Mouse & Paddles") == 1 && find_row(" Amiga mouse") > 1 && find_row(" Port 1") > 0 &&
+         find_row(" Port 2") > 0 && find_row(" MEGA+left = right") > 0 && atari_y > find_row(" MEGA+left = right") &&
+         row_has(atari_y + 1, "*Off") && row_has(atari_y + 4, " Both ports"),
+         "mouse & paddles submenu: Amiga mouse Off, right click off, Atari paddles Off");
+   amiga_line(AM_PORT2);
    press(M2M_KEY_RETURN);
-   go_to("Port 1");
+   amiga_line(AM_PORT1);
    press(M2M_KEY_RETURN);
    go_to("MEGA+left = right");
    press(M2M_KEY_RETURN);
    check(find_row("*Port 1") > 0 && find_row(" Port 2") > 0 && find_row(" Off") > 0 &&
          setting_get(item(" Port 1")) && !setting_get(item(" Port 2")) && find_row("=MEGA+left = right") > 0,
          "port 1 takes the Amiga mouse from port 2, MEGA+left = right");
+   // Atari paddles on the mouse's port: the paddles win, the mouse goes Off
+   atari_line(AP_PORT1);
+   press(M2M_KEY_RETURN);
+   check(shell_setting(OPTM_G_ATARI, AP_PORT1) && shell_setting(OPTM_G_AMIGA_MOUSE, AM_OFF) &&
+         row_has(atari_y + 2, "*Port 1") && !row_has(atari_y - 5, "*Port 1"),
+         "Atari paddles in port 1: the Amiga mouse Off");
+   // Both ports, then the mouse in port 2: the mouse wins port 2, the paddles keep port 1
+   atari_line(AP_BOTH);
+   press(M2M_KEY_RETURN);
+   amiga_line(AM_PORT2);
+   press(M2M_KEY_RETURN);
+   check(shell_setting(OPTM_G_AMIGA_MOUSE, AM_PORT2) && shell_setting(OPTM_G_ATARI, AP_PORT1) &&
+         row_has(atari_y + 2, "*Port 1") && !row_has(atari_y + 4, "*Both"),
+         "Amiga mouse in port 2: Atari paddles from both ports to port 1");
    press(M2M_KEY_HELP);
    idle();
-   check(setting_line("256 KB RAM=Disabled\nAmiga Mouse=Port 1\nMEGA+Left as Right=Enabled\n"),
-         "kept: Amiga Mouse=Port 1");
+   check(setting_line("Amiga Mouse=Port 2\nMEGA+Left as Right=Enabled\nAtari CX30 Paddles=Port 1\n"),
+         "kept: Amiga Mouse=Port 2, Atari CX30 Paddles=Port 1");
    press(M2M_KEY_HELP);
-   if (!cursor_on("MEGA+left")) {   // the menu opens where it was left
-      go_to("Amiga mouse");
-      press(M2M_KEY_RETURN);
+   press(M2M_KEY_RUNSTOP);
+   check(find_row(" Mouse/Paddles: Custom") > 0, "Mouse/Paddles: Custom");
+   // Settings files: a port with both keeps the mouse
+   static const struct { const char *text; int amiga, atari; const char *what; } mpf[] = {
+      { "[MEGA65 Settings]\nAmiga Mouse=Port 1\nAtari CX30 Paddles=Both ports\n", AM_PORT1, AP_PORT2,
+        "a file with the mouse in port 1 and paddles in both: paddles in port 2" },
+      { "[MEGA65 Settings]\nAtari CX30 Paddles=Port 2\nAmiga Mouse=Port 2\n", AM_PORT2, AP_OFF,
+        "a file with both in port 2: the mouse" },
+      { "[MEGA65 Settings]\nAmiga Mouse=Port 1\nAtari CX30 Paddles=Port 2\n", AM_PORT1, AP_PORT2,
+        "a file with the mouse in port 1 and paddles in port 2: both kept" },
+   };
+   for (unsigned k = 0; k < sizeof mpf / sizeof mpf[0]; k++) {
+      FIL f;
+      put_text("/c128/mp.cfg", mpf[k].text);
+      stores_begin();
+      int ok = f_open(&f, "/c128/mp.cfg", FA_READ) == FR_OK && stores_read(&f, ~0u, quiet) && f_close(&f) == FR_OK;
+      stores_apply();
+      check(ok && shell_setting(OPTM_G_AMIGA_MOUSE, mpf[k].amiga) && shell_setting(OPTM_G_ATARI, mpf[k].atari),
+            mpf[k].what);
    }
-   go_to("Off");
+   f_unlink("/c128/mp.cfg");
+   go_to("Mouse/Paddles");
+   press(M2M_KEY_RETURN);
+   amiga_line(AM_OFF);
    press(M2M_KEY_RETURN);
    go_to("MEGA+left = right");
    press(M2M_KEY_RETURN);
-   check(!setting_get(item(" Port 1")) && !setting_get(item(" Port 2")) && !setting_get(item(" MEGA+left = right")),
-         "Amiga mouse back to Off");
+   atari_line(AP_OFF);
+   press(M2M_KEY_RETURN);
+   check(!setting_get(item(" Port 1")) && !setting_get(item(" Port 2")) && !setting_get(item(" MEGA+left = right")) &&
+         shell_setting(OPTM_G_ATARI, AP_OFF), "Amiga mouse and Atari paddles back to Off");
    press(M2M_KEY_RUNSTOP);
-   check(cursor_on("Amiga mouse: Off"), "back in the main menu on Amiga mouse: Off");
+   check(cursor_on("Mouse/Paddles: Stock"), "back in the main menu on Mouse/Paddles: Stock");
 
    // HDMI Frame Sync (frame_sync.c): Off by default; a new raw picture asks for Space and goes
    // back after 10 s; Flicker-free and Raw only with a 50 Hz HDMI mode

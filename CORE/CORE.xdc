@@ -172,6 +172,13 @@ set_property SEVERITY Warning [get_drc_checks AVAL-139]
 set_false_path -from [get_clocks qnice_clk] -to [get_clocks main_clk]
 set_false_path -from [get_clocks main_clk]  -to [get_clocks qnice_clk]
 
+## The four paddle values cross from qnice_clk to main_clk as one 32-bit bus through a
+## cdc_stable (i_pots2main in M2M/vhdl/framework.vhd), which takes a value over only when two
+## samples agree, so all 32 bits must arrive within one main_clk period of each other. The false
+## path above leaves them untimed; a bus skew constraint is not a timing exception, so it still
+## holds (C64MEGA65 #193). Its result is in neither WNS nor WHS: check_bus_skew.tcl reports it.
+set_bus_skew -from [get_cells {i_framework/i_pots2main/input_reg_gen.src_data_reg[*]}] -to [get_cells {i_framework/i_pots2main/cdc_stable_gen.dst_data_d_reg[*]}] 10.000
+
 ## ---------------------------------------------------------------------------
 ## qnice_clk <-> vdc_clk: the system CPU's reads of the VDC (vdc_peek.vhd)
 ## ---------------------------------------------------------------------------

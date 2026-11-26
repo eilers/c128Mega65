@@ -393,6 +393,9 @@ architecture synthesis of mega65_r3 is
    -- flip joystick ports
    signal qnice_flip_joyports    : std_logic;
 
+   -- Atari CX30 paddles per MEGA65 port (C64MEGA65 #193)
+   signal qnice_paddle_atari     : std_logic_vector(1 downto 0);
+
    -- QNICE On Screen Menu selections
    signal qnice_osm_control_m    : std_logic_vector(255 downto 0);
 
@@ -760,6 +763,7 @@ begin
       qnice_ascal_triplebuf_i => qnice_ascal_triplebuf,
       qnice_hdmi_scanlines_i  => qnice_hdmi_scanlines,
       qnice_flip_joyports_i   => qnice_flip_joyports,
+      qnice_paddle_atari_i    => qnice_paddle_atari,
       qnice_osm_control_m_o   => qnice_osm_control_m,
       qnice_gp_reg_o          => qnice_gp_reg,
       qnice_ramrom_dev_o      => qnice_ramrom_dev,
@@ -828,6 +832,9 @@ begin
 
          -- Flip joystick ports
          qnice_flip_joyports_o   => qnice_flip_joyports,
+
+         -- Paddle type per MEGA65 port
+         qnice_paddle_atari_o    => qnice_paddle_atari,
 
          -- On-Screen-Menu selections (in QNICE clock domain)
          qnice_osm_control_i     => qnice_osm_control_m,
