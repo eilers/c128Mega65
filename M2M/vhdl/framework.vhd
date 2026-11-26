@@ -396,7 +396,7 @@ signal qnice_osm_cfg_xy       : std_logic_vector(15 downto 0);
 signal qnice_osm_cfg_dxdy     : std_logic_vector(15 downto 0);
 signal qnice_hdmax            : std_logic_vector(11 downto 0);
 signal qnice_vdmax            : std_logic_vector(11 downto 0);
-signal qnice_clk_sel          : std_logic_vector( 2 downto 0);
+signal qnice_clk_sel          : std_logic_vector( 3 downto 0);
 
 signal qnice_h_pixels         : std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
 signal qnice_v_pixels         : std_logic_vector(11 downto 0); -- horizontal visible display width in pixels
@@ -540,7 +540,11 @@ begin
          sys_pps_o         => sys_pps
       ); -- i_clk_m2m
 
-   video_mode <= C_SVGA_800_600_60    when qnice_video_mode_i = C_VIDEO_SVGA_800_60   else
+   -- The raw modes (HDMI Frame Sync = Raw 50.1 Hz) select their own pixel clock
+   video_mode <= C_HDMI_720p_50_RAW   when qnice_video_mode_i = C_VIDEO_HDMI_16_9_50_RAW else
+                 C_HDMI_576p_50_RAW   when qnice_video_mode_i = C_VIDEO_HDMI_4_3_50_RAW  else
+                 C_HDMI_576p_50_RAW   when qnice_video_mode_i = C_VIDEO_HDMI_5_4_50_RAW  else
+                 C_SVGA_800_600_60    when qnice_video_mode_i = C_VIDEO_SVGA_800_60   else
                  C_HDMI_720x480p_5994 when qnice_video_mode_i = C_VIDEO_HDMI_720_5994 else
                  C_HDMI_640x480p_60   when qnice_video_mode_i = C_VIDEO_HDMI_640_60   else
                  C_HDMI_576p_50       when qnice_video_mode_i = C_VIDEO_HDMI_5_4_50   else
@@ -550,7 +554,7 @@ begin
 
    qnice_clk_sel <= video_mode.CLK_SEL;
 
-   -- reconfigurable MMCM: 25.2MHz, 27MHz, 74.25MHz or 148.5MHz
+   -- reconfigurable MMCM: the pixel clock of the mode, CLK_SEL in video_modes_pkg.vhd
    i_video_out_clock : entity work.video_out_clock
       generic map (
          fref    => 100.0 -- Clock speed in MHz of the input clk_i

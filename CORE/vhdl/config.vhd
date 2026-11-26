@@ -277,13 +277,13 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 228; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 232; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 31 rows, the HDMI submenu 25 and the
+-- tallest page. The main menu is the tallest at 31 rows, the HDMI submenu 29 and the
 -- drive submenus 23 (headline through Back to main menu; the "%s" opener is hidden
 -- inside the submenu); they leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
@@ -417,7 +417,11 @@ constant OPTM_ITEMS_ALL    : string :=
    " CRT (S-Video)\n"       &
    " CRT (Composite)\n"     &
    "\n"                     &
-   " Flicker-free\n"        &
+   " Frame Sync\n"          &
+   " Off\n"                 &    -- default: original speed; HDMI at 50 Hz tears now and then
+   " Flicker-free\n"        &    -- the core runs 0.25% slower to match 50 Hz HDMI (VIC only)
+   " Raw 50.1 Hz\n"         &    -- original speed; HDMI at the C128's own rate (genlock)
+   "\n"                     &
    " HDMI audio\n"          &    -- default on; off means DVI, no HDMI audio
    "\n"                     &
    " Back to main menu\n"   &
@@ -542,7 +546,7 @@ constant OPTM_ITEMS_ALL    : string :=
 -- single-select items and therefore also drive mount items need to have unique identifiers
 constant OPTM_G_VIDEO_OUT  : integer := 1;
 constant OPTM_G_HDMI       : integer := 2;
-constant OPTM_G_FF         : integer := 3;
+constant OPTM_G_FF         : integer := 3;    -- HDMI Frame Sync: Off, Flicker-free, Raw 50.1 Hz
 constant OPTM_G_HDMI_FILTER: integer := 4;    -- HDMI filter: ascal's scalers and polyphase filters
 constant OPTM_G_JAILBARS   : integer := 5;
 constant OPTM_G_CREDITS    : integer := 6;
@@ -731,7 +735,11 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_HDMI_FILTER,                                  -- CRT (S-Video)
                                              OPTM_G_HDMI_FILTER,                                  -- CRT (Composite)
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_FF      + OPTM_G_SINGLESEL,                   -- Flicker-free
+                                             OPTM_G_TEXT,                                         -- Frame Sync
+                                             OPTM_G_FF + OPTM_G_STDSEL,                           -- Off (default)
+                                             OPTM_G_FF,                                           -- Flicker-free
+                                             OPTM_G_FF,                                           -- Raw 50.1 Hz
+                                             OPTM_G_LINE,                                         -- Line
                                              OPTM_G_HDMI_AUDIO + OPTM_G_SINGLESEL + OPTM_G_STDSEL, -- HDMI audio (default on)
                                              OPTM_G_LINE,                                         -- Line
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu

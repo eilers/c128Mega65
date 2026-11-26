@@ -83,7 +83,8 @@
 # Missing Features
 
 * Video:
-  * "Flicker-free" has no effect in 80-column mode.
+  * HDMI Frame Sync "Flicker-free" has no effect in 80-column mode (it slows the
+      VIC-II's clock; the VDC has its own). "Raw 50.1 Hz" follows the VDC too.
   * "HDMI: Zoom-in": removed from the menu, `qnice_zoom_crop_o` is hardwired to
       '0' in `mega65.vhd`. `crop.vhd` uses fixed VIC-II geometry (border 33/35,
       image 320x200), so it has to become source-aware before the menu item can

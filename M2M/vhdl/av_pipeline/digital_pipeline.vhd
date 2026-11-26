@@ -114,9 +114,11 @@ architecture synthesis of digital_pipeline is
       end case;
    end function video_mode_from_index;
 
+   -- A raw mode (HDMI Frame Sync = Raw 50.1 Hz) has the index, and so the picture window, of
+   -- the standard mode it is made from
    pure function video_mode_to_index(video_mode : video_mode_type) return natural is
    begin
-      case video_mode is
+      case video_mode_base(video_mode) is
          when C_VIDEO_HDMI_16_9_50  => return 0;
          when C_VIDEO_HDMI_16_9_60  => return 1;
          when C_VIDEO_HDMI_4_3_50   => return 2;
@@ -124,6 +126,7 @@ architecture synthesis of digital_pipeline is
          when C_VIDEO_HDMI_640_60   => return 4;
          when C_VIDEO_HDMI_720_5994 => return 5;
          when C_VIDEO_SVGA_800_60   => return 6;
+         when others                => return 0;   -- video_mode_base gives no raw mode
       end case;
    end function video_mode_to_index;
 
@@ -200,6 +203,8 @@ architecture synthesis of digital_pipeline is
    signal audio_pcm_cts             : std_logic_vector(19 downto 0); -- HDMI ACR CTS value
    signal audio_pcm_audio_counter   : integer := 0;
    signal audio_pcm_acr_counter     : integer range 0 to AUDIO_PCM_ACR_CNT_RANGE := 0;
+   signal audio_cts_acc             : natural range 0 to 255 := 0;   -- CTS accumulator in 1/CTS_FRAC_D kHz
+   signal audio_cts_inc             : natural range 0 to 1 := 0;     -- 1: this packet carries CLK_KHZ + 1
 
    signal vs_hsync               : std_logic;
    signal vs_vsync               : std_logic;
@@ -213,7 +218,7 @@ architecture synthesis of digital_pipeline is
 
    constant C_AVM_ADDRESS_SIZE   : integer := 19;
    constant C_AVM_DATA_SIZE      : integer := 128;
-   signal hdmi_htotal            : integer;
+   signal hdmi_htotal            : natural range 0 to 4095;   -- line length of the mode record
    signal hdmi_hsstart           : integer;
    signal hdmi_hsend             : integer;
    signal hdmi_hdisp             : integer;
@@ -254,6 +259,17 @@ architecture synthesis of digital_pipeline is
    signal hdmi_hmax              : integer;
    signal hdmi_vmin              : integer;
    signal hdmi_vmax              : integer;
+
+   -- Genlock of the raw modes (HDMI at the C128's frame rate, hdmi_genlock.vhd)
+   signal video_ref_vs_d         : std_logic := '0';
+   signal video_ref              : std_logic := '0';      -- '1' from ascal's first input pixel after vsync
+   signal hdmi_ref_s             : std_logic;             -- video_ref in hdmi_clk
+   signal hdmi_ref_d             : std_logic := '0';
+   signal hdmi_ref               : std_logic;             -- one clock cycle: the core starts a picture
+   signal hdmi_raw               : std_logic;             -- '1' in the raw modes
+   signal hdmi_genlock_target    : natural range 0 to 2**21 - 1;
+   signal hdmi_genlock_htotal    : natural range 0 to 4095;
+   signal hdmi_ascal_htotal      : integer;               -- line length for ascal
 
    -- After video_rescaler
    signal hdmi_blank             : std_logic;
@@ -299,7 +315,12 @@ begin
    sys_info_hdmi_o(47 downto 32) <=
       std_logic_vector(to_unsigned((G_VGA_DX/G_FONT_DX) * 256 + (G_VGA_DY/G_FONT_DY), 16));
 
-   hdmi_video_mode <= G_VIDEO_MODE_VECTOR(6) when hdmi_video_mode_i = C_VIDEO_SVGA_800_60   else
+   -- A raw mode has its own record (pixel clock, 576p's 624 lines); everything else about it
+   -- is the standard mode's (video_mode_to_index)
+   hdmi_video_mode <= C_HDMI_720p_50_RAW     when hdmi_video_mode_i = C_VIDEO_HDMI_16_9_50_RAW else
+                      C_HDMI_576p_50_RAW     when hdmi_video_mode_i = C_VIDEO_HDMI_4_3_50_RAW  else
+                      C_HDMI_576p_50_RAW     when hdmi_video_mode_i = C_VIDEO_HDMI_5_4_50_RAW  else
+                      G_VIDEO_MODE_VECTOR(6) when hdmi_video_mode_i = C_VIDEO_SVGA_800_60   else
                       G_VIDEO_MODE_VECTOR(5) when hdmi_video_mode_i = C_VIDEO_HDMI_720_5994 else
                       G_VIDEO_MODE_VECTOR(4) when hdmi_video_mode_i = C_VIDEO_HDMI_640_60   else
                       G_VIDEO_MODE_VECTOR(3) when hdmi_video_mode_i = C_VIDEO_HDMI_5_4_50   else
@@ -315,6 +336,13 @@ begin
    hdmi_vsstart    <= hdmi_video_mode.V_PIXELS + hdmi_video_mode.V_FP;
    hdmi_vsend      <= hdmi_video_mode.V_PIXELS + hdmi_video_mode.V_FP + hdmi_video_mode.V_PULSE;
    hdmi_vdisp      <= hdmi_video_mode.V_PIXELS;
+
+   -- The CTS accumulator of p_pcm_acr holds values below CTS_FRAC_D
+   g_assert_cts_frac : for i in G_VIDEO_MODE_VECTOR'range generate
+      assert G_VIDEO_MODE_VECTOR(i).CTS_FRAC_N >= 0 and
+             G_VIDEO_MODE_VECTOR(i).CTS_FRAC_N < G_VIDEO_MODE_VECTOR(i).CTS_FRAC_D and
+             G_VIDEO_MODE_VECTOR(i).CTS_FRAC_D <= 256;
+   end generate g_assert_cts_frac;
 
    -- All rectangle tables are constants calculated at elaboration time. The
    -- runtime hardware is only a mux for video mode, crop bit and cropped size.
@@ -464,9 +492,15 @@ begin
    -- N and CTS values for HDMI Audio Clock Regeneration.
    -- depends on pixel clock and audio sample rate
    audio_pcm_n   <= std_logic_vector(to_unsigned((HDMI_PCM_SAMPLING * 128) / 1000, audio_pcm_n'length)); -- 6144 is correct according to HDMI spec.
-   audio_pcm_cts <= std_logic_vector(to_unsigned(hdmi_video_mode.CLK_KHZ, audio_pcm_cts'length));
+   -- With N = 6144 at 48 kHz, CTS is the pixel clock in kHz: CLK_KHZ, plus 1 in the fraction
+   -- CTS_FRAC_N / CTS_FRAC_D of the packets (the raw modes' clocks aren't whole kHz)
+   audio_pcm_cts <= std_logic_vector(to_unsigned(hdmi_video_mode.CLK_KHZ + audio_cts_inc, audio_pcm_cts'length));
 
    -- ACR packet rate should be 128fs/N = 1kHz
+   -- From C64MEGA65: once per packet audio_cts_acc adds CTS_FRAC_N; when it reaches CTS_FRAC_D
+   -- the packet carries CLK_KHZ + 1, so the average CTS is the exact pixel clock. It steps half
+   -- a packet before the strobe, so CTS is steady when vga_to_hdmi takes it. CTS_FRAC_N = 0 (no
+   -- raw mode) keeps it cleared; a value out of range after a mode change is cleared.
    p_pcm_acr : process (audio_clk_i)
    begin
       if rising_edge(audio_clk_i) then
@@ -479,6 +513,22 @@ begin
                audio_pcm_acr <= '1';
                audio_pcm_acr_counter <= 0;
             end if;
+
+            -- CTS of the next packet
+            if audio_pcm_acr_counter = AUDIO_PCM_ACR_CNT_RANGE / 2 - 1 then
+               if audio_cts_acc + hdmi_video_mode.CTS_FRAC_N >= hdmi_video_mode.CTS_FRAC_D then
+                  audio_cts_acc <= audio_cts_acc + hdmi_video_mode.CTS_FRAC_N - hdmi_video_mode.CTS_FRAC_D;
+                  audio_cts_inc <= 1;
+               else
+                  audio_cts_acc <= audio_cts_acc + hdmi_video_mode.CTS_FRAC_N;
+                  audio_cts_inc <= 0;
+               end if;
+            end if;
+         end if;
+
+         if hdmi_video_mode.CTS_FRAC_N = 0 or audio_cts_acc >= hdmi_video_mode.CTS_FRAC_D then
+            audio_cts_acc <= 0;
+            audio_cts_inc <= 0;
          end if;
       end if;
    end process p_pcm_acr;
@@ -488,6 +538,71 @@ begin
    ---------------------------------------------------------------------------------------------
 
    reset_na <= not (video_rst_i or hr_rst_i);
+
+   -- Genlock of the raw modes (from C64MEGA65): hdmi_genlock lengthens up to 16 lines of the
+   -- vertical back porch so that ascal's output picture starts 2.0 ms after the core's picture
+   -- (target: 2 x CLK_KHZ pixel clocks) and stays there. It follows whichever chip HDMI shows.
+
+   -- Its reference is what ascal takes as the start of a core picture: the first pixel of its
+   -- input (after scanline_fit) following a rising edge of vsync. The level is cleared by that
+   -- edge and set by that pixel; it crosses into the HDMI clock, where its rising edge is the
+   -- one-cycle hdmi_ref. It needs no reset: the next vsync puts it right.
+   p_video_ref : process (video_clk_i)
+   begin
+      if rising_edge(video_clk_i) then
+         video_ref_vs_d <= video_fit_vs;
+         if video_fit_vs = '1' and video_ref_vs_d = '0' then
+            video_ref <= '0';
+         elsif video_fit_hblank = '0' and video_fit_vblank = '0' then
+            video_ref <= '1';
+         end if;
+      end if;
+   end process p_video_ref;
+
+   i_video2hdmi_ref : xpm_cdc_single
+      generic map (
+         DEST_SYNC_FF   => 2,
+         INIT_SYNC_FF   => 0,
+         SIM_ASSERT_CHK => 0,
+         SRC_INPUT_REG  => 0      -- video_ref is a register
+      )
+      port map (
+         src_clk  => video_clk_i,
+         src_in   => video_ref,
+         dest_clk => hdmi_clk_i,
+         dest_out => hdmi_ref_s
+      ); -- i_video2hdmi_ref
+
+   p_hdmi_ref : process (hdmi_clk_i)
+   begin
+      if rising_edge(hdmi_clk_i) then
+         hdmi_ref_d <= hdmi_ref_s;
+      end if;
+   end process p_hdmi_ref;
+
+   hdmi_ref            <= hdmi_ref_s and not hdmi_ref_d;
+   hdmi_raw            <= '1' when video_mode_is_raw(hdmi_video_mode_i) else '0';
+   hdmi_genlock_target <= 2 * hdmi_video_mode.CLK_KHZ;      -- 2.0 ms in pixel clocks
+
+   i_hdmi_genlock : entity work.hdmi_genlock
+      port map (
+         clk_i     => hdmi_clk_i,
+         rst_i     => hdmi_rst_i,
+         enable_i  => hdmi_raw,
+         htotal_i  => hdmi_htotal,
+         target_i  => hdmi_genlock_target,
+         hs_i      => hdmi_hs,
+         vs_i      => hdmi_vs,
+         de_i      => hdmi_de,
+         ref_i     => hdmi_ref,
+         htotal_o  => hdmi_genlock_htotal,
+         locked_o  => open,
+         stretch_o => open
+      ); -- i_hdmi_genlock
+
+   -- ascal's line length: the record's, or in the raw modes the genlock's
+   hdmi_ascal_htotal <= hdmi_htotal when hdmi_raw = '0' else
+                        hdmi_genlock_htotal;
 
    i_ascal : entity work.ascal
       generic map (
@@ -589,7 +704,7 @@ begin
          -- DE    |""""""""""""""""""\________________________|
          -- RGB   |    <#IMAGE#>      ^HDISP                  |
          --            ^HMIN   ^HMAX        ^HSSTART  ^HSEND  ^HTOTAL
-         htotal            => hdmi_htotal,                  -- input
+         htotal            => hdmi_ascal_htotal,            -- input
          hsstart           => hdmi_hsstart,                 -- input
          hsend             => hdmi_hsend,                   -- input
          hdisp             => hdmi_hdisp,                   -- input

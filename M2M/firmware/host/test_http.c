@@ -310,8 +310,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65 (Ultimate 64 compatible)\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"115\",\n" \
-                  "  \"core_version\" : \"1.15\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"116\",\n" \
+                  "  \"core_version\" : \"1.16\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -1096,7 +1096,7 @@ static void configs(void)
          "[Data Streams]\nStream VIC to=239.0.1.64:11000\nStream Audio to=239.0.1.65:11001\n"
          "[C128 ROM Settings]\nC128 Kernal ROM=\nC128 Basic ROM=\nC64 Basic ROM=\nChar ROM=\nInternal Function ROM=\n"
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
-         "HDMI Flicker-free=Disabled\nHDMI Filter=Sharp Bilinear\nVGA Display Mode=Standard\n"
+         "HDMI Frame Sync=Off\nHDMI Filter=Sharp Bilinear\nVGA Display Mode=Standard\n"
          "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n256 KB RAM=Disabled\n"
          "Amiga Mouse=Off\nMEGA+Left as Right=Disabled\n"
          "[CMD HD Settings]\nDrive=Enabled\nDrive Bus ID=12\nDisk Image=\nBoot ROM=\n"), cfg);

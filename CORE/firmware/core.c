@@ -13,6 +13,7 @@
 #include "drives.h"
 #include "drvrom.h"
 #include "fmt.h"
+#include "frame_sync.h"
 #include "ftp.h"
 #include "hdmi_filter.h"
 #include "http.h"
@@ -179,6 +180,7 @@ static int id_was[3];   // a drive's ID before the menu changed it: A, B, the CM
 void core_sel_pre(int group, int item)
 {
    (void)item;
+   fs_sel_pre(group);
    if (group == OPTM_G_DRVA_ID || group == OPTM_G_DRVB_ID)
       id_was[group == OPTM_G_DRVB_ID] = stores_drive_id(group == OPTM_G_DRVB_ID);
    if (group == OPTM_G_HD_ID)
@@ -251,6 +253,8 @@ void core_sel_post(int group, int item)
          stream_stop(id);
       net_unlock(dev);
    }
+   // HDMI Frame Sync: 50 Hz modes only, and a raw picture asks to be kept (frame_sync.c)
+   fs_sel_post(group);
 }
 
 // --- the Network submenu's text items -----------------------------------------------------
@@ -906,7 +910,7 @@ int core_app_open(int group)
 
 int core_app_key(uint32_t key)
 {
-   return a64_key(key);
+   return fs_asking() ? fs_key(key) : a64_key(key);
 }
 
 // "Help menu on F13" lets the C128 have its Help key
