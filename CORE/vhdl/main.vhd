@@ -2657,11 +2657,12 @@ iec_drive_inst : entity work.iec_drive
     drv_id       => iec_drv_id,
     drv_1581     => iec_drv_1581,
 
-    -- IEC bus, wired-AND merged with the physical port (see the assignments further up)
+    -- IEC bus, wired-AND merged with the physical port (see the assignments further up) and
+    -- the CMD HD: every device sees the whole bus, as on a real one
     iec_atn_i    => core_iec_atn_o,
-    iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
-    iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
-    iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
+    iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i  and hd_iec_clk,
+    iec_data_i   => core_iec_data_o  and hw_iec_data_n_i and hd_iec_data,
+    iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i  and hd_iec_srq,
     iec_clk_o    => fdd_iec_clk,
     iec_data_o   => fdd_iec_data,
     iec_fclk_o   => fdd_iec_srq,
@@ -2775,9 +2776,9 @@ cmdhd_gen : if G_CMDHD generate
       ce_i         => iec_drive_ce,
       pause_i      => pause_i,
       iec_atn_i    => core_iec_atn_o,
-      iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
-      iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
-      iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
+      iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i  and fdd_iec_clk,    -- the drives too:
+      iec_data_i   => core_iec_data_o  and hw_iec_data_n_i and fdd_iec_data,   -- a listener waits
+      iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i  and fdd_iec_srq,    -- for all of them
       iec_clk_o    => hd_iec_clk,
       iec_data_o   => hd_iec_data,
       iec_fclk_o   => hd_iec_srq,
