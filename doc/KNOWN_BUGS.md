@@ -89,6 +89,10 @@
 * Video:
   * HDMI Frame Sync "Flicker-free" has no effect in 80-column mode (it slows the
       VIC-II's clock; the VDC has its own). "Raw 50.1 Hz" follows the VDC too.
+  * HDMI Frame Sync "Raw 50.1 Hz" lengthens a few lines a frame to follow the C128
+      (all modes but 576p with the VIC-II). Displays that need equal lines lose sync:
+      a Dell U2410 holds Raw only in 576p, 40 columns; a RetroTINK 4K takes 576p on
+      both chips.
   * "HDMI: Zoom-in": removed from the menu, `qnice_zoom_crop_o` is hardwired to
       '0' in `mega65.vhd`. `crop.vhd` uses fixed VIC-II geometry (border 33/35,
       image 320x200), so it has to become source-aware before the menu item can
