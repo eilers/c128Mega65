@@ -23,7 +23,12 @@
 // 15: each drive's Drive enabled line; vd_sd's power register (0x034) only reads
 // 16: the 256 KB RAM menu item
 // 17: the CMD HD (C_DEV_CMDHD) and its submenu; 18 CRT/ROM menu items
-#define M2M_RV_HW_VERSION    17u
+// 18: the firmware feeds the drives' DOS ROMs from HyperRAM (C_DEV_DRIVE_ROM, drvrom.c); the
+//     function ROM from 0x12000
+// 19: HyperRAM map for a 2 MB REU on R3: firmware at 0x40600000, drive ROMs and REU moved
+// 20: the Mouse submenu (Amiga mouse per port, MEGA+left = right), menu items from 135 on moved
+// 21: the Amiga mouse submenu (Off, Port 1, Port 2; one MEGA+left = right), items from 138 on moved
+#define M2M_RV_HW_VERSION    21u
 
 // The host tests (host/) bring their own REG32, device bus and HyperRAM
 #ifndef REG32
@@ -120,7 +125,7 @@
 #ifndef M2M_HALT
 #define M2M_HALT()           do { asm volatile ("csrci mstatus, 8"); } while (1)   // stops the firmware for good, the watchdog too
 #endif
-#define M2M_FW_BASE          0x40400000u   // the firmware's region, C_HMAP_FIRMWARE 0x200-0x3FE
+#define M2M_FW_BASE          0x40600000u   // the firmware's region, C_HMAP_FIRMWARE 0x300-0x3FE
 #define M2M_FW_END           0x407FE000u   // (doc/hyperram-map.md)
 
 // NEORV32

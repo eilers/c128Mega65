@@ -10,8 +10,10 @@
 -- cache_addr_*_o, ack_*_o says which bank that slot holds, and view_*_o which of its 256-byte
 -- bursts are loaded (bit n: burst n; a C128 window's pair of slots has 64). Slots fill a burst at
 -- a time, and a burst the core waits for (want_*_i) comes next, so the C128 waits for one burst
--- rather than the whole bank. A burst is only marked once all of it is written, so an aborted
--- load is never read as data. ready_o says both slots are complete.
+-- rather than the whole bank. The rest of a slot loads while the HDMI scaler leaves HyperRAM
+-- alone (quiet_i), as its reads run late behind a row of bursts and the 80-column picture
+-- tears; a burst the core waits for never waits. A burst is only marked once all of it is
+-- written, so an aborted load is never read as data. ready_o says both slots are complete.
 --
 -- It also carries out EasyFlash's flash jobs (crt_flash), between loads: a program reads the
 -- byte's word from HyperRAM, writes it back ANDed with the new byte and patches the cached copy;
@@ -61,6 +63,7 @@ entity crt_cacher is
       view_hi_o           : out std_logic_vector(63 downto 0);
       want_lo_i           : in  std_logic_vector(13 downto 0) := (others => '0');  -- valid, bank, burst
       want_hi_i           : in  std_logic_vector(13 downto 0) := (others => '0');
+      quiet_i             : in  std_logic := '1';                  -- the scaler is idle
 
       -- EasyFlash flash jobs from crt_flash, index 0 for ROML's chip and 1 for ROMH's. A job is
       -- new when its req toggles; done follows req once it is finished.
@@ -94,6 +97,7 @@ architecture synthesis of crt_cacher is
 
    constant C_SLOTS     : natural := 2**G_CACHE_SIZE;
    constant C_BURST     : natural := 128;    -- words per HyperRAM read burst (256 bytes)
+   constant C_BG_LIMIT  : natural := 16384;  -- clocks a slot's next burst waits for the scaler at most
 
    subtype t_bank   is std_logic_vector(6 downto 0);
    subtype t_slot   is unsigned(G_CACHE_SIZE-1 downto 0);
@@ -150,6 +154,7 @@ architecture synthesis of crt_cacher is
    signal ld_src       : t_bursts := (others => '0'); -- burst of the image being read
    signal ld_word      : unsigned(12 downto 0) := (others => '0');  -- word in the slot (pair)
    signal ld_stale     : std_logic := '0';            -- a new cartridge arrived during the load
+   signal bg_wait      : natural range 0 to C_BG_LIMIT := 0;
 
    -- Flash jobs: the step the current one is at, and the HyperRAM accesses it makes
    type t_job is (J_IDLE, J_LOOKUP, J_PICK, J_FILL, J_SET, J_INVAL, J_NEXT, J_READ, J_WRITE,
@@ -382,6 +387,9 @@ begin
                      v_go    := true;
                      v_side  := '0';
                      v_burst := unsigned(want_lo(5 downto 0));
+                  elsif quiet_i = '0' and bg_wait /= C_BG_LIMIT then
+                     -- The scaler is at HyperRAM: nobody waits for the rest of the slot
+                     bg_wait <= bg_wait + 1;
                   elsif hi_full = '0' then
                      -- Skip a burst that is in already
                      v_go    := hi_view(to_integer(hi_seq)) = '0';
@@ -416,6 +424,7 @@ begin
                      ld_src   <= resize(v_burst, 7);
                      ld_word  <= v_burst & "0000000";
                      ld_stale <= '0';
+                     bg_wait  <= 0;
                      state    <= SRC_ST;
                   end if;
                elsif fl_wants = '1' then
@@ -742,6 +751,7 @@ begin
             fl_done_o    <= fl_req_i;
             fl_fail_o    <= "00";
             state        <= IDLE_ST;
+            bg_wait      <= 0;
             lo_bits      <= (others => (others => '0'));
             hi_bits      <= (others => (others => '0'));
             cart_valid_d <= '0';

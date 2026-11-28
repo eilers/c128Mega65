@@ -1,6 +1,6 @@
 // The ROMs picked in place of the stock ones: files over parts of boot0.rom
-// (C_DEV_SYSTEM_ROM) and boot1.rom (C_DEV_DRIVE_ROM), the internal function ROM (the system
-// ROM's device from 0x18000), and the boot cartridge, a .crt loaded at every start. A pick
+// (C_DEV_SYSTEM_ROM) and boot1.rom (the drives' library, drvrom.c), the internal function ROM
+// (the system ROM's device from 0x12000), and the boot cartridge, a .crt loaded at every start. A pick
 // names a file in its folder (/c128/roms, /c128/carts), as his do, or anywhere on the card
 // by its path. stores.c has them as Gideon's items, kept in the settings file; the menu's ROMs
 // submenu and Boot line pick them (core.c).

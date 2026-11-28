@@ -4,8 +4,14 @@
 * Mega65 Keyboard
 * Joystick ports, paddles and 1351 mice. **Swap joystick ports** in the Help menu
   (default off) swaps the two ports, paddles too.
+* Amiga mice, shown to the C128 as a 1351: pick its port in the Help menu's **Amiga mouse**
+  submenu (Port 1 and 2 are the MEGA65's sockets, whatever Swap joystick ports says). One
+  port at most: GEOS reads both ports' paddle lines at once, as on a real C128, so a second
+  Amiga port without a mouse would make the pointer jump. A passive Amiga mouse's right
+  button can't be read on the MEGA65: turn on **MEGA+left = right** and click with MEGA held.
 * IEC (Serial) bus (inclusive Burst Mode). The Help menu **Use IEC port** item
-  defaults to on; turn it off to isolate the physical DIN from the virtual drives.
+  defaults to off, so only the virtual drives are on the bus; turn it on for real drives
+  and other devices on the DIN socket.
 * The Help menu occupies the MEGA65 Help key, which is also the C128 Help key.
   Enable **Keyboard > Help menu on F13** (default off) to open the menu with F13 instead,
   so C128 software can use Help. Close the menu with F13, Help, or Close Menu.
@@ -32,7 +38,7 @@
   Cartridge III, Super Games, Mikro Assembler and EasyFlash use the REU's registers at
   $DF00-$DF1F, so the REU is off while one of them runs, as on an Ultimate.
 * REU (RAM Expansion Unit) of 512 KB, 2 MB or 16 MB, set in the menu (off by default). R3
-  boards offer 512 KB only
+  boards offer 512 KB and 2 MB
 * 40/70 Column mode (HDMI, audio: untested - please report)
 * Dual screen: **Display Settings > Video** chooses what HDMI and VGA show. Follow 40/80
   (default), 40 columns and 80 columns put the same picture on both ports. HDMI 40, VGA 80
@@ -57,9 +63,14 @@
   high while it shows the cartridge BA: in PHI1, and while BA is low, until ~190 ns
   into PHI2. An Ultimate II+ DMA write while BA is low fights it for ~130 ns, and a
   cartridge that drives R/W low in PHI1 fights it there.
-* A DMA cartridge gets only the first two cycles after BA falls, as the Ultimate II+
-  uses them. A VIC-II leaves the CPU three, but the core ignores a cartridge's access
-  in the third and drives R/W high through it.
+* The core can't sense R/W while it drives BA, so it guesses a cartridge's access in
+  the three cycles after BA falls from its last three, as C64MEGA65 does from two.
+  After a read it serves all three as reads and drives BA and R/W through the stall,
+  as a 1764's REC needs. After a swap's write (R W R W) it does the same but senses
+  R/W in the second cycle, where the REC writes a swap's last byte. After other
+  writes it senses R/W in the first two, as the Ultimate II+ uses them, and ignores
+  the third. A cartridge that switches from reading to writing just as BA falls
+  loses that write.
 
 # Planned
 

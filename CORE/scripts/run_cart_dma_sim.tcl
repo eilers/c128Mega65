@@ -56,6 +56,7 @@ foreach required_file [list \
     [file join $repo_dir "CORE/vhdl/drive_rom_server.vhd"] \
     [file join $repo_dir "CORE/vhdl/reu_mapper.vhd"] \
     [file join $repo_dir "M2M/vhdl/memory/avm_cache.vhd"] \
+    [file join $repo_dir "CORE/vhdl/input_inject_pkg.vhd"] \
     [file join $repo_dir "CORE/vhdl/cartridge.vhd"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/reu.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/iec_drive.sv"] \
@@ -73,6 +74,34 @@ foreach required_file [list \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_drv.sv"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/c1581_fdc1772.v"] \
     [file join $repo_dir "CORE/C128_MiSTer/rtl/iec_drive/floppy.v"] \
+    [file join $repo_dir "CORE/C128_MiSTer/rtl/video_vicIIe_jb.sv"] \
+    [file join $repo_dir "M2M/vhdl/controllers/MiSTer/video_sync.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_parser.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_cacher.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_reader.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_flash.vhd"] \
+    [file join $repo_dir "M2M/vhdl/controllers/SDRAM/sdram.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sdram_arbit.vhd"] \
+    [file join $repo_dir "M2M/vhdl/axi_fifo_small.vhd"] \
+    [file join $repo_dir "CORE/vhdl/crt_loader.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sw_cartridge_csr.vhd"] \
+    [file join $repo_dir "CORE/vhdl/sw_cartridge_wrapper.vhd"] \
+    [file join $repo_dir "M2M/vhdl/qnice_csr.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/io_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/slot_bus_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_if_pkg.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/command_protocol.vhd"] \
+    [file join $repo_dir "CORE/vhdl/uci/uci.vhd"] \
+    [file join $repo_dir "CORE/vhdl/c128_dma.vhd"] \
+    [file join $repo_dir "CORE/vhdl/input_inject.vhd"] \
+    [file join $repo_dir "CORE/vhdl/vdc_peek.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_i8255.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_rtc.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_scsi.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd_drive.vhd"] \
+    [file join $repo_dir "CORE/vhdl/cmdhd/cmdhd.vhd"] \
+    [file join $repo_dir "M2M/vhdl/controllers/M65/max10.vhdl"] \
+    [file join $repo_dir "M2M/vhdl/controllers/M65/pcm_to_pdm.vhdl"] \
 ] {
     if {[llength [get_files -quiet $required_file]] == 0} {
         puts "Adding missing source file: $required_file"
@@ -129,7 +158,7 @@ set sim_dir [file join \
     [file dirname [file normalize $project_file]] \
     "[file rootname [file tail $project_file]].sim" sim_1 behav xsim]
 
-run 80ms
+run 200ms
 close_sim -force
 
 set gate_ok 0

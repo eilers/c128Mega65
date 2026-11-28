@@ -2,4 +2,4 @@
 #include <stdint.h>
 
 extern uint8_t host_hr[];
-#define FW_MEM(a) ((void *)(host_hr + ((a) - 0x40400000u)))
+#define FW_MEM(a) ((void *)(host_hr + ((a) - 0x40600000u)))

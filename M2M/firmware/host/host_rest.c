@@ -1,7 +1,7 @@
 // What the REST routes use of the rest of the firmware, faked for test_http: the C128's
 // memory behind a model of the bus DMA device (a job takes a few polls of its busy bit) and
-// of the C128 booting to BASIC, the menu's settings bits, the drives, the drive ROM and
-// cartridge devices, the REU's file and the network's settings. The card is a FAT image
+// of the C128 booting to BASIC, the menu's settings bits, the drives, the drives' ROM library
+// (drvrom.c), the cartridge device, the REU's file and the network's settings. The card is a FAT image
 // (FatFs and diskio_file.c).
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +10,7 @@
 #include "config_ids.h"
 #include "core.h"
 #include "drives.h"
+#include "drvrom.h"
 #include "ff.h"
 #include "host_rest.h"
 #include "m2m_rv.h"
@@ -35,6 +36,7 @@ int       rom_under_z80;                 // system ROM accesses while the Z80 ru
 int     rom_reloads[2], crt_loads, crt_parsed;
 char    crt_shown[256];
 int     c128_basic, c128_c64, boot_never, c64_cart, typed_run;
+int     cbm_ignored;                    // a C128 that takes no notice of the C= key at a reset
 char    typed[64];
 static int ready_calls[2], rom_wait[2], reset_pend, z80_left, boot_left;
 static uint32_t ramrom;
@@ -65,7 +67,8 @@ static void reset_now(void)
    dma_held_v = 0;
    z80_cpm = 0;                         // the Z80's boot then hands the bus to the 8502
    z80_left = 2;
-   c128_c64 = c64_cart;
+   // C64 mode: a C64 cartridge, or the C= key held (row 7, bit 5: word 3's high byte)
+   c128_c64 = c64_cart || ((input_dev[3] & 0x2000) && !cbm_ignored);
    kernal();
 }
 
@@ -77,8 +80,10 @@ static void c128_runs(void)
 {
    if (!c128_basic && boot_left && !--boot_left && !boot_never) {
       c128_basic = 1;
+      memset(c128_mem + 0x400, ' ', 1000);         // the screen, the cursor on its seventh line
       if (c128_c64) {
          memcpy(c128_mem + 0x2B, "\x01\x08\x03\x08", 4);
+         memcpy(c128_mem + 0xD1, "\xF0\x04", 2);
          memset(c128_mem + 0x800, 0, 3);
       } else {
          c128_mem[0xA00] = 3;
@@ -95,6 +100,13 @@ static void c128_runs(void)
    keys[n] = 0;
    c128_mem[ndx_addr()] = 0;
    int at = strlen(typed);
+   // Return first, in C64 mode: the editor takes the cursor's line, shown here in <>
+   if (c128_c64 && keys[0] == '\r' && c128_mem[0x4F0] != ' ') {
+      typed[at++] = '<';
+      for (int i = 0; i < 40 && c128_mem[0x4F0 + i] != ' ' && at < (int)sizeof typed - 2; i++)
+         typed[at++] = c128_mem[0x4F0 + i] < 0x20 ? c128_mem[0x4F0 + i] + 0x40 : c128_mem[0x4F0 + i];
+      typed[at++] = '>';
+   }
    for (int i = 0; i < n && at < (int)sizeof typed - 1; i++)
       typed[at++] = keys[i] ? keys[i] : '@';         // a NUL shows as @
    typed[at] = 0;
@@ -178,6 +190,8 @@ void dma_stop(void)
 }
 
 void shell_menu_button(void) { menu_buttons++; }
+int shell_closed(void) { return !menu_open; }
+void shell_open_menu(void) { }
 
 int shell_menu_screen(uint8_t *out)
 {
@@ -237,6 +251,8 @@ int drives_ready(void)
    return 1;
 }
 
+int shell_mount(int d, const char *path, const char **msg) { return shell_mount_ro(d, path, 0, msg); }
+
 // As the menu: an image for the internal floppy's drive turns it off first; a size the core
 // takes; not the other drive's; then the model one the image runs, and the drive on
 int shell_mount_ro(int d, const char *path, int ro, const char **msg)
@@ -291,21 +307,32 @@ int core_prep_load(uint32_t size, int ctx, int group, int *type, const char **ms
    return size > 4u << 20;
 }
 
-// --- the drive ROM and the cartridge --------------------------------------------------------
+// --- the drives' ROM library and the cartridge ----------------------------------------------
+
+// The library a byte a word, as the tests compare it; a drive has its ROM two asks after a reload
+void drvrom_put(uint32_t at, const uint8_t *src, uint32_t n)
+{
+   for (uint32_t i = 0; i < n && at + i < DRVROM_SIZE; i++)
+      drive_rom[at + i] = src[i];
+}
+
+int drvrom_ready(int d)
+{
+   return !rom_wait[d] || !--rom_wait[d];
+}
+
+void drvrom_reload(int d)
+{
+   rom_reloads[d]++;
+   rom_wait[d] = 2;
+}
 
 int      crtrom_count(void) { return 2; }
 uint16_t crtrom_dev(int k) { return k ? 0x0200 : 0x0106; }
 
-// The drive ROM's CSR: a drive has its ROM two asks after a reload; the cartridge's: 4 MB
+// The cartridge's CSR: 4 MB
 uint16_t crtrom_csr_get(uint16_t dev, int reg)
 {
-   if (dev == 0x0102 && reg == 0) {
-      int ready = 0;
-      for (int d = 0; d < 2; d++)
-         if (!rom_wait[d] || !--rom_wait[d])
-            ready |= 1 << d;
-      return ready;
-   }
    if (dev == 0x0106 && reg == 0x20)
       return 64;
    return 0;
@@ -315,12 +342,6 @@ void crtrom_csr_set(uint16_t dev, int reg, uint16_t v)
 {
    if (dev == 0x0101 && reg == 0)
       func_size = v;
-   if (dev == 0x0102 && reg == 0)
-      for (int d = 0; d < 2; d++)
-         if (v >> d & 1) {
-            rom_reloads[d]++;
-            rom_wait[d] = 2;
-         }
 }
 
 void crtrom_begin(int k) { (void)k; crt_loads++; }
@@ -399,8 +420,6 @@ volatile uint16_t *host_rest_dev(void)
          rom_under_z80++;
       return sys_rom;
    }
-   if (ramrom == 0x0102)
-      return drive_rom;
    if (ramrom == 0x0106)
       return crt_mem;
    if (ramrom == 0x010B)              // the network device: the streams' words, never busy
@@ -447,7 +466,7 @@ int host_rest_card(const char *img)
 void host_rest_init(void)
 {
    if (!drive_rom) {
-      drive_rom = calloc(6 * 32768, sizeof *drive_rom);
+      drive_rom = calloc(DRVROM_SIZE, sizeof *drive_rom);
       sys_rom = calloc(128 << 10, sizeof *sys_rom);
       crt_mem = calloc(4 << 20, sizeof *crt_mem);
    }

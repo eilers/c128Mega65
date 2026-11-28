@@ -100,7 +100,7 @@ entity main is
      ram_data_i               : in unsigned(7 downto 0);      -- RAM data in
       sys_rom_addr_o           : out std_logic_vector(16 downto 0);
       sys_rom_data_i           : in  std_logic_vector(7 downto 0);
-      -- The internal function ROM, in the system ROM from 0x18000: 0 none, 1 16 KB (at $8000),
+      -- The internal function ROM, in the system ROM from 0x12000: 0 none, 1 16 KB (at $8000),
       -- 2 32 KB (and at $C000)
       func_rom_size_i          : in  std_logic_vector(1 downto 0) := "00";
 
@@ -196,8 +196,8 @@ entity main is
       qnice_vd_ce_i           : in  std_logic;
       qnice_vd_we_i           : in  std_logic;
 
-      -- Drive ROM pull interface (clk_sd_i domain). The drives fetch their DOS ROM
-      -- byte by byte out of the boot1.rom block RAM that mega65.vhd serves.
+      -- Drive ROM pull interface (clk_sd_i domain). The drives fetch their DOS ROM byte by
+      -- byte from drive_rom_server.vhd in mega65.vhd, which the firmware feeds.
       drv_rom_loading_i       : in  std_logic;
       drv_rom_reload_i        : in  std_logic_vector(1 downto 0) := "00";  -- a pulse: drive i's bank again
       drv_rom_ready_o         : out std_logic_vector(1 downto 0);          -- drive i has its ROM
@@ -408,11 +408,8 @@ attribute ASYNC_REG of vdc_sync_rst_sl : signal is "TRUE";
 signal hdmi_sel_vdc      : std_logic := '0';
 signal vga_sel_vdc       : std_logic := '0';
 signal vga_retro15khz    : std_logic;
-signal hdmi_sel_vdc_d    : std_logic := '0';
 signal vga_sel_vdc_d     : std_logic := '0';
-signal hdmi_switching    : std_logic := '0';
 signal vga_switching     : std_logic := '0';
-signal hdmi_switch_cnt   : natural range 0 to 65535 := 0;
 signal vga_switch_cnt    : natural range 0 to 65535 := 0;
 signal vic_jailbars      : std_logic_vector(1 downto 0) := "00";
 signal core_z80_n        : std_logic;  -- MMU CPU select: '0'=Z80, '1'=8502 (MiSTer z80_n port)
@@ -504,6 +501,9 @@ signal core_ioe_bus         : std_logic;
 signal core_iof_bus         : std_logic;
 signal core_nmi_ack         : std_logic;
 signal core_umax_romh       : std_logic;
+signal core_umax_nomap      : std_logic;   -- Ultimax access to the unmapped $1000-$7FFF/$A000-$CFFF
+signal cart_umax_rd         : std_logic;   -- a hardware cart may serve that read (IDE64)
+signal core_ram_float       : std_logic;
 signal core_io_rom          : std_logic;
 signal core_io_ext          : std_logic;
 signal core_io_data         : unsigned(7 downto 0);
@@ -601,6 +601,16 @@ signal exp_port_hw          : std_logic;   -- '1' = the physical slot is in use
 signal cart_rom_sel         : std_logic;   -- the CPU's access may select ROML/ROMH (PLA rules)
 signal cart_roml_n          : std_logic;
 signal cart_romh_n          : std_logic;
+signal cart_roml_c          : std_logic;
+signal cart_romh_c          : std_logic;
+signal cart_roml_q          : std_logic := '0';
+signal cart_romh_q          : std_logic := '0';
+signal cart_umax_q          : std_logic := '0';
+signal cart_roml_pin_n      : std_logic;
+signal cart_a_bus           : unsigned(15 downto 0);
+signal cart_a_bus_q         : unsigned(15 downto 0) := (others => '0');
+signal cart_a_held          : std_logic;
+signal cart_romh_pin_n      : std_logic;
 signal cart_io1_n           : std_logic := '1';
 signal cart_io2_n           : std_logic := '1';
 constant C_RD_RELEASE       : natural := 2;
@@ -646,9 +656,21 @@ signal cart_dma_data_oe     : std_logic := '0';
 signal phi2_d               : std_logic := '0';
 signal phi2_cnt             : natural range 0 to 31 := 31;
 signal phi2_ph              : natural range 0 to 31;
-signal ba_lo_cnt            : natural range 0 to 3 := 0;   -- PHI2 rises in a row with BA low
+signal ba_lo_cnt            : natural range 0 to 4 := 0;   -- PHI2 rises in a row with BA low; 4: the VIC's
+signal cart_dma_last_rd     : std_logic := '1';   -- the cart's last three accesses with BA high
+signal cart_dma_acc         : std_logic;          -- the cart accesses now: not idle, reading $FFFF
+signal cart_dma_last_live   : std_logic := '0';
+signal cart_dma_prev_rd     : std_logic := '1';
+signal cart_dma_prev_live   : std_logic := '0';
+signal cart_dma_prev2_rd    : std_logic := '1';
+signal cart_dma_prev2_live  : std_logic := '0';
+signal cart_dma_hold        : std_logic;          -- a BA stall now meets a held read
+signal ba_hold              : std_logic;                   -- BA low, the cart holds a read: served as one
 signal ba_warn              : std_logic;                   -- BA low, but the cart may still write
 signal ba_idle              : std_logic;                   -- BA low, and the cart leaves the bus alone
+signal ba_warn_rd           : std_logic := '0';            -- the cart didn't write in this ba_warn cycle
+signal dot_cnt              : unsigned(1 downto 0) := "00";
+signal cart_dotclk_q        : std_logic := '0';
 
 -- Hardware Expansion Port: Handle specifics of certain cartridges
 constant C_EF3_RESET_LEN : natural := 7; -- measured in phi2 cycles
@@ -870,20 +892,11 @@ begin
   end if;
 end process vdc_pixel_sample_proc;
 
--- Blank a port briefly when its source changes (its video clock BUFGMUX switches with it).
+-- Blank VGA briefly when its source changes (its video clock BUFGMUX switches with it).
+-- HDMI blanks in the framework (video_switch_blank), until ascal has the new picture.
 video_switch_blank_proc : process (clk_main_i)
 begin
   if rising_edge(clk_main_i) then
-    hdmi_sel_vdc_d <= hdmi_sel_vdc;
-    if hdmi_sel_vdc /= hdmi_sel_vdc_d then
-      hdmi_switching  <= '1';
-      hdmi_switch_cnt <= 65535;
-    elsif hdmi_switch_cnt /= 0 then
-      hdmi_switch_cnt <= hdmi_switch_cnt - 1;
-    else
-      hdmi_switching <= '0';
-    end if;
-
     vga_sel_vdc_d <= vga_sel_vdc;
     if vga_sel_vdc /= vga_sel_vdc_d then
       vga_switching  <= '1';
@@ -904,12 +917,9 @@ video_hs_o     <= vdc_hs_out when hdmi_sel_vdc = '1' else vic_hs_out;
 video_vs_o     <= vdc_vs_out when hdmi_sel_vdc = '1' else vic_vs_out;
 video_hblank_o <= vdc_hblank when hdmi_sel_vdc = '1' else vic_hblank;
 video_vblank_o <= vdc_vblank when hdmi_sel_vdc = '1' else vic_vblank;
-video_red_o    <= (others => '0') when hdmi_switching = '1' else
-                  std_logic_vector(vdc_r_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_r_reg);
-video_green_o  <= (others => '0') when hdmi_switching = '1' else
-                  std_logic_vector(vdc_g_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_g_reg);
-video_blue_o   <= (others => '0') when hdmi_switching = '1' else
-                  std_logic_vector(vdc_b_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_b_reg);
+video_red_o    <= std_logic_vector(vdc_r_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_r_reg);
+video_green_o  <= std_logic_vector(vdc_g_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_g_reg);
+video_blue_o   <= std_logic_vector(vdc_b_reg) when hdmi_sel_vdc = '1' else std_logic_vector(vic_b_reg);
 
 vga_video_ce_o <= vdc_dot_ce when vga_sel_vdc = '1' else vic_pixel_ce;
 -- The on-screen menu counts this enable while the data-enable window is open
@@ -1024,8 +1034,31 @@ cart_umax_vic <= '1' when core_aec = '0' and core_exrom_n = '1' and core_game_n 
 -- A PLA selects ROML/ROMH for a write only in Ultimax mode. In 8K/16K mode the write goes to RAM
 -- alone, and a plain ROM cartridge, which has no R/W, would drive the bus against it.
 cart_rom_sel <= core_aec and ((not system_we) or (core_exrom_n and not core_game_n));
-cart_roml_n  <= not (core_roml and cart_rom_sel);
-cart_romh_n  <= not (core_romh and cart_rom_sel) and (not cart_umax_vic);
+cart_roml_c  <= core_roml and cart_rom_sel;
+cart_romh_c  <= core_romh and cart_rom_sel;
+cart_roml_n  <= not cart_roml_c;
+cart_romh_n  <= not cart_romh_c and (not cart_umax_vic);
+
+-- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up by RP4
+-- whenever the VIC has the bus, so a cartridge sees them as %1111.
+cart_a_bus <= "11" & core_vic_addr when cart_umax_vic = '1' else core_ram_addr(15 downto 0);
+
+-- A cart such as the IDUN latches the address when /ROML or /ROMH falls (issue #32). The address
+-- and its decode switch on the same clock, and in a VIC refresh the address settles a clock late.
+-- So a select reaches the pin only once it and its address have been there for a whole clock.
+cart_sel_proc : process (clk_main_i)
+begin
+   if rising_edge(clk_main_i) then
+      cart_roml_q <= cart_roml_c;
+      cart_romh_q <= cart_romh_c;
+      cart_umax_q <= cart_umax_vic;
+      cart_a_bus_q <= cart_a_bus;
+   end if;
+end process cart_sel_proc;
+
+cart_a_held     <= '1' when cart_a_bus = cart_a_bus_q else '0';
+cart_roml_pin_n <= not (cart_roml_c and cart_roml_q and cart_a_held);
+cart_romh_pin_n <= not (((cart_romh_c and cart_romh_q) or (cart_umax_vic and cart_umax_q)) and cart_a_held);
 
 -- /IO1 and /IO2 span the CPU's PHI2 phase as on a C64, not the core's CPU4-7 strobe: the Ultimate
 -- latches them ~350 ns into PHI2. Registered against the CPU/VIC address handover; low EXT5..CPU7,
@@ -1051,7 +1084,8 @@ end process cart_io_proc;
 
 -- While the VIC has the bus, a select is always a read; system_we may still be the CPU's.
 cart_rd_now <= '1' when (system_we = '0' or core_aec = '0') and
-                        (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0') else '0';
+                        (cart_roml_n = '0' or cart_romh_n = '0' or cart_io1_n = '0' or cart_io2_n = '0' or
+                         cart_umax_rd = '1') else '0';
 
 -- What the cartridge tells the C128. Forced to the inactive level while the slot is unused so
 -- that an empty slot can never inject an interrupt or map a phantom cartridge into the address
@@ -1090,8 +1124,25 @@ cart_reset_n_int <= '0' when (pwrup_reset_cnt /= 0 or reset_core_int_n = '0') el
 -- cycle-gated and FAST mode adds a CPUC slot. The 8502 must own the bus, as the core's Z80 does
 -- not stop for DMA (a real C128's does, PRG p. 636).
 phi2_ph        <= 0 when core_phi2 /= phi2_d else phi2_cnt;
-ba_warn        <= '1' when core_ba = '0' and ba_lo_cnt /= 3 else '0';
-ba_idle        <= '1' when core_ba = '0' and ba_lo_cnt = 3 else '0';
+-- A 1764's MOS 8726 REC holds a read on the bus through the three BA-low cycles in which AEC is
+-- still high, as a 6510 with RDY low, and latches each before PHI2 falls; a C64's RAM answers all
+-- three (C64MEGA65 #259). That is the next read after a read, and the read after a swap's write:
+-- one after a read that follows a write or opens the transfer. After other writes (a fetch, or
+-- the Ultimate's first write after reads) or a swap's read the cart may write in the first two,
+-- as the Ultimate does, so we sense R/W there. The Ultimate idles reading $FFFF: not a read here.
+cart_dma_acc   <= cart_dma_req when cart_rw_q = '0' or cart_a_q /= x"FFFF" else '0';
+cart_dma_hold  <= cart_dma_last_live and
+                  ((cart_dma_last_rd and not (cart_dma_prev_live and not cart_dma_prev_rd)) or
+                   (not cart_dma_last_rd and cart_dma_prev_live and cart_dma_prev_rd and
+                    not (cart_dma_prev2_live and cart_dma_prev2_rd)));
+-- But a REC whose last read is that read after a swap's write latches it in the first BA-low
+-- cycle and writes in the second (VICE testprogs REU/reutiming2 f3/f4, references from a real
+-- C64), so we sense R/W in that second cycle (#9).
+ba_hold        <= '1' when core_ba = '0' and cart_dma_hold = '1' and ba_lo_cnt /= 4 and
+                           not (cart_dma_last_rd = '0' and ba_lo_cnt = 2) else '0';
+ba_warn        <= '1' when core_ba = '0' and ((cart_dma_hold = '0' and ba_lo_cnt < 3) or
+                           (cart_dma_hold = '1' and cart_dma_last_rd = '0' and ba_lo_cnt = 2)) else '0';
+ba_idle        <= '1' when core_ba = '0' and ba_hold = '0' and ba_warn = '0' else '0';
 cart_dma_req   <= exp_port_hw and not cart_dma_n_q and core_z80_n;
 
 cart_dma_proc : process (clk_main_i)
@@ -1107,26 +1158,37 @@ begin
       end if;
 
       -- BA as the cart samples it at each PHI2 rise. A VIC-II, like the core's, takes the bus in the
-      -- fourth cycle with BA low, but the Ultimate already leaves the third alone and floats R/W
-      -- there ("Patch: 2 cycles only" in its slot_timing.vhd), so the third is ba_idle too.
+      -- fourth cycle with BA low. The Ultimate already leaves the third alone and floats R/W there
+      -- ("Patch: 2 cycles only" in its slot_timing.vhd), so unless a read is held it's ba_idle.
       if core_phi2 = '1' and phi2_d = '0' then
          if core_ba = '1' then
             ba_lo_cnt <= 0;
-         elsif ba_lo_cnt /= 3 then
+         elsif ba_lo_cnt /= 4 then
             ba_lo_cnt <= ba_lo_cnt + 1;
          end if;
+         ba_warn_rd <= '0';
       end if;
 
-      -- While BA is low we hold the R/W line ourselves, so the access is latched later then.
+      -- A held read is latched as any read, its data driven early (below): a $FF from the pull-ups
+      -- fails a REC verify. While BA is low otherwise we hold the R/W line ourselves, so the
+      -- access is latched later.
       -- Any cycle without a cart access reads $FFFF, as the Ultimate does when idle.
       if core_phi2 = '1' and phi2_ph = C_DMA_ADDR then
          cart_dma_addr <= x"FFFF";
          cart_dma_rd   <= '1';
          cart_dma_live <= '0';
-         if cart_dma_req = '1' and core_ba = '1' then
+         if cart_dma_req = '1' and (core_ba = '1' or ba_hold = '1') then
             cart_dma_addr <= cart_a_q;
-            cart_dma_rd   <= cart_rw_q;
+            cart_dma_rd   <= cart_rw_q or not core_ba;
             cart_dma_live <= '1';
+         end if;
+         if core_ba = '1' then
+            cart_dma_prev2_rd   <= cart_dma_prev_rd;
+            cart_dma_prev2_live <= cart_dma_prev_live and cart_dma_req;
+            cart_dma_prev_rd   <= cart_dma_last_rd;
+            cart_dma_prev_live <= cart_dma_last_live and cart_dma_req;
+            cart_dma_last_rd   <= cart_rw_q;
+            cart_dma_last_live <= cart_dma_acc;
          end if;
       end if;
       if core_phi2 = '1' and phi2_ph = C_DMA_DATA then
@@ -1136,6 +1198,7 @@ begin
             cart_dma_rd   <= cart_rw_q;
             cart_dma_live <= '1';
          end if;
+         ba_warn_rd <= ba_warn and cart_rw_q;
       end if;
 
       -- Hand the DMA port back to the REU at the next PHI2 rise, after the core has dropped DMA
@@ -1147,26 +1210,51 @@ begin
 
       -- Level shifter directions while the cart has the bus, for the next clock. BA shares one
       -- with R/W, so we drive BA (and R/W high) only in PHI1, at the PHI2 rise when the cart
-      -- samples it, past the Ultimate's read gate while BA is low, and in ba_idle cycles.
-      -- While BA is low, that overlaps an Ultimate write's R/W by ~130 ns.
+      -- samples it, past the Ultimate's read gate while BA is low, and in ba_hold and ba_idle
+      -- cycles, so BA can't float up there. While BA is low, that overlaps an Ultimate write's
+      -- R/W by ~130 ns. In ba_warn BA is let go only while we sense R/W: unless the cart writes,
+      -- we drive it again from C_DMA_DATA. A 1764 whose transfer starts as BA falls goes wrong
+      -- when BA floats up (#9).
       cart_dma_ctrl_oe <= '0';
-      if ba_idle = '1' or
+      if ba_hold = '1' or ba_idle = '1' or ba_warn_rd = '1' or
+         (core_phi2 = '1' and phi2_ph = C_DMA_DATA and ba_warn = '1' and cart_rw_q = '1') or
          (core_phi2 = '0' and phi2_ph >= C_CTRL_TURN - 1) or
          (core_phi2 = '1' and phi2_ph < C_BA_HOLD - 1) or
          (core_phi2 = '1' and ba_warn = '1' and phi2_ph < C_BA_HOLD_W - 1) then
          cart_dma_ctrl_oe <= '1';
       end if;
 
-      -- Read data from the latch until just past the PHI2 fall. ROML/ROMH reads are a cart's: by
-      -- the core's decode, which outlasts the AEC-gated selects while the cart lets go.
+      -- Read data from the latch until just past the PHI2 fall, and all through a held read, as
+      -- C64MEGA65 does: the RAM has the address from EXT4, so the byte is there early in PHI2.
+      -- ROML/ROMH reads are a cart's: by the core's decode, which outlasts the AEC-gated selects
+      -- while the cart lets go. Ahead of the cycle in which a swap may write (ba_warn above), the
+      -- held read lets go as a plain one, so the cart's write data has the bus from PHI1 on.
       cart_dma_data_oe <= '0';
       if cart_dma = '1' and cart_dma_live = '1' and cart_dma_rd = '1' and
          core_roml = '0' and core_romh = '0' and core_umax_romh = '0' and
-         ((core_phi2 = '1' and phi2_ph > C_DMA_ADDR) or (core_phi2 = '0' and phi2_ph < C_DATA_HOLD - 1)) then
+         ((ba_hold = '1' and not (cart_dma_last_rd = '0' and ba_lo_cnt = 1 and
+                                  (core_phi2 = '0' or phi2_d = '0'))) or
+          (core_phi2 = '1' and phi2_ph > C_DMA_ADDR) or (core_phi2 = '0' and phi2_ph < C_DATA_HOLD - 1)) then
          cart_dma_data_oe <= '1';
       end if;
    end if;
 end process cart_dma_proc;
+
+-- DOTCLK as a real C64's: a square wave, four periods to a PHI2 half, each PHI2 edge one tick
+-- after a rising edge. The 8726 times its DRAM from it (C64MEGA65 A23); the pixel enable is a
+-- one-tick pulse. Free-running, so it doesn't stop in reset or pause.
+cart_dotclk_proc : process (clk_main_i)
+   variable v_cnt : unsigned(1 downto 0);
+begin
+   if rising_edge(clk_main_i) then
+      v_cnt := dot_cnt + 1;
+      if core_phi2 /= phi2_d then
+         v_cnt := "00";
+      end if;
+      dot_cnt       <= v_cnt;
+      cart_dotclk_q <= v_cnt(1);
+   end if;
+end process cart_dotclk_proc;
 
 -- The cartridge owns the core's DMA port while it holds /DMA, and the REU waits; the system
 -- CPU's DMA waits for both. When only the virtual cartridge's cache stalls the CPU, the DMA
@@ -1249,13 +1337,13 @@ begin
       cart_reset_o    <= cart_reset_n_int when cart_reset_counter = 0 and cart_res_flckr_ign = 0 else '1';
       cart_reset_oe_o <= not cart_reset_o;
 
-      cart_roml_o     <= cart_roml_n;
-      cart_romh_o     <= cart_romh_n;
+      cart_roml_o     <= cart_roml_pin_n;
+      cart_romh_o     <= cart_romh_pin_n;
       cart_io1_o      <= cart_io1_n;
       cart_io2_o      <= cart_io2_n;
       cart_rw_o       <= not system_we;
       cart_phi2_o     <= core_phi2;
-      cart_dotclock_o <= vic_pixel_ce;
+      cart_dotclock_o <= cart_dotclk_q;
       -- The VIC's BA, as C64MEGA65 V6 does
       cart_ba_o       <= core_ba;
 
@@ -1272,13 +1360,7 @@ begin
          -- Address bus. Only the low 16 bits of the core's address are a CPU/VIC address; bits
          -- 17..16 are the C128's RAM bank select and must not leave the machine.
          cart_addr_oe_o  <= '1';
-         if cart_umax_vic = '0' then
-            cart_a_o     <= core_ram_addr(15 downto 0);
-         else
-            -- Ultimax mode with the VIC on the bus: per "The PLA Dissected", A12..A15 are pulled up
-            -- by RP4 whenever the VIC has the bus, so a cartridge sees them as %1111.
-            cart_a_o     <= "11" & core_vic_addr;
-         end if;
+         cart_a_o        <= cart_a_bus;
 
          -- Data bus: turn it into an input while the cartridge answers a read, drive it otherwise,
          -- so that the CPU can also write to the cartridge (bank switching).
@@ -1855,6 +1937,10 @@ end process;
 -- that feeding it to the cartridge's data bus cannot create a combinational loop.
 funcrom_cs    <= (core_romfl and (func_rom_size_i(0) or func_rom_size_i(1))) or (core_romfh and func_rom_size_i(1));
 funcrom_float <= (core_romfl or core_romfh) and not funcrom_cs;
+-- In Ultimax mode $1000-$7FFF and $A000-$CFFF have no RAM or ROM: a cartridge such as the IDE64
+-- maps its own RAM there (C64MEGA65 #176), else the bus floats. Only in the CPU's phase.
+cart_umax_rd   <= exp_port_hw and core_umax_nomap and core_aec;
+core_ram_float <= funcrom_float or (core_umax_nomap and not exp_port_hw);
 machine_data  <= unsigned(sys_rom_data_i) when sysrom_cs = '1' or funcrom_cs = '1' else ram_data_i;
 
 cpu_data_in_proc: process (all)
@@ -1873,7 +1959,7 @@ cpu_data_in_proc: process (all)
     -- through ramDin, which is exactly this signal. The VIC's Ultimax fetch counts only in the
     -- core's VIC slot, so the Z80's PHI1 slots still read RAM.
     elsif exp_port_hw = '1' and (cart_roml_n = '0' or (core_romh = '1' and core_aec = '1') or
-                                 core_umax_romh = '1') then
+                                 core_umax_romh = '1' or cart_umax_rd = '1') then
       ram_data <= data_from_cart;
     -- A virtual cartridge's ROM, or its RAM where the cartridge maps it. $DExx/$DFxx only reach
     -- the CPU from here while the cartridge sets io_rom.
@@ -1897,8 +1983,9 @@ cpu_data_in_proc: process (all)
 -- ramCE here: Z80 latch writes miss the CE strobe.
 ram_we_o <= ram_we;
 ram_data_o <= core_ram_data_out;
--- The function ROM's halves at 0x18000 and 0x1C000
-sys_rom_addr_o <= "11" & core_romfh & std_logic_vector(core_ram_addr(13 downto 0)) when core_romfl = '1' or core_romfh = '1' else
+-- The function ROM's halves at 0x12000 and 0x16000, right after boot0.rom's banks 0-17
+sys_rom_addr_o <= std_logic_vector(to_unsigned(C_FUNC_ROM_AT, 17) + (core_romfh & core_ram_addr(13 downto 0)))
+                     when core_romfl = '1' or core_romfh = '1' else
                   std_logic_vector(sysrom_bank) & std_logic_vector(core_ram_addr(11 downto 0));
 ram_addr_o <= core_ram_addr;
 sysrom_data <= unsigned(sys_rom_data_i);
@@ -2092,7 +2179,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       systemWe_o    => system_we,
       -- Reads answered by a hardware cartridge are substituted into ramDin (see cpu_data_in_proc),
       -- so from the bus logic's point of view the data bus floats only for a missing function ROM.
-      ramDinFloat   => funcrom_float,
+      ramDinFloat   => core_ram_float,
 
       io_cycle      => open, -- 1 when an external I/O accesss is happening
       ext_cycle     => core_ext_cycle, -- the REU's RAM slot in every C128 cycle
@@ -2158,6 +2245,7 @@ fpga64_sid_iec_inst: entity work.fpga64_sid_iec
       romL          => core_roml,      -- output. CPU access to 0x8000-0x9FFF
       romH          => core_romh,      -- output. CPU access to 0xA000-0xBFFF or 0xE000-0xFFFF (ultimax)
       UMAXromH      => core_umax_romh, -- output
+      UMAXnomap     => core_umax_nomap, -- output
       IOE           => core_ioe,       -- output. aka IO1. CPU access to 0xDExx
       IOF           => core_iof,       -- output. aka IO2. CPU access to 0xDFxx
       IO7           => core_io7,       -- output. CPU access to 0xD7xx
@@ -2569,11 +2657,12 @@ iec_drive_inst : entity work.iec_drive
     drv_id       => iec_drv_id,
     drv_1581     => iec_drv_1581,
 
-    -- IEC bus, wired-AND merged with the physical port (see the assignments further up)
+    -- IEC bus, wired-AND merged with the physical port (see the assignments further up) and
+    -- the CMD HD: every device sees the whole bus, as on a real one
     iec_atn_i    => core_iec_atn_o,
-    iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
-    iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
-    iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
+    iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i  and hd_iec_clk,
+    iec_data_i   => core_iec_data_o  and hw_iec_data_n_i and hd_iec_data,
+    iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i  and hd_iec_srq,
     iec_clk_o    => fdd_iec_clk,
     iec_data_o   => fdd_iec_data,
     iec_fclk_o   => fdd_iec_srq,
@@ -2612,7 +2701,7 @@ iec_drive_inst : entity work.iec_drive
     sd_buff_din  => iec_sd_buf_data_out,     -- data read back from the drive's buffer RAM
     sd_buff_wr   => iec_sd_buf_wr,
 
-    -- DOS ROM, pulled out of boot1.rom by the server FSM in mega65.vhd
+    -- DOS ROM, handed over by drive_rom_server.vhd in mega65.vhd
     rom_loading  => drv_rom_loading_i,
     rom_reload   => drv_rom_reload_i(G_VDNUM - 1 downto 0),
     rom_ready    => iec_rom_ready,
@@ -2687,9 +2776,9 @@ cmdhd_gen : if G_CMDHD generate
       ce_i         => iec_drive_ce,
       pause_i      => pause_i,
       iec_atn_i    => core_iec_atn_o,
-      iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i,
-      iec_data_i   => core_iec_data_o  and hw_iec_data_n_i,
-      iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i,
+      iec_clk_i    => core_iec_clk_o   and hw_iec_clk_n_i  and fdd_iec_clk,    -- the drives too:
+      iec_data_i   => core_iec_data_o  and hw_iec_data_n_i and fdd_iec_data,   -- a listener waits
+      iec_fclk_i   => core_iec_srq_n_o and hw_iec_srq_n_i  and fdd_iec_srq,    -- for all of them
       iec_clk_o    => hd_iec_clk,
       iec_data_o   => hd_iec_data,
       iec_fclk_o   => hd_iec_srq,

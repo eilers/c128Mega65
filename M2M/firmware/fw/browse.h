@@ -19,3 +19,4 @@ void               browse_reset(void);          // forget where we were (FB_RE_I
 enum browse_result browse_key(uint32_t key);    // a key, or 0; polled while browsing
 const char        *browse_path(void);           // the chosen file, its whole path
 const char        *browse_name(void);           // ditto, its name
+int                browse_run(void);            // how: 0 Return, 1 F7 (start it), 2 F8

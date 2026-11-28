@@ -64,6 +64,7 @@ architecture sim of tb_net is
    constant R_ETH_TX      : natural := 16#09#;
    constant R_ETH_STATUS  : natural := 16#0A#;
    constant R_ETH_DROPS   : natural := 16#0B#;
+   constant R_ETH_RXKB    : natural := 16#0D#;
    constant R_ETH_CTRL    : natural := 16#0C#;
    constant R_DNA         : natural := 16#10#;
 
@@ -226,6 +227,7 @@ begin
       end loop;
       expect(R_ETH_RX, 0, "ETH_RX after both frames");
       expect(R_ETH_DROPS, 0, "frames dropped");
+      expect(R_ETH_RXKB, 32, "the receive buffer's size, in KB");
 
       -- The 6551 as the C128 set it up: 230400 baud via Turbo232, DTR on, receive IRQ on
       if not programmed then

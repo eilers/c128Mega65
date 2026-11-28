@@ -70,14 +70,14 @@ choices are the core's, under his names where he has the same.
 | Category | Items |
 |---|---|
 | U64 Specific Settings | his U64's, for the menu's lines: System Mode (PAL, the core's only), HDMI Scan Resolution (the menu's HDMI modes), Joystick Swapper (Normal, Swapped), Digital Video Mode (HDMI, DVI: the menu's HDMI audio on or off), HDMI Scan lines (Enabled while the HDMI filter has scan lines: Scanlines or a CRT one; set Enabled, it picks Scanlines for a filter without them, set Disabled the default filter for one with them), Serial Bus Mode (All Connected: the IEC port on; C64 <-> Internal: off); and his for machine:input's mouse, with no menu lines: Mouse Mode (Cursor, Mouse, Mouse + Cursor, Mouse + Wheel), Mouse Sensitivity (1-16), Mouse Acceleration (Off, Adaptive), Mouse Wheel Sensitivity (1-16), Mouse Wheel Direction (Normal, Reversed) |
-| C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, or a card path `/SD/...`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
+| C64 and Cartridge Settings | Cartridge (a `.crt` in `/c128/carts`, or a card path `/SD/...`, loaded at every start), Cartridge Preference (External: the slot; Internal: a `.crt` file), Alternate Kernal (8 KB, or 16 KB with C64 BASIC), RAM Expansion Unit, REU Size (512 KB, 2 MB, 16 MB; 512 KB and 2 MB on R3), REU Preload Image (a card path, `/SD/...`, into the REU at every start), Command Interface |
 | Drive A Settings, Drive B Settings | Drive (the menu's Drive enabled: on the bus with a disk or without; A Enabled, B Disabled by default, as his), Drive Type (1541, 1571, 1581, Internal 1581: its model, as set_mode; the internal floppy one drive at a time), Drive Bus ID (8-11; two drives may share one, as his; the menu swaps them instead), ROM for 1541 mode (8, 16 or 32 KB; 8 KB is its $E000 half, on the stock $C000 half), 1571 mode, 1581 mode (16 or 32 KB) |
 | Modem Settings | Modem Interface, ACIA (6551) Mapping (Off, DE00/NMI, DF00/NMI, D700/NMI), Hardware Mode |
 | Ethernet Settings | Use DHCP, Static IP, Static Netmask, Static Gateway, Static DNS |
 | Network Settings | Host Name, Network Password, FTP File Service (`doc/ftp.md`), Web Remote Control Service |
 | Data Streams | Stream VIC to, Stream Audio to (`host[:port]`, 36 characters; his defaults `239.0.1.64:11000`, `239.0.1.65:11001`). A change takes effect at the stream's next start, as his |
 | C128 ROM Settings (ours) | C128 Kernal ROM (16 KB: editor, Z80 BIOS, KERNAL), C128 Basic ROM (32 KB), C64 Basic ROM (8 KB), Char ROM (8 KB), Internal Function ROM (16 or 32 KB) |
-| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, HDMI Filter, VGA Display Mode, Caps Lock Key, Help Menu on F13, 256 KB RAM |
+| MEGA65 Settings (ours) | the menu's settings he has nothing like, its words for the choices: Video Output, VIC-II Jailbars, HDMI Flicker-free, HDMI Filter, VGA Display Mode, Caps Lock Key, Help Menu on F13, 256 KB RAM, Amiga Mouse (Off, Port 1, Port 2), MEGA+Left as Right |
 
 The ROM items are his CFG_TYPE_STRFUNC: a file name in `/c128/roms` (his `/flash/roms`),
 or ours only, a card path (`/SD/...`) for a file the menu picked elsewhere; GET with an item
@@ -141,7 +141,7 @@ bit i reloads drive i's bank, its `iecdrv_rom` and the ROM server starting over)
 hold (CSR `0x035`). iec_drive's per-drive `rom_reload` is in `CORE/C128_MiSTer`.
 
 Hardware interface 5: the internal function ROM in `C_DEV_SYSTEM_ROM` from `0x18000`
-(boot0.rom's BRAM has 128 KB), its size in that device's CSR register 0 (0 none, 1 16 KB,
+(`0x12000` since hardware interface 18), its size in that device's CSR register 0 (0 none, 1 16 KB,
 2 32 KB; a missing half floats, as on MiSTer). The firmware writes a 16 KB function ROM twice,
 as VICE and a 16 KB EPROM in the C128's 32 KB socket have it, so it uses 0 and 2.
 
@@ -155,6 +155,12 @@ Hardware interface 12: his video and audio streams in `C_DEV_NET` (words `0x20`-
 Hardware interface 13: `C_DEV_VDC` (`vdc_peek.vhd`), the VDC's RAM (words `0x0000`-`0xFFFF`)
 and registers (its CSR window), read through a second port of the VDC's own RAM and a copy
 of its register read, on its clock. The VDC is in `CORE/C128_MiSTer`.
+
+Hardware interface 18: boot1.rom moves from block RAM to HyperRAM (`C_HMAP_DRVROM`), and the
+firmware hands each drive the bytes of its bank (`drvrom.c`, `drive_rom_server.vhd`, its
+register map in its header). Register 0 of `C_DEV_DRIVE_ROM` stays as it was, so load_rom's
+reload and wait are unchanged. The function ROM moves to `0x12000`, right after boot0.rom, in
+a 104 KB system ROM.
 
 ## Settings
 
@@ -227,8 +233,8 @@ here or by REST. A start that fails shows his popup's text until Space.
 - `make -C M2M/firmware host-test` runs `test_http`: the server and lwIP with clients on a
   loopback, every answer to the byte, the limits, the reaper, bodies, the backlog; the
   routes on `host/host_rest.c`'s fakes (a C128's memory behind a DMA model, a C128 that
-  resets, boots to BASIC and takes typed keys, the drives, the drive ROM and cartridge
-  devices, the menu's bits) with the real `stores.c` and FatFs on a card image. `test_shell` types in the Network
+  resets, boots to BASIC and takes typed keys, the drives, the drives' ROM library and the
+  cartridge device, the menu's bits) with the real `stores.c` and FatFs on a card image. `test_shell` types in the Network
   submenu; `test_uci` and `test_prg` keep LOAD_CONFIG's answers.
 - Streams: `test_http` starts and stops them against a DNS server and ARP entries on its
   loopback and checks each header against `test/streams/udp_headers.py` (his
@@ -248,8 +254,8 @@ here or by REST. A start that fails shows his popup's text until Space.
   position, both scan directions, with the Z80).
 - `M2M/firmware/host/build/test_http -serve 18080 IMG` puts that build on `127.0.0.1:18080`,
   with the FAT image IMG as its card.
-- `CORE/scripts/run_drive_rom_sim.tcl` (tb_drive_rom: reloads, also in the middle of a load
-  and in reset) and `run_vd_sd_sim.tcl` (tb_vd_sd: hold).
+- `CORE/scripts/run_drive_rom_nvc.sh` and `run_drive_rom_sim.tcl` (tb_drive_rom: reloads, also
+  in the middle of a load and in reset) and `run_vd_sd_sim.tcl` (tb_vd_sd: hold).
 - `test/rest/rest_ab.py`: the same raw requests to the core and to an Ultimate, compared
   byte for byte (`--slow` adds the 15 s cases). `--contract ~/Code/1541ultimate` checks the
   answers against his OpenAPI document for what `/v1/info` says (`core_version`: U64) with his

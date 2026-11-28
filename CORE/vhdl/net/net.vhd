@@ -24,6 +24,7 @@
 --  10  ETH_STATUS   r: bit 0 a whole frame fits in the transmit buffer
 --  11  ETH_DROPS    r: frames received with errors or without room
 --  12  ETH_CTRL     r/w: bit 0 run (the MAC and PHY leave reset)
+--  13  ETH_RXKB     r: the MAC's receive buffer in KB (0 on cores before it was told: 4)
 --  16..19 DNA       r: the device DNA's 57 bits, 16 a word; word 19 bit 15 valid
 --  32  STREAM_CTRL  r/w: bit 0 video on, 1 audio on; r: bits 8, 9 its packet going out
 --  33..36           r: video and audio packets sent, video and audio slots dropped
@@ -88,6 +89,10 @@ entity net is
 end entity net;
 
 architecture synthesis of net is
+
+   -- The MAC's receive buffer, 2**n bytes: 32 KB holds the window of a download from far
+   -- away, which arrives in one burst (CORE/firmware/net/a64.c sizes its window by ETH_RXKB)
+   constant C_ETH_RX_BITS : positive := 15;
 
    -- Clock domain crossing
    signal enable_m    : std_logic := '0';
@@ -376,6 +381,7 @@ begin
          when x"00A" => dev_data_o(0)           <= eth_tx_room;
          when x"00B" => dev_data_o              <= eth_drops;
          when x"00C" => dev_data_o(0)           <= eth_run;
+         when x"00D" => dev_data_o              <= std_logic_vector(to_unsigned(2 ** (C_ETH_RX_BITS - 10), 16));
          when x"010" => dev_data_o              <= dna(15 downto 0);
          when x"011" => dev_data_o              <= dna(31 downto 16);
          when x"012" => dev_data_o              <= dna(47 downto 32);
@@ -428,7 +434,7 @@ begin
    i_eth : entity work.eth_wrapper
       generic map (
          G_SIM          => G_SIM,
-         G_RX_ADDR_BITS => 12,
+         G_RX_ADDR_BITS => C_ETH_RX_BITS,
          G_TX_ADDR_BITS => 11
       )
       port map (

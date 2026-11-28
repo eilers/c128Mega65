@@ -46,6 +46,7 @@ static const char wrn_empty[] =
 static struct rec *recs;
 static uint16_t    order[MAX_ENTRIES];
 static int         n, top, cur;
+static int         run;                     // the file was taken with F7 (1) or F8 (2)
 static char        path[256];         // "" is the root
 static int         stack[DEPTH], depth;
 static int         started, caller_was = -1, ctx_now, group_now;
@@ -179,16 +180,23 @@ static void highlight(uint8_t attr)
    scr_attr(1, 1 + cur - top, WIDTH, attr);
 }
 
-// The frame's bottom line: F5's hint for an item with new files, the core's tip while naming one
+// The frame's bottom line: F5's hint for an item with new files and the core's for F7 and F8,
+// or the core's tip while a new file is named
 static void footer(void)
 {
    const char *label = core_new_file_label(ctx_now, group_now, "");
    const char *tip = core_custom_msg(CMSG_NEWFILE, ctx_now, group_now);
+   const char *run = core_run_label(ctx_now, group_now);
    char s[WIDTH + 1] = "";
+   int n = 0;
    if (label && state == NAME && tip)
       fmt_snprintf(s, sizeof s, " %s ", tip);
-   else if (label && state == SHOW)
-      fmt_snprintf(s, sizeof s, " F5: %s ", label);
+   else if (state == SHOW) {
+      if (label)
+         n = fmt_snprintf(s, sizeof s, " F5: %s ", label);
+      if (run)
+         fmt_snprintf(s + n, sizeof s - n, " %s ", run);
+   }
    scr_bottom(s);
 }
 
@@ -422,9 +430,15 @@ enum browse_result browse_key(uint32_t k)
    }
    if (state == NAME)
       return name_key(k);
-   if (keys_char() == KEY_F5 && core_new_file_label(ctx_now, group_now, "")) {
+   int c = keys_char();
+   if (c == KEY_F5 && core_new_file_label(ctx_now, group_now, "")) {
       name_start();
       return BROWSE_BUSY;
+   }
+   run = 0;
+   if ((c == KEY_F7 || c == KEY_F8) && !recs[order[cur]].dir && core_run_label(ctx_now, group_now)) {
+      run = c == KEY_F7 ? 1 : 2;       // the file as Return takes it, then started
+      k = M2M_KEY_RETURN;
    }
 
    switch (k) {
@@ -488,4 +502,9 @@ const char *browse_path(void)
 const char *browse_name(void)
 {
    return strrchr(chosen, '/') + 1;
+}
+
+int browse_run(void)
+{
+   return run;
 }

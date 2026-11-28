@@ -11,7 +11,7 @@ has them, for reference.
    the same ports, so `config.vhd`, the core's devices and the framework stayed as they
    were. Until step 4 a build switch, `G_RISCV`, picked one or the other.
 2. **Firmware base**: the boot ROM loads the firmware from the SD card into HyperRAM and
-   runs it there, from `C_HMAP_FIRMWARE` (`0x200`–`0x3FE`, CPU address `0x40400000`,
+   runs it there, from `C_HMAP_FIRMWARE` (`0x300`–`0x3FE`, CPU address `0x40600000`,
    `doc/hyperram-map.md`). A main loop in C, SD card, FAT32, menu text, keys.
 3. **The Shell in C**, item by item, until it does everything the QNICE Shell does:
    the menu from `config.vhd`, the callbacks in `m2m-rom.asm`, mounting drives, loading
@@ -20,8 +20,10 @@ has them, for reference.
 4. **Drop QNICE** (`a626c1c`): RISC-V on every board, QNICE deleted.
 
 Then UCI at `$DF1C` (`doc/uci.md`), then networking: the modem's own NEORV32 moved into
-the system CPU in step 8 (`CORE/firmware/net`, `doc/swiftlink-modem.md`), with a 1-second
-main-loop watchdog (`fw/watchdog.c`) that stops on the trap screen.
+the system CPU in step 8 (`CORE/firmware/net`, `doc/swiftlink-modem.md`), with a 2-second
+main-loop watchdog (`fw/watchdog.c`) that stops on the trap screen. Two seconds, because
+holding the reset button holds HyperRAM in reset, and the firmware waits for its code until
+the button is released or, at 1.5 s, the firmware restarts.
 
 Decisions: the firmware runs from HyperRAM behind the i-cache, loaded from the SD card by
 a small boot ROM (no card: a message on the screen; the `.cor` flash slot may come
@@ -84,11 +86,11 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
   (the Shell's mount error and FATAL screens show the same lines).
 - **The file** (`include/fw_image.h`, made by `tools/fw_image.py`): a 512-byte header
   block, then the image. The header holds a magic number, the load address (inside
-  `0x40400000`–`0x407FE000`), the entry, the size, the image's CRC-32, a version string,
+  `0x40600000`–`0x407FE000`), the entry, the size, the image's CRC-32, a version string,
   and the version of the hardware interface it was built for. The boot ROM starts only a
   firmware with its own `M2M_RV_HW_VERSION` (`include/m2m_rv.h`): bump it when a change
   there would break an older firmware.
-- **The firmware** (`fw/`): code and constants in HyperRAM at `0x40400000`; data and stack
+- **The firmware** (`fw/`): code and constants in HyperRAM at `0x40600000`; data and stack
   in the 128 KB data RAM. `main.c` polls each module in turn: the keys (Up and Down repeat,
   as in QNICE's `keyboard.asm`), the SD card (mounted when a card is in, dropped when the
   cards change) and the screen. FatFs R0.16 with its two patches, long names in code page
@@ -102,16 +104,27 @@ data beside it, the answer the same way back. Gideon's U64E-II CPU also runs at 
 - **The Shell** (`fw/shell.c`, step 5): loads the menu from `config.vhd`, its default
   settings (the core's settings file changes them) and the auto-load ROMs from `globals.vhd`, sets up ascal and
   its filters, and lets the core out of reset; then Help (or F13) opens the options menu.
+  The core clears the C128's RAM first (`ram_clear`, `CORE/firmware/core.c`): a long reset
+  press starts the C128 as power-on does, a short one keeps its RAM, as a real C128's
+  reset button does.
   `fw/menu.c` is QNICE's `menu.asm` (groups, single-select items, submenus, headlines,
   lines); `fw/cfg.c` reads `config.vhd` and the sysinfo device. The core's callbacks
   (`m2m-rom.asm`'s) are `CORE/firmware/core.c`, which finds menu items by their group
   (`config_ids.h`, made from `config.vhd`). `fw/browse.c` is the file browser
-  (`selectfile.asm`, `dirbrowse.asm`). `fw/roms.c` loads `.crt` files, by the device's DMA
+  (`selectfile.asm`, `dirbrowse.asm`); F7 and F8 in a drive's start the disk (`doc/run-disk.md`). A menu item can also be a screen of the core's own
+  (`core_app_open`, `core_app_key`): the core's Assembly 64 search (`doc/assembly64.md`). `fw/roms.c` loads `.crt` files, by the device's DMA
   where it has one, and hands the core's own items (`C_CRTROMTYPE_CORE`: the REU's file,
   the ROM picks) to `core.c`. `fw/drives.c` mounts disk images: drives 8 and 9 read them straight
   from the card (`vd_sd.vhd`), so mounting only hands the drive the SD block of each 4 KB
   piece. In builds with R3's memory map, the Cartridge line shows the cartridge cache's
   waits, as QNICE's does.
+- **The drives' DOS ROMs** (`CORE/firmware/drvrom.c`): boot1.rom's six banks are in HyperRAM
+  (`C_HMAP_DRVROM`, `doc/hyperram-map.md`), loaded at start as a `C_CRTROMTYPE_CORE` item of
+  `C_CRTROMS_AUTO` (`core_rom_autoload`). A drive asks for its bank after a new model, a reload
+  or the core's reset, and the main loop (`core_poll`, from the data RAM) hands it over through
+  `drive_rom_server.vhd`: it reads which byte is asked for, writes the bank from there four
+  bytes at a time, and looks again every 256 bytes, with the network's turn between. The
+  drive stays in reset until it has the whole bank.
 - **Shared** (`lib/`): the SD card through `sdhost`'s registers (512-byte blocks, a byte
   at a time through its buffer, as QNICE did), FatFs's disk layer, CRC-32, menu text, the
   serial port, a small `printf`, and the trap handler.

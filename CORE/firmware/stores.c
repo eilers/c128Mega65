@@ -51,6 +51,7 @@ static const char *const hdmi_filters[] = { "No Filter", "Sharp Bilinear", "Bicu
 static const char *const vga_modes[]   = { "Standard", "15 kHz with HS/VS", "15 kHz with CSYNC", NULL };
 static const char *const caps_keys[]   = { "40/80", "ASCII/DIN", NULL };
 static const char *const hd_ids[]      = { "8", "9", "10", "11", "12", NULL };   // the menu's Bus ID
+static const char *const amiga_ports[] = { "Off", "Port 1", "Port 2", NULL };   // the Amiga mouse submenu's
 // His U64's
 static const char *const sys_modes[]   = { "PAL", NULL };                     // System Mode
 static const char *const joy_swaps[]   = { "Normal", "Swapped", NULL };       // Joystick Swapper
@@ -84,7 +85,7 @@ const item_t stores_items[] = {
    { ST_U64,     I_MOUSE + MS_WHEEL_DIR, IT_ENUM,  "Mouse Wheel Direction",   wheel_dirs,  0, 0, 0, NULL, 0 },
    { ST_U64,     I_GROUP,        IT_ENUM,   "Digital Video Mode",         hdmi_dvi,    0, 0, 0, NULL, OPTM_G_HDMI_AUDIO },
    { ST_U64,     I_SCAN,         IT_ENUM,   "HDMI Scan lines",            en_dis,      0, 0, 0, NULL, 0 },   // the HDMI Filter's
-   { ST_U64,     I_GROUP,        IT_ENUM,   "Serial Bus Mode",            iec_modes,   0, 0, 0, NULL, OPTM_G_IEC },
+   { ST_U64,     I_GROUP,        IT_ENUM,   "Serial Bus Mode",            iec_modes,   0, 0, 1, NULL, OPTM_G_IEC },   // default: the IEC port off
    { ST_C64,     I_ROM + RP_BOOT,IT_FILE,   "Cartridge",                  NULL, 0, PICK_MAX - 1, 0, "", 0 },
    { ST_C64,     I_GROUP,        IT_ENUM,   "Cartridge Preference",       cart_prefs,  0, 0, 0, NULL, OPTM_G_CART },
    { ST_C64,     I_ROM + RP_K64, IT_FILE,   "Alternate Kernal",           NULL, 0, PICK_MAX - 1, 0, "", 0 },
@@ -134,6 +135,8 @@ const item_t stores_items[] = {
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Caps Lock Key",              caps_keys,   0, 0, 0, NULL, OPTM_G_KEYS },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Help Menu on F13",           en_dis,      0, 0, 0, NULL, OPTM_G_HELP_F13 },
    { ST_MEGA65,  I_GROUP,        IT_ENUM,   "256 KB RAM",                 en_dis,      0, 0, 0, NULL, OPTM_G_RAM256 },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "Amiga Mouse",                amiga_ports, 0, 0, 0, NULL, OPTM_G_AMIGA_MOUSE },
+   { ST_MEGA65,  I_GROUP,        IT_ENUM,   "MEGA+Left as Right",         en_dis,      0, 0, 0, NULL, OPTM_G_MOUSE_RC },
    // Ours: the CMD HD
    { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive",                      en_dis,      0, 0, 1, NULL, OPTM_G_HD_ON },
    { ST_CMDHD,   I_GROUP,        IT_ENUM,   "Drive Bus ID",               hd_ids,      0, 0, 4, NULL, OPTM_G_HD_ID },
@@ -142,7 +145,7 @@ const item_t stores_items[] = {
 };
 const int stores_count = sizeof stores_items / sizeof stores_items[0];
 
-#define ITEMS_MAX 64
+#define ITEMS_MAX 72
 _Static_assert(sizeof stores_items / sizeof stores_items[0] <= ITEMS_MAX, "want.group holds ITEMS_MAX items");
 
 // What a change asks for, -1 where it says nothing; strings in their own buffers. And the
@@ -319,7 +322,7 @@ int item_choices(const item_t *it)
       n++;
    if (it->id == I_REU_SIZE)
       while (n > 1 && shell_item(OPTM_G_REU, n) < 0)
-         n--;                                          // 2 and 16 MB aren't on R3 memory
+         n--;                                          // 16 MB isn't on R3 memory
    return n;
 }
 

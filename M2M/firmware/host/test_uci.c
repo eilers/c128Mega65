@@ -596,10 +596,10 @@ static void cfg_tests(void)
    cfg("[cartridge and rom settings]\n  reu size =  16 mb \t\n");
    want_data("LOAD_CONFIG: his other store name, any case, spaces", "00,OK", "");
    check(reu_pos() == 3, "the REU is 16 MB");
-   reu_items = 2;                                   // R3 memory: Off and 512 KB
-   cfg("[C64 and Cartridge Settings]\nREU Size=2 MB\n");
-   want_data("LOAD_CONFIG: 2 MB on R3 memory", "89,CONFIG FILE HAD ERRORS",
-             "Line 2: Value '2 MB' is not a valid choice for item REU Size\n");
+   reu_items = 3;                                   // R3 memory: Off, 512 KB, 2 MB
+   cfg("[C64 and Cartridge Settings]\nREU Size=16 MB\n");
+   want_data("LOAD_CONFIG: 16 MB on R3 memory", "89,CONFIG FILE HAD ERRORS",
+             "Line 2: Value '16 MB' is not a valid choice for item REU Size\n");
    reu_items = 4;
    cfg("[C64 and Cartridge Settings]\nRAM Expansion Unit=Disabled\n");
    want("LOAD_CONFIG: REU off", "00,OK");
@@ -745,7 +745,7 @@ static int mem_is(const uint8_t *m, uint32_t n, int pass)
 static void reu_tests(int dma)
 {
    static const uint8_t no_args[3];
-   uint8_t *sdram = (uint8_t *)host_sr + 0x0800 * 8192, *hram = (uint8_t *)host_hr + 0x0080 * 8192;
+   uint8_t *sdram = (uint8_t *)host_sr + 0x0800 * 8192, *hram = (uint8_t *)host_hr + 0x0100 * 8192;
    int polls;
    FIL f;
    UINT put;
@@ -811,19 +811,19 @@ static void reu_tests(int dma)
    want_reu("SAVE_REU, 2 MB", "00,OK", 2097152, "REU SAVE: SAVED 2097152 BYTES FROM $     0 TO /SD/C128/PRELOAD.REU");
    check(file_is("/c128/preload.reu", 2u << 20, 4), "SAVE_REU wrote 2 MB");
 
-   // R3 memory: the REU in HyperRAM at window 0x080, 512 KB at most
-   um.reu_mem = 0x0080;
+   // R3 memory: the REU in HyperRAM at window 0x100, 2 MB at most
+   um.reu_mem = 0x0100;
    settings[OPTM_G_REU][2] = 0;
    settings[OPTM_G_REU][1] = 1;
    for (uint32_t i = 0; i < (512u << 10); i++)
       hram[i] = reu_pat(i, 5);
    dos(4, 0x09, no_args, 3, NULL);
    want("SAVE_REU from HyperRAM", "00,OK");
-   check(file_is("/c128/preload.reu", 512u << 10, 5), "SAVE_REU on R3 memory reads HyperRAM's window 0x080");
+   check(file_is("/c128/preload.reu", 512u << 10, 5), "SAVE_REU on R3 memory reads HyperRAM's window 0x100");
    memset(hram, 0, 512u << 10);
    dos(4, 0x08, no_args, 3, NULL);
    want("LOAD_REU into HyperRAM", "00,OK");
-   check(mem_is(hram, 512u << 10, 5), "LOAD_REU on R3 memory writes HyperRAM's window 0x080");
+   check(mem_is(hram, 512u << 10, 5), "LOAD_REU on R3 memory writes HyperRAM's window 0x100");
 
    // DOS: the open file at its position, at an address; cut off at the end of the memory
    dos(1, 0x03, NULL, 0, NULL);
@@ -836,8 +836,8 @@ static void reu_tests(int dma)
    check(mem_is(hram + 0x100, 0x1000, 5) && hram[0xFF] == 0 && hram[0x1100] == 0, "DOS LOAD_REU put them there");
    dos(1, 0x21, "\0\0\0\0\x10\0\0\0", 8, NULL);
    check(hram[0] == reu_pat(0x1000, 5) && hram[15] == reu_pat(0x100F, 5), "the next DOS LOAD_REU goes on in the file");
-   dos(1, 0x21, "\xF0\xFF\x07\0\x20\0\0\0", 8, NULL);
-   want_data("DOS LOAD_REU past 512 KB", "02,REQUEST TRUNCATED", "$    10 BYTES LOADED TO REU $ 7fff0");
+   dos(1, 0x21, "\xF0\xFF\x1F\0\x20\0\0\0", 8, NULL);
+   want_data("DOS LOAD_REU past 2 MB", "02,REQUEST TRUNCATED", "$    10 BYTES LOADED TO REU $1ffff0");
    dos(1, 0x03, NULL, 0, NULL);
    dos(1, 0x02, "\x0A", 1, "/SD/c128/dos.reu");
    dos(1, 0x22, "\0\0\0\0\0\0\x01\0", 8, NULL);

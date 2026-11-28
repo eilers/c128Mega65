@@ -14,7 +14,7 @@ use work.globals.all;
 
 entity config is
 generic (
-   G_R3_MEMORY : boolean := false   -- no 2 MB or 16 MB REU: the menu leaves out those items
+   G_R3_MEMORY : boolean := false   -- no 16 MB REU: the menu leaves out that item
 );
 port (
    clk_i       : in std_logic;
@@ -83,7 +83,7 @@ type WHS_RECORD_ARRAY_TYPE is array (0 to WHS_RECORDS - 1) of WHS_RECORD_TYPE;
 
 -- Version of this core. CORE/scripts/build_release.sh names the release with this string
 -- and rebuilds sdcard/c128/firmware.bin when that image has a different one.
-constant CORE_VERSION : string := "V2.0_Beta2";
+constant CORE_VERSION : string := "V2.0";
 
 constant SCR_CREDITS : string :=
 
@@ -277,21 +277,21 @@ constant OPTM_S_SAVING     : string := "<Saving>";          -- the internal writ
 --             Do use a lower case \n. If you forget one of them or if you use upper case, you will run into undefined behavior.
 --          2. Start each line that contains an actual menu item (multi- or single-select) with a Space character,
 --             otherwise you will experience visual glitches.
-constant OPTM_SIZE_ALL     : natural := 217; -- amount of items including empty lines:
+constant OPTM_SIZE_ALL     : natural := 228; -- amount of items including empty lines:
                                              -- needs to be equal to the number of lines in OPTM_ITEMS_ALL and amount of items in OPTM_GROUPS_ALL
                                              -- The firmware takes at most 254 items (MENU_MAX in M2M/firmware/fw/menu.h).
 
 -- Net size of the Options menu on the screen in characters (excluding the frame, which is hardcoded to two characters).
 -- One height is used for the main menu and every submenu, so this must be the
--- tallest page. The main menu is the tallest at 29 rows, the HDMI submenu 25 and the
+-- tallest page. The main menu is the tallest at 31 rows, the HDMI submenu 25 and the
 -- drive submenus 23 (headline through Back to main menu; the "%s" opener is hidden
 -- inside the submenu); they leave empty space below.
 -- The screen is CHARS_DY = 33 rows tall and the frame adds two, so OPTM_DY must
 -- stay at or below 31.
 constant OPTM_DX           : natural := 23;
-constant OPTM_DY           : natural := 29;
+constant OPTM_DY           : natural := 31;
 
--- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_2M on, and OPTM_ITEMS and
+-- R3-memory builds leave out C_MENU_R3_DROP items from C_MENU_REU_16M on, and OPTM_ITEMS and
 -- OPTM_GROUPS are the menu without them
 constant OPTM_SIZE         : natural := OPTM_SIZE_ALL - C_MENU_R3_DROP * boolean'pos(G_R3_MEMORY);
 
@@ -437,8 +437,18 @@ constant OPTM_ITEMS_ALL    : string :=
 
    " External Hardware\n"   &
    "\n"                     &
-   " Use IEC port\n"        &
+   " Use IEC port\n"        &    -- default off: only the virtual drives are on the bus
    " Swap joystick ports\n" &    -- default off: port 1's joystick is the C128's port 2 and back
+   " Amiga mouse: %s\n"     &    -- Amiga mouse submenu; %s is its port or Off. Port 1 and 2 are
+   " Amiga mouse\n"         &    -- the MEGA65's sockets, whatever Swap joystick ports says
+   "\n"                     &
+   " Off\n"                 &    -- default: both ports as they are (1351, joystick, paddles)
+   " Port 1\n"              &    -- one port only: GEOS reads both ports' POT lines at once, and an
+   " Port 2\n"              &    -- Amiga port without a mouse is a resting 1351 that it mixes in
+   "\n"                     &
+   " MEGA+left = right\n"   &    -- default off: MEGA + left button is the right button
+   "\n"                     &
+   " Back to main menu\n"   &
    " REU: %s\n"           &    -- REU submenu; %s is the size or Off
    " RAM Expansion Unit\n"  &
    "\n"                     &
@@ -519,6 +529,7 @@ constant OPTM_ITEMS_ALL    : string :=
    " Back to main menu\n"   &
    " 256 KB RAM\n"          &    -- default off: RAM banks 2 and 3; a change resets the C128
    "\n"                     &
+   " Assembly 64\n"         &    -- the online search and its downloads (a64_search.c)
    " Load settings\n"     &    -- a .cfg in Gideon's settings format, kept (core.c)
 
    " Credits\n"             &
@@ -589,6 +600,9 @@ constant OPTM_G_HD_ID      : integer := 57;   -- its bus ID: 8, 9, 10, 11, 12
 constant OPTM_G_ROM_HD     : integer := 58;   -- its Boot ROM:%s
 constant OPTM_G_HD_CONFIG  : integer := 59;   -- a reset with WRITE PROTECT held (core.c turns it off)
 constant OPTM_G_HD_INSTALL : integer := 60;   -- a reset with SWAP 8 and SWAP 9 held
+constant OPTM_G_A64        : integer := 61;   -- Assembly 64: a screen of the firmware's, never marked
+constant OPTM_G_AMIGA_MOUSE: integer := 62;   -- the MEGA65's port with the Amiga mouse: Off, Port 1, Port 2
+constant OPTM_G_MOUSE_RC   : integer := 63;   -- the Amiga mouse: MEGA + left button = right button
 
 -- !!! DO NOT TOUCH !!! (unconstrained, for R3-memory builds' shorter menu)
 type OPTM_GTYPE is array (natural range <>) of integer range 0 to 2**OPTM_GTC- 1;
@@ -738,8 +752,18 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
 
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- External Hardware
                                              OPTM_G_LINE,                                         -- Line
-                                             OPTM_G_IEC + OPTM_G_SINGLESEL + OPTM_G_STDSEL,       -- Use IEC port
+                                             OPTM_G_IEC + OPTM_G_SINGLESEL,                       -- Use IEC port (default off)
                                              OPTM_G_JOY_SWAP + OPTM_G_SINGLESEL,                  -- Swap joystick ports (default off)
+                                             OPTM_G_SUBMENU,                                      -- Amiga mouse submenu START
+                                             OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- Amiga mouse
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_AMIGA_MOUSE + OPTM_G_STDSEL,                  -- Off
+                                             OPTM_G_AMIGA_MOUSE,                                  -- Port 1
+                                             OPTM_G_AMIGA_MOUSE,                                  -- Port 2
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_MOUSE_RC + OPTM_G_SINGLESEL,                  -- MEGA+left = right (default off)
+                                             OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_SUBMENU,                                      -- REU submenu START
                                              OPTM_G_TEXT + OPTM_G_HEADLINE,                       -- RAM Expansion Unit
                                              OPTM_G_LINE,                                         -- Line
@@ -820,6 +844,7 @@ constant OPTM_GROUPS_ALL   : OPTM_GTYPE(0 to OPTM_SIZE_ALL - 1) := ( OPTM_G_TEXT
                                              OPTM_G_CLOSE + OPTM_G_SUBMENU,                       -- Back to main menu
                                              OPTM_G_RAM256 + OPTM_G_SINGLESEL,                    -- 256 KB RAM (default off)
                                              OPTM_G_LINE,                                         -- Line
+                                             OPTM_G_A64 + OPTM_G_SINGLESEL,                       -- Assembly 64
                                              OPTM_G_LOAD_CFG + OPTM_G_LOAD_ROM,                   -- Load settings
 
                                              OPTM_G_CREDITS + OPTM_G_HELP,                        -- Credits (WHS(1))
@@ -862,7 +887,7 @@ end function drop_groups;
 function menu_items return string is
 begin
    if G_R3_MEMORY then
-      return drop_lines(OPTM_ITEMS_ALL, C_MENU_REU_2M, C_MENU_R3_DROP);
+      return drop_lines(OPTM_ITEMS_ALL, C_MENU_REU_16M, C_MENU_R3_DROP);
    end if;
    return OPTM_ITEMS_ALL;
 end function menu_items;
@@ -870,7 +895,7 @@ end function menu_items;
 function menu_groups return OPTM_GTYPE is
 begin
    if G_R3_MEMORY then
-      return drop_groups(OPTM_GROUPS_ALL, C_MENU_REU_2M, C_MENU_R3_DROP);
+      return drop_groups(OPTM_GROUPS_ALL, C_MENU_REU_16M, C_MENU_R3_DROP);
    end if;
    return OPTM_GROUPS_ALL;
 end function menu_groups;

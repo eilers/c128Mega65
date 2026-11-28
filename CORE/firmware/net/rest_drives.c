@@ -7,8 +7,8 @@
 //     :unlink copies the mounted image and moves the drive onto the copy, held meanwhile
 //     (vd_sd's hold), without a disk change;
 //   - G64/G71 aren't read by the core's drives: 501.
-// load_rom writes the drive's bank of boot1.rom for its current model and reloads it into the
-// drive (C_DEV_DRIVE_ROM's CSR), which resets it; it lasts until the drive runs another model
+// load_rom writes the drive's bank of boot1.rom for its current model (the library, drvrom.c)
+// and reloads it into the drive, which resets it; it lasts until the drive runs another model
 // (the bank gets its pick again, as his set_drive_type) or a long reset loads boot1.rom. Uploads to mount go to /c128/temp, as his to /Temp.
 // Ported from the 1541 Ultimate firmware (github.com/GideonZ/1541ultimate), Copyright
 // Gideon Zweijtzer and contributors, GPL v3 as this core; changed for c128Mega65 in 2026.
@@ -17,13 +17,13 @@
 #include "config_ids.h"
 #include "core.h"
 #include "drives.h"
+#include "drvrom.h"
 #include "fmt.h"
 #include "heap.h"
 #include "m2m_rv.h"
 #include "net.h"
 #include "rest_priv.h"
 #include "rompick.h"
-#include "roms.h"
 #include "stores.h"
 #include "uci.h"
 
@@ -34,13 +34,12 @@
 #define READ_ONLY    0x8000
 #define UNLINKED     0x4000
 
-#define DRIVE_ROM    0x0102            // C_DEV_DRIVE_ROM: boot1.rom, its CSR register 0
-#define BANK_SIZE    32768             // a drive's bank: 1541 a, b, 1571 a, b, 1581 a, b
+#define BANK_SIZE    DRVROM_BANK       // a drive's bank: 1541 a, b, 1571 a, b, 1581 a, b
 #define TEMP_DIR     "/c128/temp"
 #define COPY_STEP    4096              // a main-loop round's copy
 #define TAKE_LIMIT   100               // ms: a 1541/1571 starts its disk change (uci_dos.c)
 #define CHANGE_LIMIT 10000             // ms: and ends it
-#define ROM_LIMIT    100               // ms: a bank takes 2.6 ms to load
+#define ROM_LIMIT    100               // ms: the main loop feeds a bank in a few ms (drvrom.c)
 
 static const char *const types[] = { "1541", "1571", "1581" };
 
@@ -463,16 +462,16 @@ static void post_mount(rest_t *r)
 
 // --- the drive commands -------------------------------------------------------------------
 
-// The drive's ROM bank again from boot1.rom, which resets it; the answer once it has it
+// The drive's ROM bank again from the library, which resets it; the answer once it has it
 static void reload(int d)
 {
-   crtrom_csr_set(DRIVE_ROM, 0, 1 << d);
+   drvrom_reload(d);
 }
 
 static int rom_step(rest_t *r)
 {
    int d = r->d;
-   if (!drive_running(d) || (crtrom_csr_get(DRIVE_ROM, 0) >> d & 1) ||
+   if (!drive_running(d) || drvrom_ready(d) ||
        net_millis() - r->t0 > ROM_LIMIT) {
       subsys_response(r, r->phase);
       return 1;
@@ -587,13 +586,10 @@ static void put_unlink(rest_t *r)
 static void load_rom(rest_t *r, int d, const uint8_t *rom, int n)
 {
    int t = stores_drive_type(d);
-   uint32_t at = (uint32_t)(t * 2 + d) * BANK_SIZE;
-   M2M_RAMROM_DEV = DRIVE_ROM;
-   for (int i = 0; i < n; i++)
-      M2M_DEV16[at + i] = rom[i];
+   uint32_t at = DRVROM_AT(d, t);
+   drvrom_put(at, rom, n);
    if (n == BANK_SIZE / 2)
-      for (int i = 0; i < n; i++)
-         M2M_DEV16[at + n + i] = rom[i];
+      drvrom_put(at + n, rom, n);
    int ss = n == BANK_SIZE || n == BANK_SIZE / 2 ? SS_OK : SS_INVALID_DRIVE_ROM;
    if (n) {
       rompick_loaded(d, t);

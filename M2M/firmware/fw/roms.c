@@ -1,7 +1,7 @@
 // Auto-loaded ROMs, as CRTROM_AUTOLOAD reads them from globals.vhd through the sysinfo
 // device: a record of four words per ROM (type, device or HyperRAM window, mandatory or
-// optional, where its name starts in the names), then the names. The manually loaded
-// ones have two words each: type, device.
+// optional, where its name starts in the names), then the names; the core loads one of
+// its own type (core_rom_autoload). The manually loaded ones have two words each: type, device.
 #include <string.h>
 #include "roms.h"
 #include "cfg.h"
@@ -133,7 +133,8 @@ void roms_autoload(void)
       name[len] = 0;
 
       FRESULT r = f_open(&f, name, FA_READ);
-      int bad = r != FR_OK || load(&f, type, target) != 0;
+      int bad = r != FR_OK ||
+                (type == TYPE_CORE ? core_rom_autoload(target, &f) : load(&f, type, target)) != 0;
       if (r == FR_OK)
          f_close(&f);
       if (bad && !opt) {

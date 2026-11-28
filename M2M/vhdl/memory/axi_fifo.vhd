@@ -7,10 +7,11 @@ use xpm.vcomponents.all;
 
 entity axi_fifo is
    generic (
-      G_DEPTH     : natural;
-      G_FILL_SIZE : natural;
-      G_DATA_SIZE : natural;
-      G_USER_SIZE : natural
+      G_DEPTH       : natural;
+      G_FILL_SIZE   : natural;
+      G_DATA_SIZE   : natural;
+      G_USER_SIZE   : natural;
+      G_MEMORY_TYPE : string := "auto"     -- xpm's FIFO_MEMORY_TYPE: "distributed" keeps a small one out of block RAM
    );
    port (
       s_aclk_i        : in  std_logic;
@@ -43,7 +44,7 @@ begin
          CLOCKING_MODE        => "independent_clock",
          ECC_MODE             => "no_ecc",
          FIFO_DEPTH           => G_DEPTH,
-         FIFO_MEMORY_TYPE     => "auto",
+         FIFO_MEMORY_TYPE     => G_MEMORY_TYPE,
          PACKET_FIFO          => "false",
          PROG_EMPTY_THRESH    => 10,
          PROG_FULL_THRESH     => 10,

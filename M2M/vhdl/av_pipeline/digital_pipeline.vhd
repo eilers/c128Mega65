@@ -24,7 +24,6 @@ entity digital_pipeline is
       G_AUDIO_CLOCK_RATE     : natural;
       G_VGA_DX               : natural;              -- Actual format of video from Core (in pixels).
       G_VGA_DY               : natural;
-      G_FONT_FILE            : string;
       G_FONT_DX              : natural;
       G_FONT_DY              : natural;
       G_HDMI_VIEW            : hdmi_view_cfg_t := C_HDMI_VIEW_LEGACY
@@ -41,6 +40,7 @@ entity digital_pipeline is
       video_vs_i               : in  std_logic;
       video_hblank_i           : in  std_logic;
       video_vblank_i           : in  std_logic;
+      video_source_i           : in  std_logic;  -- HDMI goes black for a moment when this changes
       audio_clk_i              : in  std_logic;  -- 12.288 MHz
       audio_rst_i              : in  std_logic;
       audio_left_i             : in  signed(15 downto 0); -- Signed PCM format
@@ -66,6 +66,8 @@ entity digital_pipeline is
       hdmi_osm_cfg_dxdy_i      : in  std_logic_vector(15 downto 0);
       hdmi_osm_vram_addr_o     : out std_logic_vector(15 downto 0);
       hdmi_osm_vram_data_i     : in  std_logic_vector(15 downto 0);
+      hdmi_osm_font_addr_o     : out std_logic_vector(11 downto 0);
+      hdmi_osm_font_data_i     : in  std_logic_vector(15 downto 0);
       sys_info_hdmi_o          : out std_logic_vector(47 downto 0);
       video_hdmax_o            : out natural range 0 to 4095;
       video_vdmax_o            : out natural range 0 to 4095;
@@ -254,9 +256,13 @@ architecture synthesis of digital_pipeline is
    signal hdmi_vmax              : integer;
 
    -- After video_rescaler
+   signal hdmi_blank             : std_logic;
    signal hdmi_red               : unsigned(7 downto 0);
    signal hdmi_green             : unsigned(7 downto 0);
    signal hdmi_blue              : unsigned(7 downto 0);
+   signal hdmi_pic_red           : unsigned(7 downto 0);
+   signal hdmi_pic_green         : unsigned(7 downto 0);
+   signal hdmi_pic_blue          : unsigned(7 downto 0);
    signal hdmi_hs                : std_logic;
    signal hdmi_vs                : std_logic;
    signal hdmi_de                : std_logic;
@@ -621,6 +627,22 @@ begin
          reset_na          => reset_na                      -- input
       ); -- i_ascal
 
+   -- Black while ascal's frame buffer still holds the old source after a switch
+   i_video_switch_blank : entity work.video_switch_blank
+      port map (
+         video_clk_i    => video_clk_i,
+         video_vs_i     => video_fit_vs,
+         video_fit_i    => video_scanlines(0),
+         video_source_i => video_source_i,
+         hdmi_clk_i     => hdmi_clk_i,
+         hdmi_vs_i      => hdmi_vs,
+         hdmi_blank_o   => hdmi_blank
+      ); -- i_video_switch_blank
+
+   hdmi_pic_red   <= (others => '0') when hdmi_blank = '1' else hdmi_red;
+   hdmi_pic_green <= (others => '0') when hdmi_blank = '1' else hdmi_green;
+   hdmi_pic_blue  <= (others => '0') when hdmi_blank = '1' else hdmi_blue;
+
    i_avm_decrease : entity work.avm_decrease
       generic map (
          G_SLAVE_ADDRESS_SIZE  => C_AVM_ADDRESS_SIZE,
@@ -655,16 +677,15 @@ begin
       generic  map (
          G_VGA_DX          => G_VGA_DX,  -- TBD
          G_VGA_DY          => G_VGA_DY,  -- TBD
-         G_FONT_FILE       => G_FONT_FILE,
          G_FONT_DX         => G_FONT_DX,
          G_FONT_DY         => G_FONT_DY
       )
       port map (
          vga_clk_i         => hdmi_clk_i,
          vga_ce_i          => '1',
-         vga_red_i         => std_logic_vector(hdmi_red),
-         vga_green_i       => std_logic_vector(hdmi_green),
-         vga_blue_i        => std_logic_vector(hdmi_blue),
+         vga_red_i         => std_logic_vector(hdmi_pic_red),
+         vga_green_i       => std_logic_vector(hdmi_pic_green),
+         vga_blue_i        => std_logic_vector(hdmi_pic_blue),
          vga_hs_i          => hdmi_hs,
          vga_vs_i          => hdmi_vs,
          vga_de_i          => hdmi_de,
@@ -676,6 +697,8 @@ begin
          vga_cfg_dxdy_i    => hdmi_osm_cfg_dxdy_i,
          vga_vram_addr_o   => hdmi_osm_vram_addr_o,
          vga_vram_data_i   => hdmi_osm_vram_data_i,
+         vga_font_addr_o   => hdmi_osm_font_addr_o,
+         vga_font_data_i   => hdmi_osm_font_data_i,
          vga_ce_o          => open,
          vga_red_o         => hdmi_osm_red,
          vga_green_o       => hdmi_osm_green,

@@ -34,6 +34,8 @@
 #include "net.h"
 #include "netcfg.h"
 #include "rest_priv.h"
+#include "core.h"
+#include "runners.h"
 #include "rompick.h"
 #include "stores.h"
 #include "stream.h"
@@ -308,8 +310,8 @@ static const char *html(int code, const char *text, const char *body)
 #define NOT_FOUND "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
 #define VERSION   "{ \n  \"version\" : \"0.1\",\n  \"errors\" : [  ]\n}"
 #define INFO      "{ \n  \"product\" : \"C128MEGA65 (Ultimate 64 compatible)\",\n  \"firmware_version\" : \"" CORE_VERSION "\",\n" \
-                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"111\",\n" \
-                  "  \"core_version\" : \"1.11\",\n" \
+                  "  \"git_commit_hash\" : \"" FW_VERSION "\",\n  \"fpga_version\" : \"115\",\n" \
+                  "  \"core_version\" : \"1.15\",\n" \
                   "  \"hostname\" : \"c128-mega65\",\n  \"unique_id\" : \"A1B2C3\",\n" \
                   "  \"ethernet_mac\" : \"02:C1:28:12:34:56\",\n  \"errors\" : [  ]\n}"
 #define HELP      "<html><body><h1>This function provides some help!</h1>\n<p>Help text.</p></body></html>\r\n"
@@ -1096,6 +1098,7 @@ static void configs(void)
          "[MEGA65 Settings]\nVideo Output=Follow 40/80\nVIC-II Jailbars=Off\n"
          "HDMI Flicker-free=Disabled\nHDMI Filter=Sharp Bilinear\nVGA Display Mode=Standard\n"
          "Caps Lock Key=40/80\nHelp Menu on F13=Disabled\n256 KB RAM=Disabled\n"
+         "Amiga Mouse=Off\nMEGA+Left as Right=Disabled\n"
          "[CMD HD Settings]\nDrive=Enabled\nDrive Bus ID=12\nDisk Image=\nBoot ROM=\n"), cfg);
    check("save: no new file left", get_file(SETTINGS_TMP, (uint8_t *)cfg, 1) < 0, NULL);
    f_unlink(SETTINGS_FILE);
@@ -1697,10 +1700,10 @@ static void roms(void)
    check("characters, a file of no ROM's size: stock, failed", dev_holds(sys_rom, 0x10000, rom_stock + 0x10000, 8192) &&
          rompick_state(RP_CHAR) == RS_FAILED && !strcmp(rompick_name(RP_CHAR), "odd.bin"), NULL);
    expect("function ROM of 32 KB", "PUT /v1/configs/c128*/internal*?value=f32.bin HTTP/1.1\r\n\r\n", OK);
-   check("function ROM of 32 KB: at 0x18000, size 2", dev_holds(sys_rom, 0x18000, rom_f32, 32768) && func_size == 2, NULL);
+   check("function ROM of 32 KB: at 0x12000, size 2", dev_holds(sys_rom, 0x12000, rom_f32, 32768) && func_size == 2, NULL);
    expect("function ROM of 16 KB", "PUT /v1/configs/c128*/internal*?value=k16.bin HTTP/1.1\r\n\r\n", OK);
-   check("function ROM of 16 KB: twice, as VICE has it", dev_holds(sys_rom, 0x18000, rom_k16, 16384) &&
-         dev_holds(sys_rom, 0x1C000, rom_k16, 16384) && func_size == 2, NULL);
+   check("function ROM of 16 KB: twice, as VICE has it", dev_holds(sys_rom, 0x12000, rom_k16, 16384) &&
+         dev_holds(sys_rom, 0x16000, rom_k16, 16384) && func_size == 2, NULL);
    expect("no function ROM", "PUT /v1/configs/c128*/internal*?value= HTTP/1.1\r\n\r\n", OK);
    check("no function ROM: size 0", func_size == 0, NULL);
 
@@ -1806,6 +1809,58 @@ static void roms(void)
       snprintf(name, sizeof name, "/c128/roms/a_rather_long_rom_name_%03d.bin", i);
       f_unlink(name);
    }
+}
+
+// A D64 with a boot sector or not, and its first program's load address (-1: no program)
+static void disk_file(const char *path, int boot, int load)
+{
+   static uint8_t img[174848];
+   memset(img, 0, sizeof img);
+   if (boot)
+      memcpy(img, "CBM", 3);
+   uint8_t *dir = img + (17 * 21 + 1) * 256;      // track 18, sector 1
+   dir[1] = 0xFF;
+   dir[2] = 0x80;                                  // a DEL entry first, then the program
+   if (load >= 0) {
+      dir[32 + 2] = 0x82;
+      dir[32 + 3] = 17;                            // its first block: track 17, sector 0
+      img[16 * 21 * 256 + 2] = load & 0xFF;
+      img[16 * 21 * 256 + 3] = load >> 8;
+   }
+   put_file(path, img, sizeof img);
+}
+
+// A D81 as CP/M makes a boot disk: CP/M's directory on track 1, the 1581's autoboot file in
+// the directory (or a file of another name, or type), the boot sector on track 40, sector 5
+static void cpm_d81(const char *path, const char *autoboot, int type)
+{
+   static uint8_t img[819200];
+   memset(img, 0, sizeof img);
+   memcpy(img, "\0CPM+    SYS", 12);
+   uint8_t *dir = img + (39 * 40 + 3) * 256;      // track 40, sector 3
+   dir[1] = 0xFF;
+   dir[2] = type;
+   dir[3] = 40;
+   dir[4] = 4;
+   memcpy(dir + 5, autoboot, 16);
+   memcpy(img + (39 * 40 + 5) * 256, "CBM", 3);
+   put_file(path, img, sizeof img);
+}
+
+// The image into drive d, then the menu's runner to its end: its result
+static int run_disk(const char *path, int d, int c64)
+{
+   const char *msg;
+   int ss = -1;
+   typed[0] = 0;
+   c128_settle();
+   if (shell_mount(d, path, &msg) || runner_disk(d, c64))
+      return -2;
+   for (int i = 0; i < 4000000 && ss < 0; i++) {
+      step();
+      ss = runner_poll();
+   }
+   return ss;
 }
 
 static void runners(void)
@@ -1922,6 +1977,116 @@ static void runners(void)
           errs(412, "Unknown", "Expected Body, but got none."));
    expect("modplay", "PUT /v1/runners:modplay?file=/SD/x.mod HTTP/1.1\r\n\r\n",
           errs(501, "Unknown", "Sampler module not available"));
+
+   // The menu's runner (Assembly 64): run_prg's steps without a request, from the main loop
+   int ss = -1;
+   memset(c128_mem + 0x1C00, 0, 32);
+   typed[0] = 0;
+   boots = reboots;
+   check("runner_prg: started", runner_prg("/prg/hello.prg", 1) == 0 && runner_poll() < 0, NULL);
+   check("runner_prg: one at a time", runner_prg("/prg/hello.prg", 1) != 0, NULL);
+   for (int i = 0; i < 4000000 && ss < 0; i++) {
+      step();
+      ss = runner_poll();
+   }
+   check("runner_prg: reset, at READY, loaded, relinked, RUN typed",
+         ss == 0 && reboots == boots + 1 && !c128_c64 && !strcmp(typed, "@RUN\r") && c128_mem[0x1C01] == 0x0B &&
+         !memcmp(c128_mem + 0x1C03, prg128 + 4, 10) && c128_mem[0x1210] == 0x0D && !dma_held_v, typed);
+   check("runner_poll: its result once", runner_poll() < 0, NULL);
+   typed[0] = 0;
+   check("runner_prg, load", runner_prg("/prg/hello.prg", 0) == 0, NULL);
+   for (ss = -1; ss < 0;) {
+      step();
+      ss = runner_poll();
+   }
+   check("runner_prg, load: no RUN", ss == 0 && !strcmp(typed, "@"), typed);
+   boots = reboots;
+   dma_z80_v = 1;
+   check("runner_prg, the Z80 runs: refused at once, no reset", runner_prg("/prg/hello.prg", 1) != 0 &&
+         runner_poll() < 0 && reboots == boots, NULL);
+   dma_z80_v = 0;
+   check("runner_prg, no file", runner_prg("/prg/x.prg", 1) != 0 && runner_poll() < 0, NULL);
+   boot_never = 1;
+   uint64_t t0 = now_us;
+   check("runner_prg, no BASIC: started", runner_prg("/prg/hello.prg", 1) == 0, NULL);
+   for (ss = -1; ss < 0 && now_us - t0 < 20000000;) {
+      step();
+      ss = runner_poll();
+   }
+   boot_never = 0;
+   check("runner_prg, no BASIC: fails after 10 s, the CPU let go", ss > 0 && now_us - t0 > 9000000 && !dma_held_v, NULL);
+   const char *why;
+   check("runner_crt", runner_crt("/carts/x.crt", &why) == 0 && !strcmp(crt_shown, "x.crt"), crt_shown);
+
+   // The menu's Run of a disk: what the disk holds picks the mode
+   disk_file("/prg/basic128.d64", 0, 0x1C01);
+   disk_file("/prg/boot.d64", 1, 0x0C00);
+   disk_file("/prg/game64.d64", 0, 0x0801);
+   disk_file("/prg/dual.d64", 1, 0x0801);
+   disk_file("/prg/loader.d64", 0, 0x02A7);
+   disk_file("/prg/empty.d64", 0, -1);
+   static const char game_cfg[] = "[Drive B Settings]\nDrive=Disabled\n";
+   put_file("/prg/game64.cfg", game_cfg, sizeof game_cfg - 1);
+   check("runner_disk, no disk", (shell_unmount(0), runner_disk(0, 0)) != 0 && runner_poll() < 0, NULL);
+   boots = reboots;
+   check("a disk with C128 BASIC first: RUN\"*\" in C128 mode", run_disk("/prg/basic128.d64", 0, 0) == 0 &&
+         !c128_c64 && !strcmp(typed, "@RUN\"*\"\r") && reboots == boots + 1 && !dma_held_v, typed);
+   boots = reboots;
+   check("a boot sector: the reset, nothing typed", run_disk("/prg/boot.d64", 0, 0) == 0 && !c128_c64 &&
+         !*typed && reboots == boots + 1 && !dma_held_v, typed);
+   drive_set(1, 1);
+   check("a C64 disk: C= over the reset, LOAD on the screen, Return and RUN typed", run_disk("/prg/game64.d64", 0, 0) == 0 &&
+         c128_c64 && !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r") && c128_mem[0xCE] == 12 && !(input_dev[3] & 0x2000), typed);
+   check("its .cfg loaded", !drive_is_on(1), NULL);
+   drive_set(1, 1);
+   check("a loader below $0801: C64 mode", run_disk("/prg/loader.d64", 0, 0) == 0 && c128_c64 &&
+         !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r"), typed);
+   check("no program at all: C64 mode", run_disk("/prg/empty.d64", 0, 0) == 0 && c128_c64, typed);
+   cpm_d81("/prg/cpm.d81", "COPYRIGHT CBM 86", 0x83);
+   cpm_d81("/prg/other.d81", "COPYRIGHT CBM 87", 0x83);
+   cpm_d81("/prg/seq.d81", "COPYRIGHT CBM 86", 0x81);
+   boots = reboots;
+   check("a 1581's CP/M disk, its boot sector on track 40: it boots", run_disk("/prg/cpm.d81", 0, 0) == 0 &&
+         !c128_c64 && !*typed && reboots == boots + 1, typed);
+   check("a D81 without the autoboot file: no boot sector", run_disk("/prg/other.d81", 0, 0) == 0 && c128_c64 &&
+         run_disk("/prg/seq.d81", 0, 0) == 0 && c128_c64, typed);
+   check("a boot sector and a C64 program: it boots", run_disk("/prg/dual.d64", 0, 0) == 0 && !c128_c64 && !*typed, typed);
+   check("the same in C64 mode, asked for", run_disk("/prg/dual.d64", 0, 1) == 0 && c128_c64 &&
+         !strcmp(typed, "@<LOAD\"*\",8,1>\rRUN\r"), typed);
+   cbm_ignored = 1;
+   check("C= not taken: GO64 typed", run_disk("/prg/game64.d64", 0, 0) == 0 && c128_c64 &&
+         !strcmp(typed, "@GO64\rY\r@<LOAD\"*\",8,1>\rRUN\r") && !(input_dev[3] & 0x2000), typed);
+   cbm_ignored = 0;
+   drive_set(1, 1);
+   shell_unmount(0);
+   check("drive B, C128 BASIC", run_disk("/prg/basic128.d64", 1, 0) == 0 && !strcmp(typed, "@RUN\"*\",U9\r"), typed);
+   check("drive B, a boot sector: BOOT typed", run_disk("/prg/boot.d64", 1, 0) == 0 && !strcmp(typed, "@BOOT U9\r"), typed);
+   check("drive B, a C64 disk", run_disk("/prg/loader.d64", 1, 0) == 0 && !strcmp(typed, "@<LOAD\"*\",9,1>\rRUN\r"), typed);
+   stores_drive_set_id(1, 11);
+   check("device 11: RUN abbreviated to fit the keyboard buffer", run_disk("/prg/basic128.d64", 1, 0) == 0 &&
+         !strcmp(typed, "@R\xD5\"*\",U11\r"), typed);
+   check("device 11, a C64 disk", run_disk("/prg/loader.d64", 1, 0) == 0 && !strcmp(typed, "@<LOAD\"*\",11,1>\rRUN\r"), typed);
+   stores_drive_set_id(1, 9);
+   shell_unmount(1);
+   // Out of CP/M: a reset first, then as ever
+   boots = reboots;
+   z80_cpm = 1;
+   check("the Z80 runs: a reset, then the 8502's steps", run_disk("/prg/basic128.d64", 0, 0) == 0 && !z80_cpm &&
+         !strcmp(typed, "@RUN\"*\"\r") && reboots == boots + 2, typed);
+   boots = reboots;
+   z80_cpm = 1;
+   check("the Z80 runs, a boot sector: one reset", run_disk("/prg/boot.d64", 0, 0) == 0 && !z80_cpm && !*typed &&
+         reboots == boots + 1, typed);
+   boot_never = 1;
+   t0 = now_us;
+   check("no BASIC: fails after 10 s, C= let go", run_disk("/prg/game64.d64", 0, 0) > 0 && now_us - t0 > 9000000 &&
+         !dma_held_v && !(input_dev[3] & 0x2000), NULL);
+   boot_never = 0;
+   drive_set(1, 1);
+   shell_unmount(0);
+   c128_settle();
+   check("runner_crt, not a .crt", runner_crt("/carts/bad.crt", &why) != 0 && !*crt_shown, crt_shown);
+   check("runner_crt, no file", runner_crt("/carts/none.crt", &why) != 0, NULL);
 }
 
 // --- machine:input and debugreg (rest_input.c, input.c, mouse.c) ---

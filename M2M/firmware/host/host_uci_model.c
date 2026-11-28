@@ -117,6 +117,7 @@ void crtrom_csr_set(uint16_t dev, int reg, uint16_t v)
    }
 }
 void shell_open_menu(void) { menu_opens++; }
+int shell_closed(void) { return 1; }
 void shell_menu_button(void) { menu_opens++; }
 int  shell_menu_screen(uint8_t *out) { (void)out; return 0; }
 int shell_mount(int d, const char *path, const char **msg)

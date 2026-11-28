@@ -320,6 +320,7 @@ architecture synthesis of mega65_r6 is
    signal video_hs               : std_logic;
    signal video_hblank           : std_logic;
    signal video_vblank           : std_logic;
+   signal video_source           : std_logic;
    signal vga_video_clk          : std_logic;
    signal vga_video_rst          : std_logic;
    signal vga_video_ce           : std_logic;
@@ -361,6 +362,8 @@ architecture synthesis of mega65_r6 is
    signal main_pot1_y            : std_logic_vector(7 downto 0);
    signal main_pot2_x            : std_logic_vector(7 downto 0);
    signal main_pot2_y            : std_logic_vector(7 downto 0);
+   signal main_mouse_amiga       : std_logic_vector(1 downto 0);   -- the Amiga mouse submenu, per MEGA65 port
+   signal main_mouse_rclick      : std_logic_vector(1 downto 0);
    signal main_rtc               : std_logic_vector(64 downto 0);
 
    signal iec_clk_en             : std_logic;
@@ -428,6 +431,7 @@ architecture synthesis of mega65_r6 is
    signal hr_core_readdatavalid  : std_logic;
    signal hr_core_waitrequest    : std_logic;
    signal hr_low                 : std_logic;
+   signal hr_dig_quiet           : std_logic;
    signal sr_core_refresh_ok     : std_logic;
    signal sr_core_write          : std_logic;
    signal sr_core_read           : std_logic;
@@ -739,6 +743,7 @@ begin
       video_hs_i              => video_hs,
       video_hblank_i          => video_hblank,
       video_vblank_i          => video_vblank,
+      video_source_i          => video_source,
       vga_video_clk_i         => vga_video_clk,
       vga_video_rst_i         => vga_video_rst,
       vga_video_ce_i          => vga_video_ce,
@@ -775,6 +780,8 @@ begin
       main_pot2_x_o           => main_pot2_x,
       main_pot2_y_o           => main_pot2_y,
       main_rtc_o              => main_rtc,
+      main_mouse_amiga_i      => main_mouse_amiga,
+      main_mouse_rclick_i     => main_mouse_rclick,
 
       -- Provide HyperRAM to core (in HyperRAM clock domain)
       hr_clk_o                => hr_clk,
@@ -790,6 +797,7 @@ begin
       hr_core_waitrequest_o   => hr_core_waitrequest,
       hr_high_o               => hr_high,
       hr_low_o                => hr_low,
+      hr_dig_quiet_o          => hr_dig_quiet,
       sr_core_refresh_ok_i    => sr_core_refresh_ok,
       sr_core_write_i         => sr_core_write,
       sr_core_read_i          => sr_core_read,
@@ -952,6 +960,7 @@ begin
          video_hs_o              => video_hs,
          video_hblank_o          => video_hblank,
          video_vblank_o          => video_vblank,
+         video_source_o          => video_source,
          vga_video_clk_o         => vga_video_clk,
          vga_video_rst_o         => vga_video_rst,
          vga_video_ce_o          => vga_video_ce,
@@ -1005,6 +1014,8 @@ begin
          main_pot2_x_i           => main_pot2_x,
          main_pot2_y_i           => main_pot2_y,
          main_rtc_i              => main_rtc,
+         main_mouse_amiga_o      => main_mouse_amiga,
+         main_mouse_rclick_o     => main_mouse_rclick,
 
          --------------------------------------------------------------------------------------------------------
          -- Provide support for external memory (Avalon Memory Map)
@@ -1023,6 +1034,7 @@ begin
          hr_core_waitrequest_i   => hr_core_waitrequest,
          hr_high_i               => hr_high,
          hr_low_i                => hr_low,
+         hr_dig_quiet_i          => hr_dig_quiet,
          sr_core_refresh_ok_o    => sr_core_refresh_ok,
          sr_core_write_o         => sr_core_write,
          sr_core_read_o          => sr_core_read,

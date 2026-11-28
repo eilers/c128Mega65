@@ -55,6 +55,7 @@ entity crt_loader is
       view_hi_o           : out std_logic_vector(63 downto 0);
       want_lo_i           : in  std_logic_vector(13 downto 0) := (others => '0');
       want_hi_i           : in  std_logic_vector(13 downto 0) := (others => '0');
+      quiet_i             : in  std_logic := '1';
 
       -- EasyFlash flash jobs, see crt_cacher
       fl_req_i            : in  std_logic_vector( 1 downto 0) := "00";
@@ -196,6 +197,7 @@ begin
          view_hi_o           => view_hi_o,
          want_lo_i           => want_lo_i,
          want_hi_i           => want_hi_i,
+         quiet_i             => quiet_i,
          fl_req_i            => fl_req_i,
          fl_lo_job_i         => fl_lo_job_i,
          fl_hi_job_i         => fl_hi_job_i,

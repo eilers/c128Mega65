@@ -3,6 +3,7 @@
 // (build/fw/config_ids.h).
 #pragma once
 #include <stdint.h>
+#include "ff.h"
 
 // What the file browser is for (CTX_* in QNICE's sysdef.asm), and the situations of
 // core_custom_msg (CMSG_*)
@@ -35,11 +36,19 @@ const char *core_custom_msg(int situation, int ctx, int group);
 const char *core_new_file_label(int ctx, int group, const char *typed);
 // Make it in folder ("" the root): NULL and its name on the card in name, or why not (a line)
 const char *core_new_file(int ctx, int group, const char *folder, const char *typed, char *name, int size);
+// File browser, F7 and F8 (Shift+F7): the file loaded as Return loads it, then started, and
+// the menu closes. The frame's hint for the two keys, or NULL for an item whose files don't
+// start. core_file_run comes after core_file_loaded; alt: F8.
+const char *core_run_label(int ctx, int group);
+void        core_file_run(int group, const char *path, int alt);
 // A menu item of the core's own type (C_CRTROMTYPE_CORE; dev is its second word in
 // C_CRTROMS_MAN): load the file picked for it, after core_prep_load, with roms.h's
 // crtrom_progress for the bar: 0, or an error code and *msg. And whether it holds a file.
 int         core_crtrom_load(int dev, const char *path, const char **msg);
 int         core_crtrom_loaded(int dev);
+// An auto-loaded ROM of that type (id is its second word in C_CRTROMS_AUTO), from the open
+// file: 0 once loaded
+int         core_rom_autoload(int id, FIL *f);
 // Its line's text in place of the file's name or <Load>, or NULL for the standard one
 const char *core_crtrom_text(int dev);
 // Space on a CRT/ROM line of the group, of either type: 1 if the core emptied it, 0 to
@@ -62,6 +71,12 @@ int         core_text_item(int group, char *text, int *max);
 const char *core_text_done(int group, const char *text);
 // 1 when lines the core gives (a submenu's summary, core_item_text) changed by themselves
 int         core_menu_stale(void);
+// A menu item that is a screen of the core's own (an online search): 1 if the item of group
+// is one, with the whole screen drawn. It is the core's then, and core_app_key gets every
+// round's key (or 0; typing through keys_char) until it gives the screen back.
+enum { APP_BUSY, APP_MENU, APP_CLOSE };   // going on; back to the menu; the menu closes
+int         core_app_open(int group);
+int         core_app_key(uint32_t key);
 // Called from the main loop, for the core's own modules; must not wait
 void        core_poll(void);
 // The core's network, from the main loop after core_poll; must not wait
@@ -86,6 +101,7 @@ void shell_unmount(int d);
 // image): its name on the item's line, or NULL for none
 void shell_crtrom_named(int group, const char *path);
 void shell_open_menu(void);                   // as the Help key does, unless it is open
+int  shell_closed(void);                      // the menu is closed and the C128 has its keys
 // A message over the open menu, until Space (his popups); nothing while the menu is closed
 void shell_message(const char *text);
 void shell_menu_button(void);                 // opens or closes it (REST's menu_button)

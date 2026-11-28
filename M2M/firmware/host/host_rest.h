@@ -20,7 +20,7 @@ extern char    reu_path[256];
 // floppy (its drive, or -1), hold, remaps; a 1541/1571 acts out a disk change over polls
 extern int     drv_mounted[2], drv_ro[2], drv_type[2], drv_held[2], mounts, remaps;
 extern char    drv_card[2][256];
-// The drive ROM device (boot1.rom's six banks) and reloads; the cartridge device and its loads
+// The drives' ROM library (boot1.rom's six banks, a byte a word) and reloads; the cartridge device and its loads
 extern uint16_t *drive_rom, *crt_mem;
 extern int     rom_reloads[2], crt_loads, crt_parsed;
 extern char    crt_shown[256];
@@ -28,6 +28,7 @@ extern char    crt_shown[256];
 // the keyboard buffer typed into it; boot_never: BASIC never comes; c64_cart: it boots C64
 extern int     c128_basic, c128_c64, boot_never, c64_cart, typed_run;
 extern char    typed[64];
+extern int     cbm_ignored;
 
 void host_rest_init(void);
 void c128_settle(void);

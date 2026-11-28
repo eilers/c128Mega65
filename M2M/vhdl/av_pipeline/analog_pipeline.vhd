@@ -17,7 +17,6 @@ entity analog_pipeline is
    generic (
       G_VGA_DX                : natural;                 -- Actual format of video from Core (in pixels).
       G_VGA_DY                : natural;
-      G_FONT_FILE             : string;
       G_FONT_DX               : natural;
       G_FONT_DY               : natural;
       -- Optional sync-pulse reshaping for analog VGA Standard mode.
@@ -68,7 +67,9 @@ entity analog_pipeline is
       video_osm_cfg_xy_i      : in  std_logic_vector(15 downto 0);
       video_osm_cfg_dxdy_i    : in  std_logic_vector(15 downto 0);
       video_osm_vram_addr_o   : out std_logic_vector(15 downto 0);
-      video_osm_vram_data_i   : in  std_logic_vector(15 downto 0)
+      video_osm_vram_data_i   : in  std_logic_vector(15 downto 0);
+      video_osm_font_addr_o   : out std_logic_vector(11 downto 0);
+      video_osm_font_data_i   : in  std_logic_vector(15 downto 0)
    );
 end entity analog_pipeline;
 
@@ -183,7 +184,6 @@ begin
       generic  map (
          G_VGA_DX          => G_VGA_DX,
          G_VGA_DY          => G_VGA_DY,
-         G_FONT_FILE       => G_FONT_FILE,
          G_FONT_DX         => G_FONT_DX,
          G_FONT_DY         => G_FONT_DY
       )
@@ -204,6 +204,8 @@ begin
          vga_cfg_dxdy_i    => video_osm_cfg_dxdy_i,
          vga_vram_addr_o   => video_osm_vram_addr_o,
          vga_vram_data_i   => video_osm_vram_data_i,
+         vga_font_addr_o   => video_osm_font_addr_o,
+         vga_font_data_i   => video_osm_font_data_i,
          vga_ce_o          => open,
          vga_red_o         => vga_red_ps,
          vga_green_o       => vga_green_ps,

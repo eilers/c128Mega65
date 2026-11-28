@@ -16,7 +16,7 @@
 // program.prg [stop]   (-keys: GETIN gives these first; -twice: run it, reset the C128 as
 // uci.vhd tells the firmware, and run it again, both to ALL PASSED; -reu: a
 // 512 KB REU is on, -reu16: 16 MB; -dma: its files go by the model of reu_sd.vhd; -r3: the menu
-// of R3 memory, REU 512 KB at most; -blink: as an Ultimate, the interface is off the bus for
+// of R3 memory, REU 2 MB at most; -blink: as an Ultimate, the interface is off the bus for
 // 5 ms after each REU change, $DF1C-$DF1F reading $FF; exit 0 if it prints ALL PASSED, or with
 // stop, once it has printed that text: a run cut short, as by a reset)
 #include <stdio.h>
@@ -457,7 +457,7 @@ int main(int argc, char **argv)
       settings[OPTM_G_REU][reu16 ? 3 : 1] = 1;
    }
    if (r3)
-      reu_items = 2;
+      reu_items = 3;
    reu_sync();
    if (f_mount(&fs, "", 1) != FR_OK) {
       printf("test_prg: can't mount %s\n", argv[1]);

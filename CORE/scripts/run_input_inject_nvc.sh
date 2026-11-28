@@ -11,7 +11,10 @@ work=${1:-"$repo/CORE/input_inject_nvc"}
 mkdir -p "$work"
 cd "$work"
 
-nvc --std=2008 -a "$repo/CORE/vhdl/input_inject.vhd" "$repo/CORE/sim/tb_input_inject.vhd"
+nvc --std=2008 -a \
+  "$repo/CORE/vhdl/input_inject_pkg.vhd" \
+  "$repo/CORE/vhdl/input_inject.vhd" \
+  "$repo/CORE/sim/tb_input_inject.vhd"
 nvc --std=2008 --ieee-warnings=off -e tb_input_inject -r --exit-severity=error 2>&1 | tee tb_input_inject.log
 
 grep -q "ALL CHECKS PASSED" tb_input_inject.log && echo "INPUT INJECT SIM: PASSED" || { echo "INPUT INJECT SIM: FAILED"; exit 1; }

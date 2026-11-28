@@ -41,8 +41,9 @@ them). `tools/mon.py` is the Mac's side:
     tools/mon.py pause                    # and resume
     tools/mon.py term                     # type commands; h lists them
 
-`ram:` is device 0100 (bank N at N0000), `sysrom:` 0101, `drvrom:` 0102, `osm:` the
-menu's characters, `hr:` HyperRAM; `DEV:WORD` names any device. `vdcram:` and `vdcreg:` are
+`ram:` is device 0100 (bank N at N0000), `sysrom:` 0101, `drvrom:` the drives' ROM library
+in HyperRAM (boot1.rom's six banks, from `40380000`), `osm:` the menu's characters, `hr:`
+HyperRAM; `DEV:WORD` names any device. `vdcram:` and `vdcreg:` are
 device 010E (`vdc_peek.vhd`): the VDC's RAM at the addresses a program sets in R18/R19 (16K
 or 64K, as R28 bit 4 has it), and its registers as a program reads them, then the status
 byte and the selected register. Neither moves the update address or clears the light pen

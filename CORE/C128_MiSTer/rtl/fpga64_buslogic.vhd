@@ -104,6 +104,8 @@ entity fpga64_buslogic is
 		cs_romFL    : out std_logic;
 		cs_romFH    : out std_logic;
 		cs_UMAXromH : out std_logic;
+		-- MEGA65: an Ultimax access to the unmapped $1000-$7FFF/$A000-$CFFF (C64MEGA65 #176)
+		cs_UMAXnomap : out std_logic;
 
 		-- Others
 		colorA10    : out std_logic;
@@ -159,7 +161,7 @@ begin
 		     cia1Data, cia2Data, cs_sysRomLoc, cs_romFLLoc, cs_romFHLoc, cs_romHLoc, cs_romLLoc,
 			  cs_ramLoc, cs_vicLoc, cs_sidLoc, cs_colorLoc, cs_mmuLLoc, cs_mmuHLoc, cs_vdcLoc,
 			  cs_cia1Loc, cs_cia2Loc, lastVicData,
-			  cs_ioELoc, cs_ioFLoc, cs_io7Loc,
+			  cs_ioELoc, cs_ioFLoc, cs_io7Loc, cs_UMAXnomapLoc,
 			  io_rom, io_ext, io_data)
 	begin
 		-- If no hardware is addressed the bus is floating.
@@ -190,6 +192,10 @@ begin
 		elsif cs_romFLLoc = '1' and ramDataFloat = '0' then
 			dataToCpu <= ramData;
 		elsif cs_romFHLoc = '1' and ramDataFloat = '0' then
+			dataToCpu <= ramData;
+		-- MEGA65: in Ultimax mode a cartridge such as the IDE64 maps RAM into the unmapped
+		-- areas. main.vhd passes its data through ramData, else floats the bus.
+		elsif cs_UMAXnomapLoc = '1' and ramDataFloat = '0' then
 			dataToCpu <= ramData;
 		elsif cs_ioELoc = '1' and io_rom = '1' and ramDataFloat = '0' then
 			dataToCpu <= ramData;
@@ -440,6 +446,9 @@ begin
 				when X"1" =>
 					if cpuAddr(11 downto 10) = B"00" and z80_n = '0' and mmu_iosel = '0' then
 						cs_colorLoc <= '1';
+					elsif ultimax = '1' then
+						-- MEGA65: $1000-$1FFF is unmapped in Ultimax mode too
+						cs_UMAXnomapLoc <= '1';
 					else
 						cs_ramLoc <= '1';
 					end if;
@@ -501,6 +510,7 @@ begin
 	cs_romFL <= cs_romFLLoc;
 	cs_romFH <= cs_romFHLoc;
 	cs_UMAXromH <= cs_UMAXromHLoc;
+	cs_UMAXnomap <= cs_UMAXnomapLoc;
 	cs_sysRom <= cs_sysRomLoc;
 
 	systemAddr <= currentAddr;

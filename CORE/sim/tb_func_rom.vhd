@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------------------
 -- The internal function ROM (U36), as in tb_c128_boot: main and the system ROM, boot0.rom
--- with a function ROM from 0x18000 (the firmware's place for it). The 8502's reset vector
+-- with a function ROM from C_FUNC_ROM_AT (the firmware's place for it). The 8502's reset vector
 -- points at a loop in BASIC LO that maps the function ROM at $8000 and $C000 through the
 -- MMU ($FF00 = $14) and copies $8007 and $C007 to RAM $0C00 and $0C01, over and over.
 -- With 32 KB both are the ROM's, with 16 KB $C000 floats (MiSTer's), with none both do.
@@ -22,7 +22,7 @@ architecture sim of tb_func_rom is
    constant C_SIM_TIME     : time    := 20 ms;
    constant C_SESSION_ID   : string  := "funcrom";
    constant C_RUN_ID       : string  := "sim-funcrom";
-   constant C_FUNC_AT      : natural := 16#18000#;
+   constant C_FUNC_AT      : natural := C_FUNC_ROM_AT;
    constant C_FL_BYTE      : std_logic_vector(7 downto 0) := x"A5";   -- at $8007
    constant C_FH_BYTE      : std_logic_vector(7 downto 0) := x"5A";   -- at $C007
    constant C_SAMPLES      : natural := 8;                            -- copies of each per case
@@ -104,9 +104,10 @@ begin
    -- System ROM (1-cycle read latency, matches the hardware BRAM), preloaded via QNICE port A.
    u_system_rom : entity work.dualport_2clk_ram
       generic map (
-         ADDR_WIDTH => 17,
-         DATA_WIDTH => 8,
-         FALLING_A  => true
+         ADDR_WIDTH   => 17,
+         DATA_WIDTH   => 8,
+         MAXIMUM_SIZE => C_SYS_ROM_SIZE,
+         FALLING_A    => true
       )
       port map (
          clock_a         => clk_qnice,

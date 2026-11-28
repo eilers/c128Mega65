@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <string.h>
+#include "a64_search.h"
 #include "cfg.h"
 #include "cmdhd.h"
 #include "config_ids.h"
@@ -10,6 +11,7 @@
 #include "diskimg.h"
 #include "dmem.h"
 #include "drives.h"
+#include "drvrom.h"
 #include "fmt.h"
 #include "ftp.h"
 #include "hdmi_filter.h"
@@ -18,6 +20,7 @@
 #include "m2m_rv.h"
 #include "net/net.h"
 #include "net/netcfg.h"
+#include "net/runners.h"
 #include "net/stream.h"
 #include "reu.h"
 #include "rompick.h"
@@ -37,6 +40,10 @@
 #define DEV_CFG     0x0002         // Load settings
 #define DEV_HD      0x0003         // the CMD HD's Image:%s
 #define DEV_ROM     0x0010         // + the pick
+#define DRIVE_ROM   0x0102         // C_CRTROMS_AUTO's core item: boot1.rom (C_DEV_DRIVE_ROM)
+
+#define RAM_DEVICE  0x0100         // C_DEV_RAM (globals.vhd): the C128's RAM,
+#define RAM_SIZE    0x40000        // 256 KB
 
 #define CRT_DEVICE        0x0106   // C_DEV_CRT (globals.vhd), its CSR (sw_cartridge_csr.vhd):
 #define CRT_CSR_MAX_HI    0x020    // the largest .crt file it takes, in 64 kB
@@ -580,6 +587,19 @@ static int disk_kind(int d, const char *typed)
    return stores_drive_type(d);
 }
 
+// --- F7 and F8 in a drive's browser: the disk mounted, then started (net/rest_runners.c) ----
+
+const char *core_run_label(int ctx, int group)
+{
+   return disk_drive(ctx, group) < 0 ? NULL : "F7: Run  F8: as C64";
+}
+
+void core_file_run(int group, const char *path, int alt)
+{
+   (void)path;
+   runner_later_disk(group == OPTM_G_MOUNT_D9, alt);
+}
+
 // --- F5 in the CMD HD's browser: a new image, "name,MB" -----------------------------------
 
 #define HD_NEW_MB  256                  // the size of a new image, if the name says none
@@ -827,6 +847,11 @@ int core_crtrom_load(int dev, const char *path, const char **msg)
    return err;
 }
 
+int core_rom_autoload(int id, FIL *f)
+{
+   return id == DRIVE_ROM ? drvrom_load(f) : -1;
+}
+
 int core_crtrom_loaded(int dev)
 {
    int p = pick_of_dev(dev);
@@ -837,6 +862,17 @@ int core_crtrom_loaded(int dev)
    return p < 0 ? reu_file_picked() : rompick_state(p) == RS_FILE;
 }
 
+// The C128's RAM as at power-on, all zeros. The firmware starts at power-on and on a long
+// reset press: no program's reset hook survives that (GEOS 128's hung the next start).
+static void ram_clear(void)
+{
+   uint32_t was = M2M_RAMROM_DEV;
+   M2M_RAMROM_DEV = RAM_DEVICE;
+   for (uint32_t i = 0; i < RAM_SIZE; i++)
+      M2M_DEV16[i] = 0;
+   M2M_RAMROM_DEV = was;
+}
+
 // Before the C128 starts: the settings file's items (the network's in effect once it
 // starts), the ROMs picked, and the REU's image into the REU, as his REU Preload. The boot
 // cartridge loads later, once the C128 runs (rompick_poll).
@@ -844,6 +880,7 @@ const char *core_prep_start(void)
 {
    const char *msg;
    input_release_all();               // the input device as the firmware starts: nothing held
+   ram_clear();
    cmdhd_init();
    stores_load();
    rompick_boot();
@@ -861,15 +898,27 @@ void core_save_settings(void)
    stores_save();
 }
 
+// The Assembly 64 line is a screen of its own (a64_search.c)
+int core_app_open(int group)
+{
+   return group == OPTM_G_A64 && a64_open();
+}
+
+int core_app_key(uint32_t key)
+{
+   return a64_key(key);
+}
+
 // "Help menu on F13" lets the C128 have its Help key
 uint32_t core_menu_key(void)
 {
    return shell_setting(OPTM_G_HELP_F13, 0) ? M2M_KEY_F13 : M2M_KEY_HELP;
 }
 
-// The menu's stream lines (net/stream.c), the boot cartridge's load (rompick.c), the Ultimate
-// Command Interface (uci.c), the REST API (net/http.c), its input's timing (input.c), the
-// FTP server (net/ftp.c) and the HDMI filter's coefficients (hdmi_filter.c)
+// The drives' DOS ROMs (drvrom.c), the menu's stream lines (net/stream.c), the boot
+// cartridge's load (rompick.c), the Ultimate Command Interface (uci.c), the REST API
+// (net/http.c), its input's timing (input.c), the FTP server (net/ftp.c), the HDMI
+// filter's coefficients (hdmi_filter.c) and a program or disk the menu started
 // The CMD HD: the menu's Drive enabled and Bus ID (whatever set them: the menu, a settings
 // file, REST), then its disk's commands. Without a boot ROM it is off, whatever set it.
 static void hd_poll(void)
@@ -883,6 +932,7 @@ static void hd_poll(void)
 
 DMEM_CODE void core_poll(void)
 {
+   drvrom_poll();
    hd_poll();
    hdmi_filter_poll();
    if (stream_dirty)
@@ -892,4 +942,6 @@ DMEM_CODE void core_poll(void)
    http_poll();
    input_poll();
    ftp_poll();
+   if (runner_pending)
+      runner_later();
 }

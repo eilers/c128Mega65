@@ -85,6 +85,7 @@ port (
    hr_readdata_i       : in  std_logic_vector(15 downto 0);
    hr_readdatavalid_i  : in  std_logic;
    hr_waitrequest_i    : in  std_logic;
+   hr_quiet_i          : in  std_logic := '1';               -- the HDMI scaler is not using HyperRAM
 
    -- SDRAM (G_SDRAM), on the HyperRAM clock
    sr_refresh_ok_o     : out std_logic;
@@ -304,7 +305,8 @@ begin
          G_RD_DEPTH     => 16,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_DATA_SIZE    => 16,
+         G_MEMORY_TYPE  => "distributed"   -- 16 deep: LUT RAM, not 1.5 block RAM tiles
       )
       port map (
          s_clk_i               => qnice_clk_i,
@@ -609,6 +611,7 @@ begin
             view_hi_o           => hr_view_hi,
             want_lo_i           => hr_want_lo,
             want_hi_i           => hr_want_hi,
+            quiet_i             => hr_quiet_i,
             fl_req_i            => hr_fl_req,
             fl_lo_job_i         => main_fl_lo_job,
             fl_hi_job_i         => main_fl_hi_job,

@@ -95,6 +95,7 @@ port (
    hr_core_waitrequest_i   : in  std_logic;
    hr_high_i               : in  std_logic;  -- Core is too fast
    hr_low_i                : in  std_logic;  -- Core is too slow
+   hr_dig_quiet_i          : in  std_logic;  -- The HDMI scaler is not using HyperRAM
 
    -- SDRAM (R4 and later), also on the HyperRAM clock: the virtual cartridge's file
    sr_core_refresh_ok_o    : out std_logic;
@@ -133,6 +134,7 @@ port (
    video_hs_o              : out std_logic;
    video_hblank_o          : out std_logic;
    video_vblank_o          : out std_logic;
+   video_source_o          : out std_logic;   -- '1': video_* is the VDC
 
    -- VGA stream: its own clock, so VGA can show the other chip
    vga_video_clk_o         : out std_logic;
@@ -211,6 +213,11 @@ port (
    main_pot2_x_i           : in  std_logic_vector(7 downto 0);
    main_pot2_y_i           : in  std_logic_vector(7 downto 0);
    main_rtc_i              : in  std_logic_vector(64 downto 0);
+
+   -- The Amiga mouse submenu, per MEGA65 port (0 = port 1, 1 = port 2): an Amiga mouse, and
+   -- MEGA + left button = right button
+   main_mouse_amiga_o      : out std_logic_vector(1 downto 0);
+   main_mouse_rclick_o     : out std_logic_vector(1 downto 0);
 
    -- CBM-488/IEC serial port
    iec_reset_n_o           : out std_logic;
@@ -299,17 +306,17 @@ end entity MEGA65_Core;
 
 architecture synthesis of MEGA65_Core is
 
--- No SDRAM: the cartridge and the REU go in HyperRAM, and the REU is 512 KB at most
+-- No SDRAM: the cartridge and the REU go in HyperRAM, and the REU is 2 MB at most
 -- (doc/hyperram-map.md)
 constant C_R3_MEMORY : boolean := G_BOARD = "MEGA65_R3" or not G_SDRAM;
 
--- R3-memory builds leave the 2 MB and 16 MB REU items out of the menu (config.vhd). A '0' in
--- each place keeps every C_MENU_* index, and the REU can't be bigger than 512 KB there.
+-- R3-memory builds leave the 16 MB REU item out of the menu (config.vhd). A '0' in its place
+-- keeps every C_MENU_* index, and the REU can't be bigger than 2 MB there.
 function menu_bits(ctl : std_logic_vector(255 downto 0)) return std_logic_vector is
 begin
    if C_R3_MEMORY then
-      return ctl(255 - C_MENU_R3_DROP downto C_MENU_REU_2M) &
-             std_logic_vector'(C_MENU_R3_DROP - 1 downto 0 => '0') & ctl(C_MENU_REU_2M - 1 downto 0);
+      return ctl(255 - C_MENU_R3_DROP downto C_MENU_REU_16M) &
+             std_logic_vector'(C_MENU_R3_DROP - 1 downto 0 => '0') & ctl(C_MENU_REU_16M - 1 downto 0);
    end if;
    return ctl;
 end function menu_bits;
@@ -323,11 +330,11 @@ begin
    return "0000000" & C_SMAP_REU(12 downto 0) & x"000";
 end function reu_base;
 
--- The REU's memory: 2^n bytes (16 MiB in SDRAM, 512 KiB in HyperRAM)
+-- The REU's memory: 2^n bytes (16 MiB in SDRAM, 2 MiB in HyperRAM)
 function reu_room_bits return natural is
 begin
    if C_R3_MEMORY then
-      return 19;
+      return 21;
    end if;
    return 24;
 end function reu_room_bits;
@@ -385,10 +392,9 @@ signal qnice_sysrom_we       : std_logic;
 signal qnice_sysrom_addr     : std_logic_vector(16 downto 0);
 signal qnice_sysrom_d_to     : std_logic_vector(7 downto 0);
 signal qnice_sysrom_d_from   : std_logic_vector(7 downto 0);
+signal qnice_drvrom_ce       : std_logic;
 signal qnice_drvrom_we       : std_logic;
-signal qnice_drvrom_addr     : std_logic_vector(17 downto 0);
-signal qnice_drvrom_d_to     : std_logic_vector(7 downto 0);
-signal qnice_drvrom_d_from   : std_logic_vector(7 downto 0);
+signal qnice_drvrom_data     : std_logic_vector(15 downto 0);
 signal main_ram_addr         : unsigned(17 downto 0);
 signal main_ram_data_to      : unsigned(7 downto 0);
 signal main_ram_we           : std_logic;
@@ -396,7 +402,7 @@ signal main_ram_data_from    : unsigned(7 downto 0);
 signal main_ram_q            : std_logic_vector(7 downto 0);
 signal main_sysrom_addr      : std_logic_vector(16 downto 0);
 signal main_sysrom_data      : std_logic_vector(7 downto 0);
--- The internal function ROM, in boot0.rom's device from 0x18000: 0 none, 1 16 KB, 2 32 KB
+-- The internal function ROM, in boot0.rom's device from C_FUNC_ROM_AT: 0 none, 1 16 KB, 2 32 KB
 signal qnice_funcrom_size    : std_logic_vector(1 downto 0) := "00";
 signal main_funcrom_size     : std_logic_vector(1 downto 0);
 
@@ -633,15 +639,13 @@ signal exp_hr_readdata        : std_logic_vector(15 downto 0);
 signal exp_hr_readdatavalid   : std_logic;
 signal exp_hr_waitrequest     : std_logic;
 
--- Drive ROM server: hands boot1.rom to iec_drive byte by byte (QNICE clock domain)
-signal qnice_drvrom_b_addr   : std_logic_vector(17 downto 0) := (others => '0');
-signal qnice_drvrom_b_data   : std_logic_vector(7 downto 0);
+-- Drive ROM server: the firmware's bytes to iec_drive (QNICE clock domain)
 signal qnice_drv_rom_loading : std_logic;
 signal qnice_drv_rom_req     : std_logic;
 signal qnice_drv_rom_addr    : std_logic_vector(18 downto 0);
-signal qnice_drv_rom_wr      : std_logic := '0';
-signal qnice_drv_reload_f    : std_logic_vector(1 downto 0) := "00";   -- CSR write, falling edge
-signal qnice_drv_reload      : std_logic_vector(1 downto 0) := "00";   -- a pulse per drive
+signal qnice_drv_rom_data    : std_logic_vector(7 downto 0);
+signal qnice_drv_rom_wr      : std_logic;
+signal qnice_drv_reload      : std_logic_vector(1 downto 0);           -- a pulse per drive
 signal qnice_drv_rom_ready   : std_logic_vector(1 downto 0);
 signal qnice_core_rst        : std_logic;
 -- F9 latch, synchronized from the core clock into the QNICE clock for the menu title.
@@ -668,6 +672,12 @@ begin
    main_joy_2_left_n_o  <= '1';
    main_joy_2_right_n_o <= '1';
    main_joy_2_fire_n_o  <= '1';
+
+   -- One Amiga mouse at most (the menu's radio group); the debouncer gives the right click
+   -- to the Amiga port only
+   main_mouse_amiga_o(0)  <= main_osm_control(C_MENU_AMIGA_P1);
+   main_mouse_amiga_o(1)  <= main_osm_control(C_MENU_AMIGA_P2);
+   main_mouse_rclick_o    <= (others => main_osm_control(C_MENU_MOUSE_RC));
 
   ---------------------------------------------------------------------------------------------
   -- main_clk (MiSTer core's clock)
@@ -720,6 +730,7 @@ begin
       );
 
    video_rst_o <= vdc_rst when main_video_sel_vdc = '1' else main_rst_o;
+   video_source_o <= main_video_sel_vdc;
 
    -- VGA vga_video_clk: the same mux again, so VGA can show the other chip than HDMI.
    i_vga_clk_mux: bufgmux_ctrl
@@ -936,7 +947,7 @@ begin
          drv_rom_ready_o      => qnice_drv_rom_ready,
          drv_rom_req_o        => qnice_drv_rom_req,
          drv_rom_addr_o       => qnice_drv_rom_addr,
-         drv_rom_data_i       => qnice_drvrom_b_data,
+         drv_rom_data_i       => qnice_drv_rom_data,
          drv_rom_wr_i         => qnice_drv_rom_wr,
 
          rst_sd_i             => qnice_rst_i,
@@ -1148,8 +1159,7 @@ begin
       qnice_sysrom_addr    <= (others => '0');
       qnice_sysrom_d_to    <= (others => '0');
       qnice_sysrom_we      <= '0';
-      qnice_drvrom_addr    <= (others => '0');
-      qnice_drvrom_d_to    <= (others => '0');
+      qnice_drvrom_ce      <= '0';
       qnice_drvrom_we      <= '0';
       qnice_vd_ce          <= '0';
       qnice_vd_we          <= '0';
@@ -1180,7 +1190,7 @@ begin
             qnice_c64_ramx_we   <= qnice_dev_we_i;
             qnice_c64_ramx_d_to <= qnice_dev_data_i(7 downto 0);
             qnice_dev_data_o    <= x"00" & qnice_c64_ramx_d_from;
-        -- boot0.rom, and the internal function ROM from 0x18000; its CSR window: register 0
+        -- boot0.rom, and the internal function ROM from 0x12000; its CSR window: register 0
         -- the function ROM's size, 0 none, 1 16 KB, 2 32 KB
         when C_DEV_SYSTEM_ROM =>
             qnice_sysrom_addr <= qnice_dev_addr_i(16 downto 0);
@@ -1191,17 +1201,11 @@ begin
                qnice_sysrom_we   <= qnice_dev_we_i;
                qnice_dev_data_o  <= x"00" & qnice_sysrom_d_from;
             end if;
-        -- boot1.rom; its CSR window: register 0 R: bit i drive i has its ROM, W: bit i
-        -- reloads drive i's bank, holding the drive in reset meanwhile (REST's load_rom)
+        -- The drives' DOS ROMs, fed by the firmware from HyperRAM (drive_rom_server.vhd)
         when C_DEV_DRIVE_ROM =>
-            qnice_drvrom_addr <= qnice_dev_addr_i(17 downto 0);
-            qnice_drvrom_d_to <= qnice_dev_data_i(7 downto 0);
-            if qnice_dev_addr_i(27 downto 12) = x"FFFF" then
-               qnice_dev_data_o  <= x"000" & "00" & qnice_drv_rom_ready;
-            else
-               qnice_drvrom_we   <= qnice_dev_we_i;
-               qnice_dev_data_o  <= x"00" & qnice_drvrom_d_from;
-            end if;
+            qnice_drvrom_ce   <= qnice_dev_ce_i;
+            qnice_drvrom_we   <= qnice_dev_we_i;
+            qnice_dev_data_o  <= qnice_drvrom_data;
 
         -- Virtual drive control and data registers (vdrives.vhd inside main.vhd)
         when C_DEV_VDRIVES =>
@@ -1364,7 +1368,8 @@ begin
          G_RD_DEPTH     => 16,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_DATA_SIZE    => 16,
+         G_MEMORY_TYPE  => "distributed"   -- 16 deep: LUT RAM, not 1.5 block RAM tiles
       )
       port map (
          s_clk_i               => qnice_clk_i,
@@ -1398,7 +1403,8 @@ begin
          G_RD_DEPTH     => 16,
          G_FILL_SIZE    => 1,
          G_ADDRESS_SIZE => 32,
-         G_DATA_SIZE    => 16
+         G_DATA_SIZE    => 16,
+         G_MEMORY_TYPE  => "distributed"   -- 16 deep: LUT RAM, not 1.5 block RAM tiles
       )
       port map (
          s_clk_i               => main_clk_o,
@@ -1489,6 +1495,7 @@ begin
          hr_readdata_i      => crt_hr_readdata,
          hr_readdatavalid_i => crt_hr_readdatavalid,
          hr_waitrequest_i   => crt_hr_waitrequest,
+         hr_quiet_i         => hr_dig_quiet_i,
          sr_refresh_ok_o    => sr_core_refresh_ok_o,
          sr_reu_ok_o        => hr_reu_ok,
          sr_write_o         => crt_sr_write,
@@ -1816,13 +1823,12 @@ begin
    -- Drive ROM server (QNICE clock domain)
    ---------------------------------------------------------------------------------------------
 
-   -- The handshake itself lives in drive_rom_server.vhd, which CORE/sim/tb_drive_rom.vhd
-   -- exercises against the real iecdrv_rom. Four QNICE cycles per byte load a full 32 kB
-   -- bank in about 2.6 ms.
+   -- The drives' DOS ROMs (boot1.rom) are in HyperRAM at C_HMAP_DRVROM, and the firmware
+   -- feeds each drive its bank through this device (CORE/firmware/drvrom.c). A drive stays in
+   -- reset until it has the whole bank. CORE/sim/tb_drive_rom.vhd checks the handover.
    --
-   -- rom_loading tracks the core reset because the M2M Shell holds the core in reset while it
-   -- streams the mandatory C_CRTROMS_AUTO files in; serving from the ROM before that finishes
-   -- would hand the drives garbage and latch it as valid.
+   -- rom_loading tracks the core reset: the Shell holds the core in reset while it loads the
+   -- library, and every drive loads its bank again after the reset.
    i_cdc_main2qnice_rst : xpm_cdc_array_single
       generic map (
          WIDTH => 1
@@ -1836,37 +1842,25 @@ begin
 
    qnice_drv_rom_loading <= qnice_rst_i or qnice_core_rst;
 
-   -- A drive's bank again: its iecdrv_rom starts over, and the server drops a byte it was
-   -- fetching, which would land at the restarted address
-   p_drv_reload_f : process (qnice_clk_i)
-   begin
-      if falling_edge(qnice_clk_i) then
-         qnice_drv_reload_f <= "00";
-         if qnice_dev_id_i = C_DEV_DRIVE_ROM and qnice_dev_ce_i = '1' and qnice_dev_we_i = '1' and
-            qnice_dev_addr_i(27 downto 0) = x"FFFF000" then
-            qnice_drv_reload_f <= qnice_dev_data_i(1 downto 0);
-         end if;
-      end if;
-   end process p_drv_reload_f;
-
-   p_drv_reload : process (qnice_clk_i)
-   begin
-      if rising_edge(qnice_clk_i) then
-         qnice_drv_reload <= qnice_drv_reload_f;
-      end if;
-   end process p_drv_reload;
-
    i_drive_rom_server : entity work.drive_rom_server
       generic map (
-         G_ROM_ADDR_WIDTH => 18
+         G_WINDOW      => C_HMAP_DRVROM
       )
       port map (
-         clk_i          => qnice_clk_i,
-         rom_loading_i  => qnice_drv_rom_loading or qnice_drv_reload(0) or qnice_drv_reload(1),
-         rom_req_i      => qnice_drv_rom_req,
-         rom_addr_i     => qnice_drv_rom_addr,
-         rom_wr_o       => qnice_drv_rom_wr,
-         rom_ram_addr_o => qnice_drvrom_b_addr
+         clk_i         => qnice_clk_i,
+         rst_i         => qnice_rst_i,
+         rom_loading_i => qnice_drv_rom_loading,
+         qnice_addr_i  => qnice_dev_addr_i,
+         qnice_data_i  => qnice_dev_data_i,
+         qnice_ce_i    => qnice_drvrom_ce,
+         qnice_we_i    => qnice_drvrom_we,
+         qnice_data_o  => qnice_drvrom_data,
+         rom_ready_i   => qnice_drv_rom_ready,
+         rom_reload_o  => qnice_drv_reload,
+         rom_req_i     => qnice_drv_rom_req,
+         rom_addr_i    => qnice_drv_rom_addr,
+         rom_data_o    => qnice_drv_rom_data,
+         rom_wr_o      => qnice_drv_rom_wr
       ); -- i_drive_rom_server
 
    ---------------------------------------------------------------------------------------------
@@ -1901,11 +1895,13 @@ begin
 
    main_ram_data_from <= unsigned(main_ram_q);
 
+   -- boot0.rom and the function ROM right after it, 104 KB (globals.vhd)
    i_system_rom : entity work.dualport_2clk_ram
       generic map (
-         ADDR_WIDTH => 17,
-         DATA_WIDTH => 8,
-         FALLING_A  => true
+         ADDR_WIDTH   => 17,
+         DATA_WIDTH   => 8,
+         MAXIMUM_SIZE => C_SYS_ROM_SIZE,
+         FALLING_A    => true
       )
       port map (
          clock_a         => qnice_clk_i,
@@ -1945,33 +1941,6 @@ begin
          dst_clk_i  => main_clk_o,
          dst_data_o => main_funcrom_size
       ); -- i_cdc_funcrom_size
-
-   -- boot1.rom holds the six 32 kB drive DOS banks that iec_drive can ask for with DRIVES = 2
-   -- (1541 x2, 1571 x2, 1581 x2), so the highest address it ever generates is 5 * 32768 + 32767
-   -- = 196,607. ADDR_WIDTH = 18 covers exactly that; the 19 bits this used to have would have
-   -- cost another 64 block RAM tiles that the design cannot spare.
-   i_drive_rom : entity work.dualport_2clk_ram
-      generic map (
-         ADDR_WIDTH => 18,
-         DATA_WIDTH => 8,
-         FALLING_A  => true
-      )
-      port map (
-         clock_a         => qnice_clk_i,
-         address_a       => qnice_drvrom_addr,
-         do_latch_addr_a => '0',
-         data_a          => qnice_drvrom_d_to,
-         wren_a          => qnice_drvrom_we,
-         q_a             => qnice_drvrom_d_from,
-         -- Port B serves the drives. It runs on the QNICE clock as well: the pull protocol of
-         -- iec_drive lives in its clk_sys domain, which is the QNICE clock here.
-         clock_b         => qnice_clk_i,
-         address_b       => qnice_drvrom_b_addr,
-         do_latch_addr_b => '0',
-         data_b          => (others => '0'),
-         wren_b          => '0',
-         q_b             => qnice_drvrom_b_data
-      );
 
    -- Drive LED colour comes from main.vhd (VIC/VDC probe during debug)
 

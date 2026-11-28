@@ -297,7 +297,7 @@ static void copy_end(int keep)
 // LOAD_REU, SAVE_REU (dos.cc): from the open file, at its position, into the REU's memory at
 // an address, or from there into the file, one reu_step a main-loop round. The address (24
 // bits) and length (25 bits) as his, 4 bytes each, little-endian; what would pass the end of
-// the REU's memory (16 MB, 512 KB on R3 memory) is cut off, as his at 16 MB. The REU needn't
+// the REU's memory (16 MB, 2 MB on R3 memory) is cut off, as his at 16 MB. The REU needn't
 // be on.
 static void reu_start(struct dos *t, const uint8_t *cmd, int len, uci_reply_t *r)
 {

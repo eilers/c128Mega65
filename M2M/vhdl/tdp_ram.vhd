@@ -9,6 +9,8 @@ entity tdp_ram is
    generic (
       ADDR_WIDTH   : positive;
       DATA_WIDTH   : positive;
+      DEPTH        : natural := 0;       -- words, 0 for 2**ADDR_WIDTH; past a shorter RAM's end writes
+                                         -- do nothing and reads give 0
       ROM_PRELOAD  : boolean := false;
       ROM_FILE     : string  := "";
       ROM_FILE_HEX : boolean := false
@@ -32,8 +34,25 @@ end entity tdp_ram;
 
 architecture synthesis of tdp_ram is
 
+   function words(aw, d : natural) return positive is
+   begin
+      if d = 0 or (aw < 31 and d >= 2**aw) then
+         return 2**aw;
+      end if;
+      return d;
+   end function words;
+
+   constant C_WORDS : positive := words(ADDR_WIDTH, DEPTH);
+   constant C_FULL  : boolean  := C_WORDS = 2**ADDR_WIDTH;
+
    subtype t_word is std_logic_vector(DATA_WIDTH - 1 downto 0);
-   type    t_ram  is array(0 to 2**ADDR_WIDTH - 1) of t_word;
+   type    t_ram  is array(0 to C_WORDS - 1) of t_word;
+
+   -- An address inside the RAM (always, for a full one)
+   function inside(a : std_logic_vector) return boolean is
+   begin
+      return C_FULL or unsigned(a) < C_WORDS;
+   end function inside;
 
    impure function InitRAMFromFile(ramfilename: string) return t_ram is
       file     ramfile     : text;
@@ -43,7 +62,7 @@ architecture synthesis of tdp_ram is
       variable i           : natural := 0;
    begin
       file_open(ramfile, ramfilename);
-      while not endfile(ramfile) loop
+      while not endfile(ramfile) and i < C_WORDS loop
          readline(ramfile, ramfileline);
          if ROM_FILE_HEX then
             hread(ramfileline, bitvec);
@@ -68,6 +87,18 @@ architecture synthesis of tdp_ram is
    end;
 
    signal ram           : t_ram := InitRAM(ROM_FILE);
+
+   -- A shorter RAM in 4K x 9 primitives: Vivado pads it to the full size otherwise
+   function decomp(full : boolean) return string is
+   begin
+      if full then
+         return "";
+      end if;
+      return "power";
+   end function decomp;
+
+   attribute ram_decomp : string;
+   attribute ram_decomp of ram : signal is decomp(C_FULL);
    signal address_a_reg : std_logic_vector(ADDR_WIDTH-1 downto 0);
    signal address_b_reg : std_logic_vector(ADDR_WIDTH-1 downto 0);
 
@@ -77,7 +108,7 @@ begin
    begin
       if rising_edge(clock_a) then
          if clen_a = '1' then -- Clock Enable is required for Vivado 2021.2 to correctly infer a BlockRAM
-            if wren_a = '1' then
+            if wren_a = '1' and inside(address_a) then
                ram(to_integer(unsigned(address_a))) <= data_a;
             end if;
 
@@ -87,7 +118,7 @@ begin
 
       if rising_edge(clock_b) then
          if clen_b = '1' then
-            if wren_b = '1' then
+            if wren_b = '1' and inside(address_b) then
                ram(to_integer(unsigned(address_b))) <= data_b;
             end if;
 
@@ -96,8 +127,8 @@ begin
       end if;
    end process ram_proc;
 
-   q_a <= ram(to_integer(unsigned(address_a_reg)));
-   q_b <= ram(to_integer(unsigned(address_b_reg)));
+   q_a <= ram(to_integer(unsigned(address_a_reg))) when inside(address_a_reg) else (others => '0');
+   q_b <= ram(to_integer(unsigned(address_b_reg))) when inside(address_b_reg) else (others => '0');
 
 end architecture synthesis;
 

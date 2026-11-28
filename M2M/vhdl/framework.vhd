@@ -154,6 +154,7 @@ port (
    video_hs_i              : in    std_logic;
    video_hblank_i          : in    std_logic;
    video_vblank_i          : in    std_logic;
+   video_source_i          : in    std_logic;   -- which source video_* shows: HDMI blanks a switch
    vga_video_clk_i         : in    std_logic;   -- vga_video_*: VGA stream
    vga_video_rst_i         : in    std_logic;
    vga_video_ce_i          : in    std_logic;
@@ -189,6 +190,8 @@ port (
    main_pot1_y_o           : out   std_logic_vector(7 downto 0);
    main_pot2_x_o           : out   std_logic_vector(7 downto 0);
    main_pot2_y_o           : out   std_logic_vector(7 downto 0);
+   main_mouse_amiga_i      : in    std_logic_vector(1 downto 0);   -- '1': Amiga mouse; 0 = port 1, 1 = port 2
+   main_mouse_rclick_i     : in    std_logic_vector(1 downto 0);   -- '1': MEGA+left = right; 0 = port 1, 1 = port 2
    main_rtc_o              : out   std_logic_vector(64 downto 0);
 
 
@@ -216,6 +219,7 @@ port (
    hr_core_waitrequest_o   : out   std_logic;
    hr_high_o               : out   std_logic; -- Core is too fast
    hr_low_o                : out   std_logic; -- Core is too slow
+   hr_dig_quiet_o          : out   std_logic; -- The HDMI scaler is not using HyperRAM
 
    -- Provide SDRAM to core (in HyperRAM clock domain). R4 and later; on R3 it reads nothing.
    sr_core_refresh_ok_i    : in    std_logic := '1';  -- the core may keep refreshes out of its way
@@ -414,6 +418,15 @@ signal qnice_pot1_y_n         : unsigned(7 downto 0);
 signal qnice_pot2_x_n         : unsigned(7 downto 0);
 signal qnice_pot2_y_n         : unsigned(7 downto 0);
 
+-- The paddle values in the core's clock domain, ahead of the Amiga mice (debouncer.vhd)
+signal main_pot1_x_n          : std_logic_vector(7 downto 0);
+signal main_pot1_y_n          : std_logic_vector(7 downto 0);
+signal main_pot2_x_n          : std_logic_vector(7 downto 0);
+signal main_pot2_y_n          : std_logic_vector(7 downto 0);
+
+-- MEGA key (low active), for an Amiga mouse's right click
+signal main_mega_key_n        : std_logic;
+
 signal qnice_avm_write         : std_logic;
 signal qnice_avm_read          : std_logic;
 signal qnice_avm_address       : std_logic_vector(31 downto 0);
@@ -482,6 +495,8 @@ signal hr_burstcount          : std_logic_vector( 7 downto 0);
 signal hr_readdata            : std_logic_vector(15 downto 0);
 signal hr_readdatavalid       : std_logic;
 signal hr_waitrequest         : std_logic;
+
+signal hr_dig_quiet           : std_logic;
 
 -- Statistics
 signal hr_count_long          : unsigned(31 downto 0);
@@ -608,7 +623,21 @@ begin
          dbnce_joy2_down_n    => main_joy2_down_n_o,
          dbnce_joy2_left_n    => main_joy2_left_n_o,
          dbnce_joy2_right_n   => main_joy2_right_n_o,
-         dbnce_joy2_fire_n    => main_joy2_fire_n_o
+         dbnce_joy2_fire_n    => main_joy2_fire_n_o,
+
+         -- Amiga mice, as C64MEGA65's (#190): the menu's settings per MEGA65 port
+         amiga_i              => main_mouse_amiga_i,
+         amiga_rclick_i       => main_mouse_rclick_i,
+         mega_key_n_i         => main_mega_key_n,
+
+         pot1_x_i             => main_pot1_x_n,
+         pot1_y_i             => main_pot1_y_n,
+         pot2_x_i             => main_pot2_x_n,
+         pot2_y_i             => main_pot2_y_n,
+         pot1_x_o             => main_pot1_x_o,
+         pot1_y_o             => main_pot1_y_o,
+         pot2_x_o             => main_pot2_x_o,
+         pot2_y_o             => main_pot2_y_o
       ); -- i_joy_debouncer
 
    -- Joystick outputs from the core are connected directly
@@ -650,7 +679,8 @@ begin
 
          -- interface to QNICE: used by the firmware and the Shell
          qnice_keys_n_o       => main_qnice_keys_n,
-         qnice_matrix_n_o     => main_qnice_matrix_n
+         qnice_matrix_n_o     => main_qnice_matrix_n,
+         mega_key_n_o         => main_mega_key_n
       ); -- i_m2m_keyb
 
    ---------------------------------------------------------------------------------------------------------------
@@ -883,7 +913,7 @@ begin
    -- Clock domain crossing: QNICE to CORE
    i_qnice2main: xpm_cdc_array_single
       generic map (
-         WIDTH => 615
+         WIDTH => 583
       )
       port map (
          src_clk                    => qnice_clk,
@@ -895,11 +925,7 @@ begin
          src_in(5)                  => qnice_flip_joyports_i,
          src_in(261 downto 6)       => qnice_osm_control_m_o,
          src_in(517 downto 262)     => qnice_gp_reg_o,
-         src_in(525 downto 518)     => std_logic_vector(qnice_pot1_x_n),
-         src_in(533 downto 526)     => std_logic_vector(qnice_pot1_y_n),
-         src_in(541 downto 534)     => std_logic_vector(qnice_pot2_x_n),
-         src_in(549 downto 542)     => std_logic_vector(qnice_pot2_y_n),
-         src_in(614 downto 550)     => qnice_rtc,
+         src_in(582 downto 518)     => qnice_rtc,
          dest_clk                   => main_clk_i,
          dest_out(0)                => main_qnice_reset_o,
          dest_out(1)                => main_qnice_pause_o,
@@ -909,12 +935,28 @@ begin
          dest_out(5)                => main_flip_joyports,
          dest_out(261 downto 6)     => main_osm_control_m_o,
          dest_out(517 downto 262)   => main_qnice_gp_reg_o,
-         dest_out(525 downto 518)   => main_pot1_x_o,
-         dest_out(533 downto 526)   => main_pot1_y_o,
-         dest_out(541 downto 534)   => main_pot2_x_o,
-         dest_out(549 downto 542)   => main_pot2_y_o,
-         dest_out(614 downto 550)   => main_rtc_o
+         dest_out(582 downto 518)   => main_rtc_o
       ); -- i_qnice2main
+
+   -- POT values as whole bytes: bit by bit, a value could tear (the SID reads them live). They go
+   -- on through the debouncer, where an Amiga mouse's position replaces its port's
+   i_pots2main: entity work.cdc_stable
+      generic map (
+         G_REGISTER_SRC => true,
+         G_DATA_SIZE    => 32
+      )
+      port map (
+         src_clk_i                => qnice_clk,
+         src_data_i( 7 downto  0) => std_logic_vector(qnice_pot1_x_n),
+         src_data_i(15 downto  8) => std_logic_vector(qnice_pot1_y_n),
+         src_data_i(23 downto 16) => std_logic_vector(qnice_pot2_x_n),
+         src_data_i(31 downto 24) => std_logic_vector(qnice_pot2_y_n),
+         dst_clk_i                => main_clk_i,
+         dst_data_o( 7 downto  0) => main_pot1_x_n,
+         dst_data_o(15 downto  8) => main_pot1_y_n,
+         dst_data_o(23 downto 16) => main_pot2_x_n,
+         dst_data_o(31 downto 24) => main_pot2_y_n
+      ); -- i_pots2main
 
    -- The system CPU's HyperRAM port is on hr_clk already. It yields to the HDMI scaler: in
    -- 80 columns the scaler's reads at the top of a frame run late if the CPU's turns come
@@ -932,6 +974,7 @@ begin
          p_avm_burstcount_i    => hr_dig_burstcount,
          p_avm_waitrequest_i   => hr_dig_waitrequest,
          p_avm_readdatavalid_i => hr_dig_readdatavalid,
+         quiet_o               => hr_dig_quiet,
          s_avm_write_i         => qnice_avm_write,
          s_avm_read_i          => qnice_avm_read,
          s_avm_burstcount_i    => qnice_avm_burstcount,
@@ -940,6 +983,13 @@ begin
          m_avm_read_o          => hr_qnice_read,
          m_avm_waitrequest_i   => hr_qnice_waitrequest
       ); -- i_avm_yield_qnice
+
+   p_hr_dig_quiet : process (hr_clk)
+   begin
+      if rising_edge(hr_clk) then
+         hr_dig_quiet_o <= hr_dig_quiet;
+      end if;
+   end process p_hr_dig_quiet;
 
    hr_qnice_address        <= qnice_avm_address;
    hr_qnice_writedata      <= qnice_avm_writedata;
@@ -991,6 +1041,7 @@ begin
          video_hs_i              => video_hs_i,
          video_hblank_i          => video_hblank_i,
          video_vblank_i          => video_vblank_i,
+         video_source_i          => video_source_i,
          vga_video_clk_i         => vga_video_clk_i,
          vga_video_rst_i         => vga_video_rst_i,
          vga_video_ce_i          => vga_video_ce_i,

@@ -6,6 +6,7 @@
 #include "config_ids.h"
 #include "core.h"
 #include "dmem.h"
+#include "drvrom.h"
 #include "ff.h"
 #include "fmt.h"
 #include "m2m_rv.h"
@@ -15,12 +16,10 @@
 #include "uci.h"
 
 #define SYS_ROM    0x0101            // C_DEV_SYSTEM_ROM: boot0.rom, the function ROM from FUNC_AT
-#define DRIVE_ROM  0x0102            // C_DEV_DRIVE_ROM: boot1.rom, six 32 KB banks
 #define CRT_DEVICE 0x0106            // C_DEV_CRT, the CRT:%s item's
 #define BOOT_0     "/c128/boot0.rom" // globals.vhd's BOOT_0 and BOOT_1
 #define BOOT_1     "/c128/boot1.rom"
-#define FUNC_AT    0x18000
-#define BANK       32768
+#define FUNC_AT    0x12000           // right after boot0.rom (main.vhd's sys_rom_addr_o)
 #define K8         1                 // the sizes a pick takes
 #define K16        2
 #define K32        4
@@ -106,12 +105,12 @@ static int stock(int p)
 // A drive pick's bank: boot1.rom's for drive d, model t
 static uint32_t bank_at(int p)
 {
-   int d = (p - RP_DRIVE) / 3, t = (p - RP_DRIVE) % 3;
-   return (uint32_t)(t * 2 + d) * BANK;
+   return DRVROM_AT((p - RP_DRIVE) / 3, (p - RP_DRIVE) % 3);
 }
 
-// n bytes of the file from where it is, a byte per 16-bit word of the device from at on
-static int put(FIL *f, uint16_t dev, uint32_t at, uint32_t n)
+// n bytes of the file from where it is, into the drives' library from at, or the system ROM
+// (a byte per 16-bit word of its device)
+static int put(FIL *f, int drive, uint32_t at, uint32_t n)
 {
    uint8_t b[512];
    UINT got;
@@ -119,9 +118,14 @@ static int put(FIL *f, uint16_t dev, uint32_t at, uint32_t n)
       UINT want = n < sizeof b ? n : sizeof b;
       if (f_read(f, b, want, &got) != FR_OK || got != want)
          return -1;
-      M2M_RAMROM_DEV = dev;
-      for (UINT i = 0; i < got; i++)
-         M2M_DEV16[at++] = b[i];
+      if (drive)
+         drvrom_put(at, b, got);
+      else {
+         M2M_RAMROM_DEV = SYS_ROM;
+         for (UINT i = 0; i < got; i++)
+            M2M_DEV16[at + i] = b[i];
+      }
+      at += got;
       n -= got;
    }
    return 0;
@@ -132,12 +136,12 @@ static void put_stock(int p)
 {
    int drive = p >= RP_DRIVE;
    uint32_t at = drive ? bank_at(p) : p == RP_K64 ? 0 : sys_part[p].at;
-   uint32_t n = drive ? BANK : p == RP_K64 ? 16384 : sys_part[p].sizes & K32 ? 32768 : sys_part[p].sizes & K16 ? 16384 : 8192;
+   uint32_t n = drive ? DRVROM_BANK : p == RP_K64 ? 16384 : sys_part[p].sizes & K32 ? 32768 : sys_part[p].sizes & K16 ? 16384 : 8192;
    FIL f;
    if (p == RP_FUNC || f_open(&f, drive ? BOOT_1 : BOOT_0, FA_READ) != FR_OK)
       return;
    if (f_lseek(&f, at) == FR_OK)
-      put(&f, drive ? DRIVE_ROM : SYS_ROM, at, n);
+      put(&f, drive, at, n);
    f_close(&f);
 }
 
@@ -150,7 +154,7 @@ static uint32_t put_file(int p)
    if (f_open(&f, path, FA_READ) != FR_OK)
       return 0;
    uint32_t size = f_size(&f), at = p >= RP_DRIVE ? bank_at(p) : sys_part[p].at;
-   uint16_t dev = p >= RP_DRIVE ? DRIVE_ROM : SYS_ROM;
+   int drive = p >= RP_DRIVE;
    if (p == RP_K64 && size == 16384)
       at = 0;
    int ok = rompick_fits(p, size);
@@ -158,11 +162,11 @@ static uint32_t put_file(int p)
       put_stock(p);
       at += 0x2000;
    }
-   ok = ok && !put(&f, dev, at, size);
+   ok = ok && !put(&f, drive, at, size);
    // A 16 KB drive ROM twice, as his, and so the 8 KB half; a 16 KB function ROM too, as VICE
    // and a 16 KB EPROM in the C128's 32 KB socket have it (MiSTer leaves $C000 open instead)
    if (ok && ((p >= RP_DRIVE && size <= 16384) || (p == RP_FUNC && size == 16384)))
-      ok = f_lseek(&f, 0) == FR_OK && !put(&f, dev, at + 16384, size);
+      ok = f_lseek(&f, 0) == FR_OK && !put(&f, drive, at + 16384, size);
    f_close(&f);
    return ok ? size : 0;
 }
@@ -292,7 +296,7 @@ void rompick_apply(uint32_t changed)
       if (changed & SYS_PICKS & ~(1u << RP_FUNC)) {
          FIL f;
          if (f_open(&f, BOOT_0, FA_READ) == FR_OK) {
-            put(&f, SYS_ROM, 0, FUNC_AT < f_size(&f) ? FUNC_AT : f_size(&f));
+            put(&f, 0, 0, FUNC_AT < f_size(&f) ? FUNC_AT : f_size(&f));
             f_close(&f);
          }
          for (unsigned i = 0; i < sizeof sys_order; i++)
@@ -314,7 +318,7 @@ void rompick_apply(uint32_t changed)
       apply_one(p);
       // The drive's model: it reloads its bank and resets, or (off) does once it is on
       if (stores_drive_type(d) == t)
-         crtrom_csr_set(DRIVE_ROM, 0, 1 << d);
+         drvrom_reload(d);
    }
    if (changed & 1u << RP_BOOT)
       check_cart();
